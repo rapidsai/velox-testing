@@ -1,0 +1,49 @@
+name: Velox Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      velox_commit:
+        description: 'Velox commit SHA or branch'
+        required: true
+        default: 'main'
+        
+  workflow_call:
+    inputs:
+      velox_commit:
+        type: string
+        required: true
+
+jobs:
+  build-and-test:
+    runs-on: linux-amd64-gpu-l4-latest-1
+    container:
+      image: ghcr.io/facebookincubator/velox-dev:adapters
+    steps:
+      - name: Checkout Velox
+        uses: actions/checkout@v4
+        with:
+          repository: facebookincubator/velox
+          ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
+
+      - name: Build Velox with cuDF
+        run: |
+          git config --global --add safe.directory .
+          # move this logic to a script for easier iteration
+          # disable tests build for now as it seems to be broken
+          # use "native" CUDA arch until told otherwise
+          mkdir -p build && cd build
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CUDA_ARCHITECTURES="native" \
+            -DVELOX_ENABLE_CUDF=ON \
+            -DVELOX_ENABLE_PARQUET=ON \
+            -DVELOX_ENABLE_S3=ON \
+            -DVELOX_BUILD_TESTING=OFF \
+            ..
+          ninja
+
+      - name: Run Velox Test Suite
+        run: |
+          cd build
+          ctest --output-on-failure
