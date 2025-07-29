@@ -1,9 +1,9 @@
 name: Velox Nightly Test
 
 on:
-  # disable for now
   # schedule:
   #   - cron: '0 5 * * *'  # daily at 05:00 UTC
+  workflow_dispatch:
 
 jobs:
   nightly:

@@ -1,9 +1,9 @@
 name: Presto Nightly Test
 
 on:
-  # disable for now
   # schedule:
   #   - cron: '0 4 * * *'  # daily at 04:00 UTC
+  workflow_dispatch:
 
 jobs:
   nightly:
