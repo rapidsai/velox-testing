@@ -22,7 +22,7 @@ on:
 jobs:
   say-hello:
     name: Say Hello
-    runs-on: linux-amd64-gpu-t4-latest-1
+    runs-on: linux-amd64-gpu-l4-latest-1
     #container: ghcr.io/facebookincubator/velox-dev:adapters
     defaults:
       run:
