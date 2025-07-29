@@ -1,0 +1,22 @@
+name: Velox Nightly Test
+
+on:
+  # disable for now
+  # schedule:
+  #   - cron: '0 5 * * *'  # daily at 05:00 UTC
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch latest Velox SHA
+        id: get_sha
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/facebookincubator/velox/commits/main \
+            | jq -r .sha)
+          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
+
+      - name: Invoke Velox Test
+        uses: ./.github/workflows/velox-test.yml
+        with:
+          velox_commit: ${{ steps.get_sha.outputs.latest }}
