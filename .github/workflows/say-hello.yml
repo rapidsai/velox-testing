@@ -39,10 +39,20 @@ jobs:
 
       # Run nvidia-smi just to prove we're on a GPU system
       - name: Run nvidia-smi
-        run: nvidia-smi || echo "nvidia-smi not found or no NVIDIA GPU/driver detected!"
-        continue-on-error: true
+        run: nvidia-smi
+
+      # Do Git safe directory (is this part always the same or do we need to get it from some variable)
+      - name: Run git config safe.directory
+        run: git config --global --add safe.directory /__w/velox-testing/velox-testing
 
       # Do a git status
       - name: Run git status
         run: git status
-        continue-on-error: true
+
+      # Do a git log
+      - name: Run git log
+        run: git log
+
+      # Say Goodbye
+      - name: Say Goodbye
+        run: echo "Goodbye, ${{ github.event.inputs.recipient }}!"
