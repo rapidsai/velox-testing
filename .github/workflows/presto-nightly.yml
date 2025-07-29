@@ -1,0 +1,20 @@
+name: Presto Nightly Test
+
+on:
+  # disable for now
+  # schedule:
+  #   - cron: '0 4 * * *'  # daily at 04:00 UTC
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest Velox SHA
+        id: velox
+        run: |
+          V=$(curl -s https://api.github.com/repos/facebookincubator/velox/commits/main \
+            | jq -r .sha)
+          echo "velox_sha=$V" >> $GITHUB_OUTPUT
+
+      - name: Get latest Presto SHA
+        id: presto
