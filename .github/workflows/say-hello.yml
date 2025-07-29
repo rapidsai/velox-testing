@@ -23,15 +23,15 @@ jobs:
   say-hello:
     name: Say Hello
     runs-on: linux-amd64-gpu-l4-latest-1
-    #container: ghcr.io/facebookincubator/velox-dev:adapters
+    container: ghcr.io/facebookincubator/velox-dev:adapters
     defaults:
       run:
         shell: bash
 
     steps:
       # We don't actually need to checkout the repo
-      #- name: Checkout repository
-      #  uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       # Say Hello
       - name: Say Hello
@@ -40,4 +40,9 @@ jobs:
       # Run nvidia-smi just to prove we're on a GPU system
       - name: Run nvidia-smi
         run: nvidia-smi || echo "nvidia-smi not found or no NVIDIA GPU/driver detected!"
+        continue-on-error: true
+
+      # Do a git status
+      - name: Run git status
+        run: git status
         continue-on-error: true
