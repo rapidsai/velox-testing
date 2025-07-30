@@ -29,14 +29,17 @@ jobs:
       - name: Build Velox with cuDF
         run: |
           git config --global --add safe.directory .
-          # Untested, needs more flags
+          # move this logic to a script for easier iteration
+          # disable tests build for now as it seems to be broken
+          # use "native" CUDA arch until told otherwise
           mkdir -p build && cd build
           cmake -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CUDA_ARCHITECTURES="70" \
+            -DCMAKE_CUDA_ARCHITECTURES="native" \
             -DVELOX_ENABLE_CUDF=ON \
             -DVELOX_ENABLE_PARQUET=ON \
             -DVELOX_ENABLE_S3=ON \
+            -DVELOX_BUILD_TESTING=OFF \
             ..
           ninja
 

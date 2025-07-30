@@ -36,6 +36,8 @@ jobs:
       - name: Build Velox with cuDF
         run: |
           git config --global --add safe.directory .
+          # this is wrong, needs to be the same as in velox-test.yml
+          # both need to use the same script
           mkdir -p velox-build && cd velox-build
           cmake -G Ninja -DVELOX_ENABLE_CUDF=ON ..
           ninja
