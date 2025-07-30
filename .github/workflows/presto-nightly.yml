@@ -3,6 +3,7 @@ name: Presto Nightly Test
 on:
   # schedule:
   #   - cron: '0 4 * * *'  # daily at 04:00 UTC
+  # add arbitrary comment to push to try to reset this workflow's state which is messed up
   workflow_dispatch:
 
 jobs:
