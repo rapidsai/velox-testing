@@ -7,12 +7,43 @@ on:
         description: 'Velox commit SHA or branch'
         required: true
         default: 'main'
+      run_tests:
+        description: 'Run tests after build'
+        type: boolean
+        required: false
+        default: false
+      build_type:
+        description: 'CMake build type'
+        type: choice
+        options:
+          - Release
+          - Debug
+          - RelWithDebInfo
+        required: false
+        default: 'Release'
+      cuda_arch:
+        description: 'CUDA architecture (e.g., native, "75;80")'
+        type: string
+        required: false
+        default: 'native'
         
   workflow_call:
     inputs:
       velox_commit:
         type: string
         required: true
+      run_tests:
+        type: boolean
+        required: false
+        default: false
+      build_type:
+        type: string
+        required: false
+        default: 'Release'
+      cuda_arch:
+        type: string
+        required: false
+        default: 'native'
 
 jobs:
   build-and-test:
@@ -26,24 +57,32 @@ jobs:
           repository: facebookincubator/velox
           ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
 
-      - name: Build Velox with cuDF
-        run: |
-          git config --global --add safe.directory .
-          # move this logic to a script for easier iteration
-          # disable tests build for now as it seems to be broken
-          # use "native" CUDA arch until told otherwise
-          mkdir -p build && cd build
-          cmake -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CUDA_ARCHITECTURES="native" \
-            -DVELOX_ENABLE_CUDF=ON \
-            -DVELOX_ENABLE_PARQUET=ON \
-            -DVELOX_ENABLE_S3=ON \
-            -DVELOX_BUILD_TESTING=OFF \
-            ..
-          ninja
+      - name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
+        with:
+          path: ci-scripts
 
-      - name: Run Velox Test Suite
+      - name: Build and Test Velox
         run: |
-          cd build
-          ctest --output-on-failure
+          # Copy the build script to current directory for easier access
+          cp ci-scripts/ci/velox/build-and-test.sh .
+          chmod +x build-and-test.sh
+          
+          # Build command with arguments based on workflow inputs
+          BUILD_ARGS=""
+          
+          # Add run tests flag if enabled
+          if [ "${{ inputs.run_tests || github.event.inputs.run_tests }}" = "true" ]; then
+            BUILD_ARGS="$BUILD_ARGS --run-tests"
+          fi
+          
+          # Add build type
+          BUILD_TYPE="${{ inputs.build_type || github.event.inputs.build_type || 'Release' }}"
+          BUILD_ARGS="$BUILD_ARGS --build-type $BUILD_TYPE"
+          
+          # Add CUDA architecture
+          CUDA_ARCH="${{ inputs.cuda_arch || github.event.inputs.cuda_arch || 'native' }}"
+          BUILD_ARGS="$BUILD_ARGS --cuda-arch $CUDA_ARCH"
+          
+          echo "Running: ./build-and-test.sh $BUILD_ARGS"
+          ./build-and-test.sh $BUILD_ARGS
