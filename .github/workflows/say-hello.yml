@@ -51,9 +51,10 @@ jobs:
       - name: List some directories
         run: |
           echo "pwd" && pwd
-          echo "ls -l" && ls -l
-          echo "ls -l /" && ls -l /
           echo "df ." && df .
+          echo "ls -l /" && ls -l /
+          echo "ls -lR /_w" && ls -lR /_w
+          echo "ls -lR /_e" && ls -lR /_e
 
       # - name: Run nvidia-smi
       #   run: nvidia-smi
