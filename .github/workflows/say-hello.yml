@@ -29,30 +29,37 @@ jobs:
         shell: bash
 
     steps:
-      - name: Checkout Velox
-        uses: actions/checkout@v4
-        with:
-          repository: facebookincubator/velox
-          path: /velox
-          ref: main
-
-      - name: Fix Git permissions
-        run: git config --global --add safe.directory /velox
-
-      - name: Sync ccache
-        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
-        with:
-          path: /velox/.ccache
-          key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
-
       - name: Say Hello
         run: echo "Hello, ${{ github.event.inputs.recipient }}!"
 
-      - name: Run nvidia-smi
-        run: nvidia-smi
+      # - name: Checkout Velox
+      #   uses: actions/checkout@v4
+      #   with:
+      #     repository: facebookincubator/velox
+      #     path: /velox
+      #     ref: main
 
-      - name: List ccache contents
-        run: ls -lR /velox/.ccache
+      # - name: Fix Git permissions
+      #   run: git config --global --add safe.directory /velox
+
+      # - name: Sync ccache
+      #   uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+      #   with:
+      #     path: /velox/.ccache
+      #     key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
+
+      - name: List some directories
+        run: |
+          echo "pwd" && pwd
+          echo "ls -l" && ls -l
+          echo "ls -l /" && ls -l /
+          echo "df ." && df .
+
+      # - name: Run nvidia-smi
+      #   run: nvidia-smi
+
+      # - name: List ccache contents
+      #   run: ls -lR /velox/.ccache
 
       - name: Say Goodbye
         run: echo "Goodbye, ${{ github.event.inputs.recipient }}!"
