@@ -27,38 +27,45 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      VELOX_ROOT: /__w/velox-testing/velox-testing/velox
+      VELOX_TESTING_ROOT: /__w/velox-testing/velox-testing
+      VELOX_CCACHE_DIR: /__w/velox-testing/velox-testing/velox/.ccache
 
     steps:
       - name: Say Hello
         run: echo "Hello, ${{ github.event.inputs.recipient }}!"
 
-      # - name: Checkout Velox
-      #   uses: actions/checkout@v4
-      #   with:
-      #     repository: facebookincubator/velox
-      #     path: /velox
-      #     ref: main
+      - name: Checkout Velox
+        uses: actions/checkout@v4
+        with:
+          repository: facebookincubator/velox
+          path: ${{env.VELOX_ROOT}}}
+          ref: main
 
-      # - name: Fix Git permissions
-      #   run: git config --global --add safe.directory /velox
+      - name: Checkout Velox Testing
+        uses: actions/checkout@v4
+        with:
+          repository: rapidsai/velox-testing
+          path: ${{env.VELOX_TESTING_ROOT}}
+          ref: main
 
-      # - name: Sync ccache
-      #   uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
-      #   with:
-      #     path: /velox/.ccache
-      #     key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
-
-      - name: List some directories
+      - name: Fix Git permissions
         run: |
-          echo "pwd" && pwd
-          echo "GH Workspace" && echo ${{ github.workspace }}
-          echo "List GH Workspace" && find ${{ github.workspace }} -maxdepth 3 -ls
+          git config --global --add safe.directory ${{env.VELOX_ROOT}}
+          git config --global --add safe.directory ${{env.VELOX_TESTING_ROOT}}
 
-      # - name: Run nvidia-smi
-      #   run: nvidia-smi
+      - name: Sync Velox Compiler Cache
+        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{env.VELOX_CCACHE_DIR}}
+          key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
 
-      # - name: List ccache contents
-      #   run: ls -lR /velox/.ccache
+      - name: Run nvidia-smi
+        run: nvidia-smi
+
+      - name: List Velox Compiler Cache Contents
+        run: ls -lR ${{env.VELOX_CCACHE_DIR}}
 
       - name: Say Goodbye
         run: echo "Goodbye, ${{ github.event.inputs.recipient }}!"
