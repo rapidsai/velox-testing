@@ -51,10 +51,8 @@ jobs:
       - name: List some directories
         run: |
           echo "pwd" && pwd
-          echo "df ." && df .
-          echo "List /" && ls -l /
-          echo "List /__w" && find /__w -maxdepth 3 -ls
-          echo "List /__e" && find /__e -maxdepth 3 -ls
+          echo "GH Workspace" && echo ${{ github.workspace }}
+          echo "List GH Workspace" && find ${{ github.workspace }} -maxdepth 3 -ls
 
       # - name: Run nvidia-smi
       #   run: nvidia-smi
