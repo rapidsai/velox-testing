@@ -55,17 +55,20 @@ jobs:
           git config --global --add safe.directory ${{env.VELOX_ROOT}}
           git config --global --add safe.directory ${{env.VELOX_TESTING_ROOT}}
 
-      - name: Sync Velox Compiler Cache
-        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
-        with:
-          path: ${{env.VELOX_CCACHE_DIR}}
-          key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
+      - name: Dump env
+        run: env
 
-      - name: Run nvidia-smi
-        run: nvidia-smi
+      # - name: Sync Velox Compiler Cache
+      #   uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+      #   with:
+      #     path: ${{env.VELOX_CCACHE_DIR}}
+      #     key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
 
-      - name: List Velox Compiler Cache Contents
-        run: ls -lR ${{env.VELOX_CCACHE_DIR}}
+      # - name: Run nvidia-smi
+      #   run: nvidia-smi
+
+      # - name: List Velox Compiler Cache Contents
+      #   run: ls -lR ${{env.VELOX_CCACHE_DIR}}
 
       - name: Say Goodbye
         run: echo "Goodbye, ${{ github.event.inputs.recipient }}!"
