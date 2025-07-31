@@ -26,6 +26,11 @@ on:
         type: string
         required: false
         default: 'native'
+      build_dir:
+        description: 'Build directory name'
+        type: string
+        required: false
+        default: 'build'
         
   workflow_call:
     inputs:
@@ -44,6 +49,10 @@ on:
         type: string
         required: false
         default: 'native'
+      build_dir:
+        type: string
+        required: false
+        default: 'build'
 
 jobs:
   build-and-test:
@@ -64,9 +73,9 @@ jobs:
 
       - name: Build and Test Velox
         run: |
-          # Copy the build script to current directory for easier access
-          cp ci-scripts/ci/velox/build-and-test.sh .
-          chmod +x build-and-test.sh
+          # Copy the Velox build script with descriptive name
+          cp ci-scripts/ci/velox/build-and-test.sh velox-build.sh
+          chmod +x velox-build.sh
           
           # Build command with arguments based on workflow inputs
           BUILD_ARGS=""
@@ -84,5 +93,9 @@ jobs:
           CUDA_ARCH="${{ inputs.cuda_arch || github.event.inputs.cuda_arch || 'native' }}"
           BUILD_ARGS="$BUILD_ARGS --cuda-arch $CUDA_ARCH"
           
-          echo "Running: ./build-and-test.sh $BUILD_ARGS"
-          ./build-and-test.sh $BUILD_ARGS
+          # Add build directory
+          BUILD_DIR="${{ inputs.build_dir || github.event.inputs.build_dir || 'build' }}"
+          BUILD_ARGS="$BUILD_ARGS --build-dir $BUILD_DIR"
+          
+          echo "Running: ./velox-build.sh $BUILD_ARGS"
+          ./velox-build.sh $BUILD_ARGS

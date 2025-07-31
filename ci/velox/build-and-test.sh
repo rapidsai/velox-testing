@@ -23,6 +23,7 @@ RUN_TESTS=false
 BUILD_TYPE="Release"
 CUDA_ARCH="native"
 BUILD_TESTING="OFF"
+BUILD_DIR="build"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -39,12 +40,17 @@ while [[ $# -gt 0 ]]; do
             CUDA_ARCH="$2"
             shift 2
             ;;
+        --build-dir)
+            BUILD_DIR="$2"
+            shift 2
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
             echo "  --run-tests      Build and run tests (default: false)"
             echo "  --build-type     CMAKE_BUILD_TYPE (default: Release)"
             echo "  --cuda-arch      CUDA architecture (default: native)"
+            echo "  --build-dir      Build directory name (default: build)"
             echo "  --help, -h       Show this help message"
             exit 0
             ;;
@@ -56,6 +62,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 print_info "Starting Velox build with cuDF support..."
+print_info "Build directory: $BUILD_DIR"
 print_info "Build type: $BUILD_TYPE"
 print_info "CUDA architecture: $CUDA_ARCH"
 print_info "Build testing: $BUILD_TESTING"
@@ -65,9 +72,9 @@ print_info "Configuring git safe directory..."
 git config --global --add safe.directory .
 
 # Create and enter build directory
-print_info "Creating build directory..."
-mkdir -p build
-cd build
+print_info "Creating build directory: $BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
 
 # Configure with CMake
 print_info "Configuring with CMake..."
