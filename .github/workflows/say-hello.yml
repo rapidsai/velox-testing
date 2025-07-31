@@ -31,12 +31,11 @@ jobs:
       VELOX_ROOT: /__w/velox-testing/velox-testing/velox
       VELOX_TESTING_ROOT: /__w/velox-testing/velox-testing
       VELOX_CCACHE_DIR: /__w/velox-testing/velox-testing/velox/.ccache
-      BASE_REPO: facebookincubator/velox
-      BASE_REPO_ID: 388946490
-      BASE_REF: main
-      HEAD_REPO_ID: 388946490
-      HEAD_REF: main
-      SIMON_RANDOM: simon_is_random
+      base_repo: facebookincubator/velox
+      base_repo_id: 388946490
+      base_ref: main
+      head_repo_id: 388946490
+      head_ref: main
 
     steps:
       - name: Say Hello
