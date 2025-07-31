@@ -11,6 +11,39 @@ on:
         description: 'Presto commit SHA or branch'
         required: true
         default: 'main'
+      velox_build_type:
+        description: 'Velox CMake build type'
+        type: choice
+        options:
+          - Release
+          - Debug
+          - RelWithDebInfo
+        required: false
+        default: 'Release'
+      velox_cuda_arch:
+        description: 'Velox CUDA architecture (e.g., native, "75;80")'
+        type: string
+        required: false
+        default: 'native'
+      run_presto_tests:
+        description: 'Run Presto integration tests after build'
+        type: boolean
+        required: false
+        default: true
+      velox_build_dir:
+        description: 'Velox build directory name'
+        type: string
+        required: false
+        default: 'build'
+      build_target:
+        description: 'What to build'
+        type: choice
+        options:
+          - both
+          - coordinator-only
+          - prestissimo-only
+        required: false
+        default: 'both'
   workflow_call:
     inputs:
       velox_commit:
@@ -19,6 +52,26 @@ on:
       presto_commit:
         type: string
         required: true
+      velox_build_type:
+        type: string
+        required: false
+        default: 'Release'
+      velox_cuda_arch:
+        type: string
+        required: false
+        default: 'native'
+      run_presto_tests:
+        type: boolean
+        required: false
+        default: true
+      velox_build_dir:
+        type: string
+        required: false
+        default: 'build'
+      build_target:
+        type: string
+        required: false
+        default: 'both'
 
 jobs:
   build-and-test:
@@ -33,14 +86,25 @@ jobs:
           repository: facebookincubator/velox
           ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
 
+      - name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
+        with:
+          path: ci-scripts
+
       - name: Build Velox with cuDF
         run: |
-          git config --global --add safe.directory .
-          # this is wrong, needs to be the same as in velox-test.yml
-          # both need to use the same script
-          mkdir -p velox-build && cd velox-build
-          cmake -G Ninja -DVELOX_ENABLE_CUDF=ON ..
-          ninja
+          # Copy the Velox build script with unique name to avoid collision
+          cp ci-scripts/ci/velox/build-and-test.sh velox-build.sh
+          chmod +x velox-build.sh
+          
+          # Build Velox with configurable options (no tests needed for Presto workflow)
+          BUILD_TYPE="${{ inputs.velox_build_type || github.event.inputs.velox_build_type || 'Release' }}"
+          CUDA_ARCH="${{ inputs.velox_cuda_arch || github.event.inputs.velox_cuda_arch || 'native' }}"
+          BUILD_DIR="${{ inputs.velox_build_dir || github.event.inputs.velox_build_dir || 'build' }}"
+          
+          echo "Building Velox for Presto integration..."
+          echo "Build type: $BUILD_TYPE, CUDA arch: $CUDA_ARCH, Build dir: $BUILD_DIR"
+          ./velox-build.sh --build-type "$BUILD_TYPE" --cuda-arch "$CUDA_ARCH" --build-dir "$BUILD_DIR"
 
       - name: Checkout Presto
         uses: actions/checkout@v4
@@ -49,14 +113,47 @@ jobs:
           ref: ${{ inputs.presto_commit || github.event.inputs.presto_commit }}
           path: presto
 
-      - name: Build Presto with Velox Connector
+      - name: Build and Test Presto with Velox Connector
         run: |
-          # TODO: Untested, replace with working code
-          cd presto
-          git config --global --add safe.directory .
-          ./mvnw clean package -Pvelox -DskipTests
-      
-      - name: Run Presto Integration Tests
-        run: |
-          cd presto
-          ./presto-server/bin/run-tests.sh
+          # Copy the Presto build script with unique name to avoid collision
+          cp ci-scripts/ci/presto/build-and-test.sh presto-build.sh
+          chmod +x presto-build.sh
+          
+          # Build command with arguments based on workflow inputs
+          BUILD_ARGS=""
+          
+          # Add run tests flag if enabled
+          if [ "${{ inputs.run_presto_tests || github.event.inputs.run_presto_tests }}" = "true" ]; then
+            BUILD_ARGS="$BUILD_ARGS --run-tests"
+          fi
+          
+          # Add build target flag
+          BUILD_TARGET="${{ inputs.build_target || github.event.inputs.build_target || 'both' }}"
+          case "$BUILD_TARGET" in
+            "coordinator-only")
+              BUILD_ARGS="$BUILD_ARGS --coordinator-only"
+              ;;
+            "prestissimo-only")
+              BUILD_ARGS="$BUILD_ARGS --prestissimo-only"
+              ;;
+            "both"|*)
+              # Default behavior - build both
+              ;;
+          esac
+          
+          # Pass Velox build directory to Presto build (for Prestissimo reuse)
+          VELOX_BUILD_DIR="${{ inputs.velox_build_dir || github.event.inputs.velox_build_dir || 'build' }}"
+          if [ "$BUILD_TARGET" != "coordinator-only" ]; then
+            # Only add velox build dir if we're building Prestissimo
+            if [ -d "./$VELOX_BUILD_DIR" ]; then
+              BUILD_ARGS="$BUILD_ARGS --velox-build-dir $(pwd)/$VELOX_BUILD_DIR"
+              echo "Using Velox build from: $(pwd)/$VELOX_BUILD_DIR"
+            else
+              echo "Warning: Velox build directory ./$VELOX_BUILD_DIR not found, Prestissimo will build its own Velox"
+            fi
+          fi
+          
+          echo "Building Presto with Velox connector..."
+          echo "Build target: $BUILD_TARGET"
+          echo "Run tests: ${{ inputs.run_presto_tests || github.event.inputs.run_presto_tests || 'true' }}"
+          ./presto-build.sh $BUILD_ARGS
