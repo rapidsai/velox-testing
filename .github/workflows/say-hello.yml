@@ -55,14 +55,12 @@ jobs:
           git config --global --add safe.directory ${{env.VELOX_ROOT}}
           git config --global --add safe.directory ${{env.VELOX_TESTING_ROOT}}
 
-      - name: Dump env
-        run: env
-
-      # - name: Sync Velox Compiler Cache
-      #   uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
-      #   with:
-      #     path: ${{env.VELOX_CCACHE_DIR}}
-      #     key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
+      - name: Sync Velox Compiler Cache
+        #uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        uses: simoneves/infrastructure-actions/stash/restore@373676d46fc942fdaa90f21306cfc84dbf55a678
+        with:
+          path: ${{env.VELOX_CCACHE_DIR}}
+          key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
 
       # - name: Run nvidia-smi
       #   run: nvidia-smi
