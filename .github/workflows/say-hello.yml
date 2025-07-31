@@ -31,6 +31,12 @@ jobs:
       VELOX_ROOT: /__w/velox-testing/velox-testing/velox
       VELOX_TESTING_ROOT: /__w/velox-testing/velox-testing
       VELOX_CCACHE_DIR: /__w/velox-testing/velox-testing/velox/.ccache
+      BASE_REPO: facebookincubator/velox
+      BASE_REPO_ID: 388946490
+      BASE_REF: main
+      HEAD_REPO_ID: 388946490
+      HEAD_REF: main
+      SIMON_RANDOM: simon_is_random
 
     steps:
       - name: Say Hello
@@ -60,13 +66,6 @@ jobs:
         with:
           path: ${{env.VELOX_CCACHE_DIR}}
           key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
-          env:
-            BASE_REPO: facebookincubator/velox
-            BASE_REPO_ID: 388946490
-            BASE_REF: main
-            HEAD_REPO_ID: 388946490
-            HEAD_REF: main
-            SIMON_RANDOM: simon_is_random
 
       # - name: Run nvidia-smi
       #   run: nvidia-smi
