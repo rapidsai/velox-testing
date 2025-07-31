@@ -29,30 +29,30 @@ jobs:
         shell: bash
 
     steps:
-      # We don't actually need to checkout the repo
-      - name: Checkout repository
+      - name: Checkout Velox
         uses: actions/checkout@v4
+        with:
+          repository: facebookincubator/velox
+          path: /velox
+          ref: main
 
-      # Say Hello
+      - name: Fix Git permissions
+        run: git config --global --add safe.directory /velox
+
+      - name: Sync ccache
+        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: /velox/.ccache
+          key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
+
       - name: Say Hello
         run: echo "Hello, ${{ github.event.inputs.recipient }}!"
 
-      # Run nvidia-smi just to prove we're on a GPU system
       - name: Run nvidia-smi
         run: nvidia-smi
 
-      # Do Git safe directory (is this part always the same or do we need to get it from some variable)
-      - name: Run git config safe.directory
-        run: git config --global --add safe.directory /__w/velox-testing/velox-testing
+      - name: List ccache contents
+        run: ls -lR /velox/.ccache
 
-      # Do a git status
-      - name: Run git status
-        run: git status
-
-      # Do a git log
-      - name: Run git log
-        run: git log
-
-      # Say Goodbye
       - name: Say Goodbye
         run: echo "Goodbye, ${{ github.event.inputs.recipient }}!"
