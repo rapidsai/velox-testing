@@ -24,6 +24,7 @@ jobs:
       image: ghcr.io/facebookincubator/velox-dev:adapters
     env:
       GH_TOKEN: ${{ github.token }}
+      CCACHE_DIR: ${{ github.workspace }}/ccache
 
     steps:
       - name: Checkout Velox
@@ -35,11 +36,10 @@ jobs:
       - name: Fix GH permissions
         run: git config --global --add safe.directory .
 
-      # Job ID chosen manually from successful auto-build 7/31
       - name: Fetch ccache (optional)
         if: ${{ inputs.velox_ccache_job_id != ''}}
         continue-on-error: true
-        run: gh run download "${{ inputs.velox_ccache_job_id }}" --name "ccache-linux-adapters-gcc-main" --dir "./.ccache" -R "facebookincubator/velox"
+        run: gh run download "${{ inputs.velox_ccache_job_id }}" --name "ccache-linux-adapters-gcc-main" --dir "${{ env.CCACHE_DIR }}" -R "facebookincubator/velox"
 
       - name: Build Velox with cuDF
         run: |
