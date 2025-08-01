@@ -7,9 +7,6 @@ on:
         description: 'Velox Commit SHA/Branch'
         required: true
         default: 'main'
-      velox_ccache_job_id:
-        description: 'Velox Compiler Cache JOB_ID'
-        default: ''
         
   workflow_call:
     inputs:
@@ -36,10 +33,15 @@ jobs:
       - name: Fix GH permissions
         run: git config --global --add safe.directory .
 
-      - name: Fetch ccache (optional)
-        if: ${{ inputs.velox_ccache_job_id != ''}}
-        continue-on-error: true
-        run: gh run download "${{ inputs.velox_ccache_job_id }}" --name "ccache-linux-adapters-gcc-main" --dir "${{ env.CCACHE_DIR }}" -R "facebookincubator/velox"
+      - name: Restore Compiler Cache
+        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc
+
+      - name: Reset Compiler Cache Statistics
+        run: |
+          ccache -sz
 
       - name: Build Velox with cuDF
         run: |
@@ -56,6 +58,15 @@ jobs:
             -DVELOX_BUILD_TESTING=OFF \
             ..
           ninja
+
+      - name: Report Compiler Cache Statistics
+        run: ccache -vs
+
+      - name: Stash Compiler Cache
+        uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc
 
       - name: Run Velox Test Suite
         run: |
