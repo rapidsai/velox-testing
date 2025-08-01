@@ -19,6 +19,10 @@ jobs:
     runs-on: linux-amd64-gpu-l4-latest-1
     container:
       image: ghcr.io/facebookincubator/velox-dev:adapters
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+
     steps:
       - name: Checkout Velox
         uses: actions/checkout@v4
@@ -26,9 +30,21 @@ jobs:
           repository: facebookincubator/velox
           ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
 
+      - name: Fix GH permissions
+        run: git config --global --add safe.directory .
+
+      - name: Restore Compiler Cache
+        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc
+
+      - name: Reset Compiler Cache Statistics
+        run: |
+          ccache -sz
+
       - name: Build Velox with cuDF
         run: |
-          git config --global --add safe.directory .
           # move this logic to a script for easier iteration
           # disable tests build for now as it seems to be broken
           # use "native" CUDA arch until told otherwise
@@ -42,6 +58,15 @@ jobs:
             -DVELOX_BUILD_TESTING=OFF \
             ..
           ninja
+
+      - name: Report Compiler Cache Statistics
+        run: ccache -vs
+
+      - name: Stash Compiler Cache
+        uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc
 
       - name: Run Velox Test Suite
         run: |
