@@ -8,8 +8,7 @@ on:
         required: true
         default: 'main'
       velox_ccache_job_id:
-        description: 'Velox ccache Job ID'
-        required: true
+        description: 'Velox Compiler Cache JOB_ID'
         default: ''
         
   workflow_call:
