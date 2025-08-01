@@ -23,54 +23,63 @@ jobs:
   say-hello:
     name: Say Hello
     runs-on: linux-amd64-gpu-l4-latest-1
-    container: ghcr.io/facebookincubator/velox-dev:adapters
+    # container: ghcr.io/facebookincubator/velox-dev:adapters
     defaults:
       run:
         shell: bash
-    env:
-      VELOX_ROOT: /__w/velox-testing/velox-testing/velox
-      VELOX_TESTING_ROOT: /__w/velox-testing/velox-testing
-      VELOX_CCACHE_DIR: /__w/velox-testing/velox-testing/velox/.ccache
-      base_repo: facebookincubator/velox
-      base_repo_id: 388946490
-      base_ref: main
-      head_repo_id: 388946490
-      head_ref: main
+    # env:
+    #   VELOX_ROOT: /__w/velox-testing/velox-testing/velox
+    #   VELOX_TESTING_ROOT: /__w/velox-testing/velox-testing
+    #   VELOX_CCACHE_DIR: /__w/velox-testing/velox-testing/velox/.ccache
+    #   base_repo: facebookincubator/velox
+    #   base_repo_id: 388946490
+    #   base_ref: main
+    #   head_repo_id: 388946490
+    #   head_ref: main
 
     steps:
       - name: Say Hello
         run: echo "Hello, ${{ github.event.inputs.recipient }}!"
 
-      - name: Checkout Velox
-        uses: actions/checkout@v4
-        with:
-          repository: facebookincubator/velox
-          path: ${{env.VELOX_ROOT}}}
-          ref: main
+      # - name: Checkout Velox
+      #   uses: actions/checkout@v4
+      #   with:
+      #     repository: facebookincubator/velox
+      #     path: ${{env.VELOX_ROOT}}}
+      #     ref: main
 
-      - name: Checkout Velox Testing
-        uses: actions/checkout@v4
-        with:
-          repository: rapidsai/velox-testing
-          path: ${{env.VELOX_TESTING_ROOT}}
-          ref: main
+      # - name: Checkout Velox Testing
+      #   uses: actions/checkout@v4
+      #   with:
+      #     repository: rapidsai/velox-testing
+      #     path: ${{env.VELOX_TESTING_ROOT}}
+      #     ref: main
 
-      - name: Fix Git permissions
-        run: |
-          git config --global --add safe.directory ${{env.VELOX_ROOT}}
-          git config --global --add safe.directory ${{env.VELOX_TESTING_ROOT}}
+      # - name: Fix Git permissions
+      #   run: |
+      #     git config --global --add safe.directory ${{env.VELOX_ROOT}}
+      #     git config --global --add safe.directory ${{env.VELOX_TESTING_ROOT}}
 
-      - name: Sync Velox Compiler Cache
-        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
-        with:
-          path: ${{env.VELOX_CCACHE_DIR}}
-          key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
+      # - name: Sync Velox Compiler Cache
+      #   uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+      #   with:
+      #     path: ${{env.VELOX_CCACHE_DIR}}
+      #     key: ccache-linux-adapters-${{ inputs.use-clang && 'clang' || 'gcc' }}
 
       # - name: Run nvidia-smi
       #   run: nvidia-smi
 
       # - name: List Velox Compiler Cache Contents
       #   run: ls -lR ${{env.VELOX_CCACHE_DIR}}
+
+      - name: Run lscpu
+        run: lscpu
+
+      - name: Run lsmem
+        run: lsmem
+
+      - name: Run nvidia-smi
+        run: nvidia-smi
 
       - name: Say Goodbye
         run: echo "Goodbye, ${{ github.event.inputs.recipient }}!"
