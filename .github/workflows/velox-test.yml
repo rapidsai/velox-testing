@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       velox_commit:
-        description: 'Velox commit SHA or branch'
+        description: 'Velox Commit SHA/Branch'
         required: true
         default: 'main'
+      velox_ccache_job_id:
+        description: 'Velox ccache Job ID'
+        required: true
+        default: ''
         
   workflow_call:
     inputs:
@@ -26,9 +30,16 @@ jobs:
           repository: facebookincubator/velox
           ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
 
+      - name: Fix GH permissions
+        run: git config --global --add safe.directory .
+
+      # Job ID chosen manually from successful auto-build 7/31
+      - name: Fetch ccache (optional)
+        if: ${{ inputs.velox_ccache_job_id != ''}}
+        run: gh run download "${{ inputs.velox_ccache_job_id }}" --name "ccache-linux-adapters-gcc-main" --dir "./.ccache" -R "facebookincubator/velox"
+
       - name: Build Velox with cuDF
         run: |
-          git config --global --add safe.directory .
           # move this logic to a script for easier iteration
           # disable tests build for now as it seems to be broken
           # use "native" CUDA arch until told otherwise
