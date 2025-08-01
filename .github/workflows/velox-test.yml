@@ -22,6 +22,9 @@ jobs:
     runs-on: linux-amd64-gpu-l4-latest-1
     container:
       image: ghcr.io/facebookincubator/velox-dev:adapters
+    env:
+      GH_TOKEN: ${{ github.token }}
+
     steps:
       - name: Checkout Velox
         uses: actions/checkout@v4
@@ -35,6 +38,7 @@ jobs:
       # Job ID chosen manually from successful auto-build 7/31
       - name: Fetch ccache (optional)
         if: ${{ inputs.velox_ccache_job_id != ''}}
+        continue-on-error: true
         run: gh run download "${{ inputs.velox_ccache_job_id }}" --name "ccache-linux-adapters-gcc-main" --dir "./.ccache" -R "facebookincubator/velox"
 
       - name: Build Velox with cuDF
