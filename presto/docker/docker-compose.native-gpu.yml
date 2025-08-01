@@ -1,0 +1,29 @@
+services:
+  presto-coordinator:
+    container_name: presto-coordinator
+    image: prestodb/presto:latest
+    ports:
+      - 8080:8080
+    volumes:
+      - ./config/etc_common:/opt/presto-server/etc
+      - ./config/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
+      - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+
+  presto-native-worker-gpu:
+    container_name: presto-native-worker-gpu
+    image: presto-native-worker-gpu:latest
+    build:
+      args:
+        - GPU=ON
+      context: ../../..
+      dockerfile: velox-testing/presto/docker/native_build.dockerfile
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - GLOG_logtostderr=1
+    volumes:
+      - ./config/etc_common:/opt/presto-server/etc
+      - ./config/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+      - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+    depends_on:
+      - presto-coordinator
