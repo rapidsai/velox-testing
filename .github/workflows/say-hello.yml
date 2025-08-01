@@ -72,6 +72,9 @@ jobs:
       # - name: List Velox Compiler Cache Contents
       #   run: ls -lR ${{env.VELOX_CCACHE_DIR}}
 
+      - name: Run nproc
+        run: nproc
+
       - name: Run lscpu
         run: lscpu
 
