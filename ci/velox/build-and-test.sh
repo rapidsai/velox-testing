@@ -67,10 +67,6 @@ print_info "Build type: $BUILD_TYPE"
 print_info "CUDA architecture: $CUDA_ARCH"
 print_info "Build testing: $BUILD_TESTING"
 
-# Configure git safe directory
-print_info "Configuring git safe directory..."
-git config --global --add safe.directory .
-
 # Create and enter build directory
 print_info "Creating build directory: $BUILD_DIR"
 mkdir -p "$BUILD_DIR"

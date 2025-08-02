@@ -59,19 +59,36 @@ jobs:
     runs-on: linux-amd64-gpu-l4-latest-1
     container:
       image: ghcr.io/facebookincubator/velox-dev:adapters
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+
     steps:
       - name: Checkout Velox
         uses: actions/checkout@v4
         with:
           repository: facebookincubator/velox
           ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
+      
+      - name: Fix GH permissions
+        run: git config --global --add safe.directory .
+      
+      - name: Restore Compiler Cache
+        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc
+
+      - name: Reset Compiler Cache Statistics
+        run: |
+          ccache -sz
 
       - name: Checkout this repository for CI scripts
         uses: actions/checkout@v4
         with:
           path: ci-scripts
 
-      - name: Build and Test Velox
+      - name: Build and Test Velox with cuDF
         run: |
           # Copy the Velox build script with descriptive name
           cp ci-scripts/ci/velox/build-and-test.sh velox-build.sh
@@ -79,7 +96,7 @@ jobs:
           
           # Build command with arguments based on workflow inputs
           BUILD_ARGS=""
-          
+
           # Add run tests flag if enabled
           if [ "${{ inputs.run_tests || github.event.inputs.run_tests }}" = "true" ]; then
             BUILD_ARGS="$BUILD_ARGS --run-tests"
@@ -99,3 +116,12 @@ jobs:
           
           echo "Running: ./velox-build.sh $BUILD_ARGS"
           ./velox-build.sh $BUILD_ARGS
+
+      - name: Report Compiler Cache Statistics
+        run: ccache -vs
+  
+      - name: Stash Compiler Cache
+        uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc
