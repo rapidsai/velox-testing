@@ -57,21 +57,34 @@ on:
 jobs:
   build-and-test:
     runs-on: linux-amd64-gpu-l4-latest-1
-    container:
-      image: ghcr.io/facebookincubator/velox-dev:adapters
     env:
       GH_TOKEN: ${{ github.token }}
       CCACHE_DIR: ${{ github.workspace }}/ccache
 
     steps:
+      - name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
       - name: Checkout Velox
         uses: actions/checkout@v4
         with:
           repository: facebookincubator/velox
           ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
+          path: velox
+      
+      - name: Build Docker Container
+        run: docker compose -f velox/docker-compose.yml build adapters-cuda
       
       - name: Fix GH permissions
-        run: git config --global --add safe.directory .
+        run: |
+          # Check the actual working directory inside the container
+          echo "Current working directory in container:"
+          docker compose -f velox/docker-compose.yml run --rm adapters-cuda pwd
+          
+          # Use the current working directory (which should be where Velox code is mounted)
+          docker compose -f velox/docker-compose.yml run --rm adapters-cuda git config --global --add safe.directory .
       
       - name: Restore Compiler Cache
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
@@ -80,20 +93,10 @@ jobs:
           key: ccache-linux-adapters-gcc
 
       - name: Reset Compiler Cache Statistics
-        run: |
-          ccache -sz
-
-      - name: Checkout this repository for CI scripts
-        uses: actions/checkout@v4
-        with:
-          path: ci-scripts
+        run: docker compose -f velox/docker-compose.yml run --rm -v ${{ env.CCACHE_DIR }}:/ccache -e CCACHE_DIR=/ccache adapters-cuda ccache -sz
 
       - name: Build and Test Velox with cuDF
         run: |
-          # Copy the Velox build script with descriptive name
-          cp ci-scripts/ci/velox/build-and-test.sh velox-build.sh
-          chmod +x velox-build.sh
-          
           # Build command with arguments based on workflow inputs
           BUILD_ARGS=""
 
@@ -112,13 +115,26 @@ jobs:
           
           # Add build directory
           BUILD_DIR="${{ inputs.build_dir || github.event.inputs.build_dir || 'build' }}"
-          BUILD_ARGS="$BUILD_ARGS --build-dir $BUILD_DIR"
+          CONTAINER_BUILD_DIR="/workspace/$BUILD_DIR"
+          BUILD_ARGS="$BUILD_ARGS --build-dir $CONTAINER_BUILD_DIR"
           
-          echo "Running: ./velox-build.sh $BUILD_ARGS"
-          ./velox-build.sh $BUILD_ARGS
+          echo "Running Velox build inside Docker container..."
+          echo "Build args: $BUILD_ARGS"
+          
+          # Copy CI script into velox directory and run inside container
+          cp velox-testing/ci/velox/build-and-test.sh velox/
+          chmod +x velox/build-and-test.sh
+          
+          # Run the build script inside the Docker container with cache and build directory mounted
+          mkdir -p "velox/$BUILD_DIR"  # Ensure build directory exists on runner
+          docker compose -f velox/docker-compose.yml run --rm \
+            -v ${{ env.CCACHE_DIR }}:/ccache \
+            -v "$(pwd)/velox/$BUILD_DIR:$CONTAINER_BUILD_DIR" \
+            -e CCACHE_DIR=/ccache \
+            adapters-cuda bash -c "./build-and-test.sh $BUILD_ARGS"
 
       - name: Report Compiler Cache Statistics
-        run: ccache -vs
+        run: docker compose -f velox/docker-compose.yml run --rm -v ${{ env.CCACHE_DIR }}:/ccache -e CCACHE_DIR=/ccache adapters-cuda ccache -vs
   
       - name: Stash Compiler Cache
         uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
