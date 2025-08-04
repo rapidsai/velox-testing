@@ -45,12 +45,15 @@ A comprehensive script for building Velox with cuDF support and optionally runni
 - ✅ Optional test execution
 - ✅ Colored output for better readability
 - ✅ Error handling with early exit on failure
+- ✅ Automatic Git permissions configuration for container environments
+- ✅ Integrated compiler cache (ccache) statistics reporting
 
 #### Requirements
 
 - CMake
 - Ninja build system
 - CUDA toolkit
+- ccache (compiler cache)
 - Git configured with safe directory access
 
 ## GitHub Actions Integration

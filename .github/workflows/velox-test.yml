@@ -77,23 +77,11 @@ jobs:
       - name: Build Docker Container
         run: docker compose -f velox/docker-compose.yml build adapters-cuda
       
-      - name: Fix GH permissions
-        run: |
-          # Check the actual working directory inside the container
-          echo "Current working directory in container:"
-          docker compose -f velox/docker-compose.yml run --rm adapters-cuda pwd
-          
-          # Use the current working directory (which should be where Velox code is mounted)
-          docker compose -f velox/docker-compose.yml run --rm adapters-cuda git config --global --add safe.directory .
-      
       - name: Restore Compiler Cache
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
           path: ${{ env.CCACHE_DIR }}
           key: ccache-linux-adapters-gcc
-
-      - name: Reset Compiler Cache Statistics
-        run: docker compose -f velox/docker-compose.yml run --rm -v ${{ env.CCACHE_DIR }}:/ccache -e CCACHE_DIR=/ccache adapters-cuda ccache -sz
 
       - name: Build and Test Velox with cuDF
         run: |
@@ -133,9 +121,6 @@ jobs:
             -e CCACHE_DIR=/ccache \
             adapters-cuda bash -c "./build-and-test.sh $BUILD_ARGS"
 
-      - name: Report Compiler Cache Statistics
-        run: docker compose -f velox/docker-compose.yml run --rm -v ${{ env.CCACHE_DIR }}:/ccache -e CCACHE_DIR=/ccache adapters-cuda ccache -vs
-  
       - name: Stash Compiler Cache
         uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:

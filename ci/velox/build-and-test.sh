@@ -67,6 +67,14 @@ print_info "Build type: $BUILD_TYPE"
 print_info "CUDA architecture: $CUDA_ARCH"
 print_info "Build testing: $BUILD_TESTING"
 
+# Fix Git permissions for container environments
+print_info "Configuring Git safe directory..."
+git config --global --add safe.directory .
+
+# Reset compiler cache statistics for clean measurement
+print_info "Resetting compiler cache statistics..."
+ccache -sz
+
 # Store source directory before changing directories
 SOURCE_DIR="$(pwd)"
 print_info "Source directory: $SOURCE_DIR"
@@ -101,5 +109,9 @@ if [ "$RUN_TESTS" = true ]; then
     ctest -R cudf -V --output-on-failure
     print_success "All tests completed!"
 fi
+
+# Report final compiler cache statistics
+print_info "Reporting compiler cache statistics..."
+ccache -vs
 
 print_success "Script completed successfully!"
