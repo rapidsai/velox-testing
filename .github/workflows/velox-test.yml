@@ -119,6 +119,7 @@ jobs:
             -v ${{ env.CCACHE_DIR }}:/ccache \
             -v "$(pwd)/velox/$BUILD_DIR:$CONTAINER_BUILD_DIR" \
             -e CCACHE_DIR=/ccache \
+            -e NUM_THREADS=$(getconf _NPROCESSORS_CONF 2>/dev/null || echo 1) \
             adapters-cuda bash -c "./build-and-test.sh $BUILD_ARGS"
 
       - name: Stash Compiler Cache

@@ -99,7 +99,12 @@ cmake -G Ninja \
 
 # Build with Ninja
 print_info "Building Velox..."
-ninja
+if [ -n "$NUM_THREADS" ]; then
+    print_info "Using $NUM_THREADS parallel jobs"
+    ninja -j "$NUM_THREADS"
+else
+    ninja
+fi
 
 print_success "Velox build completed successfully!"
 
