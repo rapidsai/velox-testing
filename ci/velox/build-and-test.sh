@@ -67,6 +67,10 @@ print_info "Build type: $BUILD_TYPE"
 print_info "CUDA architecture: $CUDA_ARCH"
 print_info "Build testing: $BUILD_TESTING"
 
+# Store source directory before changing directories
+SOURCE_DIR="$(pwd)"
+print_info "Source directory: $SOURCE_DIR"
+
 # Create and enter build directory
 print_info "Creating build directory: $BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -74,6 +78,8 @@ cd "$BUILD_DIR"
 
 # Configure with CMake
 print_info "Configuring with CMake..."
+print_info "Build directory: $(pwd)"
+
 cmake -G Ninja \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
@@ -81,7 +87,7 @@ cmake -G Ninja \
     -DVELOX_ENABLE_PARQUET=ON \
     -DVELOX_ENABLE_S3=ON \
     -DVELOX_BUILD_TESTING="$BUILD_TESTING" \
-    ..
+    "$SOURCE_DIR"
 
 # Build with Ninja
 print_info "Building Velox..."
