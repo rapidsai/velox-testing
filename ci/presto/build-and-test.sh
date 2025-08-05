@@ -65,17 +65,17 @@ case "$BUILD_TARGET" in
   "native-cpu")
     echo "Starting Presto Java Coordinator + Native CPU Workers..."
     if [ -n "$CCACHE_DIR" ]; then
-      ./start_native_cpu_presto.sh --ccache-dir "$CCACHE_DIR"
+      ./start_native_cpu_presto.sh --ccache-dir "$CCACHE_DIR" --no-submodules
     else
-      ./start_native_cpu_presto.sh
+      ./start_native_cpu_presto.sh --no-submodules
     fi
     ;;
   "native-gpu"|*)
     echo "Starting Presto Java Coordinator + Native GPU Workers..."
     if [ -n "$CCACHE_DIR" ]; then
-      ./start_native_gpu_presto.sh --ccache-dir "$CCACHE_DIR"
+      ./start_native_gpu_presto.sh --ccache-dir "$CCACHE_DIR" --no-submodules
     else
-      ./start_native_gpu_presto.sh
+      ./start_native_gpu_presto.sh --no-submodules
     fi
     ;;
 esac

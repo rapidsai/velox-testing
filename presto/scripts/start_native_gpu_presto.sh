@@ -4,6 +4,7 @@ set -e
 
 # Parse command line arguments
 CCACHE_DIR=""
+NO_SUBMODULES=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -11,16 +12,20 @@ while [[ $# -gt 0 ]]; do
       CCACHE_DIR="$2"
       shift 2
       ;;
+    --no-submodules)
+      NO_SUBMODULES="--no-submodules"
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--ccache-dir <path>]"
+      echo "Usage: $0 [--ccache-dir <path>] [--no-submodules]"
       exit 1
       ;;
   esac
 done
 
 ./stop_presto.sh
-./build_centos_deps_image.sh
+./build_centos_deps_image.sh $NO_SUBMODULES
 
 # Build with ccache support if cache directory is provided
 if [ -n "$CCACHE_DIR" ]; then
