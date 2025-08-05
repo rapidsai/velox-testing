@@ -26,10 +26,10 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: $0 [options]"
       echo ""
       echo "Options:"
-      echo "  --build-target TARGET    Presto deployment variant (native-gpu, native-cpu, java-only)"
-      echo "  --run-tests BOOLEAN      Run tests after deployment (true/false)"
-      echo "  --ccache-dir PATH        Path to ccache directory for native builds"
-      echo "  --help                   Show this help message"
+      echo "  --build-target TARGET        Presto deployment variant (native-gpu, native-cpu, java-only)"
+      echo "  --run-tests BOOLEAN          Run integration tests with pytest (true/false)"
+      echo "  --ccache-dir PATH            Path to ccache directory for native builds"
+      echo "  --help                       Show this help message"
       echo ""
       echo "Examples:"
       echo "  $0 --build-target native-gpu --run-tests true --ccache-dir /path/to/ccache"
@@ -79,6 +79,7 @@ case "$BUILD_TARGET" in
     fi
     ;;
 esac
+cd ..
 
 # Wait for services to be ready
 echo "Waiting for Presto server to be ready..."
@@ -95,10 +96,46 @@ fi
 # Run tests if enabled
 if [ "$RUN_TESTS" = "true" ]; then
   echo ""
-  echo "Running Presto tests..."
-  # Add test execution logic here when tests are defined
-  echo "Test execution placeholder - implement specific tests as needed"
-  echo "✅ Tests completed"
+  echo "Running Presto integration tests with pytest..."
+  
+  # Check if integration tests directory exists
+  if [ -d "testing" ]; then
+    echo "Setting up Python virtual environment for tests..."
+    
+    # Create virtual environment
+    python -m venv test_venv
+    
+    # Activate virtual environment
+    source test_venv/bin/activate
+    
+    echo "Installing Python test dependencies in virtual environment..."
+    # Install pytest and other requirements
+    pip install -r testing/requirements.txt
+    
+    echo "Running integration tests..."
+    # Run pytest with verbose output (discovers all test files automatically)
+    pytest testing -v
+    
+    # Store test result
+    test_result=$?
+    
+    # Deactivate virtual environment
+    deactivate
+    
+    # Clean up virtual environment
+    rm -rf test_venv
+    
+    # Check test results
+    if [ $test_result -eq 0 ]; then
+      echo "✅ Integration tests completed successfully"
+    else
+      echo "❌ Integration tests failed"
+      exit 1
+    fi
+  else
+    echo "⚠️  Testing directory not found at testing/"
+    echo "Skipping integration tests"
+  fi
 else
   echo "Skipping tests as requested"
 fi

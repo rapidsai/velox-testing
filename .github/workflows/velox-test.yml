@@ -65,7 +65,7 @@ jobs:
       - name: Checkout this repository for CI scripts
         uses: actions/checkout@v4
         with:
-          path: ${{ github.workspace }}/velox-testing
+          path: velox-testing
 
       - name: Build and Test Velox with cuDF
         uses: ./velox-testing/.github/actions/build-velox
