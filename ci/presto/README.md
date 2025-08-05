@@ -6,72 +6,91 @@ This directory contains CI scripts for building and testing Presto with Velox co
 
 ### `build-and-test.sh`
 
-A comprehensive script for building Presto Coordinator (Java) and Prestissimo C++ GPU worker with Velox connector, and optionally running integration tests.
+A script for building and testing Presto using the Docker Compose infrastructure as described in the main README.md. This script handles the deployment of different Presto variants and includes ccache support for native builds.
 
 #### Usage
 
 ```bash
-# Basic build - both coordinator and prestissimo (no tests)
-./build-and-test.sh
+# Build native GPU Presto with ccache support and run tests
+./build-and-test.sh --build-target native-gpu --run-tests true --ccache-dir /path/to/ccache
 
-# Build and run integration tests
-./build-and-test.sh --run-tests
+# Build native CPU Presto without tests
+./build-and-test.sh --build-target native-cpu --run-tests false
 
-# Build only Presto coordinator (Java)
-./build-and-test.sh --coordinator-only
+# Build Java-only Presto
+./build-and-test.sh --build-target java-only
 
-# Build only Prestissimo C++ worker
-./build-and-test.sh --prestissimo-only
-
-# Custom Maven profile and Prestissimo directory
-./build-and-test.sh --profile myprofile --prestissimo-dir /path/to/prestissimo --run-tests
-
-# Use existing Velox build for Prestissimo (avoids rebuilding Velox)
-./build-and-test.sh --prestissimo-only --velox-build-dir /path/to/velox/build
+# Show help
+./build-and-test.sh --help
 ```
 
 #### Options
 
-- `--run-tests`: Run integration tests after build (default: false)
-- `--profile`: Maven profile to use (default: velox)
-- `--coordinator-only`: Build only Presto coordinator (Java)
-- `--prestissimo-only`: Build only Prestissimo C++ worker
-- `--prestissimo-dir`: Directory containing Prestissimo source (default: presto-native-execution)
-- `--velox-build-dir`: Path to existing Velox build directory (reuses Velox build for Prestissimo)
-- `--help, -h`: Show help message
+- `--build-target TARGET`: Presto deployment variant (native-gpu, native-cpu, java-only) (default: native-gpu)
+- `--run-tests BOOLEAN`: Run tests after deployment (true/false) (default: true)
+- `--ccache-dir PATH`: Path to ccache directory for native builds (optional)
+- `--help`: Show help message
 
 #### Features
 
-- ✅ Builds both Presto Coordinator (Java) and Prestissimo C++ GPU worker
-- ✅ Configurable build targets (coordinator-only, prestissimo-only, or both)
-- ✅ **Velox build reuse** - Can reuse existing Velox build for Prestissimo (avoids rebuilding)
-- ✅ Configurable Maven profiles for Java builds
-- ✅ CMake-based build for Prestissimo C++ worker with Velox integration
-- ✅ Skips tests during build by default for faster compilation
-- ✅ Optional integration test execution
-- ✅ Colored output for better readability
-- ✅ Error handling with early exit on failure
-- ✅ Validates directory structure for both Java and C++ components
+- ✅ **Docker Compose Infrastructure** - Uses the official Docker Compose testing infrastructure
+- ✅ **Multiple Deployment Variants** - Supports Java-only, native CPU, and native GPU workers
+- ✅ **ccache Integration** - Automatic ccache support for native builds when cache directory is provided
+- ✅ **Service Health Checks** - Verifies Presto server accessibility after deployment
+- ✅ **Automated Testing** - Configurable test execution after deployment
+- ✅ **Comprehensive Logging** - Detailed output for debugging and monitoring
+
+#### When to Use
+
+- **For CI/CD workflows** - Use `build-and-test.sh` for GitHub Actions and automated testing
+- **For Docker Compose environments** - Use `build-and-test.sh` for complete service deployment
+- **For production-like testing** - Use `build-and-test.sh` for full stack testing with coordinator + workers
+- **For local development** - Use `build-and-test.sh` for consistent builds across environments
 
 #### Requirements
 
-**For Presto Coordinator (Java):**
-- Java and Maven (via ./mvnw)
-- Git configured with safe directory access
-- Presto source code checked out to `./presto/` directory
+- Docker and Docker Compose
+- Presto source code checked out
+- Velox source code checked out (when using native builds)
+- ccache directory (optional, for build acceleration)
 
-**For Prestissimo C++ Worker:**
-- CMake and Make/Ninja build system
-- C++ compiler with C++17 support
-- Velox dependencies (automatically handled if built with Velox)
-- Prestissimo source code (usually in `presto-native-execution/` directory)
+## Docker Infrastructure Integration
 
-**Common:**
-- Git configured with safe directory access
+The Presto native build infrastructure now includes comprehensive ccache support and enhanced Docker integration.
+
+### Enhanced Start Scripts
+
+The native start scripts (`presto/scripts/start_native_gpu_presto.sh` and `presto/scripts/start_native_cpu_presto.sh`) have been enhanced with ccache support:
+
+#### Usage
+```bash
+# Build with ccache support
+./start_native_gpu_presto.sh --ccache-dir /path/to/ccache
+./start_native_cpu_presto.sh --ccache-dir /path/to/ccache
+
+# Build without ccache (backward compatible)
+./start_native_gpu_presto.sh
+./start_native_cpu_presto.sh
+```
+
+#### Features
+- ✅ **ccache Integration** - Automatic Docker BuildKit usage when cache directory provided
+- ✅ **Backward Compatibility** - Works without ccache for existing workflows
+- ✅ **Enhanced Performance** - Significantly faster native builds with compiler caching
+- ✅ **Docker BuildKit** - Uses advanced container build features for optimization
+
+### Docker Build Infrastructure
+
+The `native_build.dockerfile` has been enhanced with comprehensive ccache support:
+
+- **ccache Configuration** - Optimized settings for C++ compilation performance
+- **Cache Mount Support** - Docker cache mounts for persistent compiler cache
+- **Build Statistics** - ccache statistics reporting before/after builds
+- **Environment Variables** - Configurable cache size and behavior
 
 ## GitHub Actions Integration
 
-The script is integrated with the `presto-test.yml` GitHub Actions workflow.
+The scripts are integrated with the `presto-test.yml` GitHub Actions workflow using Docker Compose infrastructure.
 
 ### Workflow Inputs
 
@@ -82,7 +101,7 @@ When manually triggering the Presto test workflow, you can specify:
 - **Velox build type**: CMake build type for Velox (choice, default: Release)
 - **Velox CUDA architecture**: CUDA arch specification for Velox (string, default: 'native')
 - **Velox build directory**: Build directory name for Velox (string, default: 'build')
-- **Build target**: What to build - both/coordinator-only/prestissimo-only (choice, default: 'both')
+- **Build target**: Presto deployment variant - native-gpu/native-cpu/java-only (choice, default: 'native-gpu')
 - **Run Presto tests**: Whether to run Presto integration tests (boolean, default: true)
 
 ### Example Usage in GitHub Actions
@@ -92,22 +111,33 @@ When manually triggering the Presto test workflow, you can specify:
 - Velox commit: main
 - Presto commit: feature-branch
 - Velox build type: Debug
-- Build target: coordinator-only
+- Build target: native-gpu
 - Run Presto tests: ✅ (checked)
 
 # Results in script call:
-./build-and-test.sh --coordinator-only --run-tests
+./build-and-test.sh --build-target native-gpu --run-tests true --ccache-dir /workspace/ccache
 ```
 
 ### Workflow Process
 
-1. **Build Velox** - Uses standardized Velox build script (`velox-build.sh`) with cuDF support
+1. **Build Velox** - Uses composite action `.github/actions/build-velox` with cuDF support and ccache
 2. **Checkout Presto** - Downloads Presto source at specified commit  
-3. **Build Presto Components** - Builds selected components (`presto-build.sh`):
-   - **Coordinator** (Java): Compiles Presto coordinator with Velox connector using Maven
-   - **Prestissimo** (C++): Compiles Prestissimo C++ GPU worker using CMake, **reusing the Velox build from step 1**
-4. **Run Tests** - Executes Presto integration tests (if enabled)
+3. **Replace Velox Submodule** - Links the pre-built Velox to avoid rebuilding
+4. **Restore Presto Compiler Cache** - Restores ccache for Presto native builds
+5. **Build and Test Presto** - Uses `build-and-test.sh` with Docker Compose infrastructure:
+   - **Java-only**: Presto Java Coordinator + Java Workers
+   - **Native CPU**: Presto Java Coordinator + Native CPU Workers (with ccache)
+   - **Native GPU**: Presto Java Coordinator + Native GPU Workers (with ccache)
+6. **Health Check** - Verifies Presto server accessibility at http://localhost:8080
+7. **Run Tests** - Executes Presto integration tests (if enabled)
+8. **Stash Presto Compiler Cache** - Saves ccache for future runs
+9. **Cleanup** - Stops all Presto services
 
-**Note:** The workflow uses unique script names (`velox-build.sh` and `presto-build.sh`) to avoid filename collisions between the two build steps.
+### Performance Optimizations
 
-The workflow automatically constructs the appropriate command line arguments based on your inputs.
+- ✅ **Dual ccache Strategy** - Separate cache keys for Velox (`ccache-linux-adapters-gcc`) and Presto (`ccache-linux-presto-native-gcc`)
+- ✅ **Velox Build Reuse** - Presto workflow reuses pre-built Velox from step 1 (no rebuilding)
+- ✅ **Docker BuildKit** - Advanced container build caching for native components
+- ✅ **Persistent Caching** - Compiler caches persist across workflow runs
+
+The workflow automatically constructs the appropriate command line arguments based on your inputs and leverages the official Docker Compose testing infrastructure for reliable deployment.
