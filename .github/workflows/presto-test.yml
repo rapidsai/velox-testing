@@ -86,7 +86,7 @@ jobs:
           path: velox-testing
 
       - name: Build Velox with cuDF
-        uses: ./.github/actions/build-velox
+        uses: ./velox-testing/.github/actions/build-velox
         with:
           velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
           run_tests: false  # No tests needed for Presto workflow
@@ -95,6 +95,7 @@ jobs:
           build_dir: ${{ inputs.velox_build_dir || github.event.inputs.velox_build_dir || 'build' }}
           ccache_dir: ${{ env.CCACHE_DIR }}
 
+      
       - name: Checkout Presto
         uses: actions/checkout@v4
         with:
@@ -105,12 +106,12 @@ jobs:
       - name: Replace Velox submodule with built Velox
         run: |
           # Remove the existing Velox submodule directory
-          rm -rf presto/presto-native-execution/velox
+          rm -rf ${{ github.workspace }}/presto/presto-native-execution/velox
           
           # Create a symbolic link to the built Velox directory
-          ln -s "$(pwd)/velox" presto/presto-native-execution/velox
+          ln -s "${{ github.workspace }}/velox" ${{ github.workspace }}/presto/presto-native-execution/velox
           
-          echo "Replaced Velox submodule with built Velox from $(pwd)/velox"
+          echo "Replaced Velox submodule with built Velox from ${{ github.workspace }}/velox"
 
       - name: Restore Presto Compiler Cache
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
@@ -121,15 +122,15 @@ jobs:
       - name: Build and Test Presto with Velox Connector
         run: |
           # Copy and execute the Presto build and test script
-          cp velox-testing/ci/presto/build-and-test.sh velox-testing/presto/
-          chmod +x velox-testing/presto/build-and-test.sh
-          root_directory=$(pwd)
+          cp ${{ github.workspace }}/velox-testing/ci/presto/build-and-test.sh ${{ github.workspace }}/velox-testing/presto/
+          chmod +x ${{ github.workspace }}/velox-testing/presto/build-and-test.sh
+        
           # Execute with appropriate arguments
-          bash velox-testing/presto/build-and-test.sh \
+          cd ${{ github.workspace }}/velox-testing/presto
+          bash build-and-test.sh \
             --build-target "${{ inputs.build_target || github.event.inputs.build_target || 'native-gpu' }}" \
             --run-tests "${{ inputs.run_presto_tests || github.event.inputs.run_presto_tests || 'true' }}" \
             --ccache-dir "${{ env.CCACHE_DIR }}"
-          cd $root_directory
 
       - name: Stash Presto Compiler Cache
         if: always()
@@ -142,5 +143,5 @@ jobs:
         if: always()
         run: |
           echo "Stopping Presto services..."
-          cd velox-testing/presto/scripts
+          cd ${{ github.workspace }}/velox-testing/presto/scripts
           ./stop_presto.sh || echo "No services to stop or cleanup completed"

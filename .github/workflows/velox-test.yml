@@ -65,10 +65,10 @@ jobs:
       - name: Checkout this repository for CI scripts
         uses: actions/checkout@v4
         with:
-          path: velox-testing
+          path: ${{ github.workspace }}/velox-testing
 
       - name: Build and Test Velox with cuDF
-        uses: ./.github/actions/build-velox
+        uses: ./velox-testing/.github/actions/build-velox
         with:
           velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
           run_tests: ${{ inputs.run_tests || github.event.inputs.run_tests || 'false' }}

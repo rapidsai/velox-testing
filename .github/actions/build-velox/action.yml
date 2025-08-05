@@ -32,11 +32,11 @@ runs:
       with:
         repository: facebookincubator/velox
         ref: ${{ inputs.velox_commit }}
-        path: velox
+        path: ${{ github.workspace }}/velox
     
     - name: Build Docker Container
       shell: bash
-      run: docker compose -f velox/docker-compose.yml build adapters-cuda
+      run: docker compose -f ${{ github.workspace }}/velox/docker-compose.yml build adapters-cuda
     
     - name: Restore Compiler Cache
       uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
@@ -61,14 +61,14 @@ runs:
         echo "Build args: $BUILD_ARGS"
         
         # Copy CI script into velox directory and run inside container
-        cp velox-testing/ci/velox/build-and-test.sh velox/
-        chmod +x velox/build-and-test.sh
+        cp ${{ github.workspace }}/velox-testing/ci/velox/build-and-test.sh ${{ github.workspace }}/velox/
+        chmod +x ${{ github.workspace }}/velox/build-and-test.sh
         
         # Run the build script inside the Docker container with cache and build directory mounted
-        mkdir -p "velox/$BUILD_DIR"  # Ensure build directory exists on runner
-        docker compose -f velox/docker-compose.yml run --rm \
+        mkdir -p "${{ github.workspace }}/velox/$BUILD_DIR"  # Ensure build directory exists on runner
+        docker compose -f ${{ github.workspace }}/velox/docker-compose.yml run --rm \
           -v ${{ inputs.ccache_dir }}:/ccache \
-          -v "$(pwd)/velox/$BUILD_DIR:$CONTAINER_BUILD_DIR" \
+          -v "${{ github.workspace }}/velox/$BUILD_DIR:$CONTAINER_BUILD_DIR" \
           -e CCACHE_DIR=/ccache \
           -e NUM_THREADS=$(getconf _NPROCESSORS_CONF 2>/dev/null || echo 1) \
           adapters-cuda bash -c "./build-and-test.sh $BUILD_ARGS"

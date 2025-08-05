@@ -54,7 +54,7 @@ echo ""
 echo "Building and deploying Presto using Docker Compose infrastructure..."
 
 # Navigate to scripts directory as per README instructions
-cd velox-testing/presto/scripts
+cd scripts
 
 # Select and execute the appropriate start script based on build target
 case "$BUILD_TARGET" in
