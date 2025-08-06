@@ -1,13 +1,20 @@
+networks:
+  presto-network:
+    driver: bridge
+
 services:
   presto-coordinator:
     container_name: presto-coordinator
     image: prestodb/presto:latest
+    networks:
+      - presto-network
     ports:
       - 8080:8080
     volumes:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ./data:/opt/presto-server/data
 
   presto-native-worker-gpu:
     container_name: presto-native-worker-gpu
@@ -18,6 +25,8 @@ services:
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
     runtime: nvidia
+    networks:
+      - presto-network
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - GLOG_logtostderr=1
@@ -25,5 +34,20 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - presto_native_data:/data/presto
     depends_on:
       - presto-coordinator
+
+  presto-cli:
+    image: prestodb/presto:latest
+    container_name: presto-cli
+    networks:
+      - presto-network
+    volumes:
+      - ./queries:/queries
+    command: ["tail", "-f", "/dev/null"]  # Keep container running
+    depends_on:
+      - presto-coordinator
+
+volumes:
+  presto_native_data: {} # Defines a named volume for the Prestissimo worker's data

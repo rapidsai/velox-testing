@@ -1,20 +1,34 @@
+networks:
+  presto-network:
+    driver: bridge
+
 services:
   presto-coordinator:
     container_name: presto-coordinator
     image: prestodb/presto:latest
+    networks:
+      - presto-network
     ports:
       - 8080:8080
     volumes:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ./data:/opt/presto-server/data
 
   presto-java-worker:
     container_name: presto-java-worker
     image: prestodb/presto:latest
+    networks:
+      - presto-network
     volumes:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ./data:/opt/presto-server/data
+      - presto_native_data:/data/presto
     depends_on:
       - presto-coordinator
+
+volumes:
+  presto_native_data: {} # Defines a named volume for the Prestissimo worker's data
