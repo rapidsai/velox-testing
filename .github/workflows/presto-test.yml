@@ -120,6 +120,11 @@ jobs:
           
           echo "Replaced Velox submodule with built Velox from ${{ github.workspace }}/velox"
 
+      # This will create a 'velox' directory under /presto/presto-native-execution/
+      - name: Copy Velox to Presto Native Execution
+        run: |
+          cp -a "${{ github.workspace }}/velox" "${{ github.workspace }}/presto/presto-native-execution/"
+
       - name: Restore Presto Compiler Cache
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
