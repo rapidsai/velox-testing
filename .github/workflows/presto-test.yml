@@ -84,16 +84,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: velox-testing
-
-      - name: Build Velox with cuDF
-        uses: ./velox-testing/.github/actions/build-velox
+      
+      - name: Checkout Velox
+        uses: actions/checkout@v4
         with:
-          velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
-          run_tests: false  # No tests needed for Presto workflow
-          build_type: ${{ inputs.velox_build_type || github.event.inputs.velox_build_type || 'Release' }}
-          cuda_arch: ${{ inputs.velox_cuda_arch || github.event.inputs.velox_cuda_arch || 'native' }}
-          build_dir: ${{ inputs.velox_build_dir || github.event.inputs.velox_build_dir || 'build' }}
-          ccache_dir: ${{ env.CCACHE_DIR }}
+          repository: facebookincubator/velox
+          ref: ${{ inputs.velox_commit }}
+          path: ${{ github.workspace }}/velox
+
+      # - name: Build Velox with cuDF
+      #   uses: ./velox-testing/.github/actions/build-velox
+      #   with:
+      #     velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
+      #     run_tests: false  # No tests needed for Presto workflow
+      #     build_type: ${{ inputs.velox_build_type || github.event.inputs.velox_build_type || 'Release' }}
+      #     cuda_arch: ${{ inputs.velox_cuda_arch || github.event.inputs.velox_cuda_arch || 'native' }}
+      #     build_dir: ${{ inputs.velox_build_dir || github.event.inputs.velox_build_dir || 'build' }}
+      #     ccache_dir: ${{ env.CCACHE_DIR }}
 
       
       - name: Checkout Presto

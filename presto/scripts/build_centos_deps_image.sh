@@ -30,6 +30,8 @@ if [ "$SKIP_SUBMODULES" = "false" ]; then
 else
   echo "Skipping submodule pull as requested"
 fi
+echo "Listing contents of ./velox:"
+ls -l ./velox
 
 docker compose up centos-native-dependency # Build dependencies image if there is none present.
 docker compose down centos-native-dependency
