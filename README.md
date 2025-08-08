@@ -111,7 +111,7 @@ All scripts in the `presto/scripts/` directory support `--help` for detailed usa
 A comprehensive TPC-H benchmark script for automated benchmarking:
 
 **Features:**
-- **Data Generation**: Auto-generates TPC-H Parquet datasets using DuckDB
+- **Smart Data Generation**: Auto-generates TPC-H Parquet datasets using DuckDB, with intelligent caching to avoid regenerating existing data
 - **Table Registration**: Automatically registers external tables in Presto
 - **Query Execution**: Runs all 22 TPC-H queries with timing and statistics
 - **Flexible Configuration**: Supports different scale factors and query subsets
@@ -133,6 +133,7 @@ Options:
   -t, --timeout N       Query timeout in seconds (default: 30)
   -o, --output FILE     Output file for results (default: tpch_benchmark_results.json)
   -q, --queries LIST    Comma-separated list of specific queries to run (e.g., "1,3,5")
+  -f, --force          Force regeneration of TPC-H data (skip existence check)
   -h, --help           Show this help message
 
 Environment Variables:
@@ -143,9 +144,11 @@ Environment Variables:
 
 Examples:
   ./tpch_benchmark.sh generate -s 1                    # Generate SF1 data
+  ./tpch_benchmark.sh generate -s 10 --force           # Force regenerate SF10 data
   ./tpch_benchmark.sh register                         # Register tables
   ./tpch_benchmark.sh benchmark                        # Run benchmark
   ./tpch_benchmark.sh full -s 1                        # Complete workflow with SF1
+  ./tpch_benchmark.sh full -s 100 --force              # Complete workflow with SF100, force regenerate
   ./tpch_benchmark.sh clean                            # Clean up tables
 ```
 
