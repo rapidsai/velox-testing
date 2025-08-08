@@ -8,22 +8,32 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-
+      # Host mounts for TPCH Parquet data and file-metastore persistence
+      - ${TPCH_PARQUET_DIR:-./data/tpch}:/data/tpch:ro
+      - ${HIVE_METASTORE_DIR:-./data/hive-metastore}:/data/hive-metastore
   presto-native-worker-gpu:
     container_name: presto-native-worker-gpu
     image: presto-native-worker-gpu:latest
     build:
-      args:
-        - GPU=ON
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
+      args:
+        GPU: ON
+    # Use NVIDIA Container Toolkit runtime if available
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - RMM_LOGGING_LEVEL=ERROR
+      - RMM_POOL_SIZE=26G
+      - RMM_LOG_FILE=/tmp/rmm.log
       - GLOG_logtostderr=1
     volumes:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      # Same mounts on worker for consistency
+      - ${TPCH_PARQUET_DIR:-./data/tpch}:/data/tpch:ro
+      - ${HIVE_METASTORE_DIR:-./data/hive-metastore}:/data/hive-metastore
     depends_on:
       - presto-coordinator
