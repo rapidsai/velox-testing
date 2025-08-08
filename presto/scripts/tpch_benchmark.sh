@@ -151,8 +151,51 @@ run_sql_with_retries() {
     return 1
 }
 
+# Function to check if TPC-H data already exists
+check_tpch_data_exists() {
+    local target_dir="$1"
+    local required_tables=("customer" "lineitem" "nation" "orders" "part" "partsupp" "region" "supplier")
+    
+    # Check if target directory exists
+    if [[ ! -d "$target_dir" ]]; then
+        return 1
+    fi
+    
+    # Check if all required table directories exist and contain parquet files
+    for table in "${required_tables[@]}"; do
+        local table_dir="${target_dir}/${table}"
+        local parquet_file="${table_dir}/${table}.parquet"
+        
+        if [[ ! -d "$table_dir" ]] || [[ ! -f "$parquet_file" ]]; then
+            return 1
+        fi
+        
+        # Check if parquet file has reasonable size (at least 100 bytes for small tables like region/nation)
+        if [[ $(stat -c%s "$parquet_file" 2>/dev/null || echo 0) -lt 100 ]]; then
+            return 1
+        fi
+    done
+    
+    return 0
+}
+
 # Function to generate TPC-H data
 generate_tpch_data() {
+    echo "Checking for existing TPC-H SF=${TPCH_SF} data in ${TARGET_DIR}..."
+    
+    # Check if data already exists
+    if check_tpch_data_exists "${TARGET_DIR}"; then
+        if [[ "$FORCE_REGENERATE" == "true" ]]; then
+            echo "🔄 Force flag specified. Regenerating TPC-H SF=${TPCH_SF} data..."
+            rm -rf "${TARGET_DIR}"
+        else
+            echo "✅ TPC-H SF=${TPCH_SF} data already exists at ${TARGET_DIR}"
+            echo "   Skipping data generation to save time."
+            echo "   Use '--force' option to regenerate data if needed."
+            return 0
+        fi
+    fi
+    
     echo "Generating TPC-H SF=${TPCH_SF} Parquet into ${TARGET_DIR} using DuckDB..."
     
     mkdir -p "${TARGET_DIR}"
@@ -178,7 +221,18 @@ COPY region TO 'region/region.parquet' (FORMAT PARQUET);
 COPY (SELECT s_suppkey, s_name, s_address, s_nationkey, s_phone, CAST(s_acctbal AS DOUBLE) as s_acctbal, s_comment FROM supplier) TO 'supplier/supplier.parquet' (FORMAT PARQUET);
 SQL
     
-    echo "TPC-H Parquet generated at: ${TARGET_DIR}"
+    # Wait a moment for files to be fully written
+    sleep 2
+    
+    # Verify data was generated successfully
+    if check_tpch_data_exists "${TARGET_DIR}"; then
+        echo "✅ TPC-H Parquet generated successfully at: ${TARGET_DIR}"
+    else
+        echo "❌ Error: TPC-H data generation failed. Please check Docker and disk space."
+        echo "   Generated files:"
+        find "${TARGET_DIR}" -name "*.parquet" -exec ls -lh {} \; 2>/dev/null || echo "   No parquet files found"
+        exit 1
+    fi
 }
 
 # Function to register TPC-H tables
@@ -318,53 +372,34 @@ run_tpch_benchmark() {
                     error: $error
                 }')
             results+=("$error_result")
-            echo "Query $i failed or timed out - continuing with next query" >&2
+            echo "Query $i failed or timed out" >&2
         fi
     done
     
-    # Combine all results into final JSON
-    # Create a temporary file with the results array
-    local temp_results_file=$(mktemp)
-    printf '[' > "$temp_results_file"
-    local first=true
-    for result in "${results[@]}"; do
-        if [[ "$first" == "true" ]]; then
-            first=false
-        else
-            printf ',' >> "$temp_results_file"
-        fi
-        printf '%s' "$result" >> "$temp_results_file"
-    done
-    printf ']' >> "$temp_results_file"
+    # Combine all results into a single JSON array
+    local combined_results=$(printf '%s\n' "${results[@]}" | jq -s '.')
     
-    final_result=$(jq -n \
+    # Add metadata
+    local final_output=$(jq -n \
         --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --arg coordinator "$COORD" \
-        --arg catalog "$CATALOG" \
-        --arg schema "$SCHEMA" \
-        --arg user "$USER" \
-        --slurpfile results "$temp_results_file" \
+        --arg scale_factor "$TPCH_SF" \
+        --arg timeout "$GLOBAL_TIMEOUT" \
+        --argjson results "$combined_results" \
         '{
-            benchmark_info: {
-                timestamp: $timestamp,
-                coordinator: $coordinator,
-                catalog: $catalog,
-                schema: $schema,
-                user: $user,
-                total_queries: 22
-            },
-            results: $results[0]
+            timestamp: $timestamp,
+            scale_factor: ($scale_factor | tonumber),
+            timeout_seconds: ($timeout | tonumber),
+            results: $results
         }')
     
-    # Clean up temp file
-    rm -f "$temp_results_file"
+    # Write results to file
+    echo "$final_output" > "$OUTPUT_FILE"
     
-    # Write to output file
-    echo "$final_result" > "$OUTPUT_FILE"
+    echo "Benchmark completed. Results written to $OUTPUT_FILE"
     
-    echo "Benchmark completed. Results written to $OUTPUT_FILE" >&2
-    echo "Summary:" >&2
-    echo "$final_result" | jq -r '.results[] | "Query \(.query_number): \(.execution_time_seconds)s"' >&2
+    # Print summary
+    echo "Summary:"
+    echo "$final_output" | jq -r '.results[] | "Query \(.query_number): \(.execution_time_seconds)s"' | head -10
 }
 
 # Function to show usage
@@ -384,6 +419,7 @@ Options:
   -t, --timeout N       Query timeout in seconds (default: 30)
   -o, --output FILE     Output file for results (default: tpch_benchmark_results.json)
   -q, --queries LIST    Comma-separated list of specific queries to run (e.g., "1,3,5")
+  -f, --force          Force regeneration of TPC-H data (skip existence check)
   -h, --help           Show this help message
 
 Environment Variables:
@@ -394,9 +430,11 @@ Environment Variables:
 
 Examples:
   $0 generate -s 1                    # Generate SF1 data
+  $0 generate -s 10 --force           # Force regenerate SF10 data
   $0 register                         # Register tables
   $0 benchmark                        # Run benchmark
   $0 full -s 1                        # Complete workflow with SF1
+  $0 full -s 100 --force              # Complete workflow with SF100, force regenerate
   $0 clean                            # Clean up tables
 
 Memory Configuration:
@@ -411,6 +449,7 @@ EOF
 COMMAND=""
 GLOBAL_TIMEOUT=30   # Default global timeout (30 seconds for SF1)
 SPECIFIC_QUERIES=""  # For running specific queries
+FORCE_REGENERATE=false  # Force data regeneration
 while [[ $# -gt 0 ]]; do
     case $1 in
         generate|register|benchmark|full|clean)
@@ -433,6 +472,10 @@ while [[ $# -gt 0 ]]; do
         -q|--queries)
             SPECIFIC_QUERIES="$2"
             shift 2
+            ;;
+        -f|--force)
+            FORCE_REGENERATE=true
+            shift
             ;;
         -h|--help)
             show_usage
