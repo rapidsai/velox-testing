@@ -8,20 +8,23 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-
+      - ${TPCH_PARQUET_DIR:-./data/tpch}:/data/tpch:ro
+      - ${HIVE_METASTORE_DIR:-./data/hive-metastore}:/data/hive-metastore
   presto-native-worker-cpu:
     container_name: presto-native-worker-cpu
     image: presto-native-worker-cpu:latest
     build:
-      args:
-        - GPU=OFF
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
+      args:
+        GPU: OFF
     environment:
       - GLOG_logtostderr=1
     volumes:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ${TPCH_PARQUET_DIR:-./data/tpch}:/data/tpch:ro
+      - ${HIVE_METASTORE_DIR:-./data/hive-metastore}:/data/hive-metastore
     depends_on:
       - presto-coordinator
