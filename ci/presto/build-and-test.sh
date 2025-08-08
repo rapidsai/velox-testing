@@ -103,7 +103,7 @@ if [ "$RUN_TESTS" = "true" ]; then
     echo "Setting up Python virtual environment for tests..."
     
     # Create virtual environment
-    python -m venv test_venv
+    python3 -m venv test_venv
     
     # Activate virtual environment
     source test_venv/bin/activate
