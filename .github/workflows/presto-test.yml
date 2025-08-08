@@ -92,10 +92,6 @@ jobs:
           ref: ${{ inputs.velox_commit }}
           path: ${{ github.workspace }}/velox
 
-      # check whether python3 installed or not on the runner machine
-      - name: Check if Python 3 is installed
-        run: command -v python3
-
       - name: Build Velox with cuDF
         uses: ./velox-testing/.github/actions/build-velox
         with:
