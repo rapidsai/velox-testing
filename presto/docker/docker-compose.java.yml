@@ -8,7 +8,8 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-
+      - ${TPCH_PARQUET_DIR:-./data/tpch}:/data/tpch:ro
+      - ${HIVE_METASTORE_DIR:-./data/hive-metastore}:/data/hive-metastore
   presto-java-worker:
     container_name: presto-java-worker
     image: prestodb/presto:latest
@@ -16,5 +17,7 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ${TPCH_PARQUET_DIR:-./data/tpch}:/data/tpch:ro
+      - ${HIVE_METASTORE_DIR:-./data/hive-metastore}:/data/hive-metastore
     depends_on:
       - presto-coordinator
