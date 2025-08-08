@@ -118,6 +118,19 @@ jobs:
           
           echo "Replaced Velox submodule with built Velox from ${{ github.workspace }}/velox"
 
+      # Remove this step once the fix was landed on Presto's main branch
+      - name: Fix for install_adapters command not found
+        run: |
+          sed -i '/^RUN bash -c "mkdir build/,/rm -rf build"$/c\
+          RUN bash -c "mkdir build && \\\
+              (cd build && ../scripts/setup-centos.sh && \\\
+              source ../velox/scripts/setup-centos9.sh && \\\
+              source ../velox/scripts/setup-centos-adapters.sh && \\\
+              install_adapters && \\\
+              install_clang15 && \\\
+              install_cuda 12.8) && \\\
+              rm -rf build"' "${{ github.workspace }}/presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile"
+
       - name: Restore Presto Compiler Cache
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
