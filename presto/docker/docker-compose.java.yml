@@ -3,6 +3,7 @@ networks:
     driver: bridge
 
 services:
+
   presto-coordinator:
     container_name: presto-coordinator
     image: prestodb/presto:latest
@@ -14,7 +15,8 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-      - ./data:/opt/presto-server/data
+      - ./data:/opt/hive/data/warehouse/
+      - ./tmp:/opt/hive/data/tmp/
 
   presto-java-worker:
     container_name: presto-java-worker
@@ -25,7 +27,8 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
-      - ./data:/opt/presto-server/data
+      - ./data:/opt/hive/data/warehouse/
+      - ./tmp:/opt/hive/data/tmp/
       - presto_native_data:/data/presto
     depends_on:
       - presto-coordinator
