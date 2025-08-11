@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
       echo "  $0 -s 100               # Start with SF100 and run benchmark"
       echo "  $0 sf1                  # Start with SF1 and run benchmark"
       echo "  $0 --all-sf             # Load all scale factors and run benchmark"
-      echo "  $0 RUN_TPCH_BENCHMARK=true  # Start with SF1 and run benchmark"
+      echo "  RUN_TPCH_BENCHMARK=true $0  # Start with SF1 and run benchmark"
       exit 0
       ;;
     *)
@@ -115,16 +115,31 @@ if [[ "${RUN_TPCH_BENCHMARK:-false}" == "true" ]] || [[ "$SCALE_FACTOR_SPECIFIED
   echo "Waiting for Presto to be ready for TPC-H benchmark..."
   sleep 30
   
-  # Wait for Presto coordinator to be responsive
+  # Wait for Presto coordinator and worker to be responsive
   for i in {1..60}; do
+    coordinator_ready=false
+    worker_ready=false
+    
+    # Check coordinator
     if curl -sSf "http://localhost:8080/v1/info" > /dev/null; then
-      echo "Presto coordinator is ready. Starting TPC-H benchmark..."
+      coordinator_ready=true
+    fi
+    
+    # Check worker (look for "SERVER STARTED" in logs)
+    if docker logs presto-java-worker 2>&1 | grep -q "SERVER STARTED"; then
+      worker_ready=true
+    fi
+    
+    if [[ "$coordinator_ready" == "true" && "$worker_ready" == "true" ]]; then
+      echo "Presto coordinator and worker are ready. Starting TPC-H benchmark..."
       break
     fi
+    
     echo -n "."
     sleep 2
     if [[ $i -eq 60 ]]; then
-      echo "Presto coordinator not responding. Skipping benchmark."
+      echo "Presto coordinator or worker not responding. Skipping benchmark."
+      echo "Coordinator ready: $coordinator_ready, Worker ready: $worker_ready"
       exit 1
     fi
   done

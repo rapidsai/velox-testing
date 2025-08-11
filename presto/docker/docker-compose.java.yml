@@ -1,7 +1,9 @@
 services:
   presto-coordinator:
     container_name: presto-coordinator
-    image: prestodb/presto:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - 8080:8080
     volumes:
@@ -12,7 +14,9 @@ services:
       - ${HIVE_METASTORE_DIR:-./data/hive-metastore}:/data/hive-metastore
   presto-java-worker:
     container_name: presto-java-worker
-    image: prestodb/presto:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     volumes:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
