@@ -81,16 +81,55 @@ case "$BUILD_TARGET" in
 esac
 cd ..
 
-# Wait for services to be ready
+# Wait for Presto server to be ready with retry logic
 echo "Waiting for Presto server to be ready..."
-sleep 30
+MAX_SERVER_ATTEMPTS=15
+SERVER_SLEEP_INTERVAL=2
+server_attempt=1
+server_ready=0
 
-# Check if Presto server is accessible
-echo "Checking Presto server accessibility..."
-if curl -f http://localhost:8080/v1/info; then
-  echo "✅ Presto server is accessible"
-else
-  echo "⚠️  Warning: Presto server not accessible"
+while [ $server_attempt -le $MAX_SERVER_ATTEMPTS ]; do
+  echo "Attempt $server_attempt/$MAX_SERVER_ATTEMPTS: Checking Presto server accessibility..."
+  if curl -sf http://localhost:8080/v1/info > /dev/null 2>&1; then
+    echo "✅ Presto server is accessible after $server_attempt attempt(s)"
+    server_ready=1
+    break
+  else
+    echo "Server not ready yet. Retrying in $SERVER_SLEEP_INTERVAL seconds..."
+    sleep $SERVER_SLEEP_INTERVAL
+  fi
+  server_attempt=$((server_attempt + 1))
+done
+
+if [ $server_ready -ne 1 ]; then
+  echo "❌ Presto server not accessible after $MAX_SERVER_ATTEMPTS attempts. Exiting."
+  exit 1
+fi
+# Wait for at least one Presto worker to be active before proceeding
+MAX_ATTEMPTS=10
+SLEEP_BETWEEN_ATTEMPTS=10
+attempt=1
+worker_found=0
+
+echo "Waiting for at least one Presto worker to be active..."
+
+while [ $attempt -le $MAX_ATTEMPTS ]; do
+  # Query the Presto coordinator for the list of active workers
+  worker_count=$(curl -sf http://localhost:8080/v1/service | grep -c '"type":"worker"')
+  if [ "$worker_count" -gt 0 ]; then
+    echo "✅ Found $worker_count active Presto worker(s) after $attempt attempt(s)."
+    worker_found=1
+    break
+  else
+    echo "Attempt $attempt/$MAX_ATTEMPTS: No active Presto workers found yet. Retrying in $SLEEP_BETWEEN_ATTEMPTS seconds..."
+    sleep $SLEEP_BETWEEN_ATTEMPTS
+  fi
+  attempt=$((attempt + 1))
+done
+
+if [ $worker_found -ne 1 ]; then
+  echo "❌ No active Presto workers found after $MAX_ATTEMPTS attempts. Exiting."
+  exit 1
 fi
 
 # Run tests if enabled
