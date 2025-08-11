@@ -397,9 +397,22 @@ run_tpch_benchmark() {
     
     echo "Benchmark completed. Results written to $OUTPUT_FILE"
     
-    # Print summary
-    echo "Summary:"
-    echo "$final_output" | jq -r '.results[] | "Query \(.query_number): \(.execution_time_seconds)s"' | head -10
+    # Print summary with counts
+    local total_queries=$(echo "$final_output" | jq '.results | length')
+    local successful_queries=$(echo "$final_output" | jq '[.results[] | select(.execution_time_seconds > 0)] | length')
+    local failed_queries=$(echo "$final_output" | jq '[.results[] | select(.execution_time_seconds == 0)] | length')
+    
+    echo "Summary ($successful_queries successful, $failed_queries failed of $total_queries total):"
+    echo "$final_output" | jq -r '.results[] | 
+        if .execution_time_seconds > 0 then 
+            "✅ Query \(.query_number): \(.execution_time_seconds)s (\(.processed_rows | tonumber | . / 1000000 | floor * 100 / 100)M rows)"
+        else 
+            "❌ Query \(.query_number): FAILED"
+        end' | head -10
+    
+    if [[ $total_queries -gt 10 ]]; then
+        echo "... and $((total_queries - 10)) more queries (see $OUTPUT_FILE for full results)"
+    fi
 }
 
 # Function to show usage
