@@ -2,3 +2,4 @@
 .idea
 __pycache__/
 presto/docker/data
+presto/docker/data/
