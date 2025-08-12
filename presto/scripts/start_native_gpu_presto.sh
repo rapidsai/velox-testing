@@ -3,7 +3,7 @@
 set -e
 
 # Parse command line arguments
-CCACHE_DIR=""
+CCACHE_DIR="/ccache"
 NO_SUBMODULES=""
 
 while [[ $# -gt 0 ]]; do
@@ -27,18 +27,11 @@ done
 ./stop_presto.sh
 ./build_centos_deps_image.sh $NO_SUBMODULES
 
-# Build with ccache support if cache directory is provided
-if [ -n "$CCACHE_DIR" ]; then
-  echo "Building with ccache support (cache dir: $CCACHE_DIR)..."
-  DOCKER_BUILDKIT=1 docker compose -f ../docker/docker-compose.native-gpu.yml build \
-    --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) \
-    --build-arg CCACHE_DIR=/ccache \
-    --progress plain
-else
-  echo "Building without ccache..."
-  docker compose -f ../docker/docker-compose.native-gpu.yml build \
-    --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) \
-    --progress plain
-fi
+# Build with ccache support
+echo "Building with ccache support (cache dir: $CCACHE_DIR)..."
+DOCKER_BUILDKIT=1 docker compose -f ../docker/docker-compose.native-gpu.yml build \
+  --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) \
+  --build-arg CCACHE_DIR="$CCACHE_DIR" \
+  --progress plain
 
 docker compose -f ../docker/docker-compose.native-gpu.yml up -d
