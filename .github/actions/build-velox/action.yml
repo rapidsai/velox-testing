@@ -1,6 +1,10 @@
 name: 'Build Velox with cuDF'
 description: 'Build Velox library with cuDF support using Docker'
 inputs:
+  repository:
+    description: 'Velox repository to checkout'
+    required: false
+    default: 'facebookincubator/velox'
   velox_commit:
     description: 'Velox commit SHA or branch'
     required: true
@@ -30,7 +34,7 @@ runs:
     - name: Checkout Velox
       uses: actions/checkout@v4
       with:
-        repository: facebookincubator/velox
+        repository: ${{ inputs.repository }}
         ref: ${{ inputs.velox_commit }}
         path: ${{ github.workspace }}/velox
     
