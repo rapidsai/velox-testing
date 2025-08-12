@@ -1,22 +1,29 @@
 name: Velox Nightly Test
 
 on:
-  # schedule:
-  #   - cron: '0 5 * * *'  # daily at 05:00 UTC
-  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * *'  # daily at 05:00 UTC
 
 jobs:
   nightly:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Fetch latest Velox SHA
-        id: get_sha
-        run: |
-          LATEST=$(curl -s https://api.github.com/repos/facebookincubator/velox/commits/main \
-            | jq -r .sha)
-          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
+    runs-on: linux-amd64-gpu-l4-latest-1
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CCACHE_DIR: ${{ github.workspace }}/ccache
 
-      - name: Invoke Velox Test
-        uses: ./.github/workflows/velox-test.yml
+    steps:
+      - name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
         with:
-          velox_commit: ${{ steps.get_sha.outputs.latest }}
+          path: velox-testing
+
+      - name: Build and Test Velox with cuDF
+        uses: ./velox-testing/.github/actions/build-velox
+        with:
+          repository: 'facebookincubator/velox'
+          velox_commit: 'main'
+          run_tests: 'true'
+          build_type: 'Release'
+          cuda_arch: 'native'
+          build_dir: 'build'
+          ccache_dir: ${{ env.CCACHE_DIR }}
