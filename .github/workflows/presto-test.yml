@@ -81,12 +81,6 @@ jobs:
           
           echo "Replaced Velox submodule with Velox from ${{ github.workspace }}/velox"
 
-      # Remove this step once the fix was landed on Presto's main branch
-      - name: Fix for install_adapters command not found
-        run: |
-          cd "${{ github.workspace }}/presto/presto-native-execution"
-          patch -p1 < "${{ github.workspace }}/velox-testing/ci/patches/presto-centos-dependency-fix.patch"
-
       - name: Restore Presto Compiler Cache
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
