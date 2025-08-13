@@ -5,13 +5,13 @@ on:
     inputs:
       velox_commit:
         description: 'Velox commit SHA or branch'
-        required: true
+        required: false
         default: 'main'
       presto_commit:
         description: 'Presto commit SHA or branch'
-        required: true
-        default: 'main'
-      velox_build_type:
+        required: false
+        default: 'master'
+      build_type:
         description: 'Velox CMake build type'
         type: choice
         options:
@@ -20,22 +20,7 @@ on:
           - RelWithDebInfo
         required: false
         default: 'Release'
-      velox_cuda_arch:
-        description: 'Velox CUDA architecture (e.g., native, "75;80")'
-        type: string
-        required: false
-        default: 'native'
-      run_presto_tests:
-        description: 'Run Presto integration tests after build'
-        type: boolean
-        required: false
-        default: true
-      velox_build_dir:
-        description: 'Velox build directory name'
-        type: string
-        required: false
-        default: 'build'
-      build_target:
+      presto_variant:
         description: 'Presto deployment variant to build and test'
         type: choice
         options:
@@ -52,23 +37,11 @@ on:
       presto_commit:
         type: string
         required: true
-      velox_build_type:
+      build_type:
         type: string
         required: false
         default: 'Release'
-      velox_cuda_arch:
-        type: string
-        required: false
-        default: 'native'
-      run_presto_tests:
-        type: boolean
-        required: false
-        default: true
-      velox_build_dir:
-        type: string
-        required: false
-        default: 'build'
-      build_target:
+      presto_variant:
         type: string
         required: false
         default: 'native-gpu'
@@ -79,6 +52,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       CCACHE_DIR: ${{ github.workspace }}/ccache
+      NO_SUBMODULES: true
     steps:
       - name: Checkout this repository for CI scripts
         uses: actions/checkout@v4
@@ -91,16 +65,6 @@ jobs:
           repository: facebookincubator/velox
           ref: ${{ inputs.velox_commit }}
           path: ${{ github.workspace }}/velox
-
-      - name: Build Velox with cuDF
-        uses: ./velox-testing/.github/actions/build-velox
-        with:
-          velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
-          run_tests: false  # No tests needed for Presto workflow
-          build_type: ${{ inputs.velox_build_type || github.event.inputs.velox_build_type || 'Release' }}
-          cuda_arch: ${{ inputs.velox_cuda_arch || github.event.inputs.velox_cuda_arch || 'native' }}
-          build_dir: ${{ inputs.velox_build_dir || github.event.inputs.velox_build_dir || 'build' }}
-          ccache_dir: ${{ env.CCACHE_DIR }}
 
       - name: Checkout Presto
         uses: actions/checkout@v4
@@ -115,20 +79,13 @@ jobs:
           rm -rf ${{ github.workspace }}/presto/presto-native-execution/velox
           cp -a "${{ github.workspace }}/velox" "${{ github.workspace }}/presto/presto-native-execution/"
           
-          echo "Replaced Velox submodule with built Velox from ${{ github.workspace }}/velox"
+          echo "Replaced Velox submodule with Velox from ${{ github.workspace }}/velox"
 
       # Remove this step once the fix was landed on Presto's main branch
       - name: Fix for install_adapters command not found
         run: |
-          sed -i '/^RUN bash -c "mkdir build/,/rm -rf build"$/c\
-          RUN bash -c "mkdir build && \\\
-              (cd build && ../scripts/setup-centos.sh && \\\
-              source ../velox/scripts/setup-centos9.sh && \\\
-              source ../velox/scripts/setup-centos-adapters.sh && \\\
-              install_adapters && \\\
-              install_clang15 && \\\
-              install_cuda 12.8) && \\\
-              rm -rf build"' "${{ github.workspace }}/presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile"
+          cd "${{ github.workspace }}/presto/presto-native-execution"
+          patch -p1 < "${{ github.workspace }}/velox-testing/ci/patches/presto-centos-dependency-fix.patch"
 
       - name: Restore Presto Compiler Cache
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
@@ -145,8 +102,7 @@ jobs:
           # Execute with appropriate arguments
           cd ${{ github.workspace }}/velox-testing/presto
           bash build-and-test.sh \
-            --build-target "${{ inputs.build_target || github.event.inputs.build_target || 'native-gpu' }}" \
-            --run-tests "${{ inputs.run_presto_tests || github.event.inputs.run_presto_tests || 'true' }}" \
+            --build-target "${{ inputs.presto_variant || github.event.inputs.presto_variant || 'native-gpu' }}" \
             --ccache-dir "${{ env.CCACHE_DIR }}"
 
       - name: Stash Presto Compiler Cache
