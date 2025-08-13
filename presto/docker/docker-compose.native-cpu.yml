@@ -15,8 +15,8 @@ services:
     build:
       args:
         - GPU=OFF
-        - NUM_THREADS=${NUM_THREADS:-12}
-        - CCACHE_DIR=${CCACHE_DIR:-/ccache}
+        - NUM_THREADS=${NUM_THREADS}
+        - CCACHE_DIR=${CCACHE_DIR}
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
     environment:

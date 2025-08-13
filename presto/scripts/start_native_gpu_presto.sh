@@ -2,30 +2,13 @@
 
 set -e
 
-# Parse command line arguments
-CCACHE_DIR="/ccache"
-NO_SUBMODULES=""
-
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --ccache-dir)
-      CCACHE_DIR="$2"
-      shift 2
-      ;;
-    --no-submodules)
-      NO_SUBMODULES="--no-submodules"
-      shift
-      ;;
-    *)
-      echo "Unknown option: $1"
-      echo "Usage: $0 [--ccache-dir <path>] [--no-submodules]"
-      exit 1
-      ;;
-  esac
-done
+# Load common environment variables
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+setup_presto_env
 
 ./stop_presto.sh
-./build_centos_deps_image.sh $NO_SUBMODULES
+./build_centos_deps_image.sh
 
 # Build with ccache support
 echo "Building with ccache support (cache dir: $CCACHE_DIR)..."
