@@ -87,17 +87,24 @@ jobs:
           path: ${{ env.CCACHE_DIR }}
           key: ccache-linux-presto-native-gcc
 
-      - name: Build and Test Presto with Velox Connector
+      - name: Build Presto with Velox Connector
         run: |
           # Copy and execute the Presto build and test script
-          cp ${{ github.workspace }}/velox-testing/ci/presto/build-and-test.sh ${{ github.workspace }}/velox-testing/presto/
-          chmod +x ${{ github.workspace }}/velox-testing/presto/build-and-test.sh
+          cp ${{ github.workspace }}/velox-testing/ci/presto/build.sh ${{ github.workspace }}/velox-testing/presto/
+          chmod +x ${{ github.workspace }}/velox-testing/presto/build.sh
         
           # Execute with appropriate arguments
           cd ${{ github.workspace }}/velox-testing/presto
-          bash build-and-test.sh \
+          bash build.sh \
             --build-target "${{ inputs.presto_variant || github.event.inputs.presto_variant || 'native-gpu' }}" \
             --ccache-dir "${{ env.CCACHE_DIR }}"
+
+      - name: Test Presto with Velox Connector
+        run: |
+          cp ${{ github.workspace }}/velox-testing/ci/presto/test.sh ${{ github.workspace }}/velox-testing/presto
+          chmod +x ${{ github.workspace }}/velox-testing/presto/test.sh
+          cd ${{ github.workspace }}/velox-testing/presto
+          bash test.sh
 
       - name: Stash Presto Compiler Cache
         if: always()

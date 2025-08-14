@@ -4,7 +4,6 @@ set -e
 
 # Default values
 BUILD_TARGET="native-gpu"
-RUN_TESTS="true"
 CCACHE_DIR=""
 
 # Parse command line arguments
@@ -12,10 +11,6 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --build-target)
       BUILD_TARGET="$2"
-      shift 2
-      ;;
-    --run-tests)
-      RUN_TESTS="$2"
       shift 2
       ;;
     --ccache-dir)
@@ -64,19 +59,11 @@ case "$BUILD_TARGET" in
     ;;
   "native-cpu")
     echo "Starting Presto Java Coordinator + Native CPU Workers..."
-    if [ -n "$CCACHE_DIR" ]; then
-      ./start_native_cpu_presto.sh --ccache-dir "$CCACHE_DIR" --no-submodules
-    else
-      ./start_native_cpu_presto.sh --no-submodules
-    fi
+      CCACHE_DIR=${CCACHE_DIR} NO_SUBMODULES=true ./start_native_cpu_presto.sh
     ;;
   "native-gpu"|*)
     echo "Starting Presto Java Coordinator + Native GPU Workers..."
-    if [ -n "$CCACHE_DIR" ]; then
-      ./start_native_gpu_presto.sh --ccache-dir "$CCACHE_DIR" --no-submodules
-    else
-      ./start_native_gpu_presto.sh --no-submodules
-    fi
+      CCACHE_DIR=${CCACHE_DIR} NO_SUBMODULES=true ./start_native_gpu_presto.sh
     ;;
 esac
 cd ..
@@ -91,7 +78,7 @@ server_ready=0
 while [ $server_attempt -le $MAX_SERVER_ATTEMPTS ]; do
   echo "Attempt $server_attempt/$MAX_SERVER_ATTEMPTS: Checking Presto server accessibility..."
   if curl -sf http://localhost:8080/v1/info > /dev/null 2>&1; then
-    echo "✅ Presto server is accessible after $server_attempt attempt(s)"
+    echo "Presto server is accessible after $server_attempt attempt(s)"
     server_ready=1
     break
   else
@@ -102,7 +89,7 @@ while [ $server_attempt -le $MAX_SERVER_ATTEMPTS ]; do
 done
 
 if [ $server_ready -ne 1 ]; then
-  echo "❌ Presto server not accessible after $MAX_SERVER_ATTEMPTS attempts. Exiting."
+  echo "Presto server not accessible after $MAX_SERVER_ATTEMPTS attempts. Exiting."
   exit 1
 fi
 # Wait for at least one Presto worker to be active before proceeding
@@ -117,7 +104,7 @@ while [ $attempt -le $MAX_ATTEMPTS ]; do
   # Query the Presto coordinator for the list of active workers
   worker_count=$(curl -sf http://localhost:8080/v1/service | grep -c '"type":"worker"')
   if [ "$worker_count" -gt 0 ]; then
-    echo "✅ Found $worker_count active Presto worker(s) after $attempt attempt(s)."
+    echo "Found $worker_count active Presto worker(s) after $attempt attempt(s)."
     worker_found=1
     break
   else
@@ -128,56 +115,7 @@ while [ $attempt -le $MAX_ATTEMPTS ]; do
 done
 
 if [ $worker_found -ne 1 ]; then
-  echo "❌ No active Presto workers found after $MAX_ATTEMPTS attempts. Exiting."
+  echo "No active Presto workers found after $MAX_ATTEMPTS attempts. Exiting."
   exit 1
 fi
-
-# Run tests if enabled
-if [ "$RUN_TESTS" = "true" ]; then
-  echo ""
-  echo "Running Presto integration tests with pytest..."
-  
-  # Check if integration tests directory exists
-  if [ -d "testing" ]; then
-    echo "Setting up Python virtual environment for tests..."
-    
-    # Create virtual environment
-    python3 -m venv test_venv
-    
-    # Activate virtual environment
-    source test_venv/bin/activate
-    
-    echo "Installing Python test dependencies in virtual environment..."
-    # Install pytest and other requirements
-    pip install -r testing/requirements.txt
-    
-    echo "Running integration tests..."
-    # Run pytest with verbose output (discovers all test files automatically)
-    pytest testing -v
-    
-    # Store test result
-    test_result=$?
-    
-    # Deactivate virtual environment
-    deactivate
-    
-    # Clean up virtual environment
-    rm -rf test_venv
-    
-    # Check test results
-    if [ $test_result -eq 0 ]; then
-      echo "✅ Integration tests completed successfully"
-    else
-      echo "❌ Integration tests failed"
-      exit 1
-    fi
-  else
-    echo "⚠️  Testing directory not found at testing/"
-    echo "Skipping integration tests"
-  fi
-else
-  echo "Skipping tests as requested"
-fi
-
-echo ""
-echo "✅ Presto deployment and testing completed successfully!"
+echo "Presto deployment completed successfully!"
