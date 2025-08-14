@@ -27,6 +27,19 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Show Build Parameters
+      shell: bash
+      run: |
+        echo "=== Velox Build Parameters ==="
+        echo "Repository: ${{ inputs.repository }}"
+        echo "Velox Commit: ${{ inputs.velox_commit }}"
+        echo "Build Type: ${{ inputs.build_type }}"
+        echo "CUDA Architecture: ${{ inputs.cuda_arch }}"
+        echo "Build Directory: ${{ inputs.build_dir }}"
+        echo "CCACHE Directory: ${{ inputs.ccache_dir }}"
+        echo "Workspace: ${{ github.workspace }}"
+        echo "=============================="
+
     - name: Checkout Velox
       uses: actions/checkout@v4
       with:
