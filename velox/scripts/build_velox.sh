@@ -4,6 +4,7 @@ set -euo pipefail
 ALL_CUDA_ARCHS=false
 NO_CACHE=false
 PLAIN_OUTPUT=false
+BUILD_WITH_VELOX_ENABLE_CUDF="ON"
 
 print_help() {
   cat <<EOF
@@ -27,9 +28,6 @@ Examples:
 By default, the script builds for the default CUDA architecture, uses Docker cache, standard build output, and GPU support (CUDF enabled).
 EOF
 }
-
-# Default: GPU build (CUDF enabled)
-BUILD_WITH_VELOX_ENABLE_CUDF="ON"
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
