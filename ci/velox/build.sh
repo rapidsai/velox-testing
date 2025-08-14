@@ -62,9 +62,7 @@ print_info "CUDA architecture: $CUDA_ARCH"
 print_info "Configuring Git safe directory..."
 git config --global --add safe.directory .
 
-# Reset compiler cache statistics for clean measurement
-print_info "Resetting compiler cache statistics..."
-ccache -sz
+# Compiler cache statistics are handled by the GitHub Action workflow
 
 # Store source directory before changing directories
 SOURCE_DIR="$(pwd)"
@@ -98,10 +96,3 @@ else
 fi
 
 print_success "Velox build completed successfully!"
-
-
-# Report final compiler cache statistics
-print_info "Reporting compiler cache statistics..."
-ccache -vs
-
-print_success "Script completed successfully!"

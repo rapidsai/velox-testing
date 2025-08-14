@@ -56,6 +56,15 @@ runs:
       with:
         path: ${{ inputs.ccache_dir }}
         key: ccache-linux-adapters-gcc
+
+    - name: Reset Compiler Cache Statistics
+      shell: bash
+      run: |
+        echo "Resetting compiler cache statistics..."
+        docker compose -f ${{ github.workspace }}/velox/docker-compose.yml run --rm \
+          -v ${{ inputs.ccache_dir }}:/ccache \
+          -e CCACHE_DIR=/ccache \
+          adapters-cuda bash -c "ccache -sz"
         
     - name: Build Velox with cuDF
       shell: bash
@@ -82,6 +91,15 @@ runs:
           -e CCACHE_DIR=/ccache \
           -e NUM_THREADS=$(getconf _NPROCESSORS_CONF 2>/dev/null || echo 1) \
           adapters-cuda bash -c "./build.sh $BUILD_ARGS"
+
+    - name: Show Final Compiler Cache Statistics
+      shell: bash
+      run: |
+        echo "Reporting final compiler cache statistics..."
+        docker compose -f ${{ github.workspace }}/velox/docker-compose.yml run --rm \
+          -v ${{ inputs.ccache_dir }}:/ccache \
+          -e CCACHE_DIR=/ccache \
+          adapters-cuda bash -c "ccache -vs"
 
     - name: Stash Compiler Cache
       uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4

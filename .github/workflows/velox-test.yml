@@ -80,5 +80,13 @@ jobs:
 
       - name: Test Velox
         run: |
-          cd ${{ github.workspace }}/velox/${{ inputs.build_dir || github.event.inputs.build_dir || 'build' }}
-          ctest -R cudf -V --output-on-failure
+          BUILD_DIR="${{ inputs.build_dir || github.event.inputs.build_dir || 'build' }}"
+          CONTAINER_BUILD_DIR="/workspace/$BUILD_DIR"
+
+          echo "Running Velox tests inside Docker container..."
+          echo "Build directory: $BUILD_DIR"
+
+          # Run ctest inside the same Docker container environment
+          docker compose -f ${{ github.workspace }}/velox/docker-compose.yml run --rm \
+            -v "${{ github.workspace }}/velox/$BUILD_DIR:$CONTAINER_BUILD_DIR" \
+            adapters-cuda bash -c "cd $CONTAINER_BUILD_DIR && ctest -R cudf -V --output-on-failure"
