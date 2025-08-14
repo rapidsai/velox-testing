@@ -3,9 +3,14 @@ name: Velox Test
 on:
   workflow_dispatch:
     inputs:
+      repository:
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
       velox_commit:
         description: 'Velox commit SHA or branch'
-        required: true
+        required: false
         default: 'main'
       build_type:
         description: 'CMake build type'
@@ -29,9 +34,14 @@ on:
         
   workflow_call:
     inputs:
+      repository:
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
       velox_commit:
         type: string
-        required: true
+        required: false
+        default: 'main'
       build_type:
         type: string
         required: false
@@ -61,7 +71,8 @@ jobs:
       - name: Build Velox
         uses: ./velox-testing/.github/actions/build-velox
         with:
-          velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
+          repository: ${{ inputs.repository || github.event.inputs.repository || 'facebookincubator/velox' }}
+          velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit || 'main' }}
           build_type: ${{ inputs.build_type || github.event.inputs.build_type || 'Release' }}
           cuda_arch: ${{ inputs.cuda_arch || github.event.inputs.cuda_arch || 'native' }}
           build_dir: ${{ inputs.build_dir || github.event.inputs.build_dir || 'build' }}
@@ -69,5 +80,5 @@ jobs:
 
       - name: Test Velox
         run: |
-          cd ${{ inputs.build_dir || github.event.inputs.build_dir || 'build' }}
+          cd ${{ github.workspace }}/velox/${{ inputs.build_dir || github.event.inputs.build_dir || 'build' }}
           ctest -R cudf -V --output-on-failure
