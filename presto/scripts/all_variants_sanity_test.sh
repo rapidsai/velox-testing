@@ -31,7 +31,7 @@ source .venv/bin/activate
 
 pip install -r ../testing/integration_tests/requirements.txt
 
-startup_scripts=(start_java_presto.sh start_native_cpu_presto.sh start_native_gpu_presto.sh)
+startup_scripts=(deployment/start_java_presto.sh deployment/start_native_cpu_presto.sh deployment/start_native_gpu_presto.sh)
 for startup_script in ${startup_scripts[@]}; do
   ./$startup_script
   wait_for_worker_node_registration

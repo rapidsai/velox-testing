@@ -2,6 +2,10 @@
 
 set -e
 
+# Change to the script's directory to ensure correct relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 # Parse command line arguments for scale factor
 SCALE_FACTOR="1"  # Default to SF1
 SCALE_FACTOR_SPECIFIED="false"  # Track if scale factor was explicitly specified
@@ -78,51 +82,67 @@ fi
 
 echo "Starting Presto Native with TPC-H Scale Factor: ${SCALE_FACTOR}"
 
-./stop_presto.sh
-./build_centos_deps_image.sh
+../stop_presto.sh
+../build_centos_deps_image.sh
 
-COMPOSE_FILE=../docker/docker-compose.native-cpu.yml
-if [[ "${GPU:-OFF}" == "ON" ]]; then
-  COMPOSE_FILE=../docker/docker-compose.native-gpu.yml
+# Default to GPU mode for this script (can be overridden with GPU=OFF)
+COMPOSE_FILE=../../docker/docker-compose.native-gpu.yml
+if [[ "${GPU:-ON}" == "OFF" ]]; then
+  COMPOSE_FILE=../../docker/docker-compose.native-cpu.yml
 fi
 
-# If GPU compose selected, verify GPU is usable; else fall back to CPU
+# GPU validation - fail if GPU requirements not met (no CPU fallback)
 if [[ "${COMPOSE_FILE}" == *native-gpu* ]]; then
   if ! command -v nvidia-smi >/dev/null 2>&1; then
-    echo "No nvidia-smi detected. Falling back to CPU worker."
-    COMPOSE_FILE=../docker/docker-compose.native-cpu.yml
-    export GPU=OFF
-  else
-    CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '[:space:]')
-    MAJOR=${CAP%%.*}
-    if [[ -z "$MAJOR" || "$MAJOR" -lt 8 ]]; then
-      echo "GPU compute capability ${CAP:-unknown} is below RAPIDS minimum (8.0). Falling back to CPU worker."
-      COMPOSE_FILE=../docker/docker-compose.native-cpu.yml
-      export GPU=OFF
-    fi
-    # Surface full CUDA/NVIDIA diagnostics for debugging
-    echo "nvidia-smi:\n$(nvidia-smi || true)"
-    echo "CUDA Visible Devices: ${CUDA_VISIBLE_DEVICES:-all}"
-    if [[ "${GPU}" == "ON" ]] && ! nvidia-smi -L >/dev/null 2>&1; then
-      echo "No visible GPUs to container runtime. Falling back to CPU."
-      COMPOSE_FILE=../docker/docker-compose.native-cpu.yml
-      export GPU=OFF
-    fi
+    echo "❌ ERROR: GPU Presto requested but nvidia-smi not found."
+    echo "   Install NVIDIA drivers or use CPU variant instead:"
+    echo "   ./start_native_cpu_presto.sh"
+    exit 1
   fi
+  
+  CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '[:space:]')
+  MAJOR=${CAP%%.*}
+  MINOR=${CAP##*.}
+  
+  # Velox supports GPU compute capability 7.0+ (includes Tesla T4 with 7.5)
+  if [[ -z "$MAJOR" ]] || [[ "$MAJOR" -lt 7 ]] || [[ "$MAJOR" -eq 6 && "$MINOR" -lt 0 ]]; then
+    echo "❌ ERROR: GPU compute capability ${CAP:-unknown} is below Velox minimum (7.0)."
+    echo "   Supported GPUs: V100 (7.0), Tesla T4 (7.5), A100 (8.0), RTX 30/40 series"
+    echo "   Use CPU variant instead: ./start_native_cpu_presto.sh"
+    exit 1
+  fi
+  
+  # Display GPU diagnostics for verification
+  echo "🔍 GPU Environment Check:"
+  echo "nvidia-smi output:"
+  nvidia-smi || {
+    echo "❌ ERROR: nvidia-smi failed to execute properly."
+    exit 1
+  }
+  echo "CUDA Visible Devices: ${CUDA_VISIBLE_DEVICES:-all}"
+  
+  if [[ "${GPU}" == "ON" ]] && ! nvidia-smi -L >/dev/null 2>&1; then
+    echo "❌ ERROR: No visible GPUs available to container runtime."
+    echo "   Check Docker GPU runtime configuration."
+    echo "   Use CPU variant instead: ./start_native_cpu_presto.sh"
+    exit 1
+  fi
+  
+  echo "✅ GPU validation passed. Proceeding with GPU Presto deployment."
 fi
 
 # Auto-generate TPCH Parquet locally if TPCH_PARQUET_DIR not set or empty
 if [[ -z "${TPCH_PARQUET_DIR:-}" ]]; then
   if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
     echo "TPCH_PARQUET_DIR not set; generating all TPC-H Parquet scale factors (1, 10, 100)..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" generate -s 1
-    bash "$(dirname "$0")/tpch_benchmark.sh" generate -s 10
-    bash "$(dirname "$0")/tpch_benchmark.sh" generate -s 100
-    export TPCH_PARQUET_DIR="$(cd "$(dirname "$0")"/.. && pwd)/docker/data/tpch"
+    bash "../data/generate_tpch_data.sh" -s 1
+    bash "../data/generate_tpch_data.sh" -s 10
+    bash "../data/generate_tpch_data.sh" -s 100
+    export TPCH_PARQUET_DIR="$(cd ../.. && pwd)/docker/data/tpch"
   else
     echo "TPCH_PARQUET_DIR not set; generating local TPCH Parquet (SF=${SCALE_FACTOR})..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" generate -s "${SCALE_FACTOR}"
-    export TPCH_PARQUET_DIR="$(cd "$(dirname "$0")"/.. && pwd)/docker/data/tpch"
+    bash "../data/generate_tpch_data.sh" -s "${SCALE_FACTOR}"
+    export TPCH_PARQUET_DIR="$(cd ../.. && pwd)/docker/data/tpch"
   fi
 fi
 
@@ -136,39 +156,48 @@ docker compose -f ${COMPOSE_FILE} up -d
 if [[ -n "${TPCH_PARQUET_DIR}" ]]; then
   if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
     echo "Registering all TPC-H external Parquet tables (SF1, SF10, SF100) from ${TPCH_PARQUET_DIR}..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" register -s 1
-    bash "$(dirname "$0")/tpch_benchmark.sh" register -s 10
-    bash "$(dirname "$0")/tpch_benchmark.sh" register -s 100
+    bash "../data/register_tpch_tables.sh" -s 1
+    bash "../data/register_tpch_tables.sh" -s 10
+    bash "../data/register_tpch_tables.sh" -s 100
   else
     echo "Registering TPCH external Parquet tables from ${TPCH_PARQUET_DIR}..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" register
+    bash "../data/register_tpch_tables.sh"
   fi
 fi
 
-# If we attempted GPU and the worker crashed due to CUDA errors, fall back to CPU automatically.
+# Check GPU worker status after startup - fail if GPU worker crashes (no CPU fallback)
 if [[ "${COMPOSE_FILE}" == *native-gpu* ]]; then
-  sleep 2
+  sleep 3  # Give containers time to initialize
   GPU_STATUS=$(docker ps -a --filter name=presto-native-worker-gpu --format '{{.Status}}' | head -1 || true)
   GPU_LOGS=$(docker logs --tail 200 presto-native-worker-gpu 2>/dev/null || true)
+  
   if echo "$GPU_STATUS" | grep -qi 'exited'; then
-    echo "GPU worker exited (${GPU_STATUS}). Falling back to CPU..."
-    ./stop_presto.sh
-    COMPOSE_FILE=../docker/docker-compose.native-cpu.yml
-    GPU=OFF docker compose -f ${COMPOSE_FILE} build --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) --build-arg GPU=OFF --progress plain
-    docker compose -f ${COMPOSE_FILE} up -d
-    if [[ -n "${TPCH_PARQUET_DIR}" ]]; then
-      bash "$(dirname "$0")/tpch_benchmark.sh" register
-    fi
-  elif echo "$GPU_LOGS" | grep -qi 'cuda_error\|forward compatibility'; then
-    echo "Detected CUDA runtime error in GPU worker logs. Falling back to CPU..."
-    ./stop_presto.sh
-    COMPOSE_FILE=../docker/docker-compose.native-cpu.yml
-    GPU=OFF docker compose -f ${COMPOSE_FILE} build --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) --build-arg GPU=OFF --progress plain
-    docker compose -f ${COMPOSE_FILE} up -d
-    if [[ -n "${TPCH_PARQUET_DIR}" ]]; then
-      bash "$(dirname "$0")/tpch_benchmark.sh" register
-    fi
+    echo "❌ ERROR: GPU worker exited (${GPU_STATUS})."
+    echo "📋 GPU Worker Logs:"
+    echo "$GPU_LOGS"
+    echo ""
+    echo "🔧 Troubleshooting:"
+    echo "   - Check GPU driver compatibility"
+    echo "   - Verify Docker GPU runtime setup"
+    echo "   - Use CPU variant if GPU not available: ./start_native_cpu_presto.sh"
+    ../stop_presto.sh
+    exit 1
   fi
+  
+  if echo "$GPU_LOGS" | grep -qi 'cuda_error\|forward compatibility'; then
+    echo "❌ ERROR: CUDA runtime error detected in GPU worker logs."
+    echo "📋 GPU Worker Logs (last 200 lines):"
+    echo "$GPU_LOGS"
+    echo ""
+    echo "🔧 Troubleshooting:"
+    echo "   - Update NVIDIA drivers"
+    echo "   - Check CUDA/Docker compatibility"
+    echo "   - Use CPU variant if GPU issues persist: ./start_native_cpu_presto.sh"
+    ../stop_presto.sh
+    exit 1
+  fi
+  
+  echo "✅ GPU worker started successfully."
 fi
 
 # Wait for Presto to be ready and run TPC-H benchmark if requested
@@ -180,7 +209,7 @@ if [[ "${RUN_TPCH_BENCHMARK:-false}" == "true" ]] || [[ "$SCALE_FACTOR_SPECIFIED
   # Wait for Presto coordinator to be responsive
   for i in {1..60}; do
     if curl -sSf "http://localhost:8080/v1/info" > /dev/null; then
-      echo "Presto coordinator is ready. Starting TPC-H benchmark..."
+      echo "Presto coordinator is ready."
       break
     fi
     echo -n "."
@@ -191,16 +220,24 @@ if [[ "${RUN_TPCH_BENCHMARK:-false}" == "true" ]] || [[ "$SCALE_FACTOR_SPECIFIED
     fi
   done
   
+  # Wait 5 seconds with countdown before starting benchmark
+  echo "Waiting additional 5 seconds for Presto to fully initialize..."
+  for i in {5..1}; do
+    echo "Starting benchmark in ${i} seconds..."
+    sleep 1
+  done
+  echo "Starting TPC-H benchmark now!"
+  
   # Run the full TPC-H benchmark
   if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
     echo "Running TPC-H benchmark for all scale factors..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -s 1 -o "tpch_benchmark_results_sf1_$(date +%Y%m%d_%H%M%S).json"
-    bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -s 10 -o "tpch_benchmark_results_sf10_$(date +%Y%m%d_%H%M%S).json"
-    bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -s 100 -o "tpch_benchmark_results_sf100_$(date +%Y%m%d_%H%M%S).json"
+    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor 1 --output-format json
+    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor 10 --output-format json
+    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor 100 --output-format json
     echo "TPC-H benchmark completed for all scale factors. Results saved to tpch_benchmark_results_sf*_*.json"
   else
     echo "Running TPC-H benchmark..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -o "tpch_benchmark_results_$(date +%Y%m%d_%H%M%S).json"
+    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor ${SCALE_FACTOR} --output-format json
     echo "TPC-H benchmark completed. Results saved to tpch_benchmark_results_*.json"
   fi
 fi

@@ -1,0 +1,28 @@
+# TPC-H Benchmark Suite Dependencies
+# Core testing framework
+pytest>=7.0.0
+pytest-benchmark>=4.0.0
+pytest-xdist>=3.0.0  # Parallel test execution
+pytest-html>=3.0.0   # HTML reports
+
+# HTTP requests for Presto connectivity (prestodb not available)
+requests>=2.25.0
+
+# Data manipulation and analysis (optional)
+# pandas>=1.5.0
+# numpy>=1.21.0
+
+# Configuration and utilities
+pyyaml>=6.0
+click>=8.0.0
+rich>=12.0.0  # Better terminal output
+tabulate>=0.9.0  # Table formatting
+
+# Async support for concurrent queries
+aiohttp>=3.8.0
+asyncio-mqtt>=0.11.0  # Optional: for real-time monitoring
+
+# Development dependencies
+black>=22.0.0
+flake8>=5.0.0
+mypy>=0.990

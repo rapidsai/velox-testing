@@ -240,7 +240,7 @@ run_tpch_benchmark() {
     fi
     echo ""
     
-    local cmd="./tpch_benchmark.sh benchmark -s ${scale_factor} -t ${timeout}"
+    local cmd="python ../benchmarks/tpch/run_benchmark.py --scale-factor ${scale_factor} --timeout ${timeout}"
     if [[ -n "$specific_queries" ]]; then
         cmd="${cmd} -q '${specific_queries}'"
     fi

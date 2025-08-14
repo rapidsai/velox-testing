@@ -131,13 +131,13 @@ setup_tpch_data() {
     if [[ -z "${TPCH_PARQUET_DIR:-}" ]]; then
         if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
             echo "TPCH_PARQUET_DIR not set; generating all TPC-H Parquet scale factors (1, 10, 100)..."
-            bash "$(dirname "$0")/tpch_benchmark.sh" generate -s 1
-            bash "$(dirname "$0")/tpch_benchmark.sh" generate -s 10
-            bash "$(dirname "$0")/tpch_benchmark.sh" generate -s 100
+            bash "$(dirname "$0")/data/generate_tpch_data.sh" -s 1
+            bash "$(dirname "$0")/data/generate_tpch_data.sh" -s 10
+            bash "$(dirname "$0")/data/generate_tpch_data.sh" -s 100
             export TPCH_PARQUET_DIR="$(cd "$(dirname "$0")"/.. && pwd)/docker/data/tpch"
         else
             echo "TPCH_PARQUET_DIR not set; generating local TPCH Parquet (SF=${SCALE_FACTOR})..."
-            bash "$(dirname "$0")/tpch_benchmark.sh" generate -s "${SCALE_FACTOR}"
+            bash "$(dirname "$0")/data/generate_tpch_data.sh" -s "${SCALE_FACTOR}"
             export TPCH_PARQUET_DIR="$(cd "$(dirname "$0")"/.. && pwd)/docker/data/tpch"
         fi
     fi
@@ -149,12 +149,12 @@ register_tpch_tables() {
     if [[ -n "${TPCH_PARQUET_DIR}" ]]; then
         if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
             echo "Registering all TPC-H external Parquet tables (SF1, SF10, SF100) from ${TPCH_PARQUET_DIR}..."
-            bash "$(dirname "$0")/tpch_benchmark.sh" register -s 1
-            bash "$(dirname "$0")/tpch_benchmark.sh" register -s 10
-            bash "$(dirname "$0")/tpch_benchmark.sh" register -s 100
+            bash "$(dirname "$0")/data/register_tpch_tables.sh" -s 1
+            bash "$(dirname "$0")/data/register_tpch_tables.sh" -s 10
+            bash "$(dirname "$0")/data/register_tpch_tables.sh" -s 100
         else
             echo "Registering TPCH external Parquet tables from ${TPCH_PARQUET_DIR}..."
-            bash "$(dirname "$0")/tpch_benchmark.sh" register
+            bash "$(dirname "$0")/data/register_tpch_tables.sh"
         fi
     fi
 }
@@ -172,13 +172,13 @@ run_tpch_benchmark_if_requested() {
         # Run the full TPC-H benchmark
         if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
             echo "Running TPC-H benchmark for all scale factors..."
-            bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -s 1 -o "tpch_benchmark_results_sf1_$(date +%Y%m%d_%H%M%S).json"
-            bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -s 10 -o "tpch_benchmark_results_sf10_$(date +%Y%m%d_%H%M%S).json"
-            bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -s 100 -o "tpch_benchmark_results_sf100_$(date +%Y%m%d_%H%M%S).json"
+            python "$(dirname "$0")/../benchmarks/tpch/run_benchmark.py" --scale-factor 1 --output-format json
+            python "$(dirname "$0")/../benchmarks/tpch/run_benchmark.py" --scale-factor 10 --output-format json
+            python "$(dirname "$0")/../benchmarks/tpch/run_benchmark.py" --scale-factor 100 --output-format json
             echo "TPC-H benchmark completed for all scale factors. Results saved to tpch_benchmark_results_sf*_*.json"
         else
             echo "Running TPC-H benchmark..."
-            bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -o "tpch_benchmark_results_$(date +%Y%m%d_%H%M%S).json"
+            python "$(dirname "$0")/../benchmarks/tpch/run_benchmark.py" --scale-factor ${SCALE_FACTOR} --output-format json
             echo "TPC-H benchmark completed. Results saved to tpch_benchmark_results_*.json"
         fi
     fi

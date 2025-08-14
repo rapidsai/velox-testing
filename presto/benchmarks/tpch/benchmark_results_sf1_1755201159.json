@@ -1,0 +1,1873 @@
+{
+    "machine_info": {
+        "node": "s2029gp-tr-0141",
+        "processor": "x86_64",
+        "machine": "x86_64",
+        "python_compiler": "GCC 13.3.0",
+        "python_implementation": "CPython",
+        "python_implementation_version": "3.13.2",
+        "python_version": "3.13.2",
+        "python_build": [
+            "main",
+            "Feb 17 2025 14:10:22"
+        ],
+        "release": "5.15.0-133-generic",
+        "system": "Linux",
+        "cpu": {
+            "python_version": "3.13.2.final.0 (64 bit)",
+            "cpuinfo_version": [
+                9,
+                0,
+                0
+            ],
+            "cpuinfo_version_string": "9.0.0",
+            "arch": "X86_64",
+            "bits": 64,
+            "count": 32,
+            "arch_string_raw": "x86_64",
+            "vendor_id_raw": "GenuineIntel",
+            "brand_raw": "Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz",
+            "hz_advertised_friendly": "2.1000 GHz",
+            "hz_actual_friendly": "800.0000 MHz",
+            "hz_advertised": [
+                2100000000,
+                0
+            ],
+            "hz_actual": [
+                800000000,
+                0
+            ],
+            "stepping": 7,
+            "model": 85,
+            "family": 6,
+            "flags": [
+                "3dnowprefetch",
+                "abm",
+                "acpi",
+                "adx",
+                "aes",
+                "aperfmperf",
+                "apic",
+                "arat",
+                "arch_capabilities",
+                "arch_perfmon",
+                "art",
+                "avx",
+                "avx2",
+                "avx512_vnni",
+                "avx512bw",
+                "avx512cd",
+                "avx512dq",
+                "avx512f",
+                "avx512vl",
+                "avx512vnni",
+                "bmi1",
+                "bmi2",
+                "bts",
+                "cat_l3",
+                "cdp_l3",
+                "clflush",
+                "clflushopt",
+                "clwb",
+                "cmov",
+                "constant_tsc",
+                "cpuid",
+                "cpuid_fault",
+                "cqm",
+                "cqm_llc",
+                "cqm_mbm_local",
+                "cqm_mbm_total",
+                "cqm_occup_llc",
+                "cx16",
+                "cx8",
+                "dca",
+                "de",
+                "ds_cpl",
+                "dtes64",
+                "dtherm",
+                "dts",
+                "epb",
+                "ept",
+                "ept_ad",
+                "erms",
+                "est",
+                "f16c",
+                "flexpriority",
+                "flush_l1d",
+                "fma",
+                "fpu",
+                "fsgsbase",
+                "fxsr",
+                "ht",
+                "ibpb",
+                "ibrs",
+                "ibrs_enhanced",
+                "ida",
+                "intel_ppin",
+                "intel_pt",
+                "invpcid",
+                "invpcid_single",
+                "lahf_lm",
+                "lm",
+                "mba",
+                "mca",
+                "mce",
+                "md_clear",
+                "mmx",
+                "monitor",
+                "movbe",
+                "mpx",
+                "msr",
+                "mtrr",
+                "nonstop_tsc",
+                "nopl",
+                "nx",
+                "ospke",
+                "osxsave",
+                "pae",
+                "pat",
+                "pbe",
+                "pcid",
+                "pclmulqdq",
+                "pdcm",
+                "pdpe1gb",
+                "pebs",
+                "pge",
+                "pku",
+                "pln",
+                "pni",
+                "popcnt",
+                "pqe",
+                "pqm",
+                "pse",
+                "pse36",
+                "pts",
+                "rdrand",
+                "rdrnd",
+                "rdseed",
+                "rdt_a",
+                "rdtscp",
+                "rep_good",
+                "sdbg",
+                "sep",
+                "smap",
+                "smep",
+                "smx",
+                "ss",
+                "ssbd",
+                "sse",
+                "sse2",
+                "sse4_1",
+                "sse4_2",
+                "ssse3",
+                "stibp",
+                "syscall",
+                "tm",
+                "tm2",
+                "tpr_shadow",
+                "tsc",
+                "tsc_adjust",
+                "tsc_deadline_timer",
+                "tscdeadline",
+                "vme",
+                "vmx",
+                "vnmi",
+                "vpid",
+                "x2apic",
+                "xgetbv1",
+                "xsave",
+                "xsavec",
+                "xsaveopt",
+                "xsaves",
+                "xtopology",
+                "xtpr"
+            ],
+            "l3_cache_size": 11534336,
+            "l2_cache_size": 16777216,
+            "l1_data_cache_size": 524288,
+            "l1_instruction_cache_size": 524288,
+            "l2_cache_line_size": 256,
+            "l2_cache_associativity": 6
+        }
+    },
+    "commit_info": {
+        "id": "984edf403840da8f1d144f94a9dd04cde1f29d70",
+        "time": "2025-08-12T16:28:24Z",
+        "author_time": "2025-08-12T16:19:54Z",
+        "dirty": true,
+        "project": "velox-testing",
+        "branch": "pwilson-tpch-benchmark_v2"
+    },
+    "benchmarks": [
+        {
+            "group": null,
+            "name": "test_tpch_query[1]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[1]",
+            "params": {
+                "query_num": 1
+            },
+            "param": "1",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.0245733661577106,
+                "max": 1.1696938509121537,
+                "mean": 1.1019400811443727,
+                "stddev": 0.0730362602456961,
+                "rounds": 3,
+                "median": 1.1115530263632536,
+                "iqr": 0.10884036356583238,
+                "q1": 1.0463182812090963,
+                "q3": 1.1551586447749287,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.0245733661577106,
+                "hd15iqr": 1.1696938509121537,
+                "ops": 0.9074903591504657,
+                "total": 3.305820243433118,
+                "data": [
+                    1.1115530263632536,
+                    1.1696938509121537,
+                    1.0245733661577106
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[3]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[3]",
+            "params": {
+                "query_num": 3
+            },
+            "param": "3",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.10679563973099,
+                "max": 1.3289919532835484,
+                "mean": 1.1876006511350472,
+                "stddev": 0.12286506585972441,
+                "rounds": 3,
+                "median": 1.1270143603906035,
+                "iqr": 0.16664723516441882,
+                "q1": 1.1118503198958933,
+                "q3": 1.2784975550603122,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.10679563973099,
+                "hd15iqr": 1.3289919532835484,
+                "ops": 0.8420338933329581,
+                "total": 3.562801953405142,
+                "data": [
+                    1.3289919532835484,
+                    1.10679563973099,
+                    1.1270143603906035
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[4]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[4]",
+            "params": {
+                "query_num": 4
+            },
+            "param": "4",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.1325606787577271,
+                "max": 1.3928969176486135,
+                "mean": 1.2739514103159308,
+                "stddev": 0.1316114751374803,
+                "rounds": 3,
+                "median": 1.296396634541452,
+                "iqr": 0.19525217916816473,
+                "q1": 1.1735196677036583,
+                "q3": 1.368771846871823,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.1325606787577271,
+                "hd15iqr": 1.3928969176486135,
+                "ops": 0.7849592942889455,
+                "total": 3.8218542309477925,
+                "data": [
+                    1.296396634541452,
+                    1.3928969176486135,
+                    1.1325606787577271
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[5]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[5]",
+            "params": {
+                "query_num": 5
+            },
+            "param": "5",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.468580812215805,
+                "max": 1.647890598513186,
+                "mean": 1.5394146144390106,
+                "stddev": 0.09539759041180869,
+                "rounds": 3,
+                "median": 1.5017724325880408,
+                "iqr": 0.1344823397230357,
+                "q1": 1.476878717308864,
+                "q3": 1.6113610570318997,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.468580812215805,
+                "hd15iqr": 1.647890598513186,
+                "ops": 0.649597574701743,
+                "total": 4.618243843317032,
+                "data": [
+                    1.647890598513186,
+                    1.5017724325880408,
+                    1.468580812215805
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[6]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[6]",
+            "params": {
+                "query_num": 6
+            },
+            "param": "6",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.7572614280506968,
+                "max": 0.8926129061728716,
+                "mean": 0.8038773710529009,
+                "stddev": 0.07688010592857981,
+                "rounds": 3,
+                "median": 0.7617577789351344,
+                "iqr": 0.10151360859163105,
+                "q1": 0.7583855157718062,
+                "q3": 0.8598991243634373,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.7572614280506968,
+                "hd15iqr": 0.8926129061728716,
+                "ops": 1.2439708293943166,
+                "total": 2.411632113158703,
+                "data": [
+                    0.8926129061728716,
+                    0.7617577789351344,
+                    0.7572614280506968
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[7]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[7]",
+            "params": {
+                "query_num": 7
+            },
+            "param": "7",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.2173336949199438,
+                "max": 1.4304804997518659,
+                "mean": 1.346230321874221,
+                "stddev": 0.11337049512054992,
+                "rounds": 3,
+                "median": 1.3908767709508538,
+                "iqr": 0.15986010362394154,
+                "q1": 1.2607194639276713,
+                "q3": 1.4205795675516129,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.2173336949199438,
+                "hd15iqr": 1.4304804997518659,
+                "ops": 0.7428149431427161,
+                "total": 4.0386909656226635,
+                "data": [
+                    1.2173336949199438,
+                    1.4304804997518659,
+                    1.3908767709508538
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[8]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[8]",
+            "params": {
+                "query_num": 8
+            },
+            "param": "8",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.8316381108015776,
+                "max": 1.926356521435082,
+                "mean": 1.881709733357032,
+                "stddev": 0.04759165840843035,
+                "rounds": 3,
+                "median": 1.887134567834437,
+                "iqr": 0.07103880797512829,
+                "q1": 1.8455122250597924,
+                "q3": 1.9165510330349207,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.8316381108015776,
+                "hd15iqr": 1.926356521435082,
+                "ops": 0.5314315923827247,
+                "total": 5.645129200071096,
+                "data": [
+                    1.887134567834437,
+                    1.8316381108015776,
+                    1.926356521435082
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[9]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[9]",
+            "params": {
+                "query_num": 9
+            },
+            "param": "9",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 2.8045994453132153,
+                "max": 2.900473987683654,
+                "mean": 2.8627149934569993,
+                "stddev": 0.05107615817797004,
+                "rounds": 3,
+                "median": 2.8830715473741293,
+                "iqr": 0.07190590677782893,
+                "q1": 2.8242174708284438,
+                "q3": 2.8961233776062727,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 2.8045994453132153,
+                "hd15iqr": 2.900473987683654,
+                "ops": 0.3493187419235211,
+                "total": 8.588144980370998,
+                "data": [
+                    2.900473987683654,
+                    2.8830715473741293,
+                    2.8045994453132153
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[10]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[10]",
+            "params": {
+                "query_num": 10
+            },
+            "param": "10",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.2549264430999756,
+                "max": 1.4323816346004605,
+                "mean": 1.3144382045914729,
+                "stddev": 0.10214343425752749,
+                "rounds": 3,
+                "median": 1.2560065360739827,
+                "iqr": 0.1330913936253637,
+                "q1": 1.2551964663434774,
+                "q3": 1.388287859968841,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.2549264430999756,
+                "hd15iqr": 1.4323816346004605,
+                "ops": 0.7607812953906036,
+                "total": 3.943314613774419,
+                "data": [
+                    1.2549264430999756,
+                    1.2560065360739827,
+                    1.4323816346004605
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[12]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[12]",
+            "params": {
+                "query_num": 12
+            },
+            "param": "12",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.1297494024038315,
+                "max": 1.18484359793365,
+                "mean": 1.159603719599545,
+                "stddev": 0.027835451851462932,
+                "rounds": 3,
+                "median": 1.1642181584611535,
+                "iqr": 0.0413206466473639,
+                "q1": 1.138366591418162,
+                "q3": 1.179687238065526,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.1297494024038315,
+                "hd15iqr": 1.18484359793365,
+                "ops": 0.862363567051456,
+                "total": 3.478811158798635,
+                "data": [
+                    1.1297494024038315,
+                    1.18484359793365,
+                    1.1642181584611535
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[13]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[13]",
+            "params": {
+                "query_num": 13
+            },
+            "param": "13",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 2.887887455523014,
+                "max": 3.1238686284050345,
+                "mean": 2.9793122466653585,
+                "stddev": 0.126645185175929,
+                "rounds": 3,
+                "median": 2.926180656068027,
+                "iqr": 0.17698587966151536,
+                "q1": 2.8974607556592673,
+                "q3": 3.0744466353207827,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 2.887887455523014,
+                "hd15iqr": 3.1238686284050345,
+                "ops": 0.3356479338878513,
+                "total": 8.937936739996076,
+                "data": [
+                    2.887887455523014,
+                    2.926180656068027,
+                    3.1238686284050345
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[14]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[14]",
+            "params": {
+                "query_num": 14
+            },
+            "param": "14",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.7016484932973981,
+                "max": 0.7387969410046935,
+                "mean": 0.7183561769003669,
+                "stddev": 0.018853480031220456,
+                "rounds": 3,
+                "median": 0.7146230963990092,
+                "iqr": 0.027861335780471563,
+                "q1": 0.7048921440728009,
+                "q3": 0.7327534798532724,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.7016484932973981,
+                "hd15iqr": 0.7387969410046935,
+                "ops": 1.3920671000768687,
+                "total": 2.155068530701101,
+                "data": [
+                    0.7016484932973981,
+                    0.7146230963990092,
+                    0.7387969410046935
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[15]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[15]",
+            "params": {
+                "query_num": 15
+            },
+            "param": "15",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.8353348057717085,
+                "max": 0.9370541656389832,
+                "mean": 0.87651253460596,
+                "stddev": 0.053553035154178995,
+                "rounds": 3,
+                "median": 0.8571486324071884,
+                "iqr": 0.07628951990045607,
+                "q1": 0.8407882624305785,
+                "q3": 0.9170777823310345,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.8353348057717085,
+                "hd15iqr": 0.9370541656389832,
+                "ops": 1.1408849965272365,
+                "total": 2.62953760381788,
+                "data": [
+                    0.8571486324071884,
+                    0.9370541656389832,
+                    0.8353348057717085
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[16]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[16]",
+            "params": {
+                "query_num": 16
+            },
+            "param": "16",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.9504256248474121,
+                "max": 1.1139923185110092,
+                "mean": 1.0099583230912685,
+                "stddev": 0.09040901452157593,
+                "rounds": 3,
+                "median": 0.9654570259153843,
+                "iqr": 0.12267502024769783,
+                "q1": 0.9541834751144052,
+                "q3": 1.076858495362103,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.9504256248474121,
+                "hd15iqr": 1.1139923185110092,
+                "ops": 0.9901398672959214,
+                "total": 3.0298749692738056,
+                "data": [
+                    0.9654570259153843,
+                    0.9504256248474121,
+                    1.1139923185110092
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[17]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[17]",
+            "params": {
+                "query_num": 17
+            },
+            "param": "17",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.267580953426659,
+                "max": 1.4142417311668396,
+                "mean": 1.361431246002515,
+                "stddev": 0.08148954090016926,
+                "rounds": 3,
+                "median": 1.4024710534140468,
+                "iqr": 0.10999558330513537,
+                "q1": 1.301303478423506,
+                "q3": 1.4112990617286414,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.267580953426659,
+                "hd15iqr": 1.4142417311668396,
+                "ops": 0.7345211173434112,
+                "total": 4.0842937380075455,
+                "data": [
+                    1.4024710534140468,
+                    1.4142417311668396,
+                    1.267580953426659
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[18]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[18]",
+            "params": {
+                "query_num": 18
+            },
+            "param": "18",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.9333242578431964,
+                "max": 2.682452268898487,
+                "mean": 2.20484589257588,
+                "stddev": 0.4149112974770067,
+                "rounds": 3,
+                "median": 1.9987611509859562,
+                "iqr": 0.561846008291468,
+                "q1": 1.9496834811288863,
+                "q3": 2.5115294894203544,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.9333242578431964,
+                "hd15iqr": 2.682452268898487,
+                "ops": 0.45354643758422447,
+                "total": 6.61453767772764,
+                "data": [
+                    1.9987611509859562,
+                    1.9333242578431964,
+                    2.682452268898487
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[19]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[19]",
+            "params": {
+                "query_num": 19
+            },
+            "param": "19",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.9588430682197213,
+                "max": 1.1490708757191896,
+                "mean": 1.058483902985851,
+                "stddev": 0.095436544362185,
+                "rounds": 3,
+                "median": 1.067537765018642,
+                "iqr": 0.14267085562460124,
+                "q1": 0.9860167424194515,
+                "q3": 1.1286875980440527,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.9588430682197213,
+                "hd15iqr": 1.1490708757191896,
+                "ops": 0.944747480031699,
+                "total": 3.175451708957553,
+                "data": [
+                    1.067537765018642,
+                    1.1490708757191896,
+                    0.9588430682197213
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[20]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[20]",
+            "params": {
+                "query_num": 20
+            },
+            "param": "20",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.0460560508072376,
+                "max": 1.3066437570378184,
+                "mean": 1.146164410437147,
+                "stddev": 0.14039223700225323,
+                "rounds": 3,
+                "median": 1.0857934234663844,
+                "iqr": 0.1954407796729356,
+                "q1": 1.0559903939720243,
+                "q3": 1.25143117364496,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.0460560508072376,
+                "hd15iqr": 1.3066437570378184,
+                "ops": 0.8724751797332463,
+                "total": 3.4384932313114405,
+                "data": [
+                    1.3066437570378184,
+                    1.0460560508072376,
+                    1.0857934234663844
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[21]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[21]",
+            "params": {
+                "query_num": 21
+            },
+            "param": "21",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 9.704082431271672,
+                "max": 9.795882592909038,
+                "mean": 9.754808266026279,
+                "stddev": 0.046654915307091246,
+                "rounds": 3,
+                "median": 9.764459773898125,
+                "iqr": 0.06885012122802436,
+                "q1": 9.719176766928285,
+                "q3": 9.78802688815631,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 9.704082431271672,
+                "hd15iqr": 9.795882592909038,
+                "ops": 0.10251354744539334,
+                "total": 29.264424798078835,
+                "data": [
+                    9.764459773898125,
+                    9.795882592909038,
+                    9.704082431271672
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_tpch_query[22]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_tpch_query[22]",
+            "params": {
+                "query_num": 22
+            },
+            "param": "22",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.7942636040970683,
+                "max": 0.82657022587955,
+                "mean": 0.81224415730685,
+                "stddev": 0.01646043426587157,
+                "rounds": 3,
+                "median": 0.8158986419439316,
+                "iqr": 0.024229966336861253,
+                "q1": 0.7996723635587841,
+                "q3": 0.8239023298956454,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.7942636040970683,
+                "hd15iqr": 0.82657022587955,
+                "ops": 1.2311569015352357,
+                "total": 2.43673247192055,
+                "data": [
+                    0.8158986419439316,
+                    0.82657022587955,
+                    0.7942636040970683
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_all_queries_sequential",
+            "fullname": "test_tpch_queries.py::TestTPCHQueries::test_all_queries_sequential",
+            "params": null,
+            "param": null,
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 34.71642129402608,
+                "max": 34.71642129402608,
+                "mean": 34.71642129402608,
+                "stddev": 0,
+                "rounds": 1,
+                "median": 34.71642129402608,
+                "iqr": 0.0,
+                "q1": 34.71642129402608,
+                "q3": 34.71642129402608,
+                "iqr_outliers": 0,
+                "stddev_outliers": 0,
+                "outliers": "0;0",
+                "ld15iqr": 34.71642129402608,
+                "hd15iqr": 34.71642129402608,
+                "ops": 0.028804812325862565,
+                "total": 34.71642129402608,
+                "data": [
+                    34.71642129402608
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_simple_aggregation_queries[1]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_simple_aggregation_queries[1]",
+            "params": {
+                "query_num": 1
+            },
+            "param": "1",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.7734752874821424,
+                "max": 0.9199348390102386,
+                "mean": 0.869883724488318,
+                "stddev": 0.08351258030611117,
+                "rounds": 3,
+                "median": 0.9162410469725728,
+                "iqr": 0.10984466364607215,
+                "q1": 0.80916672735475,
+                "q3": 0.9190113910008222,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.7734752874821424,
+                "hd15iqr": 0.9199348390102386,
+                "ops": 1.1495789285955647,
+                "total": 2.609651173464954,
+                "data": [
+                    0.7734752874821424,
+                    0.9199348390102386,
+                    0.9162410469725728
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_simple_aggregation_queries[6]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_simple_aggregation_queries[6]",
+            "params": {
+                "query_num": 6
+            },
+            "param": "6",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.5806391965597868,
+                "max": 0.7034222679212689,
+                "mean": 0.6311574367185434,
+                "stddev": 0.06421531219082352,
+                "rounds": 3,
+                "median": 0.6094108456745744,
+                "iqr": 0.09208730352111161,
+                "q1": 0.5878321088384837,
+                "q3": 0.6799194123595953,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.5806391965597868,
+                "hd15iqr": 0.7034222679212689,
+                "ops": 1.584390742821806,
+                "total": 1.8934723101556301,
+                "data": [
+                    0.5806391965597868,
+                    0.7034222679212689,
+                    0.6094108456745744
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_simple_aggregation_queries[14]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_simple_aggregation_queries[14]",
+            "params": {
+                "query_num": 14
+            },
+            "param": "14",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.6568976677954197,
+                "max": 0.7633160464465618,
+                "mean": 0.7182282578820983,
+                "stddev": 0.05503716271440619,
+                "rounds": 3,
+                "median": 0.7344710594043136,
+                "iqr": 0.07981378398835659,
+                "q1": 0.6762910156976432,
+                "q3": 0.7561047996859998,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.6568976677954197,
+                "hd15iqr": 0.7633160464465618,
+                "ops": 1.3923150321999114,
+                "total": 2.154684773646295,
+                "data": [
+                    0.7344710594043136,
+                    0.6568976677954197,
+                    0.7633160464465618
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_complex_join_queries[9]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_complex_join_queries[9]",
+            "params": {
+                "query_num": 9
+            },
+            "param": "9",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 2.661348474211991,
+                "max": 2.661348474211991,
+                "mean": 2.661348474211991,
+                "stddev": 0,
+                "rounds": 1,
+                "median": 2.661348474211991,
+                "iqr": 0.0,
+                "q1": 2.661348474211991,
+                "q3": 2.661348474211991,
+                "iqr_outliers": 0,
+                "stddev_outliers": 0,
+                "outliers": "0;0",
+                "ld15iqr": 2.661348474211991,
+                "hd15iqr": 2.661348474211991,
+                "ops": 0.37574936528974995,
+                "total": 2.661348474211991,
+                "data": [
+                    2.661348474211991
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_complex_join_queries[17]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_complex_join_queries[17]",
+            "params": {
+                "query_num": 17
+            },
+            "param": "17",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.2667901832610369,
+                "max": 1.2667901832610369,
+                "mean": 1.2667901832610369,
+                "stddev": 0,
+                "rounds": 1,
+                "median": 1.2667901832610369,
+                "iqr": 0.0,
+                "q1": 1.2667901832610369,
+                "q3": 1.2667901832610369,
+                "iqr_outliers": 0,
+                "stddev_outliers": 0,
+                "outliers": "0;0",
+                "ld15iqr": 1.2667901832610369,
+                "hd15iqr": 1.2667901832610369,
+                "ops": 0.7893967076897835,
+                "total": 1.2667901832610369,
+                "data": [
+                    1.2667901832610369
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_complex_join_queries[18]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_complex_join_queries[18]",
+            "params": {
+                "query_num": 18
+            },
+            "param": "18",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.8370275655761361,
+                "max": 1.8370275655761361,
+                "mean": 1.8370275655761361,
+                "stddev": 0,
+                "rounds": 1,
+                "median": 1.8370275655761361,
+                "iqr": 0.0,
+                "q1": 1.8370275655761361,
+                "q3": 1.8370275655761361,
+                "iqr_outliers": 0,
+                "stddev_outliers": 0,
+                "outliers": "0;0",
+                "ld15iqr": 1.8370275655761361,
+                "hd15iqr": 1.8370275655761361,
+                "ops": 0.5443576453281885,
+                "total": 1.8370275655761361,
+                "data": [
+                    1.8370275655761361
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_complex_join_queries[21]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_complex_join_queries[21]",
+            "params": {
+                "query_num": 21
+            },
+            "param": "21",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 9.760256747715175,
+                "max": 9.760256747715175,
+                "mean": 9.760256747715175,
+                "stddev": 0,
+                "rounds": 1,
+                "median": 9.760256747715175,
+                "iqr": 0.0,
+                "q1": 9.760256747715175,
+                "q3": 9.760256747715175,
+                "iqr_outliers": 0,
+                "stddev_outliers": 0,
+                "outliers": "0;0",
+                "ld15iqr": 9.760256747715175,
+                "hd15iqr": 9.760256747715175,
+                "ops": 0.10245632116533152,
+                "total": 9.760256747715175,
+                "data": [
+                    9.760256747715175
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_subquery_queries[4]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_subquery_queries[4]",
+            "params": {
+                "query_num": 4
+            },
+            "param": "4",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.1500768521800637,
+                "max": 1.2429859759286046,
+                "mean": 1.199341787956655,
+                "stddev": 0.04670889554831027,
+                "rounds": 3,
+                "median": 1.2049625357612967,
+                "iqr": 0.06968184281140566,
+                "q1": 1.163798273075372,
+                "q3": 1.2334801158867776,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.1500768521800637,
+                "hd15iqr": 1.2429859759286046,
+                "ops": 0.8337906758870813,
+                "total": 3.598025363869965,
+                "data": [
+                    1.1500768521800637,
+                    1.2429859759286046,
+                    1.2049625357612967
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_subquery_queries[13]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_subquery_queries[13]",
+            "params": {
+                "query_num": 13
+            },
+            "param": "13",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 2.855747834779322,
+                "max": 3.0533874621614814,
+                "mean": 2.93821187193195,
+                "stddev": 0.10280024249225762,
+                "rounds": 3,
+                "median": 2.9055003188550472,
+                "iqr": 0.14822972053661942,
+                "q1": 2.8681859557982534,
+                "q3": 3.016415676334873,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 2.855747834779322,
+                "hd15iqr": 3.0533874621614814,
+                "ops": 0.340343053389977,
+                "total": 8.81463561579585,
+                "data": [
+                    2.9055003188550472,
+                    3.0533874621614814,
+                    2.855747834779322
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_subquery_queries[15]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_subquery_queries[15]",
+            "params": {
+                "query_num": 15
+            },
+            "param": "15",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.809917957521975,
+                "max": 0.8788934024050832,
+                "mean": 0.8455647649243474,
+                "stddev": 0.03454610590276214,
+                "rounds": 3,
+                "median": 0.847882934845984,
+                "iqr": 0.051731583662331104,
+                "q1": 0.8194092018529773,
+                "q3": 0.8711407855153084,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.809917957521975,
+                "hd15iqr": 0.8788934024050832,
+                "ops": 1.1826415213617254,
+                "total": 2.536694294773042,
+                "data": [
+                    0.8788934024050832,
+                    0.847882934845984,
+                    0.809917957521975
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_subquery_queries[16]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_subquery_queries[16]",
+            "params": {
+                "query_num": 16
+            },
+            "param": "16",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.83351662568748,
+                "max": 0.9706826265901327,
+                "mean": 0.8840204331402978,
+                "stddev": 0.07539363109267654,
+                "rounds": 3,
+                "median": 0.8478620471432805,
+                "iqr": 0.10287450067698956,
+                "q1": 0.8371029810514301,
+                "q3": 0.9399774817284197,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.83351662568748,
+                "hd15iqr": 0.9706826265901327,
+                "ops": 1.1311955725363825,
+                "total": 2.652061299420893,
+                "data": [
+                    0.83351662568748,
+                    0.8478620471432805,
+                    0.9706826265901327
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_subquery_queries[20]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_subquery_queries[20]",
+            "params": {
+                "query_num": 20
+            },
+            "param": "20",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.0354473618790507,
+                "max": 1.1172235365957022,
+                "mean": 1.0775637285163004,
+                "stddev": 0.040943396265859265,
+                "rounds": 3,
+                "median": 1.0800202870741487,
+                "iqr": 0.06133213103748858,
+                "q1": 1.0465905931778252,
+                "q3": 1.1079227242153138,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.0354473618790507,
+                "hd15iqr": 1.1172235365957022,
+                "ops": 0.9280193584252338,
+                "total": 3.2326911855489016,
+                "data": [
+                    1.0354473618790507,
+                    1.1172235365957022,
+                    1.0800202870741487
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_subquery_queries[22]",
+            "fullname": "test_tpch_queries.py::TestTPCHQueryGroups::test_subquery_queries[22]",
+            "params": {
+                "query_num": 22
+            },
+            "param": "22",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.6594027578830719,
+                "max": 0.8095860471948981,
+                "mean": 0.7392400450383624,
+                "stddev": 0.07554017782164411,
+                "rounds": 3,
+                "median": 0.748731330037117,
+                "iqr": 0.11263746698386967,
+                "q1": 0.6817349009215832,
+                "q3": 0.7943723679054528,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.6594027578830719,
+                "hd15iqr": 0.8095860471948981,
+                "ops": 1.352740570146069,
+                "total": 2.217720135115087,
+                "data": [
+                    0.6594027578830719,
+                    0.748731330037117,
+                    0.8095860471948981
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_performance_regression[1]",
+            "fullname": "test_tpch_queries.py::TestTPCHPerformanceRegression::test_performance_regression[1]",
+            "params": {
+                "query_num": 1
+            },
+            "param": "1",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.8867274457588792,
+                "max": 0.9663148410618305,
+                "mean": 0.932123522584637,
+                "stddev": 0.04095971594157302,
+                "rounds": 3,
+                "median": 0.9433282809332013,
+                "iqr": 0.0596905464772135,
+                "q1": 0.9008776545524597,
+                "q3": 0.9605682010296732,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.8867274457588792,
+                "hd15iqr": 0.9663148410618305,
+                "ops": 1.07281918734027,
+                "total": 2.796370567753911,
+                "data": [
+                    0.8867274457588792,
+                    0.9663148410618305,
+                    0.9433282809332013
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_performance_regression[3]",
+            "fullname": "test_tpch_queries.py::TestTPCHPerformanceRegression::test_performance_regression[3]",
+            "params": {
+                "query_num": 3
+            },
+            "param": "3",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.9810808002948761,
+                "max": 1.0663526710122824,
+                "mean": 1.0280822698647778,
+                "stddev": 0.04330123151550017,
+                "rounds": 3,
+                "median": 1.0368133382871747,
+                "iqr": 0.0639539030380547,
+                "q1": 0.9950139347929507,
+                "q3": 1.0589678378310055,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.9810808002948761,
+                "hd15iqr": 1.0663526710122824,
+                "ops": 0.97268480287237,
+                "total": 3.084246809594333,
+                "data": [
+                    1.0368133382871747,
+                    0.9810808002948761,
+                    1.0663526710122824
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_performance_regression[6]",
+            "fullname": "test_tpch_queries.py::TestTPCHPerformanceRegression::test_performance_regression[6]",
+            "params": {
+                "query_num": 6
+            },
+            "param": "6",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.5232261708006263,
+                "max": 0.9446598775684834,
+                "mean": 0.684138945924739,
+                "stddev": 0.22769042784876486,
+                "rounds": 3,
+                "median": 0.5845307894051075,
+                "iqr": 0.3160752800758928,
+                "q1": 0.5385523254517466,
+                "q3": 0.8546276055276394,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.5232261708006263,
+                "hd15iqr": 0.9446598775684834,
+                "ops": 1.4616913800285363,
+                "total": 2.052416837774217,
+                "data": [
+                    0.9446598775684834,
+                    0.5232261708006263,
+                    0.5845307894051075
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_performance_regression[10]",
+            "fullname": "test_tpch_queries.py::TestTPCHPerformanceRegression::test_performance_regression[10]",
+            "params": {
+                "query_num": 10
+            },
+            "param": "10",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.2635332196950912,
+                "max": 1.6107434863224626,
+                "mean": 1.3831052789464593,
+                "stddev": 0.1972243940052403,
+                "rounds": 3,
+                "median": 1.275039130821824,
+                "iqr": 0.2604076999705285,
+                "q1": 1.2664096974767745,
+                "q3": 1.526817397447303,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.2635332196950912,
+                "hd15iqr": 1.6107434863224626,
+                "ops": 0.7230107608017527,
+                "total": 4.149315836839378,
+                "data": [
+                    1.6107434863224626,
+                    1.2635332196950912,
+                    1.275039130821824
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_performance_regression[12]",
+            "fullname": "test_tpch_queries.py::TestTPCHPerformanceRegression::test_performance_regression[12]",
+            "params": {
+                "query_num": 12
+            },
+            "param": "12",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.051228616386652,
+                "max": 1.2295720372349024,
+                "mean": 1.1352182750900586,
+                "stddev": 0.08962229030811834,
+                "rounds": 3,
+                "median": 1.1248541716486216,
+                "iqr": 0.1337575656361878,
+                "q1": 1.0696350052021444,
+                "q3": 1.2033925708383322,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 1.051228616386652,
+                "hd15iqr": 1.2295720372349024,
+                "ops": 0.8808878626629477,
+                "total": 3.405654825270176,
+                "data": [
+                    1.2295720372349024,
+                    1.051228616386652,
+                    1.1248541716486216
+                ],
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_performance_regression[14]",
+            "fullname": "test_tpch_queries.py::TestTPCHPerformanceRegression::test_performance_regression[14]",
+            "params": {
+                "query_num": 14
+            },
+            "param": "14",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.6296349000185728,
+                "max": 0.72428057808429,
+                "mean": 0.678144110677143,
+                "stddev": 0.047367431079094066,
+                "rounds": 3,
+                "median": 0.680516853928566,
+                "iqr": 0.07098425854928792,
+                "q1": 0.6423553884960711,
+                "q3": 0.713339647045359,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.6296349000185728,
+                "hd15iqr": 0.72428057808429,
+                "ops": 1.474612820867052,
+                "total": 2.034432332031429,
+                "data": [
+                    0.6296349000185728,
+                    0.680516853928566,
+                    0.72428057808429
+                ],
+                "iterations": 1
+            }
+        }
+    ],
+    "datetime": "2025-08-14T19:57:11.147150+00:00",
+    "version": "5.1.0"
+}

@@ -1,0 +1,78 @@
+# TPC-H Benchmark Configuration
+# This file provides default settings that can be overridden by command line options
+
+# Presto Connection Settings
+coordinator: "localhost:8080"
+catalog: "hive"
+schema: "tpch_parquet"
+user: "tpch-benchmark"
+
+# Benchmark Execution Settings
+scale_factor: 1
+timeout: 300  # Query timeout in seconds
+warmup_rounds: 1  # Number of warmup executions before benchmarking
+benchmark_rounds: 3  # Number of benchmark executions for averaging
+
+# Query Selection
+# Specify which queries to run (empty list = all queries)
+selected_queries: []  # e.g., [1, 3, 6, 10] to run only specific queries
+
+# Performance Thresholds (optional - for regression testing)
+# Expected maximum execution times in seconds for SF1
+performance_thresholds:
+  query_01: 30
+  query_02: 60
+  query_03: 45
+  query_04: 40
+  query_05: 60
+  query_06: 25
+  query_07: 75
+  query_08: 60
+  query_09: 90
+  query_10: 50
+  query_11: 35
+  query_12: 45
+  query_13: 55
+  query_14: 30
+  query_15: 40
+  query_16: 35
+  query_17: 120
+  query_18: 90
+  query_19: 35
+  query_20: 75
+  query_21: 120
+  query_22: 40
+
+# Output Settings
+output:
+  # Results output format
+  formats: ["json", "csv", "html"]
+  
+  # Include detailed query plans and statistics
+  include_query_plans: false
+  include_detailed_stats: true
+  
+  # Comparison with previous runs
+  compare_with_baseline: false
+  baseline_file: "baseline_results.json"
+
+# Parallel Execution Settings
+parallel:
+  # Run queries in parallel (be careful with resource usage)
+  enabled: false
+  max_workers: 2
+
+# Advanced Settings
+advanced:
+  # Skip warmup for faster testing during development
+  skip_warmup: false
+  
+  # Continue on query failures
+  continue_on_failure: true
+  
+  # Memory usage monitoring
+  monitor_memory: false
+  
+  # JVM garbage collection monitoring (if enabled in Presto)
+  monitor_gc: false
+

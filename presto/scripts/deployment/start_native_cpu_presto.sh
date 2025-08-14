@@ -2,6 +2,10 @@
 
 set -e
 
+# Change to the script's directory to ensure correct relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 # Parse command line arguments for scale factor
 SCALE_FACTOR="1"  # Default to SF1
 SCALE_FACTOR_SPECIFIED="false"  # Track if scale factor was explicitly specified
@@ -58,7 +62,7 @@ while [[ $# -gt 0 ]]; do
       echo "  $0 -s 100               # Start with SF100 and run benchmark"
       echo "  $0 sf1                  # Start with SF1 and run benchmark"
       echo "  $0 --all-sf             # Load all scale factors and run benchmark"
-      echo "  RUN_TPCH_BENCHMARK=true $0  # Start with SF1 and run benchmark"
+      echo "  $0 RUN_TPCH_BENCHMARK=true  # Start with SF1 and run benchmark"
       exit 0
       ;;
     *)
@@ -75,37 +79,39 @@ if [[ ! "$SCALE_FACTOR" =~ ^(1|10|100)$ ]]; then
   exit 1
 fi
 
-echo "Starting Presto Java with TPC-H Scale Factor: ${SCALE_FACTOR}"
+echo "Starting Presto Native CPU with TPC-H Scale Factor: ${SCALE_FACTOR}"
 
-./stop_presto.sh
+../stop_presto.sh
+../build_centos_deps_image.sh
 
 # Auto-generate TPCH Parquet locally if TPCH_PARQUET_DIR not set or empty
 if [[ -z "${TPCH_PARQUET_DIR:-}" ]]; then
   if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
     echo "TPCH_PARQUET_DIR not set; generating all TPC-H Parquet scale factors (1, 10, 100)..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" generate -s 1
-    bash "$(dirname "$0")/tpch_benchmark.sh" generate -s 10
-    bash "$(dirname "$0")/tpch_benchmark.sh" generate -s 100
-    export TPCH_PARQUET_DIR="$(cd "$(dirname "$0")"/.. && pwd)/docker/data/tpch"
+    bash "../data/generate_tpch_data.sh" -s 1
+    bash "../data/generate_tpch_data.sh" -s 10
+    bash "../data/generate_tpch_data.sh" -s 100
+    export TPCH_PARQUET_DIR="$(cd ../.. && pwd)/docker/data/tpch"
   else
     echo "TPCH_PARQUET_DIR not set; generating local TPCH Parquet (SF=${SCALE_FACTOR})..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" generate -s "${SCALE_FACTOR}"
-    export TPCH_PARQUET_DIR="$(cd "$(dirname "$0")"/.. && pwd)/docker/data/tpch"
+    bash "../data/generate_tpch_data.sh" -s "${SCALE_FACTOR}"
+    export TPCH_PARQUET_DIR="$(cd ../.. && pwd)/docker/data/tpch"
   fi
 fi
 
-docker compose -f ../docker/docker-compose.java.yml up -d
+docker compose -f ../../docker/docker-compose.native-cpu.yml build --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) --progress plain
+docker compose -f ../../docker/docker-compose.native-cpu.yml up -d
 
 # If TPCH_PARQUET_DIR is provided, auto-register external TPCH tables in Hive
 if [[ -n "${TPCH_PARQUET_DIR}" ]]; then
   if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
     echo "Registering all TPC-H external Parquet tables (SF1, SF10, SF100) from ${TPCH_PARQUET_DIR}..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" register -s 1
-    bash "$(dirname "$0")/tpch_benchmark.sh" register -s 10
-    bash "$(dirname "$0")/tpch_benchmark.sh" register -s 100
+    bash "../data/register_tpch_tables.sh" -s 1
+    bash "../data/register_tpch_tables.sh" -s 10
+    bash "../data/register_tpch_tables.sh" -s 100
   else
     echo "Registering TPCH external Parquet tables from ${TPCH_PARQUET_DIR}..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" register
+    bash "../data/register_tpch_tables.sh"
   fi
 fi
 
@@ -115,45 +121,38 @@ if [[ "${RUN_TPCH_BENCHMARK:-false}" == "true" ]] || [[ "$SCALE_FACTOR_SPECIFIED
   echo "Waiting for Presto to be ready for TPC-H benchmark..."
   sleep 30
   
-  # Wait for Presto coordinator and worker to be responsive
+  # Wait for Presto coordinator to be responsive
   for i in {1..60}; do
-    coordinator_ready=false
-    worker_ready=false
-    
-    # Check coordinator
     if curl -sSf "http://localhost:8080/v1/info" > /dev/null; then
-      coordinator_ready=true
-    fi
-    
-    # Check worker (look for "SERVER STARTED" in logs)
-    if docker logs presto-java-worker 2>&1 | grep -q "SERVER STARTED"; then
-      worker_ready=true
-    fi
-    
-    if [[ "$coordinator_ready" == "true" && "$worker_ready" == "true" ]]; then
-      echo "Presto coordinator and worker are ready. Starting TPC-H benchmark..."
+      echo "Presto coordinator is ready."
       break
     fi
-    
     echo -n "."
     sleep 2
     if [[ $i -eq 60 ]]; then
-      echo "Presto coordinator or worker not responding. Skipping benchmark."
-      echo "Coordinator ready: $coordinator_ready, Worker ready: $worker_ready"
+      echo "Presto coordinator not responding. Skipping benchmark."
       exit 1
     fi
   done
   
+  # Wait 5 seconds with countdown before starting benchmark
+  echo "Waiting additional 5 seconds for Presto to fully initialize..."
+  for i in {5..1}; do
+    echo "Starting benchmark in ${i} seconds..."
+    sleep 1
+  done
+  echo "Starting TPC-H benchmark now!"
+  
   # Run the full TPC-H benchmark
   if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
     echo "Running TPC-H benchmark for all scale factors..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -s 1 -o "tpch_benchmark_results_sf1_$(date +%Y%m%d_%H%M%S).json"
-    bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -s 10 -o "tpch_benchmark_results_sf10_$(date +%Y%m%d_%H%M%S).json"
-    bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -s 100 -o "tpch_benchmark_results_sf100_$(date +%Y%m%d_%H%M%S).json"
+    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor 1 --output-format json
+    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor 10 --output-format json
+    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor 100 --output-format json
     echo "TPC-H benchmark completed for all scale factors. Results saved to tpch_benchmark_results_sf*_*.json"
   else
     echo "Running TPC-H benchmark..."
-    bash "$(dirname "$0")/tpch_benchmark.sh" benchmark -o "tpch_benchmark_results_$(date +%Y%m%d_%H%M%S).json"
+    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor ${SCALE_FACTOR} --output-format json
     echo "TPC-H benchmark completed. Results saved to tpch_benchmark_results_*.json"
   fi
 fi

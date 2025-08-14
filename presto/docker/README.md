@@ -30,7 +30,7 @@ docker-compose -f docker-compose.java.yml build
 
 ### 2. Start Presto Cluster
 ```bash
-cd /workspace/velox-testing/presto/scripts
+cd /workspace/velox-testing/presto/scripts/deployment
 ./start_java_presto.sh
 ```
 
