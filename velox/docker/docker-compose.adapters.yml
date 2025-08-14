@@ -1,20 +1,10 @@
 services:
-  velox-adapters:
-    container_name: velox-adapters
-    image: velox-adapters:latest
+  velox-adapters-build:
+    container_name: velox-adapters-build
+    image: velox-adapters-build:latest
     build:
       context: ../../..
       dockerfile: velox-testing/velox/docker/adapters_build.dockerfile
-      args:
-        USE_CLANG: "false"
-        NUM_THREADS: "8"
-        CUDA_VERSION: "12.8"
-        # Using all CUDA architectures is very slow; uncomment below only if you need a
-        # universal build.
-        # CUDA_ARCHITECTURES: "70;75;80;86;89;90;100;120"
-        CUDA_ARCHITECTURES: "70"
-        ENABLE_TESTS: "false"
-        BUILD_WITH_VELOX_ENABLE_CUDF: "ON"
     runtime: nvidia
     volumes:
       - ../../../velox:/workspace/velox
