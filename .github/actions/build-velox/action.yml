@@ -8,10 +8,6 @@ inputs:
   velox_commit:
     description: 'Velox commit SHA or branch'
     required: true
-  run_tests:
-    description: 'Run tests after build'
-    required: false
-    default: 'false'
   build_type:
     description: 'CMake build type'
     required: false
@@ -52,9 +48,6 @@ runs:
       shell: bash
       run: |
         BUILD_ARGS=""
-        if [ "${{ inputs.run_tests }}" = "true" ]; then
-          BUILD_ARGS="$BUILD_ARGS --run-tests"
-        fi
         BUILD_ARGS="$BUILD_ARGS --build-type ${{ inputs.build_type }}"
         BUILD_ARGS="$BUILD_ARGS --cuda-arch ${{ inputs.cuda_arch }}"
         BUILD_DIR="${{ inputs.build_dir }}"
@@ -65,8 +58,8 @@ runs:
         echo "Build args: $BUILD_ARGS"
         
         # Copy CI script into velox directory and run inside container
-        cp ${{ github.workspace }}/velox-testing/ci/velox/build-and-test.sh ${{ github.workspace }}/velox/
-        chmod +x ${{ github.workspace }}/velox/build-and-test.sh
+        cp ${{ github.workspace }}/velox-testing/ci/velox/build.sh ${{ github.workspace }}/velox/
+        chmod +x ${{ github.workspace }}/velox/build.sh
         
         # Run the build script inside the Docker container with cache and build directory mounted
         mkdir -p "${{ github.workspace }}/velox/$BUILD_DIR"  # Ensure build directory exists on runner
@@ -75,7 +68,7 @@ runs:
           -v "${{ github.workspace }}/velox/$BUILD_DIR:$CONTAINER_BUILD_DIR" \
           -e CCACHE_DIR=/ccache \
           -e NUM_THREADS=$(getconf _NPROCESSORS_CONF 2>/dev/null || echo 1) \
-          adapters-cuda bash -c "./build-and-test.sh $BUILD_ARGS"
+          adapters-cuda bash -c "./build.sh $BUILD_ARGS"
 
     - name: Stash Compiler Cache
       uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4

@@ -7,11 +7,6 @@ on:
         description: 'Velox commit SHA or branch'
         required: true
         default: 'main'
-      run_tests:
-        description: 'Run tests after build'
-        type: boolean
-        required: false
-        default: false
       build_type:
         description: 'CMake build type'
         type: choice
@@ -37,10 +32,6 @@ on:
       velox_commit:
         type: string
         required: true
-      run_tests:
-        type: boolean
-        required: false
-        default: false
       build_type:
         type: string
         required: false
@@ -67,12 +58,16 @@ jobs:
         with:
           path: velox-testing
 
-      - name: Build and Test Velox with cuDF
+      - name: Build Velox
         uses: ./velox-testing/.github/actions/build-velox
         with:
           velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
-          run_tests: ${{ inputs.run_tests || github.event.inputs.run_tests || 'false' }}
           build_type: ${{ inputs.build_type || github.event.inputs.build_type || 'Release' }}
           cuda_arch: ${{ inputs.cuda_arch || github.event.inputs.cuda_arch || 'native' }}
           build_dir: ${{ inputs.build_dir || github.event.inputs.build_dir || 'build' }}
           ccache_dir: ${{ env.CCACHE_DIR }}
+
+      - name: Test Velox
+        run: |
+          cd ${{ inputs.build_dir || github.event.inputs.build_dir || 'build' }}
+          ctest -R cudf -V --output-on-failure

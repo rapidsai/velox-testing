@@ -19,19 +19,12 @@ print_success() {
 }
 
 # Parse command line arguments
-RUN_TESTS=false
 BUILD_TYPE="Release"
 CUDA_ARCH="native"
-BUILD_TESTING="OFF"
 BUILD_DIR="build"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --run-tests)
-            RUN_TESTS=true
-            BUILD_TESTING="ON"
-            shift
-            ;;
         --build-type)
             BUILD_TYPE="$2"
             shift 2
@@ -47,7 +40,6 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
-            echo "  --run-tests      Build and run tests (default: false)"
             echo "  --build-type     CMAKE_BUILD_TYPE (default: Release)"
             echo "  --cuda-arch      CUDA architecture (default: native)"
             echo "  --build-dir      Build directory name (default: build)"
@@ -65,7 +57,6 @@ print_info "Starting Velox build with cuDF support..."
 print_info "Build directory: $BUILD_DIR"
 print_info "Build type: $BUILD_TYPE"
 print_info "CUDA architecture: $CUDA_ARCH"
-print_info "Build testing: $BUILD_TESTING"
 
 # Fix Git permissions for container environments
 print_info "Configuring Git safe directory..."
@@ -94,7 +85,7 @@ cmake -G Ninja \
     -DVELOX_ENABLE_CUDF=ON \
     -DVELOX_ENABLE_PARQUET=ON \
     -DVELOX_ENABLE_S3=ON \
-    -DVELOX_BUILD_TESTING="$BUILD_TESTING" \
+    -DVELOX_BUILD_TESTING=ON \
     "$SOURCE_DIR"
 
 # Build with Ninja
@@ -108,12 +99,6 @@ fi
 
 print_success "Velox build completed successfully!"
 
-# Run tests if requested
-if [ "$RUN_TESTS" = true ]; then
-    print_info "Running Velox test suite..."
-    ctest -R cudf -V --output-on-failure
-    print_success "All tests completed!"
-fi
 
 # Report final compiler cache statistics
 print_info "Reporting compiler cache statistics..."
