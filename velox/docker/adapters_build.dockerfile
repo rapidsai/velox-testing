@@ -7,7 +7,6 @@ ARG NUM_THREADS=8
 ARG CUDA_VERSION=12.8
 ARG CUDA_ARCHITECTURES=70
 ARG BUILD_WITH_VELOX_ENABLE_CUDF=ON
-ARG CCACHE_DIR=/velox_ccache
 
 # Environment mirroring upstream CI defaults
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -20,12 +19,38 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     CUDA_COMPILER=/usr/local/cuda-${CUDA_VERSION}/bin/nvcc \
     BUILD_WITH_VELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
-    CCACHE_DIR=${CCACHE_DIR}
+    CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-12/root/usr/bin" \
+    EXTRA_CMAKE_FLAG_BENCHMARKS="-DVELOX_ENABLE_BENCHMARKS=ON" \
+    EXTRA_CMAKE_FLAG_EXAMPLES="-DVELOX_ENABLE_EXAMPLES=ON" \
+    EXTRA_CMAKE_FLAG_ARROW="-DVELOX_ENABLE_ARROW=ON" \
+    EXTRA_CMAKE_FLAG_GEO="-DVELOX_ENABLE_GEO=ON" \
+    EXTRA_CMAKE_FLAG_PARQUET="-DVELOX_ENABLE_PARQUET=ON" \
+    EXTRA_CMAKE_FLAG_HDFS="-DVELOX_ENABLE_HDFS=ON" \
+    EXTRA_CMAKE_FLAG_S3="-DVELOX_ENABLE_S3=ON" \
+    EXTRA_CMAKE_FLAG_GCS="-DVELOX_ENABLE_GCS=ON" \
+    EXTRA_CMAKE_FLAG_ABFS="-DVELOX_ENABLE_ABFS=ON" \
+    EXTRA_CMAKE_FLAG_WAVE="-DVELOX_ENABLE_WAVE=ON" \
+    EXTRA_CMAKE_FLAG_MONO_LIBRARY="-DVELOX_MONO_LIBRARY=ON" \
+    EXTRA_CMAKE_FLAG_BUILD_SHARED="-DVELOX_BUILD_SHARED=ON" \
+    EXTRA_CMAKE_FLAG_CUDF="-DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF}" \
+    EXTRA_CMAKE_FLAG_FAISS="-DVELOX_ENABLE_FAISS=ON"
 
-COPY velox-testing/velox/docker/scripts/build_adapters.sh /build_adapters.sh
-RUN chmod +x /build_adapters.sh
+
+WORKDIR /workspace/velox
+
+# Print environment variables for debugging
+RUN printenv | sort
 
 RUN --mount=type=bind,source=velox,target=/workspace/velox,rw \
-    --mount=type=cache,target=/velox_ccache,id=velox-ccache,sharing=locked,rw \
     --mount=type=cache,target=/buildcache,sharing=locked,rw \
-   /bin/bash -c "/build_adapters.sh |& tee /workspace/adapters_build.log"
+    # Set up shell environment
+    set -euxo pipefail && \
+    # Zero ccache stats if available (uncomment when ccache is available)
+    #ccache -sz && \
+    # Build release into /buildcache
+    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="/buildcache" && \
+    # Show ccache stats (uncomment when ccache is available)
+    #ccache -s && \
+    # Copy release to /opt/velox-build/release
+    mkdir -p /opt/velox-build/release && \
+    cp -a "/buildcache/release/." "/opt/velox-build/release/"

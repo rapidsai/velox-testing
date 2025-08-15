@@ -5,6 +5,8 @@ ALL_CUDA_ARCHS=false
 NO_CACHE=false
 PLAIN_OUTPUT=false
 BUILD_WITH_VELOX_ENABLE_CUDF="ON"
+LOG_ENABLED=false
+LOGFILE="./build_velox.log"
 
 print_help() {
   cat <<EOF
@@ -16,6 +18,7 @@ Options:
   --all-cuda-archs   Build for all supported CUDA architectures (default: false).
   --no-cache         Build without using Docker cache (default: false).
   --plain            Use plain output for Docker build logs (default: false).
+  --log [LOGFILE]    Capture build process to log file, enables --plain, by default LOGFILE='./build_velox.log' (default: false).
   --cpu              Build for CPU only (disables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=OFF).
   --gpu              Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
   -h, --help         Show this help message and exit.
@@ -24,8 +27,10 @@ Examples:
   $(basename "$0") --all-cuda-archs --no-cache
   $(basename "$0") --plain
   $(basename "$0") --cpu
+  $(basename "$0") --log
+  $(basename "$0") --log mybuild.log --all-cuda-archs
 
-By default, the script builds for the default CUDA architecture, uses Docker cache, standard build output, and GPU support (CUDF enabled).
+By default, the script builds for the Volta (7.0) CUDA architecture, uses Docker cache, standard build output, and GPU support (CUDF enabled).
 EOF
 }
 
@@ -43,6 +48,16 @@ parse_args() {
       --plain)
         PLAIN_OUTPUT=true
         shift
+        ;;
+      --log)
+        LOG_ENABLED=true
+        PLAIN_OUTPUT=true
+        if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
+          LOGFILE="$2"
+          shift 2
+        else
+          shift
+        fi
         ;;
       --cpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="OFF"
@@ -65,16 +80,12 @@ parse_args() {
   done
 }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_FILE="${SCRIPT_DIR}/../docker/docker-compose.adapters.yml"
+COMPOSE_FILE="../docker/docker-compose.adapters.yml"
 
 parse_args "$@"
 
 # Validate repo layout using shared script
-source "${SCRIPT_DIR}/../../scripts/validate_layout.sh"
-validate_repo_layout velox 3
-
-"${SCRIPT_DIR}/stop_velox.sh" || true
+../../scripts/validate_directories_exist.sh "../../../velox"
 
 # Compose docker build command options
 DOCKER_BUILD_OPTS=(--pull)
@@ -89,15 +100,21 @@ if [[ "$ALL_CUDA_ARCHS" == true ]]; then
 fi
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_WITH_VELOX_ENABLE_CUDF="${BUILD_WITH_VELOX_ENABLE_CUDF}")
 
-docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
+if [[ "$LOG_ENABLED" == true ]]; then
+  echo "Logging build output to $LOGFILE"
+  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
+  BUILD_EXIT_CODE=${PIPESTATUS[0]}
+else
+  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
+  BUILD_EXIT_CODE=$?
+fi
 BUILD_EXIT_CODE=$?
 
 CONTAINER_NAME="velox-adapters-build"
 EXPECTED_OUTPUT_DIR="/opt/velox-build/release"
-BUILD_LOG="/workspace/adapters_build.log"
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
-  if docker run "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
+  if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
     echo "  Built velox-adapters. View logs with:"
     echo "    docker compose -f $COMPOSE_FILE logs -f ${CONTAINER_NAME}"
     echo ""
@@ -105,15 +122,12 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
     echo "    ${EXPECTED_OUTPUT_DIR}"
     echo ""
     echo "  To access the build output, you can run:"
-    echo "    docker run ${CONTAINER_NAME} ls ${EXPECTED_OUTPUT_DIR}"
-    echo ""
-    echo "  View build log with:"
-    echo "    docker run ${CONTAINER_NAME} cat ${BUILD_LOG}"
+    echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} ls ${EXPECTED_OUTPUT_DIR}"
     echo ""
   else
     echo "  ERROR: Build succeeded but ${EXPECTED_OUTPUT_DIR} not found in the container."
-    echo "  View build log with:"
-    echo "    docker run ${CONTAINER_NAME} cat ${BUILD_LOG}"
+    echo "  View logs with:"
+    echo "    docker compose -f $COMPOSE_FILE logs -f ${CONTAINER_NAME}"
     echo ""
   fi
 else
