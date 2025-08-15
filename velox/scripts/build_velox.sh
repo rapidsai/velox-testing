@@ -108,7 +108,6 @@ else
   docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
   BUILD_EXIT_CODE=$?
 fi
-BUILD_EXIT_CODE=$?
 
 CONTAINER_NAME="velox-adapters-build"
 EXPECTED_OUTPUT_DIR="/opt/velox-build/release"
