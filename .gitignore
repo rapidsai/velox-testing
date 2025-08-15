@@ -4,3 +4,5 @@ __pycache__/
 presto/docker/data
 presto/docker/data/
 presto/scripts/tpch_benchmark_results.json
+# Benchmark results files
+presto/benchmarks/tpch/benchmark_results_sf*.json
