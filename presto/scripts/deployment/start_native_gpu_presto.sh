@@ -6,64 +6,32 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Parse command line arguments for scale factor
-SCALE_FACTOR="1"  # Default to SF1
-SCALE_FACTOR_SPECIFIED="false"  # Track if scale factor was explicitly specified
-LOAD_ALL_SCALE_FACTORS="false"  # Track if all scale factors should be loaded
+# Parse command line arguments
+FORCE_REBUILD="false"
+
 while [[ $# -gt 0 ]]; do
   case $1 in
-    -s|--scale-factor)
-      SCALE_FACTOR="$2"
-      SCALE_FACTOR_SPECIFIED="true"
-      shift 2
-      ;;
-    --all-sf|--all-scale-factors)
-      LOAD_ALL_SCALE_FACTORS="true"
-      SCALE_FACTOR_SPECIFIED="true"
-      shift
-      ;;
-    sf1)
-      SCALE_FACTOR="1"
-      SCALE_FACTOR_SPECIFIED="true"
-      shift
-      ;;
-    sf10)
-      SCALE_FACTOR="10"
-      SCALE_FACTOR_SPECIFIED="true"
-      shift
-      ;;
-    sf100)
-      SCALE_FACTOR="100"
-      SCALE_FACTOR_SPECIFIED="true"
+    --force-rebuild)
+      FORCE_REBUILD="true"
       shift
       ;;
     -h|--help)
-      echo "Usage: $0 [OPTIONS] [SCALE_FACTOR]"
+      echo "Usage: $0 [OPTIONS]"
+      echo ""
+      echo "Start Presto Native GPU cluster"
       echo ""
       echo "Options:"
-      echo "  -s, --scale-factor SF    TPC-H scale factor (1, 10, 100)"
-      echo "  --all-sf, --all-scale-factors  Load all scale factors (1, 10, 100) simultaneously"
+      echo "  --force-rebuild         Force rebuild GPU image (bypasses protection)"
       echo "  -h, --help              Show this help message"
       echo ""
-      echo "Scale Factor Shortcuts:"
-      echo "  sf1                     Use scale factor 1 (default)"
-      echo "  sf10                    Use scale factor 10"
-      echo "  sf100                   Use scale factor 100"
-      echo ""
       echo "Environment Variables:"
-      echo "  GPU=ON/OFF              Force GPU or CPU mode"
-      echo "  RUN_TPCH_BENCHMARK=true Run TPC-H benchmark after startup"
+      echo "  GPU=ON/OFF              Force GPU or CPU mode (default: ON)"
       echo "  TPCH_PARQUET_DIR=path   Use existing TPC-H data directory"
       echo ""
-      echo "Note: Specifying a scale factor will automatically run the TPC-H benchmark"
-      echo ""
       echo "Examples:"
-      echo "  $0                      # Start with SF1 (default), no benchmark"
-      echo "  $0 sf10                 # Start with SF10 and run benchmark"
-      echo "  $0 -s 100               # Start with SF100 and run benchmark"
-      echo "  $0 sf1                  # Start with SF1 and run benchmark"
-      echo "  $0 --all-sf             # Load all scale factors and run benchmark"
-      echo "  $0 RUN_TPCH_BENCHMARK=true  # Start with SF1 and run benchmark"
+      echo "  $0                      # Start Presto GPU cluster"
+      echo "  $0 --force-rebuild      # Force rebuild GPU image and start"
+      echo "  GPU=OFF $0              # Start CPU cluster instead"
       exit 0
       ;;
     *)
@@ -74,13 +42,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Validate scale factor
-if [[ ! "$SCALE_FACTOR" =~ ^(1|10|100)$ ]]; then
-  echo "Error: Scale factor must be 1, 10, or 100"
-  exit 1
-fi
-
-echo "Starting Presto Native with TPC-H Scale Factor: ${SCALE_FACTOR}"
+echo "Starting Presto Native GPU cluster..."
 
 ../stop_presto.sh
 ../build_centos_deps_image.sh
@@ -133,36 +95,54 @@ fi
 
 # Auto-generate TPCH Parquet locally if TPCH_PARQUET_DIR not set or empty
 if [[ -z "${TPCH_PARQUET_DIR:-}" ]]; then
-  if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
-    echo "TPCH_PARQUET_DIR not set; generating all TPC-H Parquet scale factors (1, 10, 100)..."
-    bash "../data/generate_tpch_data.sh" -s 1
-    bash "../data/generate_tpch_data.sh" -s 10
-    bash "../data/generate_tpch_data.sh" -s 100
-    export TPCH_PARQUET_DIR="$(cd ../.. && pwd)/docker/data/tpch"
-  else
-    echo "TPCH_PARQUET_DIR not set; generating local TPCH Parquet (SF=${SCALE_FACTOR})..."
-    bash "../data/generate_tpch_data.sh" -s "${SCALE_FACTOR}"
-    export TPCH_PARQUET_DIR="$(cd ../.. && pwd)/docker/data/tpch"
-  fi
+  echo "TPCH_PARQUET_DIR not set; generating local TPC-H Parquet data (SF=1)..."
+  bash "../data/generate_tpch_data.sh" -s 1
+  export TPCH_PARQUET_DIR="$(cd ../.. && pwd)/docker/data/tpch"
 fi
 
-docker compose -f ${COMPOSE_FILE} build \
-  --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) \
-  --build-arg GPU=${GPU:-OFF} \
-  --progress plain
+# GPU Image Protection: Check if we have a valid GPU image before rebuilding
+if [[ "${COMPOSE_FILE}" == *native-gpu* ]]; then
+  CURRENT_GPU_IMAGE=$(docker images presto-native-worker-gpu:latest --format "{{.ID}} {{.Size}}" 2>/dev/null || echo "none none")
+  CURRENT_ID=$(echo "$CURRENT_GPU_IMAGE" | cut -d' ' -f1)
+  CURRENT_SIZE=$(echo "$CURRENT_GPU_IMAGE" | cut -d' ' -f2)
+  
+  # Check if current image is a valid GPU image (>12GB size indicates GPU build)
+  if [[ "$CURRENT_ID" != "none" ]] && [[ "$CURRENT_SIZE" == *"13"* ]] && [[ "$CURRENT_SIZE" == *"GB"* ]] && [[ "$FORCE_REBUILD" != "true" ]]; then
+    echo "🔒 Existing GPU image detected ($CURRENT_ID, $CURRENT_SIZE)"
+    echo "⚠️  Skipping rebuild to preserve GPU image. To force rebuild:"
+    echo "   1. Use: $0 --force-rebuild sf1"
+    echo "   2. Or manually: docker rmi presto-native-worker-gpu:latest"
+    echo "   3. Then re-run this script"
+    
+    # Skip build, go directly to compose up
+    echo "📦 Using existing GPU image..."
+  else
+    if [[ "$FORCE_REBUILD" == "true" ]]; then
+      echo "🔨 Force rebuild requested, rebuilding GPU image..."
+      echo "   Current image: $CURRENT_GPU_IMAGE"
+    else
+      echo "🔨 No valid GPU image found, proceeding with build..."
+      echo "   Current image: $CURRENT_GPU_IMAGE"
+    fi
+    docker compose -f ${COMPOSE_FILE} build \
+      --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) \
+      --build-arg GPU=${GPU:-OFF} \
+      --progress plain
+  fi
+else
+  # CPU mode - always rebuild
+  docker compose -f ${COMPOSE_FILE} build \
+    --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) \
+    --build-arg GPU=${GPU:-OFF} \
+    --progress plain
+fi
+
 docker compose -f ${COMPOSE_FILE} up -d
 
 # If TPCH_PARQUET_DIR is provided, auto-register external TPCH tables in Hive
 if [[ -n "${TPCH_PARQUET_DIR}" ]]; then
-  if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
-    echo "Registering all TPC-H external Parquet tables (SF1, SF10, SF100) from ${TPCH_PARQUET_DIR}..."
-    bash "../data/register_tpch_tables.sh" -s 1
-    bash "../data/register_tpch_tables.sh" -s 10
-    bash "../data/register_tpch_tables.sh" -s 100
-  else
-    echo "Registering TPCH external Parquet tables from ${TPCH_PARQUET_DIR}..."
-    bash "../data/register_tpch_tables.sh"
-  fi
+  echo "Registering TPC-H external Parquet tables from ${TPCH_PARQUET_DIR}..."
+  bash "../data/register_tpch_tables.sh"
 fi
 
 # Check GPU worker status after startup - fail if GPU worker crashes (no CPU fallback)
@@ -200,44 +180,32 @@ if [[ "${COMPOSE_FILE}" == *native-gpu* ]]; then
   echo "✅ GPU worker started successfully."
 fi
 
-# Wait for Presto to be ready and run TPC-H benchmark if requested
-# Run benchmark if explicitly requested via environment variable OR if scale factor was specified via command line
-if [[ "${RUN_TPCH_BENCHMARK:-false}" == "true" ]] || [[ "$SCALE_FACTOR_SPECIFIED" == "true" ]]; then
-  echo "Waiting for Presto to be ready for TPC-H benchmark..."
-  sleep 30
-  
-  # Wait for Presto coordinator to be responsive
-  for i in {1..60}; do
-    if curl -sSf "http://localhost:8080/v1/info" > /dev/null; then
-      echo "Presto coordinator is ready."
-      break
-    fi
-    echo -n "."
-    sleep 2
-    if [[ $i -eq 60 ]]; then
-      echo "Presto coordinator not responding. Skipping benchmark."
-      exit 1
-    fi
-  done
-  
-  # Wait 5 seconds with countdown before starting benchmark
-  echo "Waiting additional 5 seconds for Presto to fully initialize..."
-  for i in {5..1}; do
-    echo "Starting benchmark in ${i} seconds..."
-    sleep 1
-  done
-  echo "Starting TPC-H benchmark now!"
-  
-  # Run the full TPC-H benchmark
-  if [[ "$LOAD_ALL_SCALE_FACTORS" == "true" ]]; then
-    echo "Running TPC-H benchmark for all scale factors..."
-    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor 1 --output-format json
-    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor 10 --output-format json
-    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor 100 --output-format json
-    echo "TPC-H benchmark completed for all scale factors. Results saved to tpch_benchmark_results_sf*_*.json"
-  else
-    echo "Running TPC-H benchmark..."
-    python "../../benchmarks/tpch/run_benchmark.py" --scale-factor ${SCALE_FACTOR} --output-format json
-    echo "TPC-H benchmark completed. Results saved to tpch_benchmark_results_*.json"
+# Wait for Presto coordinator to be ready (basic health check)
+echo "Waiting for Presto coordinator to be ready..."
+sleep 30
+
+for i in {1..60}; do
+  if curl -sSf "http://localhost:8080/v1/info" > /dev/null; then
+    echo "✅ Presto coordinator is ready!"
+    break
   fi
-fi
+  echo -n "."
+  sleep 2
+  if [[ $i -eq 60 ]]; then
+    echo "❌ Presto coordinator not responding after 2 minutes."
+    exit 1
+  fi
+done
+
+echo ""
+echo "🎉 Presto Native GPU cluster started successfully!"
+echo ""
+echo "🚀 To run benchmarks:"
+echo "  cd ../../benchmarks/tpch"
+echo "  python run_benchmark.py --scale-factor 1"
+echo ""
+echo "🔍 To monitor GPU usage:"
+echo "  nvidia-smi"
+echo "  watch nvidia-smi"
+echo ""
+echo "📊 Coordinator: http://localhost:8080"

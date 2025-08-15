@@ -18,11 +18,11 @@ services:
   presto-native-worker-gpu:
     container_name: presto-native-worker-gpu
     image: presto-native-worker-gpu:latest
-    build:
-      context: ../../..
-      dockerfile: velox-testing/presto/docker/native_build.dockerfile
-      args:
-        GPU: ON
+    # build:
+    #   context: ../../..
+    #   dockerfile: velox-testing/presto/docker/native_build.dockerfile
+    #   args:
+    #     GPU: ON
     # Use NVIDIA Container Toolkit runtime if available
     runtime: nvidia
     environment:

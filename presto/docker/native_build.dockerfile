@@ -3,7 +3,7 @@ FROM presto/prestissimo-dependency:centos9
 ARG GPU=ON
 ARG BUILD_TYPE=release
 ARG BUILD_BASE_DIR=/presto_native_${BUILD_TYPE}_gpu_${GPU}_build
-ARG NUM_THREADS=12
+ARG NUM_THREADS=24
 ARG EXTRA_CMAKE_FLAGS="-DPRESTO_ENABLE_TESTING=OFF -DPRESTO_ENABLE_PARQUET=ON -DPRESTO_ENABLE_CUDF=${GPU} -DVELOX_BUILD_TESTING=OFF"
 
 # Build for all supported architectures. Note that the `CUDA_ARCHITECTURES="native"` option does not work for docker image builds.

@@ -6,3 +6,8 @@ presto/docker/data/
 presto/scripts/tpch_benchmark_results.json
 # Benchmark results files
 presto/benchmarks/tpch/benchmark_results_sf*.json
+# GPU configuration backups
+gpu_config_backup_*
+# Utility scripts
+backup_gpu_config.sh
+docker_wrapper.sh
