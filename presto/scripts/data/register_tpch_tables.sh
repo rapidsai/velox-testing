@@ -35,6 +35,7 @@ USER=${USER:-tpch-admin}
 TPCH_SF=${TPCH_SF:-1}
 BASE_TARGET_DIR=${TPCH_PARQUET_DIR:-"$(cd "$(dirname "$0")"/../.. && pwd)/docker/data/tpch"}
 DROP_EXISTING=true
+REGISTER_ALL_SCHEMAS=false
 
 show_usage() {
     cat <<EOF
@@ -44,6 +45,7 @@ Purpose: Register TPC-H Parquet tables in Presto Hive catalog
 
 Options:
   -s, --scale-factor N  TPC-H scale factor (1, 10, 100) [default: 1]
+  --all-schemas         Register all scale factors as separate schemas (sf1, sf10, sf100)
   -c, --coordinator URL Presto coordinator [default: localhost:8080]
   --catalog NAME        Presto catalog [default: hive]
   --schema NAME         Presto schema [default: tpch_parquet]
@@ -56,6 +58,7 @@ Examples:
   $0                                    # Register SF1 tables
   $0 -s 10                              # Register SF10 tables
   $0 -s 100 --keep-existing             # Register SF100, keep existing
+  $0 --all-schemas                      # Register all SFs as separate schemas
   $0 -c remote-host:8080 -s 1           # Register to remote Presto
 
 Environment Variables:
@@ -141,12 +144,15 @@ register_tpch_tables() {
     local data_dir="$2"
     
     # Determine table path pattern based on directory layout
-    if [[ "$data_dir" == *"_sf${scale_factor}" ]]; then
+    if [[ "$data_dir" == *"parquet_sf${scale_factor}" ]]; then
+        # Docker mount specific layout: /raid/pwilson/parquet_sf1 → /data/tpch_sf1
+        local table_path_pattern="/data/tpch_sf${scale_factor}/\${tbl}"
+    elif [[ "$data_dir" == *"_sf${scale_factor}" ]]; then
         # Scale-factor-specific layout: /base_sf1, /base_sf10, etc.
-        local table_path_pattern="/data/tpch_sf${scale_factor}/\${tbl}/\${tbl}.parquet"
+        local table_path_pattern="/data/tpch_sf${scale_factor}/\${tbl}"
     else
         # Traditional layout: /base/sf1, /base/sf10, etc.
-        local table_path_pattern="/data/tpch/sf${scale_factor}/parquet/\${tbl}.parquet"
+        local table_path_pattern="/data/tpch/sf${scale_factor}/\${tbl}"
     fi
     
     print_status "Registering TPC-H SF=${scale_factor} tables in ${CATALOG}.${SCHEMA}..."
@@ -239,6 +245,10 @@ while [[ $# -gt 0 ]]; do
             TPCH_SF="$2"
             shift 2
             ;;
+        --all-schemas)
+            REGISTER_ALL_SCHEMAS=true
+            shift
+            ;;
         -c|--coordinator)
             COORD="$2"
             shift 2
@@ -275,37 +285,104 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate scale factor
-if [[ ! "$TPCH_SF" =~ ^(1|10|100)$ ]]; then
-    print_error "Scale factor must be 1, 10, or 100"
-    exit 1
-fi
-
-# Set data directory - support both traditional and scale-factor-specific layouts
-if [[ -d "${BASE_TARGET_DIR}/sf${TPCH_SF}" ]]; then
-    # Traditional layout: /base/sf1, /base/sf10, etc.
-    DATA_DIR="${BASE_TARGET_DIR}/sf${TPCH_SF}"
-elif [[ -d "${BASE_TARGET_DIR}_sf${TPCH_SF}" ]]; then
-    # Scale-factor-specific layout: /base_sf1, /base_sf10, etc.
-    DATA_DIR="${BASE_TARGET_DIR}_sf${TPCH_SF}"
+# Handle all-schemas registration
+if [[ "$REGISTER_ALL_SCHEMAS" == "true" ]]; then
+    print_status "=== Registering All TPC-H Scale Factors as Separate Schemas ==="
+    print_status "  Coordinator: ${COORD}"
+    print_status "  Catalog: ${CATALOG}"
+    print_status "  Base Data Directory: ${BASE_TARGET_DIR}"
+    print_status "  Drop Existing: ${DROP_EXISTING}"
+    print_status ""
+    
+    # Register each scale factor as a separate schema
+    for sf in 1 10 100; do
+        # Set schema name to simple scale factor naming (sf1, sf10, sf100)
+        CURRENT_SCHEMA="sf${sf}"
+        
+        # Check if data exists for this scale factor (prioritize Docker mount paths)
+        if [[ -d "/raid/pwilson/parquet_sf${sf}" ]]; then
+            # Docker mount specific paths (for SF10, SF100)
+            DATA_DIR="/raid/pwilson/parquet_sf${sf}"
+        elif [[ -d "${BASE_TARGET_DIR}_sf${sf}" ]]; then
+            DATA_DIR="${BASE_TARGET_DIR}_sf${sf}"
+        elif [[ -d "${BASE_TARGET_DIR}/sf${sf}" ]]; then
+            DATA_DIR="${BASE_TARGET_DIR}/sf${sf}"
+        else
+            print_warning "TPC-H SF=${sf} data not found, skipping..."
+            print_status "  Checked locations:"
+            print_status "    /raid/pwilson/parquet_sf${sf}"
+            print_status "    ${BASE_TARGET_DIR}_sf${sf}"
+            print_status "    ${BASE_TARGET_DIR}/sf${sf}"
+            continue
+        fi
+        
+        print_status "📊 Registering Scale Factor ${sf} as schema '${CURRENT_SCHEMA}'..."
+        
+        # Temporarily override the SCHEMA variable for this registration
+        ORIGINAL_SCHEMA="$SCHEMA"
+        SCHEMA="$CURRENT_SCHEMA"
+        
+        # Register tables for this scale factor
+        register_tpch_tables "$sf" "$DATA_DIR"
+        
+        # Restore original schema
+        SCHEMA="$ORIGINAL_SCHEMA"
+        
+        print_success "✅ SF${sf} registered successfully in schema '${CURRENT_SCHEMA}'"
+        print_status ""
+    done
+    
+    print_success "🎉 All scale factors registered as separate schemas!"
+    print_status ""
+    print_status "Available schemas:"
+    print_status "  ${CATALOG}.sf1   (Scale Factor 1)"
+    print_status "  ${CATALOG}.sf10  (Scale Factor 10)" 
+    print_status "  ${CATALOG}.sf100 (Scale Factor 100)"
+    print_status ""
+    print_status "Example queries:"
+    print_status "  SELECT COUNT(*) FROM ${CATALOG}.sf1.lineitem;"
+    print_status "  SELECT COUNT(*) FROM ${CATALOG}.sf10.lineitem;"
+    print_status "  SELECT COUNT(*) FROM ${CATALOG}.sf100.lineitem;"
+    
 else
-    print_error "TPC-H SF=${TPCH_SF} data not found at either:"
-    print_error "  Traditional: ${BASE_TARGET_DIR}/sf${TPCH_SF}"
-    print_error "  Scale-specific: ${BASE_TARGET_DIR}_sf${TPCH_SF}"
-    print_status "Generate data first: ./generate_tpch_data.sh -s ${TPCH_SF}"
-    exit 1
+    # Single scale factor registration (original logic)
+    
+    # Validate scale factor
+    if [[ ! "$TPCH_SF" =~ ^(1|10|100)$ ]]; then
+        print_error "Scale factor must be 1, 10, or 100"
+        exit 1
+    fi
+
+    # Set data directory - prioritize Docker mount paths for SF10/SF100
+    if [[ -d "/raid/pwilson/parquet_sf${TPCH_SF}" ]]; then
+        # Docker mount specific paths (for SF10, SF100)
+        DATA_DIR="/raid/pwilson/parquet_sf${TPCH_SF}"
+    elif [[ -d "${BASE_TARGET_DIR}_sf${TPCH_SF}" ]]; then
+        # Scale-factor-specific layout: /base_sf1, /base_sf10, etc.
+        DATA_DIR="${BASE_TARGET_DIR}_sf${TPCH_SF}"
+    elif [[ -d "${BASE_TARGET_DIR}/sf${TPCH_SF}" ]]; then
+        # Traditional layout: /base/sf1, /base/sf10, etc.
+        DATA_DIR="${BASE_TARGET_DIR}/sf${TPCH_SF}"
+    else
+        print_error "TPC-H SF=${TPCH_SF} data not found at any of:"
+        print_error "  Docker mount: /raid/pwilson/parquet_sf${TPCH_SF}"
+        print_error "  Scale-specific: ${BASE_TARGET_DIR}_sf${TPCH_SF}"
+        print_error "  Traditional: ${BASE_TARGET_DIR}/sf${TPCH_SF}"
+        print_status "Generate data first: ./generate_tpch_data.sh -s ${TPCH_SF}"
+        exit 1
+    fi
+
+    print_status "TPC-H Table Registration Configuration:"
+    print_status "  Scale Factor: SF${TPCH_SF}"
+    print_status "  Coordinator: ${COORD}"
+    print_status "  Catalog: ${CATALOG}"
+    print_status "  Schema: ${SCHEMA}"
+    print_status "  Data Directory: ${DATA_DIR}"
+    print_status "  Drop Existing: ${DROP_EXISTING}"
+
+    # Register the tables
+    register_tpch_tables "$TPCH_SF" "$DATA_DIR"
 fi
-
-print_status "TPC-H Table Registration Configuration:"
-print_status "  Scale Factor: SF${TPCH_SF}"
-print_status "  Coordinator: ${COORD}"
-print_status "  Catalog: ${CATALOG}"
-print_status "  Schema: ${SCHEMA}"
-print_status "  Data Directory: ${DATA_DIR}"
-print_status "  Drop Existing: ${DROP_EXISTING}"
-
-# Register the tables
-register_tpch_tables "$TPCH_SF" "$DATA_DIR"
 
 print_success "Table registration completed successfully!"
 print_status ""
