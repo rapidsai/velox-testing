@@ -10,7 +10,16 @@ The provided infrastructure is broken down into four categories:
 Important details about each category is provided below.
 
 ## Velox Testing
-TODO: Add details when related infrastructure is added.
+A Docker-based build infrastructure has been added to facilitate building Velox with comprehensive configuration options including GPU support, various storage adapters, and CI-mirrored settings. This infrastructure builds Velox libraries and executables only. In order to build Velox using this infrastructure, the following directory structure is expected:
+
+```
+├─ base_directory/
+  ├─ velox-testing
+  ├─ velox
+  ├─ presto (optional, for presto-native builds)
+```
+
+Specifically, the `velox-testing` and `velox` repositories must be checked out as sibling directories under the same parent directory. Once that is done, navigate (`cd`) into the `velox-testing/velox/scripts` directory and execute the build script `build_velox.sh`. After a successful build, the Velox libraries and executables are available in the container at `/opt/velox-build/release`. Build logs can be accessed with `docker exec -it velox-adapters-build cat /workspace/adapters_build.log`.
 
 ## Velox Benchmarking
 TODO: Add details when related infrastructure is added.
