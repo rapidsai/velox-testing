@@ -1,11 +1,36 @@
+# Define a base template with a YAML anchor (&)
+x-velox-build-common: &velox-build-common
+  build:
+    context: ../../..
+    dockerfile: velox-testing/velox/docker/adapters_build.dockerfile
+  volumes:
+    - ../../../velox:/workspace/velox
+    - ${CCACHE_DIR:-/tmp/ccache}:/ccache
+  environment:
+    - CCACHE_DIR=/ccache
+  working_dir: /workspace/velox
+
 services:
+  # GPU-enabled service
   velox-adapters-build:
+    <<: *velox-build-common
     container_name: velox-adapters-build
     image: velox-adapters-build:latest
-    build:
-      context: ../../..
-      dockerfile: velox-testing/velox/docker/adapters_build.dockerfile
+    # Add the GPU-specific key
+    runtime: nvidia
+  
+  # CPU-only service
+  velox-adapters-build-cpu:
+    <<: *velox-build-common
+    container_name: velox-adapters-build-cpu
+    image: velox-adapters-build-cpu:latest
+
+  velox-benchmark:
+    container_name: velox-benchmark
+    image: velox-adapters-build:latest
     runtime: nvidia
     volumes:
       - ../../../velox:/workspace/velox
-    working_dir: /workspace/velox 
+      - ../../../velox-benchmark-data/tpch:/workspace/velox/velox-tpch-data:ro
+      - ${BENCHMARK_RESULTS_HOST_PATH:-../scripts/benchmark-results}:/workspace/velox/benchmark_results
+    working_dir: /workspace/velox
