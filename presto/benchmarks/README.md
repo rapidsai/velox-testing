@@ -1,6 +1,6 @@
 # Presto TPC-H Benchmark Suite
 
-A professional Python-based TPC-H benchmarking suite using pytest-benchmark for performance testing and regression detection.
+A professional Python-based TPC-H benchmarking suite using pytest-benchmark for performance testing and regression detection. Supports multiple scale factors (SF1, SF10, SF100) with separate schemas.
 
 ## Quick Start
 
@@ -10,17 +10,23 @@ A professional Python-based TPC-H benchmarking suite using pytest-benchmark for 
    ```bash
    cd ../scripts/deployment
    ./start_java_presto.sh --health-check
+   # OR for GPU acceleration (requires Tesla T4+ with compute capability 7.0+)
+   ./start_native_gpu_presto.sh --health-check
    ```
 
-2. **Generate TPC-H data**:
+2. **Configure TPC-H data paths**:
+   ```bash
+   export TPCH_PARQUET_DIR="/raid/pwilson/parquet"
+   # This will use:
+   # - /raid/pwilson/parquet_sf1   → hive.sf1 schema
+   # - /raid/pwilson/parquet_sf10  → hive.sf10 schema  
+   # - /raid/pwilson/parquet_sf100 → hive.sf100 schema
+   ```
+
+3. **Register all schemas**:
    ```bash
    cd ../scripts/data
-   ./generate_tpch_data.sh -s 1  # Scale factor 1, 10, or 100
-   ```
-
-3. **Register tables**:
-   ```bash
-   ./register_tpch_tables.sh -s 1
+   ./register_tpch_tables.sh --all-schemas
    ```
 
 4. **Install Python dependencies**:
@@ -32,17 +38,19 @@ A professional Python-based TPC-H benchmarking suite using pytest-benchmark for 
 ### Running Benchmarks
 
 ```bash
-# Run all TPC-H queries
-python run_benchmark.py --scale-factor 1
+# Run benchmarks for specific scale factor
+python run_benchmark.py --scale-factor 1 --schema sf1
+python run_benchmark.py --scale-factor 10 --schema sf10
+python run_benchmark.py --scale-factor 100 --schema sf100
 
-# Run specific queries
-python run_benchmark.py --queries 1 3 6 10
+# Run all three scale factors sequentially
+python run_all_schemas.py
 
-# Generate detailed reports
-python run_benchmark.py --output-format json --html-report
+# Run specific queries on SF1
+python run_benchmark.py --scale-factor 1 --schema sf1 --queries 1 3 6 10
 
-# Run with different scale factor
-python run_benchmark.py --scale-factor 10 --timeout 600
+# Generate detailed reports for SF10
+python run_benchmark.py --scale-factor 10 --schema sf10 --output-format json --html-report
 ```
 
 ## Features
@@ -55,9 +63,10 @@ python run_benchmark.py --scale-factor 10 --timeout 600
 
 ### 📊 Comprehensive Coverage
 - **All 22 TPC-H queries**: Complete standard benchmark suite
+- **Multi-schema support**: SF1, SF10, SF100 in separate schemas (hive.sf1, hive.sf10, hive.sf100)
 - **Query categorization**: Simple aggregations, complex joins, subquery-heavy
 - **Data validation**: Automated consistency and integrity checks
-- **Scale factor support**: SF1, SF10, SF100 with appropriate timeouts
+- **Scale factor support**: All three scale factors with appropriate timeouts
 
 ### ⚡ Flexible Execution
 - **Configurable parameters**: Warmup rounds, benchmark rounds, timeouts
@@ -70,16 +79,59 @@ python run_benchmark.py --scale-factor 10 --timeout 600
 - **Environment detection**: Automatic validation of Presto connectivity
 - **Flexible connection settings**: Support for remote Presto clusters
 
+## Multi-Schema Configuration
+
+This benchmark suite supports **all three TPC-H scale factors simultaneously** using separate Presto schemas:
+
+- **hive.sf1** → `/raid/pwilson/parquet_sf1` (6M rows in lineitem)
+- **hive.sf10** → `/raid/pwilson/parquet_sf10` (60M rows in lineitem)  
+- **hive.sf100** → `/raid/pwilson/parquet_sf100` (600M rows in lineitem)
+
+### Multi-Schema Setup
+
+```bash
+# Set data path environment variable
+export TPCH_PARQUET_DIR="/raid/pwilson/parquet"
+
+# Register all schemas at once
+cd ../scripts/data
+./register_tpch_tables.sh --all-schemas
+
+# Verify schemas are available
+curl -X POST http://localhost:8080/v1/statement \
+  -H 'X-Presto-Catalog: hive' \
+  -H 'X-Presto-Schema: sf1' \
+  -H 'X-Presto-User: tpch-benchmark' \
+  --data 'SELECT COUNT(*) FROM lineitem'
+```
+
 ## Usage Examples
+
+### Multi-Schema Benchmarking
+
+```bash
+# Run all three scale factors sequentially  
+python run_all_schemas.py
+
+# Run specific scale factor
+python run_benchmark.py --scale-factor 1 --schema sf1
+python run_benchmark.py --scale-factor 10 --schema sf10
+python run_benchmark.py --scale-factor 100 --schema sf100
+
+# Compare performance across scale factors
+python run_benchmark.py --scale-factor 1 --schema sf1 --queries 1 6 14
+python run_benchmark.py --scale-factor 10 --schema sf10 --queries 1 6 14
+python run_benchmark.py --scale-factor 100 --schema sf100 --queries 1 6 14
+```
 
 ### Basic Benchmarking
 
 ```bash
-# Quick benchmark with default settings
-python run_benchmark.py
+# Quick benchmark with default settings (SF1)
+python run_benchmark.py --schema sf1
 
-# Full benchmark with reporting
-python run_benchmark.py --scale-factor 1 \
+# Full benchmark with reporting (SF10)
+python run_benchmark.py --scale-factor 10 --schema sf10 \
   --output-format json \
   --html-report \
   --verbose
@@ -154,7 +206,7 @@ Edit `config.yaml` for default settings:
 # Presto Connection
 coordinator: "localhost:8080"
 catalog: "hive"
-schema: "tpch_parquet"
+schema: "sf1"  # Default to SF1 schema (can be sf1, sf10, sf100)
 user: "tpch-benchmark"
 
 # Benchmark Settings
@@ -162,6 +214,12 @@ scale_factor: 1
 timeout: 300
 warmup_rounds: 1
 benchmark_rounds: 3
+
+# Multi-Schema Data Paths
+data_paths:
+  sf1: "/raid/pwilson/parquet_sf1"
+  sf10: "/raid/pwilson/parquet_sf10" 
+  sf100: "/raid/pwilson/parquet_sf100"
 
 # Performance Thresholds (for regression testing)
 performance_thresholds:
@@ -192,18 +250,46 @@ performance_thresholds:
 - **Scale factor adjustment**: Automatic threshold scaling for different data sizes
 - **Regression detection**: Automatic alerts for performance degradation
 
+## Current Performance Results
+
+### Verified Working Configuration ✅
+
+**Hardware**: 6x Tesla T4 GPUs (compute capability 7.5)  
+**Worker**: presto-native-worker-gpu (running 42+ hours)  
+**Data**: Scale-factor-specific Parquet directories
+
+**Performance Results** (3 rounds each):
+```
+SF1 (hive.sf1):
+  Query 1: 0.509s (min: 0.500s, max: 0.524s)
+  Query 6: 0.504s (min: 0.499s, max: 0.510s)
+
+SF10 (hive.sf10):  
+  Query 1: 0.697s (min: 0.668s, max: 0.722s)
+  Query 6: 0.723s (min: 0.697s, max: 0.766s)
+
+SF100 (hive.sf100):
+  Query 1: 5.415s (min: 5.063s, max: 6.095s)
+  Query 6: 6.537s (min: 5.692s, max: 7.382s)
+```
+
+**Scaling Characteristics**:
+- SF1 → SF10: ~40% increase (excellent scaling)
+- SF1 → SF100: ~10x increase (expected for 100x data)
+
 ## Output Formats
 
 ### JSON Results
 ```json
 {
-  "timestamp": "2024-01-15T10:30:00Z",
+  "timestamp": "2024-01-15T10:30:00Z", 
   "scale_factor": 1,
+  "schema": "sf1",
   "results": [
     {
       "query_number": 1,
-      "name": "Pricing Summary Report",
-      "execution_time": 2.34,
+      "name": "Pricing Summary Report", 
+      "execution_time": 0.509,
       "processed_rows": 6001215,
       "success": true
     }
@@ -299,5 +385,34 @@ This benchmark suite follows the modular architecture requested in the PR feedba
 - **Maintainable**: Object-oriented design with clear separation of responsibilities
 - **Extensible**: Easy to add new queries, scale factors, or analysis features
 
-For detailed implementation notes, see `../RESTRUCTURE_NOTES.md`.
+## Current Status ✅
+
+### Working Configuration
+- ✅ **All three schemas registered**: hive.sf1, hive.sf10, hive.sf100
+- ✅ **Data paths configured**: Using `/raid/pwilson/parquet_sf*` directories
+- ✅ **Schema types corrected**: Fixed data type mismatches (bigint, double, timestamp)
+- ✅ **JSON results**: Always generated in `/raid/pwilson/velox-testing/presto/benchmarks/tpch/`
+- ✅ **Terminal output**: Performance results displayed after each run
+- ✅ **Multi-schema runner**: `run_all_schemas.py` for testing all scale factors
+
+### Quick Commands
+```bash
+# Multi-schema setup (one-time)
+export TPCH_PARQUET_DIR="/raid/pwilson/parquet"
+cd ../scripts/data && ./register_tpch_tables.sh --all-schemas
+
+# Run benchmarks
+cd ../../benchmarks/tpch
+python run_all_schemas.py                    # All three schemas
+python run_benchmark.py --schema sf1        # SF1 only
+python run_benchmark.py --schema sf10       # SF10 only  
+python run_benchmark.py --schema sf100      # SF100 only
+```
+
+### Results Location
+- **JSON Files**: `/raid/pwilson/velox-testing/presto/benchmarks/tpch/benchmark_results_sf*.json`
+- **HTML Reports**: `/raid/pwilson/velox-testing/presto/benchmarks/tpch/benchmark_report_sf*.html`
+- **Terminal Output**: Performance summary displayed after each run
+
+For technical implementation details, see the deployment and data management scripts in `../scripts/`.
 

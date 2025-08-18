@@ -4,7 +4,7 @@
 # Presto Connection Settings
 coordinator: "localhost:8080"
 catalog: "hive"
-schema: "tpch_parquet"
+schema: "sf1"  # Default to SF1 schema (options: sf1, sf10, sf100)
 user: "tpch-benchmark"
 
 # Benchmark Execution Settings
@@ -12,6 +12,19 @@ scale_factor: 1
 timeout: 300  # Query timeout in seconds
 warmup_rounds: 1  # Number of warmup executions before benchmarking
 benchmark_rounds: 3  # Number of benchmark executions for averaging
+
+# Multi-Schema Data Configuration
+# Scale-factor-specific data directories
+data_paths:
+  sf1: "/raid/pwilson/parquet_sf1"    # 6M rows in lineitem
+  sf10: "/raid/pwilson/parquet_sf10"  # 60M rows in lineitem
+  sf100: "/raid/pwilson/parquet_sf100" # 600M rows in lineitem
+
+# Available Schemas
+schemas:
+  sf1: "hive.sf1"    # Scale Factor 1
+  sf10: "hive.sf10"  # Scale Factor 10  
+  sf100: "hive.sf100" # Scale Factor 100
 
 # Query Selection
 # Specify which queries to run (empty list = all queries)
