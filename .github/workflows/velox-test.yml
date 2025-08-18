@@ -3,47 +3,66 @@ name: Velox Test
 on:
   workflow_dispatch:
     inputs:
+      repository:
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
       velox_commit:
         description: 'Velox commit SHA or branch'
-        required: true
+        required: false
         default: 'main'
         
   workflow_call:
     inputs:
+      repository:
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
       velox_commit:
         type: string
-        required: true
+        required: false
+        default: 'main'
 
 jobs:
   build-and-test:
     runs-on: linux-amd64-gpu-l4-latest-1
-    container:
-      image: ghcr.io/facebookincubator/velox-dev:adapters
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+
     steps:
+      - name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
       - name: Checkout Velox
         uses: actions/checkout@v4
         with:
-          repository: facebookincubator/velox
-          ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
+          repository: ${{ inputs.repository || github.event.inputs.repository || 'facebookincubator/velox' }}
+          ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit || 'main' }}
+          path: velox
+
+      - name: Restore Compiler Cache
+        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.ccache_dir }}
+          key: ccache-linux-adapters-gcc
 
       - name: Build Velox with cuDF
         run: |
-          git config --global --add safe.directory .
-          # move this logic to a script for easier iteration
-          # disable tests build for now as it seems to be broken
-          # use "native" CUDA arch until told otherwise
-          mkdir -p build && cd build
-          cmake -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CUDA_ARCHITECTURES="native" \
-            -DVELOX_ENABLE_CUDF=ON \
-            -DVELOX_ENABLE_PARQUET=ON \
-            -DVELOX_ENABLE_S3=ON \
-            -DVELOX_BUILD_TESTING=OFF \
-            ..
-          ninja
+          cd ${{ github.workspace }}/velox-testing/velox/scripts
+          ./build_velox.sh --all-cuda-archs --gpu --plain --ccache-stats
 
-      - name: Run Velox Test Suite
+      - name: Stash Compiler Cache
+        uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.ccache_dir }}
+          key: ccache-linux-adapters-gcc
+
+      - name: Run Velox Tests
         run: |
-          cd build
-          ctest --output-on-failure
+          cd ${{ github.workspace }}/velox-testing/velox/scripts
+          ./test_velox.sh

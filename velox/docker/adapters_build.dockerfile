@@ -6,6 +6,7 @@ ARG NUM_THREADS=8
 ARG CUDA_VERSION=12.8
 ARG CUDA_ARCHITECTURES=70
 ARG BUILD_WITH_VELOX_ENABLE_CUDF=ON
+ARG SHOW_CCACHE_STATS=OFF
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -42,12 +43,12 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     --mount=type=cache,target=/buildcache,sharing=locked,rw \
     # Set up shell environment
     set -euxo pipefail && \
-    # Zero ccache stats if available (uncomment when ccache is available)
-    #ccache -sz && \
+    # Zero ccache stats if enabled
+    if [ "${SHOW_CCACHE_STATS}" = "ON" ]; then ccache -sz; fi && \
     # Build release into /buildcache
     make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="/buildcache" && \
-    # Show ccache stats (uncomment when ccache is available)
-    #ccache -s && \
+    # Show ccache stats if enabled
+    if [ "${SHOW_CCACHE_STATS}" = "ON" ]; then ccache -s; fi && \
     # Copy release to /opt/velox-build/release
     mkdir -p /opt/velox-build/release && \
     cp -a "/buildcache/release/." "/opt/velox-build/release/"
