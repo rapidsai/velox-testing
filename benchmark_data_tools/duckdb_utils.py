@@ -1,4 +1,5 @@
 import duckdb
+import re
 
 def init_benchmark_tables(benchmark_type, scale_factor):
     tables = duckdb.sql("SHOW TABLES").fetchall()
@@ -11,3 +12,6 @@ def init_benchmark_tables(benchmark_type, scale_factor):
         function_name = "dsdgen"
 
     duckdb.sql(f"INSTALL {benchmark_type}; LOAD {benchmark_type}; CALL {function_name}(sf = {scale_factor});")
+
+def is_decimal_column(column_type):
+    return bool(re.match(r"^DECIMAL\(\d+,\d+\)$", column_type))
