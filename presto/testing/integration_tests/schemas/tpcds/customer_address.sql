@@ -10,6 +10,6 @@ CREATE TABLE hive.tpcds_test.customer_address (
     ca_state VARCHAR,
     ca_zip VARCHAR,
     ca_country VARCHAR,
-    ca_gmt_offset DECIMAL(5,2),
+    ca_gmt_offset DOUBLE,
     ca_location_type VARCHAR
 ) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')

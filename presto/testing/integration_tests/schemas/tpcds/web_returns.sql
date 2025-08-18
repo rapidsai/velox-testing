@@ -14,13 +14,13 @@ CREATE TABLE hive.tpcds_test.web_returns (
     wr_reason_sk INTEGER,
     wr_order_number INTEGER,
     wr_return_quantity INTEGER,
-    wr_return_amt DECIMAL(7,2),
-    wr_return_tax DECIMAL(7,2),
-    wr_return_amt_inc_tax DECIMAL(7,2),
-    wr_fee DECIMAL(7,2),
-    wr_return_ship_cost DECIMAL(7,2),
-    wr_refunded_cash DECIMAL(7,2),
-    wr_reversed_charge DECIMAL(7,2),
-    wr_account_credit DECIMAL(7,2),
-    wr_net_loss DECIMAL(7,2)
+    wr_return_amt DOUBLE,
+    wr_return_tax DOUBLE,
+    wr_return_amt_inc_tax DOUBLE,
+    wr_fee DOUBLE,
+    wr_return_ship_cost DOUBLE,
+    wr_refunded_cash DOUBLE,
+    wr_reversed_charge DOUBLE,
+    wr_account_credit DOUBLE,
+    wr_net_loss DOUBLE
 ) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')

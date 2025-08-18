@@ -4,7 +4,7 @@ CREATE TABLE hive.tpcds_test.promotion (
     p_start_date_sk INTEGER,
     p_end_date_sk INTEGER,
     p_item_sk INTEGER,
-    p_cost DECIMAL(15,2),
+    p_cost DOUBLE,
     p_response_target INTEGER,
     p_promo_name VARCHAR,
     p_channel_dmail VARCHAR,

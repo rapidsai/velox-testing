@@ -12,5 +12,5 @@ CREATE TABLE hive.tpcds_test.warehouse (
     w_state VARCHAR,
     w_zip VARCHAR,
     w_country VARCHAR,
-    w_gmt_offset DECIMAL(5,2)
+    w_gmt_offset DOUBLE
 ) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')

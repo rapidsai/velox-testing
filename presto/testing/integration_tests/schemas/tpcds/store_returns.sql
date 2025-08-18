@@ -10,13 +10,13 @@ CREATE TABLE hive.tpcds_test.store_returns (
     sr_reason_sk INTEGER,
     sr_ticket_number INTEGER,
     sr_return_quantity INTEGER,
-    sr_return_amt DECIMAL(7,2),
-    sr_return_tax DECIMAL(7,2),
-    sr_return_amt_inc_tax DECIMAL(7,2),
-    sr_fee DECIMAL(7,2),
-    sr_return_ship_cost DECIMAL(7,2),
-    sr_refunded_cash DECIMAL(7,2),
-    sr_reversed_charge DECIMAL(7,2),
-    sr_store_credit DECIMAL(7,2),
-    sr_net_loss DECIMAL(7,2)
+    sr_return_amt DOUBLE,
+    sr_return_tax DOUBLE,
+    sr_return_amt_inc_tax DOUBLE,
+    sr_fee DOUBLE,
+    sr_return_ship_cost DOUBLE,
+    sr_refunded_cash DOUBLE,
+    sr_reversed_charge DOUBLE,
+    sr_store_credit DOUBLE,
+    sr_net_loss DOUBLE
 ) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')

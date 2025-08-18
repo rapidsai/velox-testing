@@ -23,6 +23,6 @@ CREATE TABLE hive.tpcds_test.web_site (
     web_state VARCHAR,
     web_zip VARCHAR,
     web_country VARCHAR,
-    web_gmt_offset DECIMAL(5,2),
-    web_tax_percentage DECIMAL(5,2)
+    web_gmt_offset DOUBLE,
+    web_tax_percentage DOUBLE
 ) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
