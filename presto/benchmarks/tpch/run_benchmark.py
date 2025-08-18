@@ -34,13 +34,15 @@ def run_pytest_benchmark(args: argparse.Namespace) -> Dict[str, Any]:
         f"--benchmark-rounds={args.benchmark_rounds}",
     ]
     
-    # Add pytest-benchmark options
-    if args.output_format:
-        output_file = f"benchmark_results_sf{args.scale_factor}_{int(time.time())}.{args.output_format}"
-        if args.output_format == "json":
-            pytest_cmd.extend(["--benchmark-json", output_file])
-        elif args.output_format == "csv":
-            pytest_cmd.extend(["--benchmark-csv", output_file])
+    # Add pytest-benchmark options - always generate JSON output
+    output_file = f"benchmark_results_sf{args.scale_factor}_{int(time.time())}.json"
+    pytest_cmd.extend(["--benchmark-json", output_file])
+    
+    # Add additional output format if requested
+    if args.output_format and args.output_format != "json":
+        additional_file = f"benchmark_results_sf{args.scale_factor}_{int(time.time())}.{args.output_format}"
+        if args.output_format == "csv":
+            pytest_cmd.extend(["--benchmark-csv", additional_file])
     
     # Add HTML report if requested
     if args.html_report:
@@ -176,6 +178,41 @@ def print_summary(result: Dict[str, Any], args: argparse.Namespace):
         print("\nGenerated files:")
         for file in sorted(result_files):
             print(f"  - {file.name}")
+            
+        # Display JSON results if available
+        json_files = list(results_dir.glob("benchmark_results_*.json"))
+        if json_files:
+            latest_json = max(json_files, key=lambda f: f.stat().st_mtime)
+            print(f"\n📊 Latest Results from: {latest_json.name}")
+            try:
+                import json
+                with open(latest_json, 'r') as f:
+                    data = json.load(f)
+                
+                if 'benchmarks' in data:
+                    print("="*50)
+                    print("🎯 TPC-H Query Performance Results:")
+                    print("="*50)
+                    
+                    for benchmark in data['benchmarks']:
+                        if 'test_tpch_query[' in benchmark['name']:
+                            query_num = benchmark['params']['query_num']
+                            stats = benchmark['stats']
+                            mean_time = stats['mean']
+                            min_time = stats['min']
+                            max_time = stats['max']
+                            rounds = stats['rounds']
+                            
+                            print(f"Query {query_num:2d}: {mean_time:.3f}s (min: {min_time:.3f}s, max: {max_time:.3f}s, rounds: {rounds})")
+                    
+                    total_queries = len([b for b in data['benchmarks'] if 'test_tpch_query[' in b['name']])
+                    print("="*50)
+                    print(f"Total queries benchmarked: {total_queries}")
+                    
+            except Exception as e:
+                print(f"Could not parse JSON results: {e}")
+    else:
+        print("\nNo result files generated")
     
     print("\n" + "="*60)
 
