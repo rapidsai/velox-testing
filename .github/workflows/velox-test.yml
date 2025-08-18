@@ -12,6 +12,14 @@ on:
         description: 'Velox commit SHA or branch'
         required: false
         default: 'main'
+      build_type:
+        description: 'Build type (CPU or GPU)'
+        type: choice
+        required: false
+        default: 'GPU'
+        options:
+          - 'CPU'
+          - 'GPU'
         
   workflow_call:
     inputs:
@@ -23,6 +31,10 @@ on:
         type: string
         required: false
         default: 'main'
+      build_type:
+        type: string
+        required: false
+        default: 'GPU'
 
 jobs:
   build-and-test:
@@ -51,8 +63,19 @@ jobs:
           path: ${{ env.ccache_dir }}
           key: ccache-linux-adapters-gcc
 
-      - name: Build Velox with cuDF
+      - name: Building Velox for CPU
+        if: ${{ (inputs.build_type || github.event.inputs.build_type || 'GPU') == 'CPU' }}
         run: |
+          echo "   - CUDF support: DISABLED"
+          echo "   - Target: CPU-only build"
+          cd ${{ github.workspace }}/velox-testing/velox/scripts
+          ./build_velox.sh --all-cuda-archs --cpu --plain --ccache-stats
+
+      - name: Building Velox for GPU
+        if: ${{ (inputs.build_type || github.event.inputs.build_type || 'GPU') == 'GPU' }}
+        run: |
+          echo "   - CUDF support: ENABLED"
+          echo "   - Target: GPU-accelerated build"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
           ./build_velox.sh --all-cuda-archs --gpu --plain --ccache-stats
 
