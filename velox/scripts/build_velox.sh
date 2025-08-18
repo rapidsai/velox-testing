@@ -1,5 +1,7 @@
 #!/bin/bash
 set -euo pipefail
+# load common variables and functions
+source ./config.sh
 
 ALL_CUDA_ARCHS=false
 NO_CACHE=false
@@ -80,7 +82,6 @@ parse_args() {
   done
 }
 
-COMPOSE_FILE="../docker/docker-compose.adapters.yml"
 
 parse_args "$@"
 
@@ -108,9 +109,6 @@ else
   docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
   BUILD_EXIT_CODE=$?
 fi
-
-CONTAINER_NAME="velox-adapters-build"
-EXPECTED_OUTPUT_DIR="/opt/velox-build/release"
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
