@@ -9,6 +9,7 @@ PLAIN_OUTPUT=false
 BUILD_WITH_VELOX_ENABLE_CUDF="ON"
 LOG_ENABLED=false
 LOGFILE="./build_velox.log"
+SHOW_CCACHE_STATS="OFF"
 
 print_help() {
   cat <<EOF
@@ -23,6 +24,7 @@ Options:
   --log [LOGFILE]    Capture build process to log file, enables --plain, by default LOGFILE='./build_velox.log' (default: false).
   --cpu              Build for CPU only (disables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=OFF).
   --gpu              Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
+  --ccache-stats     Show ccache statistics during build (default: false).
   -h, --help         Show this help message and exit.
 
 Examples:
@@ -31,6 +33,7 @@ Examples:
   $(basename "$0") --cpu
   $(basename "$0") --log
   $(basename "$0") --log mybuild.log --all-cuda-archs
+  $(basename "$0") --ccache-stats --plain
 
 By default, the script builds for the Volta (7.0) CUDA architecture, uses Docker cache, standard build output, and GPU support (CUDF enabled).
 EOF
@@ -69,6 +72,10 @@ parse_args() {
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
         shift
         ;;
+      --ccache-stats)
+        SHOW_CCACHE_STATS="ON"
+        shift
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -100,6 +107,7 @@ if [[ "$ALL_CUDA_ARCHS" == true ]]; then
   DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120")
 fi
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_WITH_VELOX_ENABLE_CUDF="${BUILD_WITH_VELOX_ENABLE_CUDF}")
+DOCKER_BUILD_OPTS+=(--build-arg SHOW_CCACHE_STATS="${SHOW_CCACHE_STATS}")
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
