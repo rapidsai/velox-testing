@@ -6,6 +6,7 @@ ARG NUM_THREADS=8
 ARG CUDA_VERSION=12.8
 ARG CUDA_ARCHITECTURES=70
 ARG BUILD_WITH_VELOX_ENABLE_CUDF=ON
+ARG VELOX_ENABLE_BENCHMARKS=ON
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -17,7 +18,7 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     CUDA_COMPILER=/usr/local/cuda-${CUDA_VERSION}/bin/nvcc \
     CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-12/root/usr/bin" \
-    EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_BENCHMARKS=ON \
+    EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_BENCHMARKS=${VELOX_ENABLE_BENCHMARKS} \
                       -DVELOX_ENABLE_EXAMPLES=ON \
                       -DVELOX_ENABLE_ARROW=ON \
                       -DVELOX_ENABLE_GEO=ON \
@@ -37,6 +38,22 @@ WORKDIR /workspace/velox
 
 # Print environment variables for debugging
 RUN printenv | sort
+
+# Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
+RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
+      set -euxo pipefail && \
+      # Add NVIDIA CUDA repository with proper GPG key
+      yum install -y yum-utils && \
+      yum-config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
+      # Import NVIDIA GPG key
+      rpm --import https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/D42D0685.pub && \
+      # Install nsys from CUDA repository
+      yum install -y nsight-systems && \
+      # Verify nsys installation
+      which nsys && nsys --version; \
+    else \
+      echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
+    fi
 
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     --mount=type=cache,target=/buildcache,sharing=locked,rw \

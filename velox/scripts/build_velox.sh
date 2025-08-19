@@ -5,6 +5,7 @@ ALL_CUDA_ARCHS=false
 NO_CACHE=false
 PLAIN_OUTPUT=false
 BUILD_WITH_VELOX_ENABLE_CUDF="ON"
+VELOX_ENABLE_BENCHMARKS="ON"
 LOG_ENABLED=false
 LOGFILE="./build_velox.log"
 
@@ -21,16 +22,20 @@ Options:
   --log [LOGFILE]    Capture build process to log file, enables --plain, by default LOGFILE='./build_velox.log' (default: false).
   --cpu              Build for CPU only (disables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=OFF).
   --gpu              Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
+  --benchmarks       Enable benchmarks and nsys profiling tools (sets VELOX_ENABLE_BENCHMARKS=ON) [default].
+  --no-benchmarks    Disable benchmarks and skip nsys installation (sets VELOX_ENABLE_BENCHMARKS=OFF).
   -h, --help         Show this help message and exit.
 
 Examples:
   $(basename "$0") --all-cuda-archs --no-cache
   $(basename "$0") --plain
   $(basename "$0") --cpu
+  $(basename "$0") --no-benchmarks  # Build without benchmarks/nsys
+  $(basename "$0") --cpu --no-benchmarks  # CPU-only build without benchmarks
   $(basename "$0") --log
   $(basename "$0") --log mybuild.log --all-cuda-archs
 
-By default, the script builds for the Volta (7.0) CUDA architecture, uses Docker cache, standard build output, and GPU support (CUDF enabled).
+By default, the script builds for the Volta (7.0) CUDA architecture, uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
 EOF
 }
 
@@ -67,6 +72,14 @@ parse_args() {
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
         shift
         ;;
+      --benchmarks)
+        VELOX_ENABLE_BENCHMARKS="ON"
+        shift
+        ;;
+      --no-benchmarks)
+        VELOX_ENABLE_BENCHMARKS="OFF"
+        shift
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -99,6 +112,7 @@ if [[ "$ALL_CUDA_ARCHS" == true ]]; then
   DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120")
 fi
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_WITH_VELOX_ENABLE_CUDF="${BUILD_WITH_VELOX_ENABLE_CUDF}")
+DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
@@ -122,6 +136,12 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
     echo ""
     echo "  To access the build output, you can run:"
     echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} ls ${EXPECTED_OUTPUT_DIR}"
+    echo ""
+    if [[ "$VELOX_ENABLE_BENCHMARKS" == "ON" ]]; then
+      echo "  Benchmarks and nsys profiling are enabled in this build."
+    else
+      echo "  Benchmarks and nsys profiling are disabled in this build."
+    fi
     echo ""
   else
     echo "  ERROR: Build succeeded but ${EXPECTED_OUTPUT_DIR} not found in the container."
