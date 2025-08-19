@@ -72,8 +72,8 @@ parse_args() {
 
 parse_args "$@"
 
-if [[ -z ${BENCHMARK_TYPE} ]]; then
-  echo "Error: Benchmark type is required. Use the -b or --benchmark-type argument."
+if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
+  echo "Error: A valid benchmark type (tpch or tpcds) is required. Use the -b or --benchmark-type argument."
   print_help
   exit 1
 fi
@@ -95,5 +95,9 @@ fi
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
 fi
+
+source ./common_functions.sh
+
+wait_for_worker_node_registration
 
 pytest -v ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
