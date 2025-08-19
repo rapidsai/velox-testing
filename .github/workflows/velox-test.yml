@@ -10,6 +10,7 @@ on:
         default: 'facebookincubator/velox'
       velox_commit:
         description: 'Velox commit SHA or branch'
+        type: string
         required: false
         default: 'main'
       build_type:
