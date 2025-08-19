@@ -78,7 +78,13 @@ jobs:
           echo "   - CUDF support: DISABLED"
           echo "   - Target: CPU-only build"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
-          ./build_velox.sh --all-cuda-archs --cpu --plain
+          ./build_velox.sh --all-cuda-archs --cpu --log build_velox_cpu.log
+
+      - name: Upload velox_cpu_build_log as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: velox_cpu_build_log
+          path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_cpu.log
 
       - name: Stash Compiler Cache
         uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
@@ -117,7 +123,13 @@ jobs:
           echo "   - CUDF support: ENABLED"
           echo "   - Target: GPU-accelerated build"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
-          ./build_velox.sh --all-cuda-archs --gpu --plain
+          ./build_velox.sh --all-cuda-archs --gpu --log build_velox_gpu.log
+
+      - name: Upload velox_gpu_build_log as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: velox_gpu_build_log
+          path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_gpu.log
 
       - name: Stash Compiler Cache
         uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
