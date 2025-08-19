@@ -13,14 +13,6 @@ on:
         type: string
         required: false
         default: 'main'
-      build_type:
-        description: 'Build type (CPU or GPU)'
-        type: choice
-        required: false
-        default: 'GPU'
-        options:
-          - 'CPU'
-          - 'GPU'
         
   workflow_call:
     inputs:
@@ -32,26 +24,24 @@ on:
         type: string
         required: false
         default: 'main'
-      build_type:
-        type: string
-        required: false
-        default: 'GPU'
 
 jobs:
-  build-and-test:
-    runs-on: linux-amd64-gpu-l4-latest-1
-
+  velox-cpu:
+    runs-on: linux-amd64-cpu-latest-1
+    
     env:
       GH_TOKEN: ${{ github.token }}
       CCACHE_DIR: ${{ github.workspace }}/ccache
 
     steps:
-      - name: Checkout this repository for CI scripts
+      - &checkout-velox-testing
+        name: Checkout this repository for CI scripts
         uses: actions/checkout@v4
         with:
           path: velox-testing
 
-      - name: Checkout Velox
+      - &checkout-velox
+        name: Checkout Velox
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository || github.event.inputs.repository || 'facebookincubator/velox' }}
@@ -61,19 +51,47 @@ jobs:
       - name: Restore Compiler Cache
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
-          path: ${{ env.ccache_dir }}
-          key: ccache-linux-adapters-gcc
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc-cpu
 
       - name: Building Velox for CPU
-        if: ${{ (inputs.build_type || github.event.inputs.build_type || 'GPU') == 'CPU' }}
         run: |
           echo "   - CUDF support: DISABLED"
           echo "   - Target: CPU-only build"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
           ./build_velox.sh --all-cuda-archs --cpu --plain
 
+      - name: Stash Compiler Cache
+        uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc-cpu
+
+      - &run-velox-tests
+        name: Run Velox Tests
+        run: |
+          cd ${{ github.workspace }}/velox-testing/velox/scripts
+          ./test_velox.sh
+
+  velox-gpu:
+    runs-on: linux-amd64-gpu-l4-latest-1
+    
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+
+    steps:
+      - *checkout-velox-testing
+
+      - *checkout-velox
+
+      - name: Restore Compiler Cache
+        uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc-gpu
+
       - name: Building Velox for GPU
-        if: ${{ (inputs.build_type || github.event.inputs.build_type || 'GPU') == 'GPU' }}
         run: |
           echo "   - CUDF support: ENABLED"
           echo "   - Target: GPU-accelerated build"
@@ -83,10 +101,7 @@ jobs:
       - name: Stash Compiler Cache
         uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
-          path: ${{ env.ccache_dir }}
-          key: ccache-linux-adapters-gcc
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-linux-adapters-gcc-gpu
 
-      - name: Run Velox Tests
-        run: |
-          cd ${{ github.workspace }}/velox-testing/velox/scripts
-          ./test_velox.sh
+      - *run-velox-tests
