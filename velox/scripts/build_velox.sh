@@ -16,22 +16,22 @@ Usage: $(basename "$0") [OPTIONS]
 Builds the Velox adapters Docker image using docker compose, with options to control CUDA architectures, cache usage, output style, and CPU/GPU build.
 
 Options:
-  --all-cuda-archs            Build for all supported CUDA architectures (default: false).
-  --no-cache                  Build without using Docker cache (default: false).
-  --plain                     Use plain output for Docker build logs (default: false).
-  --log [LOGFILE]             Capture build process to log file, enables --plain, by default LOGFILE='./build_velox.log' (default: false).
-  --cpu                       Build for CPU only (disables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=OFF).
-  --gpu                       Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
-  --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
-  -h, --help                  Show this help message and exit.
+  --all-cuda-archs   Build for all supported CUDA architectures (default: false).
+  --no-cache         Build without using Docker cache (default: false).
+  --plain            Use plain output for Docker build logs (default: false).
+  --log [LOGFILE]    Capture build process to log file, enables --plain, by default LOGFILE='./build_velox.log' (default: false).
+  --cpu              Build for CPU only (disables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=OFF).
+  --gpu              Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
+  --benchmarks       Enable benchmarks and nsys profiling tools (sets VELOX_ENABLE_BENCHMARKS=ON) [default].
+  --no-benchmarks    Disable benchmarks and skip nsys installation (sets VELOX_ENABLE_BENCHMARKS=OFF).
+  -h, --help         Show this help message and exit.
 
 Examples:
   $(basename "$0") --all-cuda-archs --no-cache
   $(basename "$0") --plain
   $(basename "$0") --cpu
-  $(basename "$0") --benchmarks true   # Build with benchmarks/nsys (default)
-  $(basename "$0") --benchmarks false  # Build without benchmarks/nsys
-  $(basename "$0") --cpu --benchmarks false  # CPU-only build without benchmarks
+  $(basename "$0") --no-benchmarks  # Build without benchmarks/nsys
+  $(basename "$0") --cpu --no-benchmarks  # CPU-only build without benchmarks
   $(basename "$0") --log
   $(basename "$0") --log mybuild.log --all-cuda-archs
 
@@ -73,25 +73,12 @@ parse_args() {
         shift
         ;;
       --benchmarks)
-        if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
-          case "${2,,}" in
-            true)
-              VELOX_ENABLE_BENCHMARKS="ON"
-              shift 2
-              ;;
-            false)
-              VELOX_ENABLE_BENCHMARKS="OFF"
-              shift 2
-              ;;
-            *)
-              echo "ERROR: --benchmarks accepts 'true' or 'false', got: $2" >&2
-              exit 1
-              ;;
-          esac
-        else
-          echo "ERROR: --benchmarks requires a value: 'true' or 'false'" >&2
-          exit 1
-        fi
+        VELOX_ENABLE_BENCHMARKS="ON"
+        shift
+        ;;
+      --no-benchmarks)
+        VELOX_ENABLE_BENCHMARKS="OFF"
+        shift
         ;;
       -h|--help)
         print_help
