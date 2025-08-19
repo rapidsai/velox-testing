@@ -70,7 +70,7 @@ jobs:
           echo "   - CUDF support: DISABLED"
           echo "   - Target: CPU-only build"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
-          ./build_velox.sh --all-cuda-archs --cpu --plain --ccache-stats
+          ./build_velox.sh --all-cuda-archs --cpu --plain
 
       - name: Building Velox for GPU
         if: ${{ (inputs.build_type || github.event.inputs.build_type || 'GPU') == 'GPU' }}
@@ -78,7 +78,7 @@ jobs:
           echo "   - CUDF support: ENABLED"
           echo "   - Target: GPU-accelerated build"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
-          ./build_velox.sh --all-cuda-archs --gpu --plain --ccache-stats
+          ./build_velox.sh --all-cuda-archs --gpu --plain
 
       - name: Stash Compiler Cache
         uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
