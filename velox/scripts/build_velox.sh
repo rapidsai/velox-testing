@@ -108,6 +108,8 @@ if [[ "$ALL_CUDA_ARCHS" == true ]]; then
 fi
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_WITH_VELOX_ENABLE_CUDF="${BUILD_WITH_VELOX_ENABLE_CUDF}")
 DOCKER_BUILD_OPTS+=(--build-arg SHOW_CCACHE_STATS="${SHOW_CCACHE_STATS}")
+NUM_THREADS=$(($(nproc) * 3 / 4))
+DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
