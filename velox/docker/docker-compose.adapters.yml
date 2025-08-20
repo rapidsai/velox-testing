@@ -5,6 +5,9 @@ services:
     build:
       context: ../../..
       dockerfile: velox-testing/velox/docker/adapters_build.dockerfile
+      args:
+        BUILD_WITH_VELOX_ENABLE_WAVE: ${BUILD_WITH_VELOX_ENABLE_WAVE:-ON}
+        TREAT_WARNINGS_AS_ERRORS: ${TREAT_WARNINGS_AS_ERRORS:-0}
     runtime: nvidia
     volumes:
       - ../../../velox:/workspace/velox
