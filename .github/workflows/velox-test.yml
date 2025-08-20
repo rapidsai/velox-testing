@@ -32,7 +32,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       CCACHE_DIR: ${{ github.workspace }}/ccache
-      BUILD_WITH_VELOX_ENABLE_WAVE: OFF
 
     steps:
       - &checkout-velox-testing
