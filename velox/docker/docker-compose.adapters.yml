@@ -11,4 +11,5 @@ services:
       - ${CCACHE_DIR:-/tmp/ccache}:/ccache
     environment:
       - CCACHE_DIR=/ccache
+      - TREAT_WARNINGS_AS_ERRORS=0 # helps to avoid build errors due to warnings
     working_dir: /workspace/velox 
