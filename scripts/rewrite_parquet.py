@@ -8,7 +8,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
-# Map all the known VARLEN columns to use DLBA encoding.
+# Map all the known VARLEN columns to use DLBA encoding (unused for now).
 column_encoding_map={'c_name':'DELTA_LENGTH_BYTE_ARRAY',
                      'c_address':'DELTA_LENGTH_BYTE_ARRAY',
                      'c_phone':'DELTA_LENGTH_BYTE_ARRAY',
@@ -71,9 +71,10 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
     # Write the table back to a parquet file
     pq.write_table(new_table,
                    output_file_path,
-                   data_page_size=page_size,
-                   use_dictionary=False, # False because we will custom encode dict columns.
-                   column_encoding=column_encoding_map)
+                   data_page_size=page_size)
+    # Add these options to write_table() if we want to customize the encoding for some columns:
+    # use_dictionary=False, # False because we will custom encode dict columns.
+    # column_encoding=column_encoding_map)
 
 # Multi-thread file processing
 def process_dir(input_dir, output_dir, num_threads, verbose):

@@ -1,5 +1,10 @@
 #!/bin/bash
 
+function install_tpchgen() {
+    local TPCHGEN_PACKAGE="tpchgen-cli"
+    pip show $TPCHGEN_PACKAGE &>/dev/null || pip install $TPCHGEN_PACKAGE
+}
+
 function parse_args() { 
     while [[ $# -gt 0 ]]; do
 	case $1 in
@@ -109,6 +114,8 @@ TEMP_DIR="data_raw"
 VERBOSE=""
 
 parse_args "$@"
+
+install_tpchgen
 
 [ -e $OUTPUT_DIR ] && echo "$OUTPUT_DIR already exists" && exit 1
 [ -e $TEMP_DIR ] && echo "$TEMP_DIR already exists" && exit 1
