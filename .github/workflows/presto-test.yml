@@ -2,7 +2,7 @@ name: Presto Test
 
 on:
   workflow_dispatch:
-    inputs: &workflow_inputs
+    inputs: #&workflow_inputs
       velox_commit:
         description: 'Velox commit SHA or branch'
         type: string
@@ -22,8 +22,9 @@ on:
           - native-cpu
           - native-gpu
         default: 'java'
-  workflow_call:
-    *workflow_inputs
+#  workflow_call:
+#    inputs:
+#    *workflow_inputs
 
 jobs:
   build-and-test:
