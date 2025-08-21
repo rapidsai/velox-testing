@@ -28,7 +28,8 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: linux-amd64-gpu-l4-latest-1
+    #runs-on: linux-amd64-gpu-l4-latest-1
+    runs-on: ubuntu-latest
     container:
       # TODO: What base container should be used here?
       image: ghcr.io/facebookincubator/velox-dev:adapters
