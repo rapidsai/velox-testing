@@ -19,8 +19,8 @@ on:
 
 jobs:
   velox-cpu:
-    runs-on: linux-amd64-cpu-latest-1
-    
+    runs-on: linux-amd64-cpu4
+
     env:
       GH_TOKEN: ${{ github.token }}
       CCACHE_DIR: ${{ github.workspace }}/ccache
