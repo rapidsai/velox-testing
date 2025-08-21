@@ -37,7 +37,7 @@ jobs:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
         with:
-          path: ${{ github-workspace }}/velox-testing
+          path: ${{ github.workspace }}/velox-testing
 
       - name: Checkout Velox
         uses: actions/checkout@v4
