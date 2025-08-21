@@ -2,23 +2,28 @@ name: Presto Test
 
 on:
   workflow_dispatch:
-    inputs:
+    inputs: &workflow_inputs
       velox_commit:
         description: 'Velox commit SHA or branch'
-        required: true
+        type: string
+        required: false
         default: 'main'
       presto_commit:
         description: 'Presto commit SHA or branch'
-        required: true
-        default: 'main'
+        type: string
+        required: false
+        default: 'master'
+      presto_worker_type:
+        description: 'Type of presto worker to use'
+        type: choice
+        required: false
+        options:
+          - java
+          - native-cpu
+          - native-gpu
+        default: 'java'
   workflow_call:
-    inputs:
-      velox_commit:
-        type: string
-        required: true
-      presto_commit:
-        type: string
-        required: true
+    *workflow_inputs
 
 jobs:
   build-and-test:
@@ -31,32 +36,39 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: facebookincubator/velox
-          ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
-
-      - name: Build Velox with cuDF
-        run: |
-          git config --global --add safe.directory .
-          # this is wrong, needs to be the same as in velox-test.yml
-          # both need to use the same script
-          mkdir -p velox-build && cd velox-build
-          cmake -G Ninja -DVELOX_ENABLE_CUDF=ON ..
-          ninja
+          ref: ${{ inputs.velox_commit }}
+          path: velox
 
       - name: Checkout Presto
         uses: actions/checkout@v4
         with:
           repository: prestodb/presto
-          ref: ${{ inputs.presto_commit || github.event.inputs.presto_commit }}
+          ref: ${{ inputs.presto_commit }}
           path: presto
 
-      - name: Build Presto with Velox Connector
+      - name: Build and run java presto
+        if: ${{ github.event.inputs.presto_worker_type == 'java' }}
         run: |
-          # TODO: Untested, replace with working code
-          cd presto
-          git config --global --add safe.directory .
-          ./mvnw clean package -Pvelox -DskipTests
-      
-      - name: Run Presto Integration Tests
+          cd presto/scripts
+          ./start_java_presto.sh
+          sleep 30
+          ./run_integ_test.sh
+          ./stop_presto.sh
+
+      - name: Build and run native-cpu presto
+        if: ${{ github.event.inputs.presto_worker_type == 'native-cpu' }}
         run: |
-          cd presto
-          ./presto-server/bin/run-tests.sh
+          cd presto/scripts
+          ./start_native_cpu_presto.sh
+          sleep 30
+          ./run_integ_test.sh
+          ./stop_presto.sh
+
+      - name: Build and run native-gpu presto
+        if: ${{ github.event.inputs.presto_worker_type == 'native-gpu' }}
+        run: |
+          cd presto/scripts
+          ./start_native_gpu_presto.sh
+          sleep 30
+          ./run_integ_test.sh
+          ./stop_presto.sh
