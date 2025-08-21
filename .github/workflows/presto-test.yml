@@ -58,14 +58,7 @@ jobs:
         run: |
           pwd
           ls
-          cd ${{ github.workspace }}
-          pwd
-          ls
-          cd velox-testing
-          ls
-          cd presto
-          ls
-          cd scripts
+          cd velox-testing/presto/scripts
           ./start_java_presto.sh
           sleep 30
           ./run_integ_test.sh
