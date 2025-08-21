@@ -34,26 +34,31 @@ jobs:
       # TODO: What base container should be used here?
       image: ghcr.io/facebookincubator/velox-dev:adapters
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github-workspace }}/velox-testing
+
       - name: Checkout Velox
         uses: actions/checkout@v4
         with:
           repository: facebookincubator/velox
           ref: ${{ inputs.velox_commit }}
-          path: velox
+          path: ${{ github.workspace }}/velox
 
       - name: Checkout Presto
         uses: actions/checkout@v4
         with:
           repository: prestodb/presto
           ref: ${{ inputs.presto_commit }}
-          path: presto
+          path: ${{ github.workspace }}/presto
 
       - name: Build and run java presto
         if: ${{ github.event.inputs.presto_worker_type == 'java' }}
         run: |
+          cd ${{ github-workspace }}/velox-testing/presto/scripts
           pwd
           ls
-          cd presto/scripts
           ./start_java_presto.sh
           sleep 30
           ./run_integ_test.sh
