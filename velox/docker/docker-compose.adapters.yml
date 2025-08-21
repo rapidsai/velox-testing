@@ -1,4 +1,5 @@
 services:
+  # Build service for creating the Velox image
   velox-adapters-build:
     container_name: velox-adapters-build
     image: velox-adapters-build:latest
@@ -9,3 +10,15 @@ services:
     volumes:
       - ../../../velox:/workspace/velox
     working_dir: /workspace/velox 
+
+  velox-benchmark:
+    container_name: velox-benchmark
+    image: velox-adapters-build:latest
+    runtime: nvidia
+    volumes:
+      - ../../../velox:/workspace/velox
+      - ../../../velox-benchmark-data/tpch:/workspace/velox/velox-tpch-data:ro
+      - ${BENCHMARK_RESULTS_HOST_PATH:-../scripts/benchmark-results}:/workspace/velox/benchmark_results
+    working_dir: /workspace/velox
+    environment:
+      - LD_LIBRARY_PATH=/opt/velox-build/release/lib:/opt/velox-build/release/_deps/cudf-build:/opt/velox-build/release/_deps/rapids_logger-build:/opt/velox-build/release/_deps/kvikio-build:/opt/velox-build/release/_deps/nvcomp_proprietary_binary-src/lib64

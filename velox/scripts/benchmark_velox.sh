@@ -3,62 +3,106 @@ set -euo pipefail
 
 # Default values
 BENCHMARK_TYPE="tpch"
+QUERIES=""  # Will be set to benchmark-specific defaults if not provided
+DEVICE_TYPE="cpu gpu"
 DATA_DIR="../../../velox-benchmark-data"
-TPCH_FIX_METADATA=false
 BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
+PROFILE="false"
 
 # Docker compose configuration
 COMPOSE_FILE="../docker/docker-compose.adapters.yml"
-CONTAINER_NAME="velox-adapters-build"
+CONTAINER_NAME="velox-benchmark"  # Uses dedicated benchmark service with pre-configured volumes
 
 # Source benchmark-specific libraries
 source "../benchmarks/tpch.sh"
 
 print_help() {
   cat <<EOF
-Usage: $(basename "$0") [BENCHMARK_TYPE] [QUERIES] [DEVICES] [PROFILE] [OPTIONS]
+Usage: $(basename "$0") [OPTIONS]
 
 Runs Velox benchmarks with CPU and/or GPU execution engines.
 Validates that Velox is built and benchmark data is available before running.
+Uses the velox-benchmark Docker service with pre-configured volumes and environment.
 
-Arguments:
-  BENCHMARK_TYPE  Type of benchmark to run (default: tpch)
-  QUERIES         Query numbers to run (default: all queries for benchmark type)
-  DEVICES         Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")
-  PROFILE         Enable profiling: true or false (default: false)
+Benchmark Options:
+  -b, --benchmark-type TYPE               Type of benchmark to run (default: tpch)
+  -q, --queries "Q1 Q2 ..."               Query numbers to run (default: all queries for benchmark type)
+  -d, --device-type "cpu gpu"             Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")  
+  -p, --profile BOOL                      Enable profiling: true or false (default: false)
 
 General Options:
-  --benchmark-results-output DIR  Copy benchmark results to DIR (default: ./benchmark-results)
-  -h, --help                      Show this help message and exit
+  -D, --data-dir DIR                      Path to benchmark data directory (default: ../../../velox-benchmark-data)
+  -o, --output DIR                    Save benchmark results to DIR (default: ./benchmark-results)
+  -h, --help                          Show this help message and exit
 
 $(get_tpch_help)
 
 Prerequisites:
   1. Velox must be built using: ./build_velox.sh
-  2. Benchmark data must exist at: $DATA_DIR/[benchmark_type]/ (e.g., tpch/)
-  3. Docker must be available
+  2. Benchmark data must exist at: <data-dir>/[benchmark_type]/ (e.g., ../../../velox-benchmark-data/tpch/)
+  3. Docker and docker-compose must be available
+  4. Uses velox-benchmark Docker service (pre-configured with volumes and environment)
 
 Output:
-  Benchmark results (text output and nsys profiles) are copied to the specified output directory.
+  Benchmark results (text output and nsys profiles) are automatically saved to the specified output directory via Docker volume mounts.
 
 EOF
 }
 
 parse_args() {
-  local args=()
-  
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --fix-metadata)
-        TPCH_FIX_METADATA=true
-        shift
+      -b|--benchmark-type)
+        if [[ -n "${2:-}" ]]; then
+          BENCHMARK_TYPE="$2"
+          shift 2
+        else
+          echo "ERROR: --benchmark-type requires a benchmark type argument" >&2
+          exit 1
+        fi
         ;;
-      --benchmark-results-output)
+      -q|--queries)
+        if [[ -n "${2:-}" ]]; then
+          QUERIES="$2"
+          shift 2
+        else
+          echo "ERROR: --queries requires a query list argument" >&2
+          exit 1
+        fi
+        ;;
+      -d|--device-type)
+        if [[ -n "${2:-}" ]]; then
+          DEVICE_TYPE="$2"
+          shift 2
+        else
+          echo "ERROR: --device-type requires a device type argument" >&2
+          exit 1
+        fi
+        ;;
+      -p|--profile)
+        if [[ -n "${2:-}" ]]; then
+          PROFILE="$2"
+          shift 2
+        else
+          echo "ERROR: --profile requires true or false argument" >&2
+          exit 1
+        fi
+        ;;
+      -D|--data-dir)
+        if [[ -n "${2:-}" ]]; then
+          DATA_DIR="$2"
+          shift 2
+        else
+          echo "ERROR: --data-dir requires a directory argument" >&2
+          exit 1
+        fi
+        ;;
+      -o|--output)
         if [[ -n "${2:-}" ]]; then
           BENCHMARK_RESULTS_OUTPUT="$2"
           shift 2
         else
-          echo "ERROR: --benchmark-results-output requires a directory argument" >&2
+          echo "ERROR: --output requires a directory argument" >&2
           exit 1
         fi
         ;;
@@ -67,67 +111,46 @@ parse_args() {
         exit 0
         ;;
       *)
-        args+=("$1")
-        shift
+        echo "ERROR: Unknown option: $1" >&2
+        echo "Use --help for usage information" >&2
+        exit 1
         ;;
     esac
   done
   
-  BENCHMARK_TYPE="${args[0]:-tpch}"
-  
-  # Validate --fix-metadata is only used with tpch
-  if [[ "$TPCH_FIX_METADATA" == "true" ]] && [[ "$BENCHMARK_TYPE" != "tpch" ]]; then
-    echo "ERROR: --fix-metadata is only supported for TPC-H benchmarks" >&2
-    exit 1
+  # Set benchmark-specific defaults for queries if not provided
+  if [[ -z "$QUERIES" ]]; then
+    case "$BENCHMARK_TYPE" in
+      "tpch")
+        QUERIES="$(get_tpch_default_queries)"
+        ;;
+      *)
+        echo "ERROR: Unknown benchmark type: $BENCHMARK_TYPE" >&2
+        echo "Supported benchmark types: tpch" >&2
+        exit 1
+        ;;
+    esac
   fi
   
-  case "$BENCHMARK_TYPE" in
-    "tpch")
-      QUERIES="${args[1]:-$(get_tpch_default_queries)}"
-      DEVICES="${args[2]:-"cpu gpu"}"
-      PROFILE="${args[3]:-"false"}"
-      ;;
-    *)
-      echo "ERROR: Unknown benchmark type: $BENCHMARK_TYPE" >&2
-      echo "Supported benchmark types: tpch" >&2
-      exit 1
-      ;;
-  esac
 }
 
-# Helper function to run commands in the Velox container
+# Helper function to run commands in the Velox benchmark container
 run_in_container() {
   local cmd="$1"
-  local extra_args="${2:-}"
   
-  if [[ -n "$extra_args" ]]; then
-    docker compose -f "$COMPOSE_FILE" run --rm $extra_args "$CONTAINER_NAME" bash -c "$cmd"
-  else
-    docker compose -f "$COMPOSE_FILE" run --rm "$CONTAINER_NAME" bash -c "$cmd"
-  fi
+  BENCHMARK_RESULTS_HOST_PATH="$(realpath "$BENCHMARK_RESULTS_OUTPUT")" \
+  docker compose -f "$COMPOSE_FILE" run --rm "$CONTAINER_NAME" bash -c "$cmd"
 }
 
-copy_benchmark_results() {
+prepare_benchmark_results_dir() {
   local output_dir="$1"
   
-  echo "Copying benchmark results to $output_dir..."
-  
-  # Create output directory if it doesn't exist
+  # Create output directory if it doesn't exist  
   mkdir -p "$output_dir"
-  
-  # Copy all files from container benchmark_results to host output directory
-  run_in_container "cp -r /workspace/velox/benchmark_results/* /host_output/ 2>/dev/null || true" "-v $(realpath $output_dir):/host_output"
-  
 }
 
 check_velox_build() {
   echo "Checking Velox build..."
-  
-  # Check if docker is available
-  if ! command -v docker &> /dev/null; then
-    echo "ERROR: Docker is not available. Please install Docker." >&2
-    exit 1
-  fi
   
   # Check if velox-adapters-build image exists
   if ! docker image inspect velox-adapters-build:latest &> /dev/null; then
@@ -148,7 +171,7 @@ check_velox_build() {
   # Check benchmark executables based on benchmark type
   case "$BENCHMARK_TYPE" in
     "tpch")
-      check_tpch_benchmark_executable "run_in_container"
+      check_tpch_benchmark_executable "run_in_container" "$DEVICE_TYPE"
       ;;
     *)
       echo "ERROR: Unknown benchmark type: $BENCHMARK_TYPE" >&2
@@ -167,7 +190,7 @@ check_benchmark_data() {
   
   case "$BENCHMARK_TYPE" in
     "tpch")
-      check_tpch_data "$DATA_DIR" "$TPCH_FIX_METADATA"
+      check_tpch_data "$DATA_DIR"
       ;;
     *)
       echo "ERROR: Unknown benchmark type: $BENCHMARK_TYPE" >&2
@@ -180,24 +203,29 @@ check_benchmark_data() {
 run_benchmark() {
   local benchmark_type="$1"
   local queries="$2"
-  local devices="$3" 
+  local device_type="$3" 
   local profile="$4"
   
-  # Run benchmarks based on type
-  case "$benchmark_type" in
-    "tpch")
-      # Setup TPC-H container environment
-      setup_tpch_container_environment
-      run_tpch_benchmark "$queries" "$devices" "$profile" "$DATA_DIR" "run_in_container"
-      ;;
-    *)
-      echo "ERROR: Unknown benchmark type: $benchmark_type" >&2
-      exit 1
-      ;;
-  esac
+  echo "Running $benchmark_type benchmark..."
+  echo "Queries: $queries"
+  echo "Device types: $device_type"
+  echo "Profile: $profile"
   
-  # Copy results to host after all benchmarks complete
-  copy_benchmark_results "$BENCHMARK_RESULTS_OUTPUT"
+  # Generic orchestration: run all query/device combinations
+  for query_number in $queries; do
+    for device in $device_type; do
+      # Dispatch to benchmark-specific implementation
+      case "$benchmark_type" in
+        "tpch")
+          run_tpch_single_benchmark "$query_number" "$device" "$profile" "$DATA_DIR/tpch" "run_in_container"
+          ;;
+        *)
+          echo "ERROR: Unknown benchmark type: $benchmark_type" >&2
+          exit 1
+          ;;
+      esac
+    done
+  done
 }
 
 # Parse arguments
@@ -221,12 +249,15 @@ check_velox_build
 # Check benchmark data 
 check_benchmark_data
 
+# Prepare benchmark results directory
+prepare_benchmark_results_dir "$BENCHMARK_RESULTS_OUTPUT"
+
 echo ""
 echo "Starting benchmarks..."
 echo ""
 
 # Run benchmarks
-run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICES" "$PROFILE"
+run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE"
 
 echo ""
 echo "Benchmarks completed successfully!"
