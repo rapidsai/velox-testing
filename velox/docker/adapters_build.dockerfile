@@ -49,12 +49,12 @@ RUN printenv | sort
 RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       set -euxo pipefail && \
       # Add NVIDIA CUDA repository with proper GPG key
-      yum install -y yum-utils && \
-      yum-config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
+      dnf install -y dnf-plugins-core && \
+      dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
       # Import NVIDIA GPG key
       rpm --import https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/D42D0685.pub && \
       # Install nsys from CUDA repository
-      yum install -y nsight-systems && \
+      dnf install -y nsight-systems && \
       # Verify nsys installation
       which nsys && nsys --version; \
     else \

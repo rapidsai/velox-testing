@@ -7,37 +7,39 @@ TPCH_REQUIRED_TABLES=("customer" "lineitem" "nation" "orders" "part" "partsupp" 
 
 get_tpch_help() {
   cat <<EOF
-TPC-H Options:
-  --fix-metadata  Automatically generate/fix TPC-H metadata files with correct container paths
-
 TPC-H Examples:
-  \$(basename "\$0")                          # Run all TPC-H queries on CPU and GPU
-  \$(basename "\$0") tpch 6 cpu               # Run TPC-H Q6 on CPU only
-  \$(basename "\$0") tpch "1 6" "cpu gpu"    # Run TPC-H Q1 and Q6 on both CPU and GPU
-  \$(basename "\$0") tpch 6 gpu true         # Run TPC-H Q6 on GPU with profiling
-  \$(basename "\$0") tpch 6 gpu false --fix-metadata  # Auto-fix TPC-H metadata files
-  \$(basename "\$0") tpch 6 gpu true --benchmark-results-output /tmp/results  # Custom output dir
+  \$(basename "\$0")                                       # Run all TPC-H queries on CPU and GPU (defaults)
+  \$(basename "\$0") --queries 6 --device-type cpu        # Run TPC-H Q6 on CPU only
+  \$(basename "\$0") --queries "1 6" --device-type "cpu gpu"  # Run Q1 and Q6 on both CPU and GPU
+  \$(basename "\$0") --queries 6 --device-type gpu --profile true  # Run Q6 on GPU with profiling
+  \$(basename "\$0") --queries 6 --device-type gpu -o /tmp/results  # Custom output directory
+  \$(basename "\$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
 
 TPC-H Data Requirements:
-  The TPC-H data directory must contain:
-  - *.parquet files: The actual data tables (customer.parquet, lineitem.parquet, etc.)
-  - Metadata files: Small text files with same names as tables (customer, lineitem, etc.)
-    that contain the full path to the corresponding .parquet file within the container.
+  The TPC-H data directory must use Hive-style directory structure with at least one parquet file per table:
+    /data/tpch/customer/*.parquet (or in subdirectories)
+    /data/tpch/lineitem/*.parquet (or in subdirectories)
+    /data/tpch/nation/*.parquet (or in subdirectories)
+    /data/tpch/orders/*.parquet (or in subdirectories)
+    /data/tpch/part/*.parquet (or in subdirectories)
+    /data/tpch/partsupp/*.parquet (or in subdirectories)
+    /data/tpch/region/*.parquet (or in subdirectories)
+    /data/tpch/supplier/*.parquet (or in subdirectories)
     
-  Example metadata file content for 'customer':
-    /workspace/velox/velox-tpch-data/customer.parquet
-    
-  Note: Use --fix-metadata to automatically generate/fix these files.
+  This structure is compatible with Presto and follows Hive conventions. Supports:
+  - Single files: customer/customer.parquet
+  - Multiple files: lineitem/part-00000.parquet, lineitem/part-00001.parquet, etc.
+  - Partitioned data: orders/year=1992/part-00000.parquet, orders/year=1993/part-00000.parquet, etc.
+  - Multi-partition: customer/region=AMERICA/part-00000.parquet, customer/region=EUROPE/part-00001.parquet, etc.
 
 TPC-H Build Requirements:
-  - Velox must be built with benchmarks enabled: ./build_velox.sh --benchmarks
+  - Velox must be built with benchmarks enabled: ./build_velox.sh --benchmarks true
   - For profiling support, nsys is automatically installed when benchmarks are enabled
 EOF
 }
 
 check_tpch_data() {
   local data_dir="$1"
-  local fix_metadata="$2"
   
   TPCH_DATA_PATH="$data_dir/tpch"
   
@@ -49,117 +51,65 @@ check_tpch_data() {
   
   echo "Found TPC-H data directory: $TPCH_DATA_PATH"
   
-  # Check for required TPC-H tables
+  # Validate Hive directory structure
+  echo "Validating TPC-H Hive directory structure..."
+  
   local missing_tables=0
   
   for table in "${TPCH_REQUIRED_TABLES[@]}"; do
-    # Check for .parquet file
-    if [[ ! -f "$TPCH_DATA_PATH/${table}.parquet" ]]; then
-      echo "ERROR: Required TPC-H table '$TPCH_DATA_PATH/${table}.parquet' not found." >&2
+    # Check for Hive-style directory structure: table/*.parquet
+    if [[ ! -d "$TPCH_DATA_PATH/${table}" ]]; then
+      echo "ERROR: Required TPC-H table directory '$TPCH_DATA_PATH/${table}/' not found." >&2
       missing_tables=1
+    else
+      # Check for parquet files in the directory and subdirectories (for partitioned data)
+      local parquet_files=()
+      while IFS= read -r -d '' file; do
+        parquet_files+=("$file")
+      done < <(find "$TPCH_DATA_PATH/${table}" -name "*.parquet" -type f -print0 2>/dev/null)
+      
+      if [[ ${#parquet_files[@]} -eq 0 ]]; then
+        echo "ERROR: No parquet files found in '$TPCH_DATA_PATH/${table}/' directory (including subdirectories)." >&2
+        missing_tables=1
+      else
+        local parquet_count=${#parquet_files[@]}
+        # Check if partitioned (has subdirectories with parquet files)
+        local direct_files=("$TPCH_DATA_PATH/${table}"/*.parquet)
+        if [[ -f "${direct_files[0]}" ]]; then
+          echo "  $table table directory contains $parquet_count parquet file(s)"
+        else
+          echo "  $table table directory contains $parquet_count parquet file(s) in partitioned subdirectories"
+        fi
+      fi
     fi
   done
   
   if [[ "$missing_tables" -ne 0 ]]; then
-    echo "ERROR: Missing TPC-H data files in $TPCH_DATA_PATH" >&2
-    echo "Please ensure all TPC-H tables are available as .parquet files" >&2
+    echo "ERROR: TPC-H Hive directory validation failed." >&2
+    echo "Expected Hive directory structure with at least one parquet file per table:" >&2
+    echo "  $TPCH_DATA_PATH/customer/*.parquet (or in subdirectories)" >&2
+    echo "  $TPCH_DATA_PATH/lineitem/*.parquet (or in subdirectories)" >&2
+    echo "  $TPCH_DATA_PATH/nation/*.parquet (or in subdirectories)" >&2
+    echo "  $TPCH_DATA_PATH/orders/*.parquet (or in subdirectories)" >&2
+    echo "  $TPCH_DATA_PATH/part/*.parquet (or in subdirectories)" >&2
+    echo "  $TPCH_DATA_PATH/partsupp/*.parquet (or in subdirectories)" >&2
+    echo "  $TPCH_DATA_PATH/region/*.parquet (or in subdirectories)" >&2
+    echo "  $TPCH_DATA_PATH/supplier/*.parquet (or in subdirectories)" >&2
+    echo "" >&2
+    echo "Each table directory can contain one or multiple parquet files in the directory itself or in partitioned subdirectories." >&2
+    echo "Examples of supported patterns:" >&2
+    echo "  - Single file: customer/customer.parquet" >&2
+    echo "  - Multiple files: lineitem/part-00000.parquet, lineitem/part-00001.parquet, ..." >&2
+    echo "  - Partitioned: orders/year=1992/part-00000.parquet, orders/year=1993/part-00000.parquet, ..." >&2
+    echo "  - Multi-partition: customer/region=AMERICA/part-00000.parquet, customer/region=EUROPE/part-00001.parquet, ..." >&2
     exit 1
   fi
-  
-  # Fix metadata files if requested, before validation
-  if [[ "$fix_metadata" == "true" ]]; then
-    echo "Fixing TPC-H metadata files..."
-    if ! fix_tpch_metadata_files "$TPCH_DATA_PATH"; then
-      echo "ERROR: Failed to fix TPC-H metadata files. Exiting." >&2
-      exit 1
-    fi
-    echo ""
-  fi
-  
-  # Validate metadata files
-  validate_tpch_metadata_files "$TPCH_DATA_PATH"
   
   echo "TPC-H benchmark data verification passed"
   echo "Data directory: $TPCH_DATA_PATH"
 }
 
-validate_tpch_metadata_files() {
-  local data_path="$1"
-  local container_data_path="/workspace/velox/velox-tpch-data"
-  
-  echo "Validating TPC-H metadata files..."
-  
-  local errors=0
-  
-  for table in "${TPCH_REQUIRED_TABLES[@]}"; do
-    local metadata_file="$data_path/${table}"
-    local expected_content="${container_data_path}/${table}.parquet"
-    
-    if [[ ! -f "$metadata_file" ]]; then
-      echo "ERROR: Missing TPC-H metadata file '$metadata_file'" >&2
-      errors=1
-    else
-      local current_content
-      current_content=$(cat "$metadata_file" 2>/dev/null | tr -d '\n\r ')
-      
-      if [[ "$current_content" != "$expected_content" ]]; then
-        echo "ERROR: TPC-H metadata file '$metadata_file' has incorrect path:" >&2
-        echo "  Current: '$current_content'" >&2
-        echo "  Expected: '$expected_content'" >&2
-        errors=1
-      else
-        echo "  $table metadata file is correct"
-      fi
-    fi
-  done
-  
-  if [[ "$errors" -ne 0 ]]; then
-    echo "" >&2
-    echo "ERROR: TPC-H metadata file validation failed." >&2
-    echo "Use --fix-metadata to automatically generate/fix TPC-H metadata files." >&2
-    exit 1
-  fi
-}
 
-fix_tpch_metadata_files() {
-  local data_path="$1"
-  local container_data_path="/workspace/velox/velox-tpch-data"
-  
-  local fixed_count=0
-  
-  for table in "${TPCH_REQUIRED_TABLES[@]}"; do
-    local metadata_file="$data_path/${table}"
-    local expected_content="${container_data_path}/${table}.parquet"
-    
-    if [[ ! -f "$metadata_file" ]]; then
-      echo "  Generating $table metadata file"
-      if echo "$expected_content" > "$metadata_file" 2>/dev/null; then
-        ((fixed_count++))
-      else
-        echo "ERROR: Failed to write $metadata_file" >&2
-        return 1
-      fi
-    else
-      local current_content
-      current_content=$(cat "$metadata_file" 2>/dev/null | tr -d '\n\r ')
-      
-      if [[ "$current_content" != "$expected_content" ]]; then
-        echo "  Fixing $table metadata file (was: '$current_content')"
-        if echo "$expected_content" > "$metadata_file" 2>/dev/null; then
-          ((fixed_count++))
-        else
-          echo "ERROR: Failed to update $metadata_file" >&2
-          return 1
-        fi
-      else
-        echo "  $table metadata file is already correct"
-      fi
-    fi
-  done
-  
-  echo "Fixed/generated $fixed_count TPC-H metadata files"
-  return 0
-}
 
 run_tpch_single_benchmark() {
   local query_number="$1"
@@ -206,16 +156,12 @@ run_tpch_single_benchmark() {
     fi
   fi
   
-  # Volume mount for data
-  VOLUME_MOUNT="-v $data_path:/workspace/velox/velox-tpch-data:ro"
-  
+  # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
   $run_in_container_func 'bash -c "
-      export LD_LIBRARY_PATH=/opt/velox-build/release/lib:/opt/velox-build/release/_deps/cudf-build:/opt/velox-build/release/_deps/rapids_logger-build:/opt/velox-build/release/_deps/kvikio-build:/opt/velox-build/release/_deps/nvcomp_proprietary_binary-src/lib64
-      cd /workspace/velox
-      set +e +u -x
+      set +e -x
       '"${PROFILE_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \
-        --data_path=velox-tpch-data \
+        --data_path=/workspace/velox/velox-tpch-data \
         --data_format=parquet \
         --run_query_verbose='"${query_number_padded}"' \
         --num_repeats=1 \
@@ -227,29 +173,7 @@ run_tpch_single_benchmark() {
         '"${CUDF_FLAGS}"' 2>&1 | \
         tee benchmark_results/q'"${query_number_padded}"'_'"${device}"'_'"${num_drivers}"'_drivers
       { set -e +x; } &>/dev/null
-    "' "$VOLUME_MOUNT"
-}
-
-run_tpch_benchmark() {
-  local queries="$1"
-  local devices="$2" 
-  local profile="$3"
-  local data_dir="$4"
-  local run_in_container_func="$5"
-  
-  echo "Running TPC-H benchmark..."
-  echo "Queries: $queries"
-  echo "Devices: $devices"
-  echo "Profile: $profile"
-  
-  TPCH_DATA_PATH="$data_dir/tpch"
-  
-  # Run benchmarks for each query and device combination
-  for query_number in $queries; do
-    for device in $devices; do
-      run_tpch_single_benchmark "$query_number" "$device" "$profile" "$TPCH_DATA_PATH" "$run_in_container_func"
-    done
-  done
+    "'
 }
 
 get_tpch_default_queries() {
@@ -259,26 +183,31 @@ get_tpch_default_queries() {
 check_tpch_benchmark_executable_with_path() {
   local benchmark_executable="$1"
   local run_in_container_func="$2"
+  local error_msg_hint="$3"
   
   if ! $run_in_container_func "test -f ${benchmark_executable}" 2>/dev/null; then
     echo "ERROR: TPC-H benchmark executable not found at ${benchmark_executable}" >&2
-    echo "Please rebuild Velox with benchmarks enabled by running: ./build_velox.sh --benchmarks" >&2
+    echo "$error_msg_hint" >&2
     exit 1
   fi
 } 
 
 
 check_tpch_benchmark_executable() {
-    check_tpch_benchmark_executable_with_path "/opt/velox-build/release/velox/experimental/cudf/benchmarks/velox_cudf_tpch_benchmark" "$1"
-    check_tpch_benchmark_executable_with_path "/opt/velox-build/release/velox/benchmarks/tpch/velox_tpch_benchmark" "$1"
+    local run_in_container_func="$1"
+    local device_type="${2:-cpu gpu}"  # Default to both if not specified
+    
+    # Always check the CPU benchmark executable
+    check_tpch_benchmark_executable_with_path \
+        "/opt/velox-build/release/velox/benchmarks/tpch/velox_tpch_benchmark" \
+        "$run_in_container_func" \
+        "Please rebuild Velox with benchmarks enabled by running: ./build_velox.sh --benchmarks true" 
+    
+    # Only check CUDF executable if GPU is requested
+    if [[ "$device_type" == *"gpu"* ]]; then
+        check_tpch_benchmark_executable_with_path "/opt/velox-build/release/velox/experimental/cudf/benchmarks/velox_cudf_tpch_benchmark" \
+         "$run_in_container_func" \
+         "Please rebuild Velox with GPU support and benchmarks enabled by running: ./build_velox.sh --gpu --benchmarks true"
+    fi
 }
 
-
-setup_tpch_container_environment() {
-  echo "Setting up TPC-H container environment..."
-  
-  # Create benchmark results directory and clear any existing results
-  run_in_container 'rm -rf /workspace/velox/benchmark_results && mkdir -p /workspace/velox/benchmark_results'
-  
-  echo "TPC-H container environment ready"
-}
