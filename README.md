@@ -40,5 +40,7 @@ The Presto integration tests are implemented using the [pytest](https://docs.pyt
 #### Testing Different Scale Factors
 The integration tests can be executed against tables with different scale factors by navigating (`cd`) into the `velox-testing/presto/testing/integration_tests/scripts` directory and executing the `generate_test_files.sh` script with a `--scale-factor` or `-s` argument. After this, the tests can then be executed using the steps described in the "Running Integration Tests" section.
 
+Note that `velox-testing/presto/testing/integration_tests` and `velox-testing/benchmark_data_tools` are separate projects that are expected to be operated with their own virtual environment.
+
 ## Presto Benchmarking
 TODO: Add details when related infrastructure is added.
