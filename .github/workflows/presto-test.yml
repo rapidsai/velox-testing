@@ -56,28 +56,32 @@ jobs:
       - name: Build and run java presto
         if: ${{ github.event.inputs.presto_worker_type == 'java' }}
         run: |
-          pwd
-          ls
-          cd velox-testing/presto/scripts
+          pushd velox-testing/presto/scripts
           ./start_java_presto.sh
           sleep 30
-          ./run_integ_test.sh
-          ./stop_presto.sh
+          ./run_integ_test.sh -b tpch
+          popd
 
       - name: Build and run native-cpu presto
         if: ${{ github.event.inputs.presto_worker_type == 'native-cpu' }}
         run: |
-          cd presto/scripts
+          pushd velox-testing/presto/scripts
           ./start_native_cpu_presto.sh
           sleep 30
-          ./run_integ_test.sh
-          ./stop_presto.sh
+          ./run_integ_test.sh -b tpch
+          popd
 
       - name: Build and run native-gpu presto
         if: ${{ github.event.inputs.presto_worker_type == 'native-gpu' }}
         run: |
-          cd presto/scripts
+          pushd velox-testing/presto/scripts
           ./start_native_gpu_presto.sh
           sleep 30
-          ./run_integ_test.sh
+          ./run_integ_test.sh -b tpch
+          popd
+          
+      - name: Shutdown
+        run: |
+          pushd velox-testing/presto/scripts
           ./stop_presto.sh
+          popd
