@@ -1,5 +1,4 @@
 services:
-  # Build service for creating the Velox image
   velox-adapters-build:
     container_name: velox-adapters-build
     image: velox-adapters-build:latest
