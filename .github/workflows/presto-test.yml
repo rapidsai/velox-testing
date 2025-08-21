@@ -56,9 +56,14 @@ jobs:
       - name: Build and run java presto
         if: ${{ github.event.inputs.presto_worker_type == 'java' }}
         run: |
-          cd ${{ github.workspace }}/velox-testing/presto/scripts
+          cd ${{ github.workspace }}
           pwd
           ls
+          cd velox-testing
+          ls
+          cd presto
+          ls
+          cd scripts
           ./start_java_presto.sh
           sleep 30
           ./run_integ_test.sh
