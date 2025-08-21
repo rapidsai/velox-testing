@@ -1,6 +1,6 @@
 #!/bin/bash
 # TPC-H Benchmark Library for Velox
-# This file contains all TPC-H specific logic and functions
+# This file contains TPC-H specific benchmark utilities used by benchmark_velox.sh
 
 # TPC-H specific constants
 TPCH_REQUIRED_TABLES=("customer" "lineitem" "nation" "orders" "part" "partsupp" "region" "supplier")
@@ -109,11 +109,21 @@ check_tpch_data() {
   echo "Data directory: $TPCH_DATA_PATH"
 }
 
-
+get_tpch_benchmark_executable_path() {
+  local device_type="$1"
+  case "$device_type" in
+    "cpu")
+      echo "/opt/velox-build/release/velox/benchmarks/tpch/velox_tpch_benchmark"
+      ;;
+    "gpu")
+      echo "/opt/velox-build/release/velox/experimental/cudf/benchmarks/velox_cudf_tpch_benchmark"
+      ;;
+  esac
+}
 
 run_tpch_single_benchmark() {
   local query_number="$1"
-  local device="$2"
+  local device_type="$2"
   local profile="$3"
   local data_path="$4"
   local run_in_container_func="$5"
@@ -121,10 +131,10 @@ run_tpch_single_benchmark() {
   printf -v query_number_padded '%02d' "$query_number"
   
   # Set device-specific parameters  
-  case "$device" in
+  case "$device_type" in
     "cpu")
       num_drivers=${NUM_DRIVERS:-32}
-      BENCHMARK_EXECUTABLE="/opt/velox-build/release/velox/benchmarks/tpch/velox_tpch_benchmark"
+      BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
       CUDF_FLAGS=""
       VELOX_CUDF_ENABLED=false
       ;;
@@ -132,7 +142,7 @@ run_tpch_single_benchmark() {
       num_drivers=${NUM_DRIVERS:-4}
       cudf_chunk_read_limit=$((1024 * 1024 * 1024 * 1))
       cudf_pass_read_limit=0
-      BENCHMARK_EXECUTABLE="/opt/velox-build/release/velox/experimental/cudf/benchmarks/velox_cudf_tpch_benchmark"
+      BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
       CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit}"
       VELOX_CUDF_ENABLED=true
       ;;
@@ -142,14 +152,20 @@ run_tpch_single_benchmark() {
   output_batch_rows=${BATCH_SIZE_ROWS:-100000}
   VELOX_CUDF_MEMORY_RESOURCE="async"
   
-  echo "Running query ${query_number_padded} on ${device} with ${num_drivers} drivers."
+  echo "Running query ${query_number_padded} on ${device_type} with ${num_drivers} drivers."
   
   # Set up profiling if requested
   PROFILE_CMD=""
   if [[ "$profile" == "true" ]]; then
     # Check if nsys is available before setting up profiling
     if $run_in_container_func "which nsys" &>/dev/null; then
-      PROFILE_CMD="nsys profile -t nvtx,cuda,osrt -f true --cuda-memory-usage=true --cuda-um-cpu-page-faults=true --cuda-um-gpu-page-faults=true --output=benchmark_results/q${query_number_padded}_${device}_${num_drivers}_drivers.nsys-rep"
+      PROFILE_CMD="nsys profile \
+        -t nvtx,cuda,osrt \
+        -f true \
+        --cuda-memory-usage=true \
+        --cuda-um-cpu-page-faults=true \
+        --cuda-um-gpu-page-faults=true \
+        --output=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers.nsys-rep"
     else
       echo "WARNING: nsys not found in container. Profiling disabled." >&2
       echo "         To enable profiling, rebuild with: ./build_velox.sh --benchmarks" >&2
@@ -158,7 +174,6 @@ run_tpch_single_benchmark() {
   
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
   $run_in_container_func 'bash -c "
-      set +e -x
       '"${PROFILE_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \
         --data_path=/workspace/velox/velox-tpch-data \
@@ -171,8 +186,7 @@ run_tpch_single_benchmark() {
         --preferred_output_batch_rows='"${output_batch_rows}"' \
         --max_output_batch_rows='"${output_batch_rows}"' \
         '"${CUDF_FLAGS}"' 2>&1 | \
-        tee benchmark_results/q'"${query_number_padded}"'_'"${device}"'_'"${num_drivers}"'_drivers
-      { set -e +x; } &>/dev/null
+        tee benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers
     "'
 }
 
@@ -199,13 +213,13 @@ check_tpch_benchmark_executable() {
     
     # Always check the CPU benchmark executable
     check_tpch_benchmark_executable_with_path \
-        "/opt/velox-build/release/velox/benchmarks/tpch/velox_tpch_benchmark" \
+        "$(get_tpch_benchmark_executable_path "cpu")" \
         "$run_in_container_func" \
         "Please rebuild Velox with benchmarks enabled by running: ./build_velox.sh --benchmarks true" 
     
     # Only check CUDF executable if GPU is requested
     if [[ "$device_type" == *"gpu"* ]]; then
-        check_tpch_benchmark_executable_with_path "/opt/velox-build/release/velox/experimental/cudf/benchmarks/velox_cudf_tpch_benchmark" \
+        check_tpch_benchmark_executable_with_path "$(get_tpch_benchmark_executable_path "gpu")" \
          "$run_in_container_func" \
          "Please rebuild Velox with GPU support and benchmarks enabled by running: ./build_velox.sh --gpu --benchmarks true"
     fi

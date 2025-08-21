@@ -118,7 +118,7 @@ parse_args() {
     esac
   done
   
-  # Set benchmark-specific defaults for queries if not provided
+  # Set benchmark-specific defaults for queries if not provided, NOTE: changes with `RUN` commands do not persist
   if [[ -z "$QUERIES" ]]; then
     case "$BENCHMARK_TYPE" in
       "tpch")
@@ -211,7 +211,7 @@ run_benchmark() {
   echo "Device types: $device_type"
   echo "Profile: $profile"
   
-  # Generic orchestration: run all query/device combinations
+  # Run all query/device combinations
   for query_number in $queries; do
     for device in $device_type; do
       # Dispatch to benchmark-specific implementation
