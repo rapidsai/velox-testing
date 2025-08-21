@@ -2,7 +2,7 @@ name: Velox Test
 
 on:
   workflow_dispatch:
-    inputs:
+    inputs: &workflow_inputs
       repository:
         description: 'Velox repository'
         type: string
@@ -15,15 +15,7 @@ on:
         default: 'main'
         
   workflow_call:
-    inputs:
-      repository:
-        type: string
-        required: false
-        default: 'facebookincubator/velox'
-      velox_commit:
-        type: string
-        required: false
-        default: 'main'
+    inputs: *workflow_inputs
 
 jobs:
   velox-cpu:
@@ -44,15 +36,15 @@ jobs:
         name: Checkout Velox
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.repository || github.event.inputs.repository || 'facebookincubator/velox' }}
-          ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit || 'main' }}
+          repository: ${{ inputs.repository || github.event.inputs.repository }}
+          ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
           path: velox
 
       - &get-velox-sha
         name: Get Velox commit SHA
         id: velox-sha
         run: |
-          VELOX_REF="${{ inputs.velox_commit || github.event.inputs.velox_commit || 'main' }}"
+          VELOX_REF="${{ inputs.velox_commit || github.event.inputs.velox_commit }}"
           echo "Input ref: $VELOX_REF"
           
           if [[ "$VELOX_REF" == "main" || "$VELOX_REF" == "master" ]]; then

@@ -3,6 +3,8 @@
 # container name
 CONTAINER_NAME="velox-adapters-build"
 
+NUM_THREADS=$(($(nproc) * 3 / 4))
+
 # expected output directory
 EXPECTED_OUTPUT_DIR="/opt/velox-build/release"
 
