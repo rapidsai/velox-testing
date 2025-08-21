@@ -30,9 +30,9 @@ jobs:
   build-and-test:
     #runs-on: linux-amd64-gpu-l4-latest-1
     runs-on: ubuntu-latest
-    container:
+    #container:
       # TODO: What base container should be used here?
-      image: ghcr.io/facebookincubator/velox-dev:adapters
+      #image: ghcr.io/facebookincubator/velox-dev:adapters
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
