@@ -51,6 +51,8 @@ jobs:
       - name: Build and run java presto
         if: ${{ github.event.inputs.presto_worker_type == 'java' }}
         run: |
+          pwd
+          ls
           cd presto/scripts
           ./start_java_presto.sh
           sleep 30
