@@ -7,5 +7,6 @@ NUM_THREADS=$(($(nproc) * 3 / 4))
 
 # expected output directory
 EXPECTED_OUTPUT_DIR="/opt/velox-build/release"
+EXPECTED_OUTPUT_LIB_DIR="${EXPECTED_OUTPUT_DIR}/lib"
 
 COMPOSE_FILE="../docker/docker-compose.adapters.yml"
