@@ -50,7 +50,6 @@ jobs:
         run: |
           pushd velox-testing/presto/scripts
           ./start_${{ github.event.inputs.presto_worker_type }}_presto.sh
-          sleep 30
           ./run_integ_test.sh -b tpch
           popd
 
