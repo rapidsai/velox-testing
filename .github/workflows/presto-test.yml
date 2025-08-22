@@ -19,8 +19,8 @@ on:
         required: false
         options:
           - java
-          - native-cpu
-          - native-gpu
+          - native_cpu
+          - native_gpu
         default: 'java'
 
 jobs:
