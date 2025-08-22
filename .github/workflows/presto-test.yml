@@ -30,45 +30,26 @@ jobs:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
         with:
-          path: ${{ github.workspace }}/velox-testing
+          path: velox-testing
 
       - name: Checkout Velox
         uses: actions/checkout@v4
         with:
           repository: facebookincubator/velox
           ref: ${{ inputs.velox_commit }}
-          path: ${{ github.workspace }}/velox
+          path: velox
 
       - name: Checkout Presto
         uses: actions/checkout@v4
         with:
           repository: prestodb/presto
           ref: ${{ inputs.presto_commit }}
-          path: ${{ github.workspace }}/presto
+          path: presto
 
-      - name: Build and run java presto
-        if: ${{ github.event.inputs.presto_worker_type == 'java' }}
+      - name: Build and run presto
         run: |
           pushd velox-testing/presto/scripts
-          ./start_java_presto.sh
-          sleep 30
-          ./run_integ_test.sh -b tpch
-          popd
-
-      - name: Build and run native-cpu presto
-        if: ${{ github.event.inputs.presto_worker_type == 'native-cpu' }}
-        run: |
-          pushd velox-testing/presto/scripts
-          ./start_native_cpu_presto.sh
-          sleep 30
-          ./run_integ_test.sh -b tpch
-          popd
-
-      - name: Build and run native-gpu presto
-        if: ${{ github.event.inputs.presto_worker_type == 'native-gpu' }}
-        run: |
-          pushd velox-testing/presto/scripts
-          ./start_native_gpu_presto.sh
+          ./start_${{ github.event.inputs.presto_worker_type }}_presto.sh
           sleep 30
           ./run_integ_test.sh -b tpch
           popd
