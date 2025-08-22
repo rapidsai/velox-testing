@@ -8,6 +8,7 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
 
   presto-native-worker-gpu:
     container_name: presto-native-worker-gpu
@@ -25,5 +26,6 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
     depends_on:
       - presto-coordinator
