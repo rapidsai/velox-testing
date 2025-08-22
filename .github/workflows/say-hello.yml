@@ -36,6 +36,18 @@ jobs:
       # Say Hello
       - name: Say Hello
         run: echo "Hello, ${{ github.event.inputs.recipient }}!"
+      
+      - name: Create Virtual Environment
+        run: python3 -m venv test_venv
+
+      - name: Activate Virtual Environment
+        run: source test_venv/bin/activate
+
+      - name: Deactivate Virtual Environment
+        run: deactivate
+
+      - name: Delete Virtual Environment
+        run: rm -rf test_venv
 
       # Run nvidia-smi just to prove we're on a GPU system
       - name: Run nvidia-smi
