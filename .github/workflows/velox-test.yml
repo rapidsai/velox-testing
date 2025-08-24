@@ -15,8 +15,8 @@ on:
         default: 'main'
       build_target:
         description: 'Select the build target'
-        required: true
         type: choice
+        required: false
         default: 'gpu'
         options:
           - all
