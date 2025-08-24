@@ -2,13 +2,13 @@ name: Velox Test
 
 on:
   workflow_dispatch:
-    inputs: &workflow_inputs
-      repository:
+    inputs:
+      repository: &repository
         description: 'Velox repository'
         type: string
         required: false
         default: 'facebookincubator/velox'
-      velox_commit:
+      velox_commit: &velox_commit
         description: 'Velox commit SHA or branch'
         type: string
         required: false
@@ -24,7 +24,14 @@ on:
           - gpu
 
   workflow_call:
-    inputs: *workflow_inputs
+    inputs:
+      repository: *repository
+      velox_commit: *velox_commit
+      build_target:
+        description: 'Select the build target'
+        type: string
+        required: false
+        default: 'gpu'
 
 jobs:
   velox-cpu:
