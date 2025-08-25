@@ -6,7 +6,6 @@ import pyarrow as pa
 import argparse
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-import threading
 
 # Map all the known VARLEN columns to use DLBA encoding (unused for now).
 column_encoding_map={'c_name':'DELTA_LENGTH_BYTE_ARRAY',
