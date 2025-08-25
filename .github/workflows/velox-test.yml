@@ -80,7 +80,7 @@ jobs:
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-linux-adapters-gcc-cpu
+          key: velox-test-cpu-ccache
 
       - name: Building Velox for CPU
         run: |
@@ -99,7 +99,7 @@ jobs:
         uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-linux-adapters-gcc-cpu
+          key: velox-test-cpu-ccache
 
       - &run-velox-tests
         name: Run Velox Tests
@@ -126,7 +126,7 @@ jobs:
         uses: apache/infrastructure-actions/stash/restore@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-linux-adapters-gcc-gpu
+          key: velox-test-gpu-ccache
 
       - name: Building Velox for GPU
         run: |
@@ -145,6 +145,6 @@ jobs:
         uses: apache/infrastructure-actions/stash/save@3354c1565d4b0e335b78a76aedd82153a9e144d4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-linux-adapters-gcc-gpu
+          key: velox-test-gpu-ccache
 
       - *run-velox-tests
