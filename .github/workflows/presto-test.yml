@@ -21,11 +21,11 @@ on:
           - java
           - native_cpu
           - native_gpu
-        default: 'java'
+        default: 'native_gpu'
 
 jobs:
   build-and-test:
-    runs-on: [self-hosted, linux-amd64-cpu16]
+    runs-on: [self-hosted, nv-cpu-general]
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
