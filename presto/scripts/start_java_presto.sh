@@ -29,7 +29,7 @@ fi
 if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     echo "Building Presto from source..."
     VERSION=$(git -C ../../../presto rev-parse --short HEAD)
-    PRESTO_VERSION=$VERSION-benchmark
+    PRESTO_VERSION=$VERSION-testing
     
     docker run --rm \
       -v $(pwd)/../../../presto:/presto \
