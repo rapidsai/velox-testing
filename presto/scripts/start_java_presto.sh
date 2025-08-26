@@ -37,7 +37,7 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
       -w /presto \
       eclipse-temurin:17-jdk-jammy \
       bash -c "
-        ./mvnw clean install -DskipTests -pl \!presto-docs -Dair.check.skip-all=true &&
+        ./mvnw clean install -DskipTests -pl \!presto-docs &&
         echo 'Copying artifacts with version '\$VERSION'...' &&
         cp presto-server/target/presto-server-*.tar.gz docker/presto-server-\$PRESTO_VERSION.tar.gz &&
         cp presto-cli/target/presto-cli-*-executable.jar docker/presto-cli-\$PRESTO_VERSION-executable.jar &&
