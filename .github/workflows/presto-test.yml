@@ -29,7 +29,7 @@ on:
 # TODO: Change the reference from the PrestoActions branch to main.
 jobs:
   java:
-    if: ${{ inputs.run_java_tests == true }}
+    if: ${{ github.event.inputs.run_java_tests == true }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
       presto_worker_type: 'java'
