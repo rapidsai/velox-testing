@@ -24,7 +24,7 @@ on:
       run_gpu_tests:
         description: 'Run tests with native-gpu worker'
         type: boolean
-        default: false
+        default: true
 
 jobs:
   build-java:

@@ -45,7 +45,7 @@ jobs:
       - name: Build and run presto
         run: |
           pushd velox-testing/presto/scripts
-          ./start_${{ github.event.inputs.presto_worker_type }}_presto.sh
+          ./start_${{ inputs.presto_worker_type }}_presto.sh
           ./run_integ_test.sh -b tpch
           popd
       - name: Shutdown
