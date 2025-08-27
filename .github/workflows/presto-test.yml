@@ -29,19 +29,19 @@ on:
 # TODO: Change the reference from the PrestoActions branch to main.
 jobs:
   java:
-    if: ${{ github.event.inputs.run_java_tests }}
+    if: ${{ inputs.run_java_tests == true }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
       presto_worker_type: 'java'
       node_label: 'linux-amd64-cpu4'
   native-cpu:
-    if: ${{ github.event.inputs.run_cpu_tests }}
+    if: ${{ github.event.inputs.run_cpu_tests == true }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
       presto_worker_type: 'native_cpu'
       node_label: 'linux-amd64-cpu16'
   native-gpu:
-    if: ${{ github.event.inputs.run_gpu_tests }}
+    if: ${{ github.event.inputs.run_gpu_tests == true }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
       presto_worker_type: 'native_gpu'
