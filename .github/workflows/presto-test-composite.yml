@@ -21,8 +21,7 @@ on:
         type: string
 
 jobs:
-  using: "composite"
-  runs-on: ${{ node_label }}
+  runs-on: ${{ inputs.node_label }}
   steps:
     - name: Checkout velox-testing
       uses: actions/checkout@v4
