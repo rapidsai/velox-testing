@@ -1,5 +1,5 @@
 name: Presto Test Composite
-description: Test a Presto setup
+description: Template for Presto jobs
 on:
   workflow_call:
     inputs:
