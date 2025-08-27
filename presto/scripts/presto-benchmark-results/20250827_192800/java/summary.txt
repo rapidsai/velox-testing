@@ -1,0 +1,12 @@
+========================================
+Java-based Presto Summary
+========================================
+Total queries executed: 12
+Successful queries: 12
+Failed queries: 0
+Total execution time: 28.204936972s
+Average execution time: 2.3504s
+Min execution time: 1.660543851s
+Max execution time: 7.670115258s
+
+Data source: Built-in TPCH connector (sf1)

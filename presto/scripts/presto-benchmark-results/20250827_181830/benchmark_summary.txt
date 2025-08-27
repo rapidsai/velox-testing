@@ -1,0 +1,23 @@
+========================================
+Presto Deployment Variants Benchmark
+Summary Report
+========================================
+Timestamp: Wed Aug 27 06:21:49 PM UTC 2025
+Results directory: /raid/pwilson/velox-testing/presto/scripts/presto-benchmark-results/20250827_181830
+
+Configuration:
+- Variants tested: java native-cpu
+- Queries: 1
+- Runs per query: 1
+- Timeout: 120 seconds
+- Schema: sf1
+- Data directory: /raid/pwilson/velox-testing/presto/testing/integration_tests/data/tpch_sf1
+- Profiling enabled: false
+
+❌ Java-based Presto: No results found
+
+❌ Native CPU Presto with Velox: No results found
+
+Detailed results available in:
+- java: /raid/pwilson/velox-testing/presto/scripts/presto-benchmark-results/20250827_181830/java/
+- native-cpu: /raid/pwilson/velox-testing/presto/scripts/presto-benchmark-results/20250827_181830/native-cpu/

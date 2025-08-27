@@ -1,0 +1,20 @@
+========================================
+Presto Deployment Variants Benchmark
+Summary Report
+========================================
+Timestamp: Wed Aug 27 07:26:54 PM UTC 2025
+Results directory: /raid/pwilson/velox-testing/presto/scripts/presto-benchmark-results/20250827_192618
+
+Configuration:
+- Variants tested: java
+- Queries: 1
+- Runs per query: 1
+- Timeout: 120 seconds
+- Schema: sf1
+- Data directory: /raid/pwilson/velox-testing/presto/testing/integration_tests/data/tpch_sf1
+- Profiling enabled: false
+
+❌ Java-based Presto: No results found
+
+Detailed results available in:
+- java: /raid/pwilson/velox-testing/presto/scripts/presto-benchmark-results/20250827_192618/java/

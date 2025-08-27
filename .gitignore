@@ -1,3 +1,17 @@
 .venv
 .idea
 __pycache__/
+
+# Benchmark results and generated files
+velox/scripts/benchmark-results/
+velox/scripts/build_velox*.log
+velox/docker/docker-compose.presto-*.yml
+
+# Presto generated files
+presto/docker/hive-metastore/
+presto/docker/presto-cli.jar
+presto/scripts/benchmark_presto_variants.sh
+presto/scripts/test_docker_compose.sh
+
+# Core dumps
+core.*

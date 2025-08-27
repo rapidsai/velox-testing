@@ -8,7 +8,8 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-      - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
+      - ${DATA_DIR:-/raid/pwilson/velox-testing/presto/testing/integration_tests/data/tpch_sf1}:/opt/data
+      - ./hive-metastore:/opt/hive-metastore
 
   presto-java-worker:
     container_name: presto-java-worker
@@ -17,6 +18,7 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
-      - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
+      - ${DATA_DIR:-/raid/pwilson/velox-testing/presto/testing/integration_tests/data/tpch_sf1}:/opt/data
+      - ./hive-metastore:/opt/hive-metastore
     depends_on:
       - presto-coordinator
