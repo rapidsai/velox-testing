@@ -27,10 +27,9 @@ jobs:
   build-java:
     if: ${{ github.event.inputs.presto_worker_type == 'java'}}
     runs-on: linux-amd64-cpu4
-    steps:
-      - uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
-        with:
-          presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+    uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
+    with:
+      presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
   build-native-cpu:
     if: ${{ github.event.inputs.presto_worker_type == 'native_cpu'}}
     runs-on: linux-amd64-cpu16
