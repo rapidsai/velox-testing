@@ -26,20 +26,21 @@ on:
         type: boolean
         default: true
 
+# TODO: Change the reference from the PrestoActions branch to main.
 jobs:
-  build-java:
+  java:
     if: ${{ github.event.inputs.run_java_tests }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
       presto_worker_type: 'java'
       node_label: 'linux-amd64-cpu4'
-  build-native-cpu:
+  native-cpu:
     if: ${{ github.event.inputs.run_cpu_tests }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
       presto_worker_type: 'native_cpu'
       node_label: 'linux-amd64-cpu16'
-  build-native-gpu:
+  native-gpu:
     if: ${{ github.event.inputs.run_gpu_tests }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:

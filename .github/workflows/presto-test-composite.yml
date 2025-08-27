@@ -23,7 +23,7 @@ on:
         required: true
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ${{ inputs.node_label }}
     steps:
       - name: Checkout velox-testing
