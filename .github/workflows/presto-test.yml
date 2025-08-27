@@ -28,26 +28,23 @@ jobs:
     if: ${{ github.event.inputs.presto_worker_type == 'java'}}
     runs-on: linux-amd64-cpu4
     steps:
-#      - uses: actions/checkout@v4
-        uses: ./.github/actions/presto-test-composite.yml
-        with:
-          presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+      uses: ./.github/actions/presto-test-composite.yml
+      with:
+        presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
   build-native-cpu:
     if: ${{ github.event.inputs.presto_worker_type == 'native_cpu'}}
     runs-on: linux-amd64-cpu16
     steps:
-#      - uses: actions/checkout@v4
-        uses: ./.github/actions/presto-test-composite.yml
-        with:
-          presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+      uses: ./.github/actions/presto-test-composite.yml
+      with:
+        presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
   build-native-gpu:
     if: ${{ github.event.inputs.presto_worker_type == 'native_gpu'}}
     runs-on: linux-amd64-gpu-l4-latest-1
     steps:
-#      - uses: actions/checkout@v4
-        uses: ./.github/actions/presto-test-composite.yml
-        with:
-          presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+      uses: ./.github/actions/presto-test-composite.yml
+      with:
+        presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
 
     
 # TODO: deduplicate code with composite actions.
