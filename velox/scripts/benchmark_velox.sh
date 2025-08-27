@@ -215,15 +215,23 @@ run_benchmark() {
   for query_number in $queries; do
     for device in $device_type; do
       # Dispatch to benchmark-specific implementation
+      local exit_code=0
+
       case "$benchmark_type" in
         "tpch")
           run_tpch_single_benchmark "$query_number" "$device" "$profile" "$DATA_DIR/tpch" "run_in_container"
+          local exit_code=$?
           ;;
         *)
           echo "ERROR: Unknown benchmark type: $benchmark_type" >&2
           exit 1
           ;;
       esac
+
+      if [[ $exit_code -ne 0 ]]; then
+        echo "ERROR: Benchmark execution failed for query $query_number on $device" >&2
+        exit 1
+      fi
     done
   done
 }

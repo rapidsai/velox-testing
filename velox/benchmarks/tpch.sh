@@ -160,7 +160,9 @@ run_tpch_single_benchmark() {
   fi
   
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
+  set +e
   $run_in_container_func 'bash -c "
+      set -euo pipefail
       '"${PROFILE_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \
         --data_path=/workspace/velox/velox-tpch-data \
@@ -175,6 +177,13 @@ run_tpch_single_benchmark() {
         '"${CUDF_FLAGS}"' 2>&1 | \
         tee benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers
     "'
+
+  EXIT_CODE=$?
+  if [[ $EXIT_CODE -ne 0 ]]; then
+    return $EXIT_CODE
+  fi
+
+  set -e 
 }
 
 get_tpch_default_queries() {
