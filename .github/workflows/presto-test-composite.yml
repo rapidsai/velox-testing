@@ -1,24 +1,22 @@
 name: Presto Test Composite
 description: Template for Presto jobs
-on:
-  workflow_call:
-    inputs:
-      velox_commit:
-        description: 'Velox commit SHA or branch'
-        type: string
-        required: false
-        default: 'main'
-      presto_commit:
-        description: 'Presto commit SHA or branch'
-        type: string
-        required: false
-        default: 'master'
-      presto_worker_type:
-        description: 'Type of presto worker to use'
-        type: string
-      node_label:
-        description: 'Node label to run on'
-        type: string
+inputs:
+  velox_commit:
+    description: 'Velox commit SHA or branch'
+    type: string
+    required: false
+    default: 'main'
+  presto_commit:
+    description: 'Presto commit SHA or branch'
+    type: string
+    required: false
+    default: 'master'
+  presto_worker_type:
+    description: 'Type of presto worker to use'
+    type: string
+  node_label:
+    description: 'Node label to run on'
+    type: string
 
 jobs:
   runs-on: ${{ inputs.node_label }}
