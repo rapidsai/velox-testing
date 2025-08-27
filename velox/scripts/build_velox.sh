@@ -17,13 +17,14 @@ Usage: $(basename "$0") [OPTIONS]
 Builds the Velox adapters Docker image using docker compose, with options to control CUDA architectures, cache usage, output style, and CPU/GPU build.
 
 Options:
-  --all-cuda-archs   Build for all supported CUDA architectures (default: false).
-  --no-cache         Build without using Docker cache (default: false).
-  --plain            Use plain output for Docker build logs (default: false).
-  --log [LOGFILE]    Capture build process to log file, enables --plain, by default LOGFILE='./build_velox.log' (default: false).
-  --cpu              Build for CPU only (disables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=OFF).
-  --gpu              Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
-  -h, --help         Show this help message and exit.
+  --all-cuda-archs     Build for all supported CUDA architectures (default: false).
+  --no-cache           Build without using Docker cache (default: false).
+  --plain              Use plain output for Docker build logs (default: false).
+  --log [LOGFILE]      Capture build process to log file, enables --plain, by default LOGFILE='./build_velox.log' (default: false).
+  --cpu                Build for CPU only (disables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=OFF).
+  --gpu                Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
+  -j, --num-threads NUM Number of threads to use for building (default: 3/4 of CPU cores).
+  -h, --help           Show this help message and exit.
 
 Examples:
   $(basename "$0") --all-cuda-archs --no-cache
@@ -31,6 +32,8 @@ Examples:
   $(basename "$0") --cpu
   $(basename "$0") --log
   $(basename "$0") --log mybuild.log --all-cuda-archs
+  $(basename "$0") -j 8 --gpu
+  $(basename "$0") --num-threads 16 --no-cache
 
 By default, the script builds for the Volta (7.0) CUDA architecture, uses Docker cache, standard build output, and GPU support (CUDF enabled).
 EOF
@@ -68,6 +71,14 @@ parse_args() {
       --gpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
         shift
+        ;;
+      -j|--num-threads)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --num-threads requires a value"
+          exit 1
+        fi
+        NUM_THREADS="$2"
+        shift 2
         ;;
       -h|--help)
         print_help
