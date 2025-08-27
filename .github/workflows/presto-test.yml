@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: java-worker
-        uses: ./.github/actions/presto-test-composite.yml
+        uses: ./.github/workflows/presto-test-composite.yml
         with:
           presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
   build-native-cpu:
@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: cpu-worker
-        uses: ./.github/actions/presto-test-composite.yml
+        uses: ./.github/workflows/presto-test-composite.yml
         with:
           presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
   build-native-gpu:
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: gpu-worker
-        uses: ./.github/actions/presto-test-composite.yml
+        uses: ./.github/workflows/presto-test-composite.yml
         with:
           presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
 
