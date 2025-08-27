@@ -14,3 +14,13 @@ services:
     environment:
       - CCACHE_DIR=/ccache
     working_dir: /workspace/velox 
+
+  velox-benchmark:
+    container_name: velox-benchmark
+    image: velox-adapters-build:latest
+    runtime: nvidia
+    volumes:
+      - ../../../velox:/workspace/velox
+      - ../../../velox-benchmark-data/tpch:/workspace/velox/velox-tpch-data:ro
+      - ${BENCHMARK_RESULTS_HOST_PATH:-../scripts/benchmark-results}:/workspace/velox/benchmark_results
+    working_dir: /workspace/velox
