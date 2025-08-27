@@ -29,7 +29,7 @@ jobs:
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
       presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
-    runs-on: linux-amd64-cpu4
+      node_label: 'linux-amd64-cpu4'
   build-native-cpu:
     if: ${{ github.event.inputs.presto_worker_type == 'native_cpu'}}
     runs-on: linux-amd64-cpu16

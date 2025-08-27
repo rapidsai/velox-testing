@@ -21,8 +21,13 @@ on:
           - java
           - native_cpu
           - native_gpu
+      node_label:
+        description: 'Node label to run on'
+        type: string
+
 runs:
   using: "composite"
+  runs-on: ${{ node_label }}
   steps:
     - name: Checkout velox-testing
       uses: actions/checkout@v4
