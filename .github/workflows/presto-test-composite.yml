@@ -15,17 +15,12 @@ on:
         default: 'master'
       presto_worker_type:
         description: 'Type of presto worker to use'
-        type: choice
-        required: false
-        options:
-          - java
-          - native_cpu
-          - native_gpu
+        type: string
       node_label:
         description: 'Node label to run on'
         type: string
 
-runs:
+jobs:
   using: "composite"
   runs-on: ${{ node_label }}
   steps:
