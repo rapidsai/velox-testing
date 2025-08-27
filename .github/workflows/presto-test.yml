@@ -13,32 +13,35 @@ on:
         type: string
         required: false
         default: 'master'
-      presto_worker_type:
-        description: 'Type of presto worker to use'
-        type: choice
-        required: false
-        options:
-          - java
-          - native_cpu
-          - native_gpu
-        default: 'native_gpu'
+      run_java_tests:
+        description: 'Run tests with java worker'
+        type: boolean
+        default: false
+      run_cpu_tests:
+        description: 'Run tests with native-cpu worker'
+        type: boolean
+        default: false
+      run_gpu_tests:
+        description: 'Run tests with native-gpu worker'
+        type: boolean
+        default: false
 
 jobs:
   build-java:
-    if: ${{ github.event.inputs.presto_worker_type == 'java'}}
+    if: ${{ github.event.inputs.run_java_tests }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
-      presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+      presto_worker_type: 'java'
       node_label: 'linux-amd64-cpu4'
   build-native-cpu:
-    if: ${{ github.event.inputs.presto_worker_type == 'native_cpu'}}
+    if: ${{ github.event.inputs.run_cpu_tests }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
-      presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+      presto_worker_type: 'native-cpu'
       node_label: 'linux-amd64-cpu16'
   build-native-gpu:
-    if: ${{ github.event.inputs.presto_worker_type == 'native_gpu'}}
+    if: ${{ github.event.inputs.run_gpu_tests }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
-      presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+      presto_worker_type: 'native-gpu'
       node_label: 'linux-amd64-gpu-l4-latest-1'
