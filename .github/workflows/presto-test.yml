@@ -37,11 +37,11 @@ jobs:
     if: ${{ github.event.inputs.run_cpu_tests }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
-      presto_worker_type: 'native-cpu'
+      presto_worker_type: 'native_cpu'
       node_label: 'linux-amd64-cpu16'
   build-native-gpu:
     if: ${{ github.event.inputs.run_gpu_tests }}
     uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
-      presto_worker_type: 'native-gpu'
+      presto_worker_type: 'native_gpu'
       node_label: 'linux-amd64-gpu-l4-latest-1'
