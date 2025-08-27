@@ -42,6 +42,11 @@ jobs:
           repository: prestodb/presto
           ref: ${{ inputs.presto_commit }}
           path: presto
+      - name: Patch Presto
+        run: |
+          pushd presto
+          git apply ../velox-testing/presto/install_gperf.patch
+          popd
       - name: Build and run presto
         run: |
           pushd velox-testing/presto/scripts
