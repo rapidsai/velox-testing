@@ -32,22 +32,16 @@ jobs:
       node_label: 'linux-amd64-cpu4'
   build-native-cpu:
     if: ${{ github.event.inputs.presto_worker_type == 'native_cpu'}}
-    runs-on: linux-amd64-cpu16
-    steps:
-      - uses: actions/checkout@v4
-      - id: cpu-worker
-        uses: ./.github/workflows/presto-test-composite.yml
-        with:
-          presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+    uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
+    with:
+      presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+      node_label: 'linux-amd64-cpu16'
   build-native-gpu:
     if: ${{ github.event.inputs.presto_worker_type == 'native_gpu'}}
-    runs-on: linux-amd64-gpu-l4-latest-1
-    steps:
-      - uses: actions/checkout@v4
-      - id: gpu-worker
-        uses: ./.github/workflows/presto-test-composite.yml
-        with:
-          presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+    uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
+    with:
+      presto_worker_type: ${{ github.event.inputs.presto_worker_type }}
+      node_label: 'linux-amd64-gpu-l4-latest-1'
 
     
 # TODO: deduplicate code with composite actions.
