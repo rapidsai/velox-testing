@@ -40,29 +40,33 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
         for future in futures:
             future.result()
 
-    # If we generated data with multiple partitions, then the partitioned data will have the form <data_dir>/<partition>/<table_name>.parquet.  We want to re-arrange it to have the form <data_dir>/<table_name>/<table_name>-<partition>.parquet
-    if num_partitions > 1:
-        parquet_files = os.listdir(f"{raw_data_path}/part-0")
-        tables = []
-        for p_file in parquet_files:
-            tables.append(p_file.replace(".parquet", ""))
+    # When we generate partitioned data it will have the form <data_dir>/<partition>/<table_name>.parquet.
+    # We want to re-arrange it to have the form <data_dir>/<table_name>/<table_name>-<partition>.parquet
+    parquet_files = os.listdir(f"{raw_data_path}/part-0")
+    tables = []
+    for p_file in parquet_files:
+        tables.append(p_file.replace(".parquet", ""))
     
+    for table in tables:
+        Path(f"{raw_data_path}/{table}").mkdir(parents=True, exist_ok=True)
+
+    # Move the partitioned data into the new directory structure.
+    for partition in range(0, num_partitions):
         for table in tables:
-            Path(f"{raw_data_path}/{table}").mkdir(parents=True, exist_ok=True)
+            shutil.move(f"{raw_data_path}/part-{partition}/{table}.parquet",
+                        f"{raw_data_path}/{table}/{table}-{partition}.parquet")
+        os.rmdir(f"{raw_data_path}/part-{partition}")
 
-        # Move the partitioned data into the new directory structure.
-        for partition in range(0, num_partitions):
-            for table in tables:
-                shutil.move(f"{raw_data_path}/part-{partition}/{table}.parquet",
-                            f"{raw_data_path}/{table}/{table}-{partition}.parquet")
-            os.rmdir(f"{raw_data_path}/part-{partition}")
-
-        if verbose:
-            print(f"Raw data created at: {raw_data_path}")
+    if verbose:
+        print(f"Raw data created at: {raw_data_path}")
 
     if convert_decimals_to_floats:
         process_dir(raw_data_path, data_dir_path, num_threads, verbose)
         shutil.rmtree(raw_data_path)
+
+    with open(f'{data_dir_path}/metadata.json', 'w') as file:
+        json.dump({"scale_factor": scale_factor}, file, indent=2)
+        file.write("\n")
 
 def generate_data_files_with_duckdb(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats):
     init_benchmark_tables(benchmark_type, scale_factor)
@@ -81,7 +85,7 @@ def generate_data_files_with_duckdb(benchmark_type, data_dir_path, scale_factor,
 def generate_data_files(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats, use_duckdb, num_threads, verbose):
     Path(f"{data_dir_path}").mkdir(parents=True, exist_ok=True)
     # tpchgen is much faster, but is exclusive to generating tpch data.  Use duckdb as a fallback.
-    if benchmark_type == "tpch" and not use_duckdb:
+    if benchmark_type == "tpch" and int(scale_factor) >= 1 and not use_duckdb:
         # If we are generating large scale factors of data, partition it so that each parquet file is no more than ~10GB.
         num_partitions = int(int(scale_factor) / 10) if int(scale_factor) >= 10 else int(1)
         generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decimals_to_floats, num_partitions, num_threads, verbose)

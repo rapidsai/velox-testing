@@ -61,6 +61,8 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
     for col in table.columns:
         if hasattr(col.type, 'precision'):
             col = col.cast(pa.float64())
+        if col.type == pa.int64():
+            col = col.cast(pa.int32())
         new_columns.append(col)
         
     new_table = pa.Table.from_arrays(new_columns, schema.names)
