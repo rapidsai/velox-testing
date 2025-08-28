@@ -8,6 +8,9 @@ services:
     runtime: nvidia
     volumes:
       - ../../../velox:/workspace/velox
+      - ${CCACHE_DIR:-/tmp/ccache}:/ccache
+    environment:
+      - CCACHE_DIR=/ccache
     working_dir: /workspace/velox 
 
   velox-benchmark:
