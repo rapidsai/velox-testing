@@ -1,0 +1,33 @@
+E20250826 19:12:26.969175   107 ExceptionTracer.cpp:219] terminate() called, exception stack follows
+E20250826 19:12:26.969451   107 ExceptionTracer.cpp:221] Exception type: std::out_of_range (15 frames)
+    @ 0000000000d5e988 _ZN12_GLOBAL__N_118addActiveExceptionEv
+                       /build/deps-download/folly/folly/debugging/exception_tracer/ExceptionStackTraceLib.cpp:62
+    @ 0000000000d5ea63 _ZZN12_GLOBAL__N_111InitializerC4EvENKUlPvPSt9type_infoPPFvS1_EE_clES1_S3_S6_
+                       /build/deps-download/folly/folly/debugging/exception_tracer/ExceptionStackTraceLib.cpp:86
+    @ 0000000000d5ea93 _ZZN12_GLOBAL__N_111InitializerC4EvENUlPvPSt9type_infoPPFvS1_EE_4_FUNES1_S3_S6_
+                       /build/deps-download/folly/folly/debugging/exception_tracer/ExceptionStackTraceLib.cpp:86
+    @ 0000000000d62016 __cxa_throw
+                       /build/deps-download/folly/folly/debugging/exception_tracer/ExceptionTracerLib.cpp:81
+    @ 00000000000a4533 _ZSt20__throw_out_of_rangePKc
+    @ 00000000005a1608 (unknown)
+    @ 00000000005a2f02 _ZNK8facebook5velox4exec4test16TpchQueryBuilder10getRowTypeERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEERKSt6vectorIS9_SaIS9_EE
+    @ 000000000056c2b5 _ZNK8facebook5velox4exec4test16TpchQueryBuilder9getQ1PlanEv
+    @ 00000000005988a5 _ZNK8facebook5velox4exec4test16TpchQueryBuilder12getQueryPlanEi
+    @ 000000000052f287 _ZN13TpchBenchmark7runMainERSoRN8facebook5velox8RunStatsE
+    @ 000000000052f62c _Z17tpchBenchmarkMainv
+    @ 000000000052286d main
+    @ 000000000002a610 __libc_start_call_main
+    @ 000000000002a6c0 __libc_start_main
+    @ 000000000052d485 _start
+
+E20250826 19:12:26.993923   107 ExceptionTracer.cpp:223] exception stack complete
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  unordered_map::at
+*** Aborted at 1756235546 (Unix time, try 'date -d @1756235546') ***
+*** Signal 6 (SIGABRT) (0x6b) received by PID 107 (pthread TID 0x7f1b25f53000) (linux TID 107) (maybe from PID 107, UID 0) (code: -6), stack trace: ***
+(error retrieving stack trace)
+Collecting data...
+Generating '/tmp/nsys-report-b79e.qdstrm'
+[1/1] [0%                          ] q01_cpu_32_drivers.nsys-rep[1/1] [0%                          ] q01_cpu_32_drivers.nsys-rep[1/1] [==19%                       ] q01_cpu_32_drivers.nsys-rep[1/1] [====28%                     ] q01_cpu_32_drivers.nsys-rep[1/1] [=======36%                  ] q01_cpu_32_drivers.nsys-rep[1/1] [=======37%                  ] q01_cpu_32_drivers.nsys-rep[1/1] [=======38%                  ] q01_cpu_32_drivers.nsys-rep[1/1] [=======39%                  ] q01_cpu_32_drivers.nsys-rep[1/1] [========42%                 ] q01_cpu_32_drivers.nsys-rep[1/1] [=========44%                ] q01_cpu_32_drivers.nsys-rep[1/1] [========================100%] q01_cpu_32_drivers.nsys-rep[1/1] [========================100%] q01_cpu_32_drivers.nsys-rep
+Generated:
+	/workspace/velox/benchmark_results/q01_cpu_32_drivers.nsys-rep
