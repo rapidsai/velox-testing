@@ -233,7 +233,7 @@ run_tpch_single_benchmark() {
 
     # Add GPU metrics (compute capability > 7.0) if supported
     if $run_in_container_func "nvidia-smi --query-gpu=compute_cap --format=csv,noheader -i 0 2>/dev/null |  cut -d '.' -f 1" |  awk '{if ($1 > 7) exit 0; else exit 1}'; then
-      device_id=${CUDA_VISIBLE_DEVICES:-"0"}
+      device_id=${CUDA_VISIBLE_DEVICES:-"all"}
       PROFILE_CMD="${PROFILE_CMD} --gpu-metrics-devices=${device_id}"
       echo "GPU metrics enabled for device ${device_id}"
     fi

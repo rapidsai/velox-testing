@@ -142,12 +142,14 @@ DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 
+create_dummy_docker_env_file
+
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
-  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
+  docker compose --env-file ./.env-build-velox -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
   BUILD_EXIT_CODE=${PIPESTATUS[0]}
 else
-  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
+  docker compose --env-file ./.env-build-velox -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
   BUILD_EXIT_CODE=$?
 fi
 
