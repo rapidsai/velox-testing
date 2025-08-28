@@ -29,6 +29,7 @@ EOF
 
 SCALE_FACTOR=0.01
 CONVERT_DECIMALS_TO_FLOATS=false
+BENCHMARK_TYPES="tpch tpcds"
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -50,6 +51,14 @@ parse_args() {
         CONVERT_DECIMALS_TO_FLOATS=true
         shift
         ;;
+      -t|--tpc-only)
+        BENCHMARK_TYPES="tpch"
+	shift
+	;;
+      -v|--verbose)
+	VERBOSE="--verbose"
+	shift
+	;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -74,7 +83,7 @@ if [[ "$CONVERT_DECIMALS_TO_FLOATS" == "true" ]]; then
   CONVERT_DECIMALS_TO_FLOATS_ARG="--convert-decimals-to-floats"
 fi
 
-for BENCHMARK_TYPE in tpch tpcds; do
+for BENCHMARK_TYPE in $BENCHMARK_TYPES; do
   SCHEMAS_DIR=../schemas/$BENCHMARK_TYPE
   rm -rf $SCHEMAS_DIR
   echo "Generating table schema files for $BENCHMARK_TYPE..."
@@ -93,6 +102,6 @@ for BENCHMARK_TYPE in tpch tpcds; do
   rm -rf $DATA_DIR
   echo "Generating benchmark data files for $BENCHMARK_TYPE..."
   python $BENCHMARK_DATA_TOOLS_DIR/generate_data_files.py --benchmark-type $BENCHMARK_TYPE \
-         --data-dir-path $DATA_DIR --scale-factor $SCALE_FACTOR $CONVERT_DECIMALS_TO_FLOATS_ARG
+         --data-dir-path $DATA_DIR --scale-factor $SCALE_FACTOR $CONVERT_DECIMALS_TO_FLOATS_ARG $VERBOSE
   echo "Benchmark data files generated for $BENCHMARK_TYPE"
 done

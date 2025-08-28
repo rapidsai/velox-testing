@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 import os
 import pyarrow.parquet as pq
 import pyarrow as pa
@@ -39,7 +37,7 @@ column_encoding_map={'c_name':'DELTA_LENGTH_BYTE_ARRAY',
                      's_comment':'DELTA_LENGTH_BYTE_ARRAY'}
 
 # Optimal page size has been determined by experiment
-page_size=204800
+PAGE_SIZE=204800
 
 def process_file(input_file_path, output_dir, input_dir, verbose):
     relative_path = os.path.relpath(os.path.dirname(input_file_path), input_dir)
@@ -70,7 +68,7 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
     # Write the table back to a parquet file
     pq.write_table(new_table,
                    output_file_path,
-                   data_page_size=page_size)
+                   data_page_size=PAGE_SIZE)
     # Add these options to write_table() if we want to customize the encoding for some columns:
     # use_dictionary=False, # False because we will custom encode dict columns.
     # column_encoding=column_encoding_map)

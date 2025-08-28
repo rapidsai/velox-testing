@@ -1,8 +1,0 @@
-name: velox-testing-scripts
-channels:
-  - conda-forge
-dependencies:
-  - pip
-  - python=3.13
-  - pip:
-      - tpchgen-cli==1.1.1
