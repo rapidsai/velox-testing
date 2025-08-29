@@ -13,7 +13,7 @@
 # - Comprehensive machine configuration logging
 # - Nsys profiling integration for GPU variants
 # - Hive connector support for local parquet data
-# - Fallback to built-in TPCH connector when needed
+# - Strict Hive connector usage with parquet data
 # - Detailed timing and results output
 # ============================================================================
 
@@ -22,7 +22,8 @@ set -euo pipefail
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="${SCRIPT_DIR}/../docker"
-RESULTS_BASE_DIR="${SCRIPT_DIR}/presto-benchmark-results"
+RESULTS_BASE_DIR="${SCRIPT_DIR}/../benchmark-results"
+BENCHMARK_DATA_TOOLS_DIR="${SCRIPT_DIR}/../../benchmark_data_tools"
 TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 RESULTS_DIR="${RESULTS_BASE_DIR}/${TIMESTAMP}"
 
@@ -34,8 +35,10 @@ TIMEOUT_SECONDS=300
 PRESTO_HOST="localhost"
 PRESTO_PORT="8080"
 SCHEMA_NAME="sf1"
-DATA_DIR="/raid/pwilson/velox-testing/presto/testing/integration_tests/data/tpch_sf1"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+DATA_DIR="${REPO_ROOT}/presto/testing/integration_tests/data/tpch_sf1"
 ENABLE_PROFILING=false
+AUTO_GENERATE_DATA=false
 USE_TPCH_CONNECTOR=false
 
 # Color codes for output
@@ -87,9 +90,12 @@ OPTIONS:
                                Default: sf1
     
     -d, --data-dir PATH         Path to TPC-H parquet data directory
-                               Default: /raid/pwilson/velox-testing/presto/testing/integration_tests/data/tpch_sf1
+                               Default: <repo_root>/presto/testing/integration_tests/data/tpch_sf1
     
     -p, --profile               Enable nsys profiling for GPU variants
+                               Default: false
+    
+    -g, --generate-data         Auto-generate parquet data files if they don't exist using benchmark_data_tools
                                Default: false
     
     -h, --help                  Show this help message
@@ -106,6 +112,9 @@ EXAMPLES:
     
     # Run with custom data directory and profiling enabled
     $0 -d /path/to/tpch/data -p
+    
+    # Auto-generate data if it doesn't exist
+    $0 -g -d /path/to/new/tpch_sf10 -s sf10
 
 VARIANT DESCRIPTIONS:
     java        - Standard Java-based Presto deployment
@@ -145,6 +154,10 @@ parse_arguments() {
                 ;;
             -p|--profile)
                 ENABLE_PROFILING=true
+                shift
+                ;;
+            -g|--generate-data)
+                AUTO_GENERATE_DATA=true
                 shift
                 ;;
             -h|--help)
@@ -253,7 +266,8 @@ get_machine_config() {
         echo "Schema: $SCHEMA_NAME"
         echo "Data directory: $DATA_DIR"
         echo "Profiling enabled: $ENABLE_PROFILING"
-        echo "Using TPCH connector: $USE_TPCH_CONNECTOR"
+        echo "Auto-generate data: $AUTO_GENERATE_DATA"
+        echo "Using Hive connector with parquet data"
         echo ""
         
         if [[ "$ENABLE_PROFILING" == true ]]; then
@@ -324,8 +338,10 @@ wait_for_presto() {
         elapsed=$((elapsed + wait_interval))
     done
     
-    # Test query execution
-    local presto_cli="${DOCKER_DIR}/presto-cli.jar"
+    # Test query execution using containerized CLI
+    local docker_compose_cmd
+    docker_compose_cmd=$(get_docker_compose_cmd)
+    
     local catalog="hive"
     local schema="default"
     
@@ -341,11 +357,14 @@ wait_for_presto() {
         fi
         
         local test_output
-        test_output=$(timeout 30 java -jar "$presto_cli" \
-            --server "http://${PRESTO_HOST}:${PRESTO_PORT}" \
+        cd "$DOCKER_DIR"
+        test_output=$(timeout 30 docker exec presto-cli presto-cli \
+            --server presto-coordinator:8080 \
             --catalog "$catalog" \
             --schema "$schema" \
+            --debug \
             --execute "SELECT 1" 2>&1 || true)
+        cd "$SCRIPT_DIR"
         
         if echo "$test_output" | grep -qE '^"?1"?$'; then
             print_success "Presto is ready and responding to queries"
@@ -370,17 +389,52 @@ wait_for_presto() {
 # Set up TPC-H tables when using Hive connector
 setup_hive_tables() {
     if [[ "$USE_TPCH_CONNECTOR" == false ]]; then
-        local presto_cli="${DOCKER_DIR}/presto-cli.jar"
-        local setup_sql="${SCRIPT_DIR}/setup_tpch_tables.sql"
+        print_status "Setting up TPC-H tables in Hive catalog..."
+        print_status "Setting up tables using existing integration test utilities..."
+        local test_utils_dir="${REPO_ROOT}/presto/testing/integration_tests"
         
-        if [[ -f "$setup_sql" ]]; then
-            print_status "Setting up TPC-H tables in Hive catalog..."
-            java -jar "$presto_cli" \
-                --server "http://${PRESTO_HOST}:${PRESTO_PORT}" \
-                --catalog hive \
-                --schema default \
-                --file "$setup_sql" \
-                >/dev/null 2>&1 || true
+        if [[ -f "$test_utils_dir/test_utils.py" ]]; then
+            # Install Python dependencies for integration test utilities
+            if [[ -f "$test_utils_dir/requirements.txt" ]]; then
+                python3 -m pip install -q -r "$test_utils_dir/requirements.txt" >/dev/null 2>&1 || {
+                    print_warning "Failed to install integration test requirements - continuing anyway"
+                }
+            fi
+            
+            # Use the existing Python utilities for table creation
+            cd "$test_utils_dir"
+            python3 -c "
+import sys
+import os
+sys.path.append('.')
+from test_utils import get_table_schemas
+import prestodb
+
+# Connect to Presto
+conn = prestodb.dbapi.connect(host='localhost', port=8080, user='test_user', catalog='hive', schema='default')
+cursor = conn.cursor()
+
+# Get schemas and modify them for our data directory
+schemas = get_table_schemas('tpch')
+cursor.execute('CREATE SCHEMA IF NOT EXISTS hive.default')
+
+for table_name, schema in schemas:
+    # Replace schema name and use our data directory path
+    modified_schema = schema.replace('hive.tpch_test.', 'hive.default.')
+    modified_schema = modified_schema.format(file_path=f'/opt/data/{table_name}')
+    print(f'Creating table: {table_name}')
+    try:
+        cursor.execute(f'DROP TABLE IF EXISTS hive.default.{table_name}')
+    except Exception as e:
+        print(f'Note: Could not drop {table_name} (may not exist): {e}')
+    cursor.execute(modified_schema)
+
+print('TPC-H tables created successfully using integration test utilities with custom paths')
+" && print_status "Hive tables setup completed using existing utilities"
+            cd "$SCRIPT_DIR"
+        else
+            print_error "Integration test utilities not found at: $test_utils_dir"
+            exit 1
         fi
     fi
 }
@@ -388,17 +442,17 @@ setup_hive_tables() {
 # Start a Presto variant
 start_presto_variant() {
     local variant="$1"
-    local compose_file=""
+    local start_script=""
     
     case "$variant" in
         "java")
-            compose_file="docker-compose.java.yml"
+            start_script="start_java_presto.sh"
             ;;
         "native-cpu")
-            compose_file="docker-compose.native-cpu.yml"
+            start_script="start_native_cpu_presto.sh"
             ;;
         "native-gpu")
-            compose_file="docker-compose.native-gpu.yml"
+            start_script="start_native_gpu_presto.sh"
             ;;
         *)
             print_error "Unknown variant: $variant"
@@ -408,8 +462,8 @@ start_presto_variant() {
     
     print_status "Starting Presto variant: $(get_variant_name "$variant")"
     
-    cd "$DOCKER_DIR"
-    DATA_DIR="$DATA_DIR" $(get_docker_compose_cmd) -f "$compose_file" up -d
+    cd "$SCRIPT_DIR"
+    DATA_DIR="$DATA_DIR" ./"$start_script"
     
     if wait_for_presto; then
         setup_hive_tables
@@ -423,26 +477,11 @@ start_presto_variant() {
 # Stop Presto variant
 stop_presto_variant() {
     local variant="$1"
-    local compose_file=""
     
-    case "$variant" in
-        "java")
-            compose_file="docker-compose.java.yml"
-            ;;
-        "native-cpu")
-            compose_file="docker-compose.native-cpu.yml"
-            ;;
-        "native-gpu")
-            compose_file="docker-compose.native-gpu.yml"
-            ;;
-        *)
-            print_error "Unknown variant: $variant"
-            return 1
-            ;;
-    esac
+    print_status "Stopping Presto variant: $(get_variant_name "$variant")"
     
-    cd "$DOCKER_DIR"
-    $(get_docker_compose_cmd) -f "$compose_file" down
+    cd "$SCRIPT_DIR"
+    ./stop_presto.sh
 }
 
 # Get variant display name
@@ -463,45 +502,57 @@ get_variant_name() {
     esac
 }
 
-# Generate TPC-H query
+# Generate TPC-H query from existing queries.json
 generate_tpch_query() {
     local query_num="$1"
     local query_file="$2"
+    local queries_json="${REPO_ROOT}/presto/testing/integration_tests/queries/tpch/queries.json"
     
-    # Simple TPC-H query templates (subset for demonstration)
-    case "$query_num" in
-        "1")
-            cat > "$query_file" << 'EOF'
-SELECT
-    l_returnflag,
-    l_linestatus,
-    sum(l_quantity) as sum_qty,
-    sum(l_extendedprice) as sum_base_price,
-    sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
-    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
-    avg(l_quantity) as avg_qty,
-    avg(l_extendedprice) as avg_price,
-    avg(l_discount) as avg_disc,
-    count(*) as count_order
-FROM
-    lineitem
-WHERE
-    l_shipdate <= date '1998-12-01' - interval '90' day
-GROUP BY
-    l_returnflag,
-    l_linestatus
-ORDER BY
-    l_returnflag,
-    l_linestatus;
-EOF
-            ;;
-        *)
-            # For other queries, use a simple placeholder
-            cat > "$query_file" << EOF
-SELECT count(*) FROM lineitem WHERE l_shipdate <= date '1998-12-01' - interval '${query_num}' day;
-EOF
-            ;;
-    esac
+    # Check if queries.json exists
+    if [[ ! -f "$queries_json" ]]; then
+        if [[ "$AUTO_GENERATE_DATA" == true ]]; then
+            print_status "queries.json not found, auto-generating..."
+            local queries_dir
+            queries_dir=$(dirname "$queries_json")
+            generate_queries_json "$queries_dir"
+        else
+            print_error "TPC-H queries.json not found at: $queries_json"
+            print_error "Use --generate-data to auto-generate queries.json"
+            return 1
+        fi
+    fi
+    
+    # Extract query from JSON using python (more reliable than jq)
+    local query_key="Q${query_num}"
+    local query_sql
+    
+    query_sql=$(python3 -c "
+import json
+import sys
+try:
+    with open('$queries_json', 'r') as f:
+        queries = json.load(f)
+    if '$query_key' in queries:
+        print(queries['$query_key'])
+    else:
+        print('Query $query_key not found', file=sys.stderr)
+        sys.exit(1)
+except Exception as e:
+    print(f'Error reading queries.json: {e}', file=sys.stderr)
+    sys.exit(1)
+")
+    
+    if [[ $? -ne 0 ]]; then
+        print_error "Failed to extract query $query_key from queries.json"
+        return 1
+    fi
+    
+    # Write query to file (ensure it ends with semicolon)
+    if [[ "$query_sql" =~ \;$ ]]; then
+        echo "$query_sql" > "$query_file"
+    else
+        echo "$query_sql;" > "$query_file"
+    fi
 }
 
 # Run a single query
@@ -519,7 +570,9 @@ run_query() {
     # Generate query
     generate_tpch_query "$query_num" "$query_file"
     
-    local presto_cli="${DOCKER_DIR}/presto-cli.jar"
+    local docker_compose_cmd
+    docker_compose_cmd=$(get_docker_compose_cmd)
+    
     local catalog="hive"
     local schema="default"
     
@@ -551,17 +604,20 @@ run_query() {
     local start_time=$(date +%s.%N)
     
     local exit_code
+    cd "$DOCKER_DIR"
     timeout $TIMEOUT_SECONDS bash -c "
-        $profile_cmd java -jar '$presto_cli' \
-            --server http://${PRESTO_HOST}:${PRESTO_PORT} \
+        $profile_cmd docker exec -i presto-cli presto-cli \
+            --server presto-coordinator:8080 \
             --catalog $catalog \
             --schema $schema \
-            --file '$query_file' \
+            --file /dev/stdin \
             --output-format CSV \
             --debug \
+            < '$query_file' \
             > '$temp_output' 2>&1
     " > "$timing_output" 2>&1
     exit_code=$?
+    cd "$SCRIPT_DIR"
     
     local end_time=$(date +%s.%N)
     local total_time=$(echo "$end_time - $start_time" | bc -l)
@@ -592,11 +648,114 @@ run_query() {
     fi
 }
 
+# Check if benchmark_data_tools is available
+check_benchmark_data_tools() {
+    if [[ ! -d "$BENCHMARK_DATA_TOOLS_DIR" ]]; then
+        print_warning "benchmark_data_tools not found at: $BENCHMARK_DATA_TOOLS_DIR"
+        return 1
+    fi
+    
+    if [[ ! -f "$BENCHMARK_DATA_TOOLS_DIR/generate_data_files.py" ]]; then
+        print_warning "generate_data_files.py not found in benchmark_data_tools"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Extract scale factor from data directory path
+get_scale_factor_from_path() {
+    local data_dir="$1"
+    if [[ "$data_dir" =~ tpch_sf([0-9]+(\.[0-9]+)?) ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        # Default to scale factor 1
+        echo "1"
+    fi
+}
+
+# Generate parquet data files using benchmark_data_tools
+generate_parquet_data() {
+    local data_dir="$1"
+    local scale_factor
+    scale_factor=$(get_scale_factor_from_path "$data_dir")
+    
+    print_status "Auto-generating TPC-H parquet data (scale factor: $scale_factor)"
+    print_status "Data directory: $data_dir"
+    
+    # Check if benchmark_data_tools is available
+    if ! check_benchmark_data_tools; then
+        print_error "Cannot auto-generate data - benchmark_data_tools not available"
+        exit 1
+    fi
+    
+    # Check if we have Python 3 and required packages
+    if ! command -v python3 >/dev/null 2>&1; then
+        print_error "Python 3 is required for data generation"
+        exit 1
+    fi
+    
+    # Install requirements if needed
+    local requirements_file="$BENCHMARK_DATA_TOOLS_DIR/requirements.txt"
+    if [[ -f "$requirements_file" ]]; then
+        print_status "Installing Python requirements..."
+        python3 -m pip install -r "$requirements_file" >/dev/null 2>&1 || {
+            print_warning "Failed to install requirements - continuing anyway"
+        }
+    fi
+    
+    # Generate data
+    print_status "Generating parquet files (this may take several minutes)..."
+    cd "$BENCHMARK_DATA_TOOLS_DIR"
+    python3 generate_data_files.py \
+        --benchmark-type tpch \
+        --data-dir-path "$data_dir" \
+        --scale-factor "$scale_factor" \
+        --convert-decimals-to-floats || {
+        print_error "Failed to generate parquet data"
+        exit 1
+    }
+    
+    cd "$SCRIPT_DIR"
+    print_success "Successfully generated TPC-H parquet data"
+}
+
+# Generate queries.json using benchmark_data_tools
+generate_queries_json() {
+    local queries_dir="$1"
+    
+    print_status "Auto-generating TPC-H queries.json"
+    
+    # Check if benchmark_data_tools is available
+    if ! check_benchmark_data_tools; then
+        print_error "Cannot auto-generate queries - benchmark_data_tools not available"
+        exit 1
+    fi
+    
+    # Generate queries
+    cd "$BENCHMARK_DATA_TOOLS_DIR"
+    python3 generate_query_file.py \
+        --benchmark-type tpch \
+        --queries-dir-path "$queries_dir" || {
+        print_error "Failed to generate queries.json"
+        exit 1
+    }
+    
+    cd "$SCRIPT_DIR"
+    print_success "Successfully generated TPC-H queries.json"
+}
+
 # Check if data directory has parquet files
 check_data_directory() {
     if [[ ! -d "$DATA_DIR" ]]; then
-        print_error "TPC-H data directory not found: $DATA_DIR"
-        exit 1
+        if [[ "$AUTO_GENERATE_DATA" == true ]]; then
+            print_status "Data directory not found, will auto-generate: $DATA_DIR"
+            generate_parquet_data "$DATA_DIR"
+        else
+            print_error "TPC-H data directory not found: $DATA_DIR"
+            print_error "Use --generate-data to auto-generate data files"
+            exit 1
+        fi
     fi
     
     # Check if there are any parquet files
@@ -604,9 +763,15 @@ check_data_directory() {
         print_status "Found parquet files in $DATA_DIR"
         USE_TPCH_CONNECTOR=false
     else
-        print_status "No parquet files found in $DATA_DIR"
-        print_status "GPU variants will use built-in TPCH connector instead of Hive"
-        USE_TPCH_CONNECTOR=true
+        if [[ "$AUTO_GENERATE_DATA" == true ]]; then
+            print_status "No parquet files found, auto-generating data..."
+            generate_parquet_data "$DATA_DIR"
+            USE_TPCH_CONNECTOR=false
+        else
+            print_error "No parquet files found in $DATA_DIR - benchmark requires parquet data"
+            print_error "Use --generate-data to auto-generate data files"
+            exit 1
+        fi
     fi
 }
 
@@ -621,16 +786,17 @@ benchmark_variant() {
     echo "Benchmarking $(get_variant_name "$variant")"
     echo "============================================"
     
-    # Adjust connector usage for GPU variants  
+    # Native variants use TPCH connector to avoid Java coordinator + C++ worker communication issues
     local original_tpch_connector="$USE_TPCH_CONNECTOR"
-    if [[ "$variant" == "native-gpu" ]] && [[ "$USE_TPCH_CONNECTOR" == false ]]; then
-        # GPU variant should use TPCH connector if no parquet files
+    if [[ "$variant" == "native-cpu" || "$variant" == "native-gpu" ]]; then
+        print_status "Using built-in TPCH connector for native variant"
+        print_status "Note: Mixed Java coordinator + C++ worker deployments have architectural limitations"
         USE_TPCH_CONNECTOR=true
     fi
     
     if ! start_presto_variant "$variant"; then
         print_error "Failed to start variant $variant, skipping..."
-        USE_TPCH_CONNECTOR="$original_tpch_connector"
+        # Hive connector configuration preserved
         return 1
     fi
     
@@ -712,7 +878,7 @@ benchmark_variant() {
     
     stop_presto_variant "$variant"
     
-    # Restore original TPCH connector setting
+    # Restore original connector setting
     USE_TPCH_CONNECTOR="$original_tpch_connector"
     
     if [[ ${failed_queries:-0} -gt 0 ]] && [[ ${failed_queries:-0} -eq $total_queries ]]; then

@@ -30,11 +30,23 @@ This directory contains scripts for benchmarking TPC-H queries across three diff
 - `nsys` (optional, for GPU profiling)
 
 ### Data Setup
-The benchmark can use either:
-1. **Hive Connector**: Reads TPC-H data from local parquet files
-2. **Built-in TPCH Connector**: Uses Presto's built-in TPC-H data generator
+The benchmark requires:
+- **Hive Connector**: Reads TPC-H data from local parquet files
+- Parquet files must be available in the specified data directory
+- Script will fail if no parquet files are found
 
-The script automatically detects which to use based on the data directory contents.
+#### Auto-Generation with benchmark_data_tools
+The script can automatically generate TPC-H data using the integrated `benchmark_data_tools`:
+
+- **Automatic Detection**: Scale factor is extracted from directory name (e.g., `tpch_sf10` → SF10)
+- **Data Generation**: Creates parquet files for all TPC-H tables
+- **Query Generation**: Auto-generates `queries.json` if missing
+- **Schema Conversion**: Converts decimals to floats for better compatibility
+
+**Requirements for auto-generation:**
+- Python 3 with pip
+- `benchmark_data_tools` directory in repository
+- DuckDB and dependencies (auto-installed)
 
 ### Docker Images
 Ensure the following Docker images are available:
@@ -59,6 +71,7 @@ Ensure the following Docker images are available:
 | `-s, --schema` | TPC-H schema/scale factor | `sf1` |
 | `-d, --data-dir` | Path to TPC-H parquet data | Auto-detected |
 | `-p, --profile` | Enable nsys profiling for GPU variants | `false` |
+| `-g, --generate-data` | Auto-generate data/queries using benchmark_data_tools | `false` |
 | `-h, --help` | Show help message | - |
 
 ### Examples
@@ -75,6 +88,9 @@ Ensure the following Docker images are available:
 
 # Custom data directory and specific queries
 ./benchmark_presto_variants.sh -d /path/to/tpch/data -q 1,6,14,22
+
+# Auto-generate TPC-H SF10 data and benchmark GPU variant only
+./benchmark_presto_variants.sh -g -v native-gpu -d /path/to/tpch_sf10 -s sf10
 
 # Performance comparison: Java vs Native CPU
 ./benchmark_presto_variants.sh -v java,native-cpu -q 1,2,3,4,5 -r 5
@@ -164,7 +180,8 @@ nsys-ui q01_run1_gpu.nsys-rep
 4. **Hive connector issues**
    - Verify data directory contains parquet files
    - Check file permissions
-   - Script will auto-fallback to TPCH connector
+   - Use `--generate-data` to auto-create data if missing
+   - Script requires working Hive connector with parquet data
 
 5. **Profiling not working**
    - Install NVIDIA Nsight Systems
@@ -196,12 +213,6 @@ For optimal GPU performance, the native GPU variant uses:
 - CUDF acceleration settings
 
 ## Data Sources
-
-### Built-in TPCH Connector
-- Uses Presto's built-in TPC-H data generator
-- Scale factors: `tiny`, `sf1`, `sf10`, `sf100`, `sf1000`
-- No external data files required
-- Consistent across all test runs
 
 ### Hive Connector
 - Reads actual TPC-H parquet files
