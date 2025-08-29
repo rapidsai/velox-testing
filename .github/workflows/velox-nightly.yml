@@ -1,6 +1,8 @@
 name: Velox Nightly Test
 
 on:
+  schedule:
+    - cron: '0 5 * * *'  # daily at 05:00 UTC
   workflow_dispatch:
     inputs:
       repository:
@@ -13,6 +15,15 @@ on:
         type: string
         required: false
         default: 'main'
+      build_target:
+        description: 'Select the build target'
+        type: choice
+        required: false
+        default: 'all'
+        options:
+          - all
+          - cpu
+          - gpu
 
 jobs:
   nightly-test:
@@ -20,3 +31,4 @@ jobs:
     with:
       repository: ${{ inputs.repository || 'facebookincubator/velox' }}
       velox_commit: ${{ inputs.velox_commit || 'main' }}
+      build_target: ${{ inputs.build_target || 'all' }}
