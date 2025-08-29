@@ -9,17 +9,48 @@
 
 set -e
 
-# Parse command line arguments
+print_help() {
+  cat << EOF
+
+Usage: $0 [OPTIONS]
+
+This script optionally builds and runs Presto Java services
+
+OPTIONS:
+    -h, --help              Show this help message.
+    -b, --build    Build presto from source instead of using prestodb/presto:latest
+
+EXAMPLES:
+    $0
+    $0 --build
+    $0 -h
+
+EOF
+}
+
+
 BUILD_FROM_SOURCE=false
-if [[ "$1" == "--build" ]]; then
-    BUILD_FROM_SOURCE=true
-    echo "Building Presto from source..."
-elif [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: $0 [--build]"
-    echo "  --build    Build Presto from source instead of using prestodb/presto:latest"
-    echo "  --help     Show this help message"
-    exit 0
-fi
+parse_args() { 
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -h|--help)
+        print_help
+        exit 0
+        ;;
+      -b|--build)
+        BUILD_FROM_SOURCE=true
+        shift
+        ;;
+      *)
+        echo "Error: Unknown argument $1"
+        print_help
+        exit 1
+        ;;
+    esac
+  done
+}
+
+parse_args "$@"
 
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
@@ -31,24 +62,19 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     VERSION=$(git -C ../../../presto rev-parse --short HEAD)
     PRESTO_VERSION=$VERSION-testing
     
-    docker run --rm \
-      -v $(pwd)/../../../presto:/presto \
-      -e PRESTO_VERSION=$PRESTO_VERSION \
-      -w /presto \
-      eclipse-temurin:17-jdk-jammy \
-      bash -c "
-        ./mvnw clean install -DskipTests -pl \!presto-docs &&
-        echo 'Copying artifacts with version '\$VERSION'...' &&
-        cp presto-server/target/presto-server-*.tar.gz docker/presto-server-\$PRESTO_VERSION.tar.gz &&
-        cp presto-cli/target/presto-cli-*-executable.jar docker/presto-cli-\$PRESTO_VERSION-executable.jar &&
-        echo 'Build complete! Artifacts copied with version '\$VERSION
-      "
+    ./build_presto_java_package.sh
     
-    echo "Building Docker images with custom artifacts..."
-    docker compose -f ../docker/docker-compose.java.yml build --build-arg PRESTO_VERSION=$PRESTO_VERSION --progress plain
-    docker compose -f ../docker/docker-compose.java.yml up -d
+    docker build \
+      --build-arg PRESTO_VERSION=$PRESTO_VERSION \
+      -t presto-custom:$PRESTO_VERSION \
+      -f ../../../presto/docker/Dockerfile \
+      ../../../presto/docker
+
+    export PRESTO_IMAGE=presto-custom:$PRESTO_VERSION
 else
     echo "Using prestodb/presto:latest image..."
-    docker compose -f ../docker/docker-compose.java.nobuild.yml pull
-    docker compose -f ../docker/docker-compose.java.nobuild.yml up -d
+    docker compose -f ../docker/docker-compose.java.yml pull
 fi
+docker compose -f ../docker/docker-compose.java.yml up -d
+
+
