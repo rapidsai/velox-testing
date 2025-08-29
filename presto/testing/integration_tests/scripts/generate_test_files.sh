@@ -19,6 +19,8 @@ OPTIONS:
     -h, --help                          Show this help message.
     -s, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
+    -t, --tpch-only			Only generate TPCH data
+    -v, --verbose			Generate additional logging
 
 EXAMPLES:
     $0 -s 1
@@ -51,14 +53,14 @@ parse_args() {
         CONVERT_DECIMALS_TO_FLOATS=true
         shift
         ;;
-      -t|--tpc-only)
+      -t|--tpch-only)
         BENCHMARK_TYPES="tpch"
-	shift
-	;;
+        shift
+        ;;
       -v|--verbose)
-	VERBOSE="--verbose"
-	shift
-	;;
+        VERBOSE="--verbose"
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
