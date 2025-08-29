@@ -3,11 +3,8 @@ set -euo pipefail
 
 source ./config.sh
 
-<<<<<<< HEAD
 BUILD_TARGET="gpu"  # Default to GPU build
 
-=======
->>>>>>> main
 print_help() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
