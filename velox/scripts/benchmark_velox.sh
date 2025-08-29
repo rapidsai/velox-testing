@@ -260,14 +260,14 @@ echo ""
 # Validate repo layout
 ../../scripts/validate_directories_exist.sh "../../../velox"
 
+# Check benchmark data 
+check_benchmark_data
+
 # Create environment file for Docker Compose
 create_docker_env_file
 
 # Check Velox build
 check_velox_build
-
-# Check benchmark data 
-check_benchmark_data
 
 # Prepare benchmark results directory
 prepare_benchmark_results_dir "$BENCHMARK_RESULTS_OUTPUT"
