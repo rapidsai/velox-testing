@@ -85,12 +85,15 @@ def generate_data_files_with_duckdb(benchmark_type, data_dir_path, scale_factor,
 def generate_data_files(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats, use_duckdb, num_threads, verbose):
     Path(f"{data_dir_path}").mkdir(parents=True, exist_ok=True)
     # tpchgen is much faster, but is exclusive to generating tpch data.  Use duckdb as a fallback.
-    if benchmark_type == "tpch" and int(scale_factor) >= 1 and not use_duckdb:
-        # If we are generating large scale factors of data, partition it so that each parquet file is no more than ~10GB.
-        num_partitions = int(int(scale_factor) / 10) if int(scale_factor) >= 10 else int(1)
-        generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decimals_to_floats, num_partitions, num_threads, verbose)
-    else:
-        generate_data_files_with_duckdb(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats)
+    if benchmark_type == "tpch" and not use_duckdb:
+        try:
+            int_scale_factor = int(scale_factor)
+            num_partitions = int(int_scale_factor / 10) if int_scale_factor >= 10 else int(1)
+            generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decimals_to_floats, num_partitions, num_threads, verbose)
+            return
+        except ValueError:
+            print(f"scale factor {scale_factor} too small to use tpchgen; falling back to duckdb")
+    generate_data_files_with_duckdb(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats)
 
 def get_select_query(table_name, convert_decimals_to_floats):
     if convert_decimals_to_floats:
