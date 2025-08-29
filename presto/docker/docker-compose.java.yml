@@ -8,8 +8,15 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-      - ${DATA_DIR:-/raid/pwilson/velox-testing/presto/testing/integration_tests/data/tpch_sf1}:/opt/data
-      - ./hive-metastore:/opt/hive-metastore
+      - ${DATA_DIR:-../testing/integration_tests/data/tpch_sf1}:/opt/data
+      - ./hive-metastore:/var/lib/presto/data/hive/metastore
+
+  presto-cli:
+    container_name: presto-cli
+    image: prestodb/presto:latest
+    entrypoint: ["sleep", "infinity"]
+    depends_on:
+      - presto-coordinator
 
   presto-java-worker:
     container_name: presto-java-worker
@@ -18,7 +25,7 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
-      - ${DATA_DIR:-/raid/pwilson/velox-testing/presto/testing/integration_tests/data/tpch_sf1}:/opt/data
-      - ./hive-metastore:/opt/hive-metastore
+      - ${DATA_DIR:-../testing/integration_tests/data/tpch_sf1}:/opt/data
+      - ./hive-metastore:/var/lib/presto/data/hive/metastore
     depends_on:
       - presto-coordinator

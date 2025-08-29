@@ -1,6 +1,7 @@
 #!/bin/bash
 
-set -e
+# Enable strict error handling
+set -euo pipefail
 
 PATCH_FILE_PATH=$(readlink -f copy_arrow_patch.patch)
 

@@ -1,6 +1,7 @@
 #!/bin/bash
 
-set -e
+# Enable strict error handling
+set -euo pipefail
 
 function cleanup() {
   ./stop_presto.sh

@@ -1,6 +1,18 @@
 #!/bin/bash
+#
+# Start Native CPU Presto variant
+# Uses Velox-powered native execution engine (CPU-only)
+# Requires building from source with cmake and ninja
+#
+# Prerequisites:
+# - Docker and Docker Compose
+# - Valid repository structure with presto and velox directories
+# - Sufficient build resources (memory and CPU)
+#
+# Usage: ./start_native_cpu_presto.sh
 
-set -e
+# Enable strict error handling
+set -euo pipefail
 
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"

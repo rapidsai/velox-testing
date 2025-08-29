@@ -8,11 +8,12 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-      - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
+      - ${DATA_DIR:-../testing/integration_tests/data/tpch_sf1}:/opt/data
+      - ./hive-metastore:/var/lib/presto/data/hive/metastore
 
   presto-native-worker-gpu:
     container_name: presto-native-worker-gpu
-    image: presto-native-worker-gpu:latest
+    image: presto-native-worker-gpu:fixed
     build:
       args:
         - GPU=ON
@@ -26,6 +27,15 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
-      - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
+      - ${DATA_DIR:-../testing/integration_tests/data/tpch_sf1}:/opt/data
+      - ./hive-metastore:/var/lib/presto/data/hive/metastore
     depends_on:
       - presto-coordinator
+
+  presto-cli:
+    container_name: presto-cli
+    image: prestodb/presto:latest
+    entrypoint: ["sleep", "infinity"]
+    depends_on:
+      - presto-coordinator
+
