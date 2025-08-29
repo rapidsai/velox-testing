@@ -25,23 +25,52 @@ Specifically, the `velox-testing` and `velox` repositories must be checked out a
 A Docker-based benchmarking infrastructure has been added to facilitate running Velox benchmarks with support for CPU/GPU execution engines and profiling capabilities. The infrastructure uses a dedicated `velox-benchmark` Docker service with pre-configured volume mounts that automatically sync benchmark data and results. The data follows Hive directory structure, making it compatible with Presto. Currently, only TPC-H is implemented, but the infrastructure is designed to be easily extended to support additional benchmarks in the future.
 
 ### Prerequisites
-The benchmarking infrastructure requires the same directory structure as Velox Testing, plus benchmark data using Hive directory structure. For TPC-H, the required data layout is shown below. 
+The benchmarking infrastructure requires the same directory structure as Velox Testing, plus benchmark data using Hive directory structure. For TPC-H, the required data layout is shown below.
 
 ```
-  velox-benchmark-data/
-  └─ tpch/
-    ├─ customer/
-    ├─ lineitem/
-    ├─ nation/
-    ├─ orders/
-    ├─ part/
-    ├─ partsupp/
-    ├─ region/
-    └─ supplier/
+├─ base_directory/
+  ├─ velox-testing
+  ├─ velox
+  └─ velox-benchmark-data/
+    └─ tpch/
+      ├─ customer/
+      ├─ lineitem/
+      ├─ nation/
+      ├─ orders/
+      ├─ part/
+      ├─ partsupp/
+      ├─ region/
+      └─ supplier/
 ```
 
-By default, the data directory is named `velox-benchmark-data`, but you can specify a different directory using a command-line option. The data must follow the Hive-style partition layout backed by Parquet files. 
+#### Data Layout Options (applies to ALL table directories)
 
+Each table directory can use any of these patterns. Using `lineitem/` as an example:
+
+```
+lineitem/
+├─ lineitem.parquet                    # Single file
+# OR
+├─ part-00000.parquet                  # Multiple files
+├─ part-00001.parquet
+└─ part-00002.parquet
+# OR  
+├─ year=1992/                          # Partitioned data
+│   ├─ part-00000.parquet
+│   └─ part-00001.parquet
+├─ year=1993/
+│   └─ part-00000.parquet
+└─ year=1994/
+    ├─ part-00000.parquet
+    └─ part-00001.parquet
+```
+
+#### Supported Data Patterns
+- Single files: `customer/customer.parquet`
+- Multiple files: `lineitem/part-00000.parquet`, `lineitem/part-00001.parquet`, etc.
+- Partitioned data: `orders/year=1992/part-00000.parquet`, `orders/year=1993/part-00000.parquet`, etc.
+- Multi-partition: `customer/region=AMERICA/part-00000.parquet`, `customer/region=EUROPE/part-00001.parquet`, etc.
+- Mixed partitioning: Some tables partitioned, others with single/multiple files
 ### Building for Benchmarks
 Before running benchmarks, Velox must be built with benchmarking support enabled:
 

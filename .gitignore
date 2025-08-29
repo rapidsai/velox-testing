@@ -1,3 +1,49 @@
-.venv
-.idea
+# Python
+.venv/
 __pycache__/
+*.pyc
+*.pyo
+.Python
+env/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Benchmark results and logs
+benchmark-results/
+velox/benchmark-results/
+presto/benchmark-results/
+*.log
+*.nsys-rep
+
+# Build artifacts and binaries
+*.so
+*.a
+*.o
+*.exe
+build/
+dist/
+
+# Generated test data
+presto/testing/integration_tests/data/tpch*/
+presto/testing/integration_tests/data/tpcds*/
+*.parquet
+
+# Runtime metastore data
+presto/docker/hive-metastore/
+
+# Temporary files
+.tmp/
+temp/
+*.tmp
+
+# Unwanted test directories that get auto-created
+presto/scripts/test_data/
+
+# OS generated files
+.DS_Store
+._*
+Thumbs.db

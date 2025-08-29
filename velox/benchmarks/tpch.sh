@@ -16,8 +16,21 @@ TPC-H Examples:
   \$(basename "\$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
 
 TPC-H Data Requirements:
+  The TPC-H data directory must use Hive-style directory structure with at least one parquet file per table:
+    /data/tpch/customer/*.parquet (or in subdirectories)
+    /data/tpch/lineitem/*.parquet (or in subdirectories)
+    /data/tpch/nation/*.parquet (or in subdirectories)
+    /data/tpch/orders/*.parquet (or in subdirectories)
+    /data/tpch/part/*.parquet (or in subdirectories)
+    /data/tpch/partsupp/*.parquet (or in subdirectories)
+    /data/tpch/region/*.parquet (or in subdirectories)
+    /data/tpch/supplier/*.parquet (or in subdirectories)
     
-  The data must use the Hive-style directory structure with at least one parquet file per table.
+  This structure is compatible with Presto and follows Hive conventions. Supports:
+  - Single files: customer/customer.parquet
+  - Multiple files: lineitem/part-00000.parquet, lineitem/part-00001.parquet, etc.
+  - Partitioned data: orders/year=1992/part-00000.parquet, orders/year=1993/part-00000.parquet, etc.
+  - Multi-partition: customer/region=AMERICA/part-00000.parquet, customer/region=EUROPE/part-00001.parquet, etc.
 
 TPC-H Build Requirements:
   - Velox must be built with benchmarks enabled: ./build_velox.sh --benchmarks true
@@ -160,9 +173,7 @@ run_tpch_single_benchmark() {
   fi
   
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
-  set +e
   $run_in_container_func 'bash -c "
-      set -euo pipefail
       '"${PROFILE_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \
         --data_path=/workspace/velox/velox-tpch-data \
@@ -177,13 +188,6 @@ run_tpch_single_benchmark() {
         '"${CUDF_FLAGS}"' 2>&1 | \
         tee benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers
     "'
-
-  EXIT_CODE=$?
-  if [[ $EXIT_CODE -ne 0 ]]; then
-    return $EXIT_CODE
-  fi
-
-  set -e 
 }
 
 get_tpch_default_queries() {
