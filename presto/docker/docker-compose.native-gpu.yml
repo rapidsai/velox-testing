@@ -12,7 +12,7 @@ services:
 
   presto-native-worker-gpu:
     container_name: presto-native-worker-gpu
-    image: presto-native-worker-gpu:fixed
+    image: presto-native-worker-gpu:latest
     build:
       args:
         - GPU=ON
