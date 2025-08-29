@@ -30,15 +30,16 @@ on:
 jobs:
   java:
     if: ${{ github.event.inputs.run_java_tests == 'true' }}
-    uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@${{ github.ref_name }}
+    uses: ./.github/workflows/presto-test-composite.yml
     with:
+      
       presto_worker_type: 'java'
       node_label: 'linux-amd64-cpu4'
       velox_commit: ${{ inputs.velox_commit }}
       presto_commit: ${{ inputs.presto_commit }}
   native-cpu:
     if: ${{ github.event.inputs.run_cpu_tests == 'true' }}
-    uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@${{ github.ref_name }}
+    uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
       presto_worker_type: 'native_cpu'
       node_label: 'linux-amd64-cpu16'
@@ -46,7 +47,7 @@ jobs:
       presto_commit: ${{ inputs.presto_commit }}
   native-gpu:
     if: ${{ github.event.inputs.run_gpu_tests == 'true' }}
-    uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@${{ github.ref_name }}
+    uses: rapidsai/velox-testing/.github/workflows/presto-test-composite.yml@misiug/PrestoActions
     with:
       presto_worker_type: 'native_gpu'
       node_label: 'linux-amd64-gpu-l4-latest-1'
