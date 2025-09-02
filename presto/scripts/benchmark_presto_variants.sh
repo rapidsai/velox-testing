@@ -24,6 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="${SCRIPT_DIR}/../docker"
 RESULTS_BASE_DIR="${SCRIPT_DIR}/../benchmark-results"
 BENCHMARK_DATA_TOOLS_DIR="${SCRIPT_DIR}/../../benchmark_data_tools"
+COMMON_DIR="${SCRIPT_DIR}/../../common"
 TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 RESULTS_DIR="${RESULTS_BASE_DIR}/${TIMESTAMP}"
 
@@ -34,6 +35,7 @@ NUM_RUNS=3
 TIMEOUT_SECONDS=300
 PRESTO_HOST="localhost"
 PRESTO_PORT="8080"
+PRESTO_USER="test_user"
 SCHEMA_NAME="sf1"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DATA_DIR="${REPO_ROOT}/presto/testing/integration_tests/data/tpch_sf1"
@@ -171,6 +173,51 @@ parse_arguments() {
                 ;;
         esac
     done
+}
+
+# Setup and validate dependencies
+setup_dependencies() {
+    # Check Python 3 availability
+    if ! command -v python3 >/dev/null 2>&1; then
+        print_error "Python 3 is required but not found"
+        exit 1
+    fi
+    print_status "Python 3 found: $(python3 --version)"
+    
+    # Setup Python virtual environment (like run_integ_test.sh)
+    local venv_dir="${SCRIPT_DIR}/.venv"
+    if [[ ! -d "$venv_dir" ]]; then
+        print_status "Setting up Python virtual environment..."
+        python3 -m venv "$venv_dir" || {
+            print_error "Failed to create virtual environment"
+            exit 1
+        }
+    fi
+    
+    # Activate virtual environment
+    source "$venv_dir/bin/activate" || {
+        print_error "Failed to activate virtual environment"
+        exit 1
+    }
+    
+    # Install integration test requirements
+    local test_utils_dir="${REPO_ROOT}/presto/testing/integration_tests"
+    if [[ -f "$test_utils_dir/requirements.txt" ]]; then
+        print_status "Installing integration test requirements..."
+        pip install -q -r "$test_utils_dir/requirements.txt" >/dev/null 2>&1 || {
+            print_warning "Failed to install integration test requirements - continuing anyway"
+        }
+    fi
+    
+    print_status "Python environment setup completed"
+    
+    # Source common TPC-H validation functions after print functions are defined
+    if [[ -f "$COMMON_DIR/tpch_data_validation.sh" ]]; then
+        source "$COMMON_DIR/tpch_data_validation.sh"
+        print_status "Loaded common TPC-H validation functions"
+    else
+        print_warning "Common TPC-H validation functions not found, using basic validation"
+    fi
 }
 
 # Validate arguments
@@ -359,7 +406,7 @@ wait_for_presto() {
         local test_output
         cd "$DOCKER_DIR"
         test_output=$(timeout 30 docker exec presto-cli presto-cli \
-            --server presto-coordinator:8080 \
+            --server presto-coordinator:${PRESTO_PORT} \
             --catalog "$catalog" \
             --schema "$schema" \
             --debug \
@@ -394,43 +441,16 @@ setup_hive_tables() {
         local test_utils_dir="${REPO_ROOT}/presto/testing/integration_tests"
         
         if [[ -f "$test_utils_dir/test_utils.py" ]]; then
-            # Install Python dependencies for integration test utilities
-            if [[ -f "$test_utils_dir/requirements.txt" ]]; then
-                python3 -m pip install -q -r "$test_utils_dir/requirements.txt" >/dev/null 2>&1 || {
-                    print_warning "Failed to install integration test requirements - continuing anyway"
-                }
-            fi
+            # Dependencies already installed in setup_dependencies()
             
-            # Use the existing Python utilities for table creation
-            cd "$test_utils_dir"
-            python3 -c "
-import sys
-import os
-sys.path.append('.')
-from test_utils import get_table_schemas
-import prestodb
-
-# Connect to Presto
-conn = prestodb.dbapi.connect(host='localhost', port=8080, user='test_user', catalog='hive', schema='default')
-cursor = conn.cursor()
-
-# Get schemas and modify them for our data directory
-schemas = get_table_schemas('tpch')
-cursor.execute('CREATE SCHEMA IF NOT EXISTS hive.default')
-
-for table_name, schema in schemas:
-    # Replace schema name and use our data directory path
-    modified_schema = schema.replace('hive.tpch_test.', 'hive.default.')
-    modified_schema = modified_schema.format(file_path=f'/opt/data/{table_name}')
-    print(f'Creating table: {table_name}')
-    try:
-        cursor.execute(f'DROP TABLE IF EXISTS hive.default.{table_name}')
-    except Exception as e:
-        print(f'Note: Could not drop {table_name} (may not exist): {e}')
-    cursor.execute(modified_schema)
-
-print('TPC-H tables created successfully using integration test utilities with custom paths')
-" && print_status "Hive tables setup completed using existing utilities"
+            # Use the separate Python script for table creation
+            cd "$BENCHMARK_DATA_TOOLS_DIR"
+            python3 setup_hive_tables.py \
+                --host "$PRESTO_HOST" \
+                --port "$PRESTO_PORT" \
+                --user "$PRESTO_USER" \
+                --data-path "/opt/data" && \
+                print_status "Hive tables setup completed using existing utilities"
             cd "$SCRIPT_DIR"
         else
             print_error "Integration test utilities not found at: $test_utils_dir"
@@ -607,7 +627,7 @@ run_query() {
     cd "$DOCKER_DIR"
     timeout $TIMEOUT_SECONDS bash -c "
         $profile_cmd docker exec -i presto-cli presto-cli \
-            --server presto-coordinator:8080 \
+            --server presto-coordinator:${PRESTO_PORT} \
             --catalog $catalog \
             --schema $schema \
             --file /dev/stdin \
@@ -663,9 +683,32 @@ check_benchmark_data_tools() {
     return 0
 }
 
-# Extract scale factor from data directory path
-get_scale_factor_from_path() {
+# Extract scale factor from metadata.json file or fallback to path parsing
+get_scale_factor_from_data_dir() {
     local data_dir="$1"
+    local metadata_file="$data_dir/metadata.json"
+    
+    # Try to read from metadata.json first
+    if [[ -f "$metadata_file" ]]; then
+        local scale_factor
+        scale_factor=$(python3 -c "
+import json
+import sys
+try:
+    with open('$metadata_file', 'r') as f:
+        metadata = json.load(f)
+    print(metadata.get('scale_factor', 1))
+except Exception as e:
+    print('1', file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null)
+        if [[ $? -eq 0 ]] && [[ -n "$scale_factor" ]]; then
+            echo "$scale_factor"
+            return 0
+        fi
+    fi
+    
+    # Fallback to parsing directory path
     if [[ "$data_dir" =~ tpch_sf([0-9]+(\.[0-9]+)?) ]]; then
         echo "${BASH_REMATCH[1]}"
     else
@@ -678,7 +721,7 @@ get_scale_factor_from_path() {
 generate_parquet_data() {
     local data_dir="$1"
     local scale_factor
-    scale_factor=$(get_scale_factor_from_path "$data_dir")
+    scale_factor=$(get_scale_factor_from_data_dir "$data_dir")
     
     print_status "Auto-generating TPC-H parquet data (scale factor: $scale_factor)"
     print_status "Data directory: $data_dir"
@@ -689,18 +732,14 @@ generate_parquet_data() {
         exit 1
     fi
     
-    # Check if we have Python 3 and required packages
-    if ! command -v python3 >/dev/null 2>&1; then
-        print_error "Python 3 is required for data generation"
-        exit 1
-    fi
+    # Python 3 and requirements already checked in setup_dependencies()
     
-    # Install requirements if needed
+    # Install benchmark data tools requirements if needed (not covered by integration test requirements)
     local requirements_file="$BENCHMARK_DATA_TOOLS_DIR/requirements.txt"
     if [[ -f "$requirements_file" ]]; then
-        print_status "Installing Python requirements..."
-        python3 -m pip install -r "$requirements_file" >/dev/null 2>&1 || {
-            print_warning "Failed to install requirements - continuing anyway"
+        print_status "Installing benchmark data tools requirements..."
+        pip install -q -r "$requirements_file" >/dev/null 2>&1 || {
+            print_warning "Failed to install benchmark data tools requirements - continuing anyway"
         }
     fi
     
@@ -758,19 +797,45 @@ check_data_directory() {
         fi
     fi
     
-    # Check if there are any parquet files
-    if find "$DATA_DIR" -name "*.parquet" -type f | head -1 | grep -q .; then
-        print_status "Found parquet files in $DATA_DIR"
-        USE_TPCH_CONNECTOR=false
+    # Use the shared validation function if available
+    if declare -f validate_tpch_data_structure >/dev/null; then
+        print_status "Validating TPC-H data structure using shared validation..."
+        if validate_tpch_data_structure "$DATA_DIR"; then
+            print_status "TPC-H data validation passed"
+            USE_TPCH_CONNECTOR=false
+            
+            # Show data summary
+            local data_size
+            data_size=$(get_tpch_data_size "$DATA_DIR")
+            print_status "Data directory size: $data_size"
+            print_status "Table summary:"
+            list_tpch_tables "$DATA_DIR"
+        else
+            if [[ "$AUTO_GENERATE_DATA" == true ]]; then
+                print_status "Data validation failed, auto-generating data..."
+                generate_parquet_data "$DATA_DIR"
+                USE_TPCH_CONNECTOR=false
+            else
+                print_error "TPC-H data validation failed"
+                print_error "Use --generate-data to auto-generate data files"
+                exit 1
+            fi
+        fi
     else
-        if [[ "$AUTO_GENERATE_DATA" == true ]]; then
-            print_status "No parquet files found, auto-generating data..."
-            generate_parquet_data "$DATA_DIR"
+        # Fallback to basic check if shared functions not available
+        if find "$DATA_DIR" -name "*.parquet" -type f | head -1 | grep -q .; then
+            print_status "Found parquet files in $DATA_DIR"
             USE_TPCH_CONNECTOR=false
         else
-            print_error "No parquet files found in $DATA_DIR - benchmark requires parquet data"
-            print_error "Use --generate-data to auto-generate data files"
-            exit 1
+            if [[ "$AUTO_GENERATE_DATA" == true ]]; then
+                print_status "No parquet files found, auto-generating data..."
+                generate_parquet_data "$DATA_DIR"
+                USE_TPCH_CONNECTOR=false
+            else
+                print_error "No parquet files found in $DATA_DIR - benchmark requires parquet data"
+                print_error "Use --generate-data to auto-generate data files"
+                exit 1
+            fi
         fi
     fi
 }
@@ -934,142 +999,8 @@ generate_overall_summary() {
     print_status "Overall summary saved to: $summary_file"
 }
 
-# Create TPC-H tables setup script
-create_setup_script() {
-    local setup_file="${SCRIPT_DIR}/setup_tpch_tables.sql"
-    cat > "$setup_file" << 'EOF'
--- TPC-H Tables Setup for Hive Connector
--- This script creates external tables pointing to parquet files
-
--- Create tables if they don't exist
-CREATE SCHEMA IF NOT EXISTS hive.default;
-
--- Customer table
-DROP TABLE IF EXISTS hive.default.customer;
-CREATE TABLE hive.default.customer (
-    c_custkey BIGINT,
-    c_name VARCHAR(25),
-    c_address VARCHAR(40),
-    c_nationkey BIGINT,
-    c_phone VARCHAR(15),
-    c_acctbal DOUBLE,
-    c_mktsegment VARCHAR(10),
-    c_comment VARCHAR(117)
-) WITH (
-    format = 'PARQUET',
-    external_location = 'file:///opt/data/customer'
-);
-
--- Lineitem table
-DROP TABLE IF EXISTS hive.default.lineitem;
-CREATE TABLE hive.default.lineitem (
-    l_orderkey BIGINT,
-    l_partkey BIGINT,
-    l_suppkey BIGINT,
-    l_linenumber INTEGER,
-    l_quantity DOUBLE,
-    l_extendedprice DOUBLE,
-    l_discount DOUBLE,
-    l_tax DOUBLE,
-    l_returnflag VARCHAR(1),
-    l_linestatus VARCHAR(1),
-    l_shipdate DATE,
-    l_commitdate DATE,
-    l_receiptdate DATE,
-    l_shipinstruct VARCHAR(25),
-    l_shipmode VARCHAR(10),
-    l_comment VARCHAR(44)
-) WITH (
-    format = 'PARQUET',
-    external_location = 'file:///opt/data/lineitem'
-);
-
--- Nation table
-DROP TABLE IF EXISTS hive.default.nation;
-CREATE TABLE hive.default.nation (
-    n_nationkey BIGINT,
-    n_name VARCHAR(25),
-    n_regionkey BIGINT,
-    n_comment VARCHAR(152)
-) WITH (
-    format = 'PARQUET',
-    external_location = 'file:///opt/data/nation'
-);
-
--- Orders table
-DROP TABLE IF EXISTS hive.default.orders;
-CREATE TABLE hive.default.orders (
-    o_orderkey BIGINT,
-    o_custkey BIGINT,
-    o_orderstatus VARCHAR(1),
-    o_totalprice DOUBLE,
-    o_orderdate DATE,
-    o_orderpriority VARCHAR(15),
-    o_clerk VARCHAR(15),
-    o_shippriority INTEGER,
-    o_comment VARCHAR(79)
-) WITH (
-    format = 'PARQUET',
-    external_location = 'file:///opt/data/orders'
-);
-
--- Part table
-DROP TABLE IF EXISTS hive.default.part;
-CREATE TABLE hive.default.part (
-    p_partkey BIGINT,
-    p_name VARCHAR(55),
-    p_mfgr VARCHAR(25),
-    p_brand VARCHAR(10),
-    p_type VARCHAR(25),
-    p_size INTEGER,
-    p_container VARCHAR(10),
-    p_retailprice DOUBLE,
-    p_comment VARCHAR(23)
-) WITH (
-    format = 'PARQUET',
-    external_location = 'file:///opt/data/part'
-);
-
--- Partsupp table
-DROP TABLE IF EXISTS hive.default.partsupp;
-CREATE TABLE hive.default.partsupp (
-    ps_partkey BIGINT,
-    ps_suppkey BIGINT,
-    ps_availqty INTEGER,
-    ps_supplycost DOUBLE,
-    ps_comment VARCHAR(199)
-) WITH (
-    format = 'PARQUET',
-    external_location = 'file:///opt/data/partsupp'
-);
-
--- Region table
-DROP TABLE IF EXISTS hive.default.region;
-CREATE TABLE hive.default.region (
-    r_regionkey BIGINT,
-    r_name VARCHAR(25),
-    r_comment VARCHAR(152)
-) WITH (
-    format = 'PARQUET',
-    external_location = 'file:///opt/data/region'
-);
-
--- Supplier table
-DROP TABLE IF EXISTS hive.default.supplier;
-CREATE TABLE hive.default.supplier (
-    s_suppkey BIGINT,
-    s_name VARCHAR(25),
-    s_address VARCHAR(40),
-    s_nationkey BIGINT,
-    s_phone VARCHAR(15),
-    s_acctbal DOUBLE,
-    s_comment VARCHAR(101)
-) WITH (
-    format = 'PARQUET',
-    external_location = 'file:///opt/data/supplier'
-);
-EOF
-}
+# This function is now replaced by setup_hive_tables.py script
+# which uses the test_utils create_tables() functionality
 
 # Main execution
 main() {
@@ -1094,9 +1025,6 @@ main() {
     # Check data directory and determine connector
     check_data_directory
     
-    # Create setup script for Hive tables
-    create_setup_script
-    
     # Benchmark each variant
     for variant in "${VARIANTS_TO_RUN[@]}"; do
         if ! benchmark_variant "$variant"; then
@@ -1118,4 +1046,5 @@ main() {
 # Parse arguments and run
 parse_arguments "$@"
 validate_arguments
+setup_dependencies
 main

@@ -8,6 +8,7 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
       - ${DATA_DIR:-../testing/integration_tests/data/tpch_sf1}:/opt/data
 
   presto-cli:
@@ -24,6 +25,7 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./config/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
       - ${DATA_DIR:-../testing/integration_tests/data/tpch_sf1}:/opt/data
     depends_on:
       - presto-coordinator
