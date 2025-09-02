@@ -37,6 +37,7 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
                       -DVELOX_ENABLE_FAISS=ON" \
     LD_LIBRARY_PATH="/opt/velox-build/release/lib:\
 /opt/velox-build/release/_deps/cudf-build:\
+/opt/velox-build/release/_deps/rmm-build:\
 /opt/velox-build/release/_deps/rapids_logger-build:\
 /opt/velox-build/release/_deps/kvikio-build:\
 /opt/velox-build/release/_deps/nvcomp_proprietary_binary-src/lib64"

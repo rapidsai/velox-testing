@@ -50,7 +50,7 @@ parse_args "$@"
 
 echo "Running tests on Velox adapters..."
 echo ""
-test_cmd="LD_LIBRARY_PATH=${EXPECTED_OUTPUT_LIB_DIR} ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
+test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure --test-dir=${EXPECTED_OUTPUT_DIR}"
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "cd ${EXPECTED_OUTPUT_DIR} && ${test_cmd}"; then
   echo ""
   echo "  Tests passed successfully!"
