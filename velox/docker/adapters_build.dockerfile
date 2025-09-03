@@ -61,8 +61,6 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     --mount=type=cache,target=/buildcache,sharing=locked,rw \
     # Set up shell environment
     set -euxo pipefail && \
-    # Build release into /buildcache
-    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="/buildcache" && \
-    # Copy release to /opt/velox-build/release
-    mkdir -p /opt/velox-build/release && \
-    cp -a "/buildcache/release/." "/opt/velox-build/release/"
+    # Build release into /opt/velox-build
+    mkdir -p /opt/velox-build && \
+    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="/opt/velox-build"
