@@ -52,7 +52,7 @@ TEST_LD_LIBRARY_PATH="/opt/velox-build/release/lib:/opt/velox-build/release/_dep
 
 echo "Running tests on Velox adapters..."
 echo ""
-test_cmd="LD_LIBRARY_PATH=${TEST_LD_LIBRARY_PATH} ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure --test-dir=${EXPECTED_OUTPUT_DIR}"
+test_cmd="LD_LIBRARY_PATH=${TEST_LD_LIBRARY_PATH} ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "cd ${EXPECTED_OUTPUT_DIR} && ${test_cmd}"; then
   echo ""
   echo "  Tests passed successfully!"
