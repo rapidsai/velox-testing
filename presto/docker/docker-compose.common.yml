@@ -4,11 +4,17 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
 
-  presto-base-coordinator:
+  presto-base-java:
     extends:
       service: presto-base-volumes
-    container_name: presto-coordinator
     image: ${PRESTO_JAVA_IMAGE:-prestodb/presto:latest}
+    build:
+      context: ../../../presto/docker
+
+  presto-base-coordinator:
+    extends:
+      service: presto-base-java
+    container_name: presto-coordinator
     ports:
       - 8080:8080
     volumes:

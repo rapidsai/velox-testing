@@ -9,9 +9,8 @@ services:
   presto-java-worker:
     extends:
       file: docker-compose.common.yml
-      service: presto-base-volumes
+      service: presto-base-java
     container_name: presto-java-worker
-    image: ${PRESTO_JAVA_IMAGE:-prestodb/presto:latest}
     volumes:
       - ./config/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
