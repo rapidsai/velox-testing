@@ -48,9 +48,11 @@ parse_args() {
 
 parse_args "$@"
 
+TEST_LD_LIBRARY_PATH="/opt/velox-build/release/lib:/opt/velox-build/release/_deps/cudf-build:/opt/velox-build/release/_deps/rmm-build:/opt/velox-build/release/_deps/rapids_logger-build:/opt/velox-build/release/_deps/kvikio-build:/opt/velox-build/release/_deps/nvcomp_proprietary_binary-src/lib64"
+
 echo "Running tests on Velox adapters..."
 echo ""
-test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure --test-dir=${EXPECTED_OUTPUT_DIR}"
+test_cmd="LD_LIBRARY_PATH=${TEST_LD_LIBRARY_PATH} ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure --test-dir=${EXPECTED_OUTPUT_DIR}"
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "cd ${EXPECTED_OUTPUT_DIR} && ${test_cmd}"; then
   echo ""
   echo "  Tests passed successfully!"
