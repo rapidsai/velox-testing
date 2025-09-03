@@ -6,3 +6,6 @@
 __pycache__/
 # emacs backup files
 *~
+
+# Hive metastore
+.hive_metastore/
