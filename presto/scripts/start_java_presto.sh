@@ -57,13 +57,14 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     
     PRESTO_VERSION=$PRESTO_VERSION ./build_presto_java_package.sh
     
-    PRESTO_JAVA_IMAGE=presto-java-custom:$PRESTO_VERSION
+    export PRESTO_JAVA_IMAGE=presto-java-custom:$PRESTO_VERSION
 
-    PRESTO_JAVA_IMAGE=$PRESTO_JAVA_IMAGE docker compose -f ../docker/docker-compose.java.yml build \
+    docker image rm $PRESTO_JAVA_IMAGE
+    docker compose -f ../docker/docker-compose.java.yml build \
       --build-arg PRESTO_VERSION=$PRESTO_VERSION --progress=plain
 else
     echo "Using prestodb/presto:latest image..."
     docker compose -f ../docker/docker-compose.java.yml pull
 fi
 
-PRESTO_JAVA_IMAGE=$PRESTO_JAVA_IMAGE docker compose -f ../docker/docker-compose.java.yml up -d
+docker compose -f ../docker/docker-compose.java.yml up -d
