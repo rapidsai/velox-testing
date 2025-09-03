@@ -1,11 +1,4 @@
 #!/bin/bash
-#
-# Start Presto Java services
-#
-# Usage:
-#   ./start_java_presto.sh           # Use prestodb/presto:latest image
-#   ./start_java_presto.sh --build   # Build from source
-#
 
 set -e
 
@@ -17,8 +10,8 @@ Usage: $0 [OPTIONS]
 This script optionally builds and runs Presto Java services
 
 OPTIONS:
-    -h, --help              Show this help message.
-    -b, --build    Build presto from source instead of using prestodb/presto:latest
+    -h, --help     Show this help message.
+    -b, --build    Build presto from source instead of using the "prestodb/presto:latest:" image.
 
 EXAMPLES:
     $0
@@ -62,19 +55,18 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     VERSION=$(git -C ../../../presto rev-parse --short HEAD)
     PRESTO_VERSION=$VERSION-testing
     
-    ./build_presto_java_package.sh
+    PRESTO_VERSION=$PRESTO_VERSION ./build_presto_java_package.sh
     
+    PRESTO_JAVA_IMAGE=presto-java-custom:$PRESTO_VERSION
+
     docker build \
       --build-arg PRESTO_VERSION=$PRESTO_VERSION \
-      -t presto-custom:$PRESTO_VERSION \
+      -t $PRESTO_JAVA_IMAGE \
       -f ../../../presto/docker/Dockerfile \
       ../../../presto/docker
-
-    export PRESTO_IMAGE=presto-custom:$PRESTO_VERSION
 else
     echo "Using prestodb/presto:latest image..."
     docker compose -f ../docker/docker-compose.java.yml pull
 fi
-docker compose -f ../docker/docker-compose.java.yml up -d
 
-
+PRESTO_JAVA_IMAGE=$PRESTO_JAVA_IMAGE docker compose -f ../docker/docker-compose.java.yml up -d
