@@ -6,3 +6,6 @@
 __pycache__/
 # emacs backup files
 *~
+
+# Maven cache for Java builds in docker
+.mvn_cache/
