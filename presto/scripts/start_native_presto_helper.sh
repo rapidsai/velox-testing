@@ -56,5 +56,5 @@ fi
 
 ./stop_presto.sh
 ./build_centos_deps_image.sh
-docker compose -f ../docker/docker-compose.native-$DEVICE_TYPE.yml build $SKIP_CACHE_ARG --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) --progress plain
+docker compose -f ../docker/docker-compose.native-$DEVICE_TYPE.yml build $SKIP_CACHE_ARG --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) --build-arg PRESTO_VERSION=55df18542c-testing --build-arg PRESTO_JAVA_IMAGE=presto-java-custom:55df18542c-testing --progress plain
 docker compose -f ../docker/docker-compose.native-$DEVICE_TYPE.yml up -d
