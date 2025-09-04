@@ -6,3 +6,5 @@
 __pycache__/
 # emacs backup files
 *~
+# default output for benchmark runs
+benchmark_output

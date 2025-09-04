@@ -17,3 +17,8 @@ services:
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
     depends_on:
       - presto-coordinator
+
+  presto-cli:
+    extends:
+      file: docker-compose.common.yml
+      service: presto-base-cli
