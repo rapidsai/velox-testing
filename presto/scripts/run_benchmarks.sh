@@ -76,7 +76,7 @@ function create_tables() {
     done
 }
 
-# TODO: Q5 uses a constant that needs to be modified based on the SF of the data (it currently is not).
+# TODO: Q11 uses a constant that needs to be modified based on the SF of the data (it currently is not).
 function run_queries() {
     worker_exec="docker compose -f $BASE_DIR/presto/docker/docker-compose.native-gpu.yml exec presto-native-worker-gpu"
     cli_exec="docker compose -f $BASE_DIR/presto/docker/docker-compose.native-gpu.yml exec presto-cli"
