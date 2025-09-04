@@ -17,3 +17,8 @@ services:
         - GPU=OFF
     depends_on:
       - presto-coordinator
+
+  presto-cli:
+    extends:
+      file: docker-compose.common.yml
+      service: presto-base-cli
