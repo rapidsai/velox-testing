@@ -19,7 +19,6 @@ OPTIONS:
     -h, --help                          Show this help message.
     -s, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
-    -t, --tpch-only			Only generate TPCH data
     -v, --verbose			Generate additional logging
 
 EXAMPLES:
@@ -31,7 +30,6 @@ EOF
 
 SCALE_FACTOR=0.01
 CONVERT_DECIMALS_TO_FLOATS=false
-BENCHMARK_TYPES="tpch tpcds"
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -51,10 +49,6 @@ parse_args() {
         ;;
       -c|--convert-decimals-to-floats)
         CONVERT_DECIMALS_TO_FLOATS=true
-        shift
-        ;;
-      -t|--tpch-only)
-        BENCHMARK_TYPES="tpch"
         shift
         ;;
       -v|--verbose)
@@ -85,7 +79,7 @@ if [[ "$CONVERT_DECIMALS_TO_FLOATS" == "true" ]]; then
   CONVERT_DECIMALS_TO_FLOATS_ARG="--convert-decimals-to-floats"
 fi
 
-for BENCHMARK_TYPE in $BENCHMARK_TYPES; do
+for BENCHMARK_TYPE in "tpch tpcds"; do
   SCHEMAS_DIR=../schemas/$BENCHMARK_TYPE
   rm -rf $SCHEMAS_DIR
   echo "Generating table schema files for $BENCHMARK_TYPE..."
