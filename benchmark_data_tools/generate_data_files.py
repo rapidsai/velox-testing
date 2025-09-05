@@ -33,9 +33,8 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
 
     raw_data_path = data_dir_path + "-temp" if convert_decimals_to_floats else data_dir_path
 
-    # This dictionary maps each table to it's expected file size relative to the SF (roughly what SF is needed to generate a 5GB for this table).
-    # This is used to partition each table down to manageable file sizes.
-    tables_sf_ratio = {"region": 100000, "nation": 100000, "supplier": 100000, "customer": 200, "part": 100000, "partsupp": 100, "orders": 50, "lineitem": 10}
+    # This dictionary maps each table to it's expected file size relative to the SF.  The ratio is calculated to have each file capped at ~100M rows.
+    tables_sf_ratio = {"region": 100_000, "nation": 100_000, "supplier": 10_000, "customer": 666, "part": 500, "partsupp": 125, "orders": 66, "lineitem": 17}
 
     with ThreadPoolExecutor(num_threads) as executor:
         futures = []

@@ -15,7 +15,7 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
     # Read the parquet file metadata
     parquet_file = pq.ParquetFile(input_file_path)
     schema = parquet_file.schema_arrow
-    
+
     if verbose:
         print(f"Converting {input_file_path} to {output_file_path}")
 
@@ -27,8 +27,18 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
     for col in table.columns:
         if hasattr(col.type, 'precision'):
             col = col.cast(pa.float64())
-        if col.type == pa.int64():
+        # tpchgen generates these keys as int64, but they are expected to be int32.
+        elif col._name == "c_nationkey":
             col = col.cast(pa.int32())
+        elif col._name == "n_nationkey":
+            col = col.cast(pa.int32())
+        elif col._name == "n_regionkey":
+            col = col.cast(pa.int32())
+        elif col._name == "r_regionkey":
+            col = col.cast(pa.int32())
+        elif col._name == "s_nationkey":
+            col = col.cast(pa.int32())
+
         new_columns.append(col)
         
     new_table = pa.Table.from_arrays(new_columns, schema.names)
