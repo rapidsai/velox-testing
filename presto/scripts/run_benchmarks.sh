@@ -86,12 +86,18 @@ function run_queries() {
 	sql=$(echo "$sql" | sed "s/LIMIT .*//g") # removing limits
 	out="$BASE_DIR/benchmark_output/tpch/$query.out"
 	echo "running $query"
-	[ -z "$CREATE_PROFILES" ] || $worker_exec bash -c "nsys start -o /benchmark_output/$query.nsys-rep --force-overwrite true"
-	$cli_exec presto-cli --server presto-coordinator:8080 --catalog hive --schema tpch_test --execute "$sql" > $out
+	if [ -f "$BASE_DIR/benchmark_output/$query.nsys-rep" ]; then
+	    FORCE_OVERWRITE="--force-overwrite true"
+	else
+	    FORCE_OVERWRITE=""
+	fi
+	[ -z "$CREATE_PROFILES" ] || $worker_exec bash -c "nsys start -o /benchmark_output/$query.nsys-rep $FORCE_OVERWRITE"
+	time $cli_exec presto-cli --server presto-coordinator:8080 --catalog hive --schema tpch_test --execute "$sql" > $out
 	[ -z "$CREATE_PROFILES" ] || $worker_exec bash -c "nsys stop"
     done
 }
 
 parse_args "$@"
+mkdir -p "$BASE_DIR/benchmark_output/tpch"
 [ -z "$CREATE_TABLES" ] || create_tables
 run_queries
