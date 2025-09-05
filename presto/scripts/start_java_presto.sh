@@ -59,9 +59,13 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     
     export PRESTO_JAVA_IMAGE=presto-java-custom:$PRESTO_VERSION
 
-    docker image rm $PRESTO_JAVA_IMAGE
-    docker compose -f ../docker/docker-compose.java.yml build \
-      --build-arg PRESTO_VERSION=$PRESTO_VERSION --progress=plain
+    # Delete any existing image with the same name/tag in order to avoid dangling images after build.
+    if [[ -n "$(docker images -q $PRESTO_JAVA_IMAGE)" ]]; then
+      docker image rm $PRESTO_JAVA_IMAGE
+    fi
+    # Avoid redundant builds by building only one of the Java services.
+    docker compose --progress=plain -f ../docker/docker-compose.java.yml build \
+      --build-arg PRESTO_VERSION=$PRESTO_VERSION presto-coordinator
 else
     echo "Using prestodb/presto:latest image..."
     docker compose -f ../docker/docker-compose.java.yml pull
