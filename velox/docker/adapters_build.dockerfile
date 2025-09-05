@@ -65,10 +65,21 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
     fi
 
+# Do the build using a cached BUILD_BASE_DIR (to allow incremental builds)
+# Then copy the results to /tmp
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
-    --mount=type=cache,target=/buildcache,sharing=locked,rw \
+    --mount=type=cache,target=/opt/velox-build,sharing=locked,rw \
     # Set up shell environment
     set -euxo pipefail && \
-    # Build release into /opt/velox-build
-    mkdir -p /opt/velox-build && \
-    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="/opt/velox-build"
+    # Build release into /opt/velox-build (cached mount)
+    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="/opt/velox-build" && \
+    # Copy resulting build tree to /tmp
+    dnf install -y rsync && \
+    rsync -a /opt/velox-build /tmp
+
+# Move the build back from /tmp to the final non-cached BUILD_BASE_DIR
+RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
+    # Set up shell environment
+    set -euxo pipefail && \
+    # Move build tree back
+    mv /tmp/velox-build /opt
