@@ -2,6 +2,7 @@ services:
   presto-base-volumes:
     volumes:
       - ./config/etc_common:/opt/presto-server/etc
+      - ./.hive_metastore:/var/lib/presto/data/hive/metastore
       - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
 
   presto-base-java:
