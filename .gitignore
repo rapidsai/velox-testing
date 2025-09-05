@@ -9,3 +9,7 @@ __pycache__/
 
 # Hive metastore
 .hive_metastore/
+
+# Maven cache for Java builds in docker
+.mvn_cache/
+
