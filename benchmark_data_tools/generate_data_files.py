@@ -29,18 +29,35 @@ def generate_partition(table, partition, raw_data_path, scale_factor, num_partit
     except subprocess.CalledProcessError as e:
         print(f"Error generating TPC-H data: {e}")
 
-def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decimals_to_floats, num_threads, verbose):
+def generate_data_files(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats, use_duckdb, num_threads, verbose, max_rows):
+    Path(f"{data_dir_path}").mkdir(parents=True, exist_ok=True)
+    # tpchgen is much faster, but is exclusive to generating tpch data.  Use duckdb as a fallback.
+    if benchmark_type == "tpch" and not use_duckdb and float(scale_factor) >= 1:
+        generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decimals_to_floats, num_threads, verbose, max_rows)
+    else:
+        print("falling back to duckdb")
+        generate_data_files_with_duckdb(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats)
+
+def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decimals_to_floats, num_threads, verbose, max_rows):
 
     raw_data_path = data_dir_path + "-temp" if convert_decimals_to_floats else data_dir_path
 
-    # This dictionary maps each table to it's expected file size relative to the SF.  The ratio is calculated to have each file capped at ~100M rows.
-    tables_sf_ratio = {"region": 100_000, "nation": 100_000, "supplier": 10_000, "customer": 666, "part": 500, "partsupp": 125, "orders": 66, "lineitem": 17}
+    int_scale_factor = int(scale_factor)
+    # This dictionary maps each table to the number of partitions it should have based on it's expected file size relative to the SF.
+    # The magic numbers here are how many rows we expect each table to generate for a scale factor of 1.
+    tables_sf_ratio = {"region": 1,
+                       "nation": 1,
+                       "supplier": math.ceil(int_scale_factor / (max_rows / 10_000)),
+                       "customer": math.ceil(int_scale_factor / (max_rows / 150_000)),
+                       "part": math.ceil(int_scale_factor / (max_rows / 200_000)),
+                       "partsupp": math.ceil(int_scale_factor / (max_rows / 800_000)),
+                       "orders": math.ceil(int_scale_factor / (max_rows / 1_500_000)),
+                       "lineitem": math.ceil(int_scale_factor / (max_rows / 6_000_000))}
 
     with ThreadPoolExecutor(num_threads) as executor:
         futures = []
 
-        for table, ratio in tables_sf_ratio.items():
-            num_partitions = math.ceil(int(scale_factor) / ratio)
+        for table, num_partitions in tables_sf_ratio.items():
             if verbose:
                 print(f"Generating TPC-H data for table '{table}' with {num_partitions} partitions")
             for partition in range(1, num_partitions + 1):
@@ -49,6 +66,18 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
         for future in futures:
             future.result()
 
+    rearrange_directory(raw_data_path, num_partitions)
+
+    if verbose:
+        print(f"Raw data created at: {raw_data_path}")
+
+    if convert_decimals_to_floats:
+        process_dir(raw_data_path, data_dir_path, num_threads, verbose)
+        shutil.rmtree(raw_data_path)
+
+    write_metadata(data_dir_path, scale_factor)
+
+def rearrange_directory(raw_data_path, num_partitions):
     # When we generate partitioned data it will have the form <data_dir>/<partition>/<table_name>.parquet.
     # We want to re-arrange it to have the form <data_dir>/<table_name>/<table_name>-<partition>.parquet
     parquet_files = os.listdir(f"{raw_data_path}/part-1")
@@ -67,13 +96,7 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
                             f"{raw_data_path}/{table}/{table}-{partition}.parquet")
         os.rmdir(f"{raw_data_path}/part-{partition}")
 
-    if verbose:
-        print(f"Raw data created at: {raw_data_path}")
-
-    if convert_decimals_to_floats:
-        process_dir(raw_data_path, data_dir_path, num_threads, verbose)
-        shutil.rmtree(raw_data_path)
-
+def write_metadata(data_dir_path, scale_factor):
     with open(f'{data_dir_path}/metadata.json', 'w') as file:
         json.dump({"scale_factor": scale_factor}, file, indent=2)
         file.write("\n")
@@ -91,15 +114,6 @@ def generate_data_files_with_duckdb(benchmark_type, data_dir_path, scale_factor,
         Path(table_data_dir).mkdir(exist_ok=False)
         duckdb.sql(f"COPY ({get_select_query(table_name, convert_decimals_to_floats)}) "
                    f"TO '{table_data_dir}/{table_name}.parquet' (FORMAT parquet)")
-
-def generate_data_files(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats, use_duckdb, num_threads, verbose):
-    Path(f"{data_dir_path}").mkdir(parents=True, exist_ok=True)
-    # tpchgen is much faster, but is exclusive to generating tpch data.  Use duckdb as a fallback.
-    if benchmark_type == "tpch" and not use_duckdb and float(scale_factor) >= 1:
-        generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decimals_to_floats, num_threads, verbose)
-    else:
-        print(f"scale factor {scale_factor} too small to use tpchgen; falling back to duckdb")
-        generate_data_files_with_duckdb(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats)
 
 def get_select_query(table_name, convert_decimals_to_floats):
     if convert_decimals_to_floats:
@@ -141,6 +155,8 @@ if __name__ == "__main__":
                         default=4, help="Number of threads to generate data with tpchgen")
     parser.add_argument("--verbose", action="store_true", required=False,
                         default=False, help="Extra verbose logging")
+    parser.add_argument("--max-rows", type=int, required=False,
+                        default=100_000_000, help="Limit number of rows in each file (creates more partitions)")
     args = parser.parse_args()
 
-    generate_data_files(args.benchmark_type, args.data_dir_path, args.scale_factor, args.convert_decimals_to_floats, args.use_duckdb, args.num_threads, args.verbose)
+    generate_data_files(args.benchmark_type, args.data_dir_path, args.scale_factor, args.convert_decimals_to_floats, args.use_duckdb, args.num_threads, args.verbose, args.max_rows)

@@ -5,6 +5,18 @@ import argparse
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
+# Multi-thread file processing
+def process_dir(input_dir, output_dir, num_threads, verbose):
+    with ThreadPoolExecutor(num_threads) as executor:
+        futures = []
+        for root, _, files in os.walk(input_dir):
+            for file in files:
+                if file.endswith('.parquet'):
+                    input_file_path = os.path.join(root, file)
+                    futures.append(executor.submit(process_file, input_file_path, output_dir, input_dir, verbose))
+        for future in futures:
+            future.result()
+
 def process_file(input_file_path, output_dir, input_dir, verbose):
     relative_path = os.path.relpath(os.path.dirname(input_file_path), input_dir)
     output_file_path = os.path.join(output_dir, relative_path, os.path.basename(input_file_path))
@@ -38,7 +50,6 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
             col = col.cast(pa.int32())
         elif col._name == "s_nationkey":
             col = col.cast(pa.int32())
-
         new_columns.append(col)
         
     new_table = pa.Table.from_arrays(new_columns, schema.names)
@@ -46,18 +57,6 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
     # Write the table back to a parquet file.
     # If we want to alter the file's properties (page_size, use_dictionary=False, column_encoding), we can do so here.
     pq.write_table(new_table, output_file_path)
-
-# Multi-thread file processing
-def process_dir(input_dir, output_dir, num_threads, verbose):
-    with ThreadPoolExecutor(num_threads) as executor:
-        futures = []
-        for root, _, files in os.walk(input_dir):
-            for file in files:
-                if file.endswith('.parquet'):
-                    input_file_path = os.path.join(root, file)
-                    futures.append(executor.submit(process_file, input_file_path, output_dir, input_dir, verbose))
-        for future in futures:
-            future.result()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
