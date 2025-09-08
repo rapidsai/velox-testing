@@ -9,6 +9,7 @@ ARG BUILD_WITH_VELOX_ENABLE_CUDF=ON
 ARG BUILD_WITH_VELOX_ENABLE_WAVE=OFF
 ARG TREAT_WARNINGS_AS_ERRORS=1
 ARG VELOX_ENABLE_BENCHMARKS=ON
+ARG BUILD_BASE_DIR=/opt/velox-build
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -22,27 +23,25 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     CUDA_COMPILER=/usr/local/cuda-${CUDA_VERSION}/bin/nvcc \
     CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-12/root/usr/bin" \
     EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_BENCHMARKS=${VELOX_ENABLE_BENCHMARKS} \
-                      -DVELOX_ENABLE_EXAMPLES=ON \
-                      -DVELOX_ENABLE_ARROW=ON \
-                      -DVELOX_ENABLE_GEO=ON \
-                      -DVELOX_ENABLE_PARQUET=ON \
-                      -DVELOX_ENABLE_HDFS=ON \
-                      -DVELOX_ENABLE_S3=ON \
-                      -DVELOX_ENABLE_GCS=ON \
-                      -DVELOX_ENABLE_ABFS=ON \
-                      -DVELOX_ENABLE_WAVE=${BUILD_WITH_VELOX_ENABLE_WAVE} \
-                      -DVELOX_MONO_LIBRARY=ON \
-                      -DVELOX_BUILD_SHARED=ON \
-                      -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
-                      -DVELOX_ENABLE_FAISS=ON" \
-    LD_LIBRARY_PATH="/opt/velox-build/release/lib:\
-/opt/velox-build/release/_deps/cudf-build:\
-/opt/velox-build/release/_deps/rmm-build:\
-/opt/velox-build/release/_deps/rapids_logger-build:\
-/opt/velox-build/release/_deps/kvikio-build:\
-/opt/velox-build/release/_deps/nvcomp_proprietary_binary-src/lib64"
-
-
+                       -DVELOX_ENABLE_EXAMPLES=ON \
+                       -DVELOX_ENABLE_ARROW=ON \
+                       -DVELOX_ENABLE_GEO=ON \
+                       -DVELOX_ENABLE_PARQUET=ON \
+                       -DVELOX_ENABLE_HDFS=ON \
+                       -DVELOX_ENABLE_S3=ON \
+                       -DVELOX_ENABLE_GCS=ON \
+                       -DVELOX_ENABLE_ABFS=ON \
+                       -DVELOX_ENABLE_WAVE=${BUILD_WITH_VELOX_ENABLE_WAVE} \
+                       -DVELOX_MONO_LIBRARY=ON \
+                       -DVELOX_BUILD_SHARED=ON \
+                       -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
+                       -DVELOX_ENABLE_FAISS=ON" \
+    LD_LIBRARY_PATH="${BUILD_BASE_DIR}/release/lib:\
+                     ${BUILD_BASE_DIR}/release/_deps/cudf-build:\
+                     ${BUILD_BASE_DIR}/release/_deps/rmm-build:\
+                     ${BUILD_BASE_DIR}/release/_deps/rapids_logger-build:\
+                     ${BUILD_BASE_DIR}/release/_deps/kvikio-build:\
+                     ${BUILD_BASE_DIR}/release/_deps/nvcomp_proprietary_binary-src/lib64"
 
 WORKDIR /workspace/velox
 
@@ -65,21 +64,7 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
     fi
 
-# Do the build using a cached BUILD_BASE_DIR (to allow incremental builds)
-# Then copy the results to /tmp
+# Build in Release mode into ${BUILD_BASE_DIR}
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
-    --mount=type=cache,target=/opt/velox-build,sharing=locked,rw \
-    # Set up shell environment
     set -euxo pipefail && \
-    # Build release into /opt/velox-build (cached mount)
-    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="/opt/velox-build" && \
-    # Copy resulting build tree to /tmp
-    dnf install -y rsync && \
-    rsync -a /opt/velox-build /tmp
-
-# Move the build back from /tmp to the final non-cached BUILD_BASE_DIR
-RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
-    # Set up shell environment
-    set -euxo pipefail && \
-    # Move build tree back
-    mv /tmp/velox-build /opt
+    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"
