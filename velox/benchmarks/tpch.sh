@@ -6,11 +6,13 @@
 TPCH_REQUIRED_TABLES=("customer" "lineitem" "nation" "orders" "part" "partsupp" "region" "supplier")
 
 TPCH_DATA_DIR="../../../velox-benchmark-data/tpch"
+TPCH_NUM_REPEATS="2"
 
 get_tpch_help() {
   cat <<EOF
 TPC-H Options:
   --tpch-data-dir DIR                     Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
+  --tpch-num-repeats NUM                  Number of times to repeat each query (default: 2)
 
 TPC-H Examples:
   $(basename "$0")                                       # Run all TPC-H queries on CPU and GPU (defaults)
@@ -19,6 +21,7 @@ TPC-H Examples:
   $(basename "$0") --queries 6 --device-type gpu --profile true  # Run Q6 on GPU with profiling
   $(basename "$0") --queries 6 --device-type gpu -o /tmp/results  # Custom output directory
   $(basename "$0") --queries 6 --device-type cpu --tpch-data-dir /path/to/data  # Custom data directory
+  $(basename "$0") --queries 6 --device-type cpu --tpch-num-repeats 5  # Run Q6 with 5 repetitions
 
 TPC-H Data Requirements:
     
@@ -27,6 +30,7 @@ TPC-H Data Requirements:
 TPC-H Build Requirements:
   - Velox must be built with benchmarks enabled: ./build_velox.sh --benchmarks true
   - For profiling support, nsys is automatically installed when benchmarks are enabled
+  - Each query is executed 2 times by default for better statistical accuracy
 EOF
 }
 
@@ -41,6 +45,15 @@ parse_tpch_args() {
           shift 2
         else
           echo "ERROR: --tpch-data-dir requires a directory argument" >&2
+          exit 1
+        fi
+        ;;
+      --tpch-num-repeats)
+        if [[ -n "${2:-}" ]]; then
+          TPCH_NUM_REPEATS="$2"
+          shift 2
+        else
+          echo "ERROR: --tpch-num-repeats requires a number argument" >&2
           exit 1
         fi
         ;;
@@ -254,7 +267,7 @@ run_tpch_single_benchmark() {
         --data_path=/workspace/velox/velox-tpch-data \
         --data_format=parquet \
         --run_query_verbose='"${query_number_padded}"' \
-        --num_repeats=1 \
+        --num_repeats='"${TPCH_NUM_REPEATS}"' \
         --num_drivers='"${num_drivers}"' \
         --preferred_output_batch_rows='"${output_batch_rows}"' \
         --max_output_batch_rows='"${output_batch_rows}"' \
