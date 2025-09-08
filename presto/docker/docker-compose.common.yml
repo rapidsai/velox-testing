@@ -1,0 +1,34 @@
+services:
+  presto-base-volumes:
+    volumes:
+      - ./config/etc_common:/opt/presto-server/etc
+      - ./.hive_metastore:/var/lib/presto/data/hive/metastore
+      - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
+
+  presto-base-java:
+    extends:
+      service: presto-base-volumes
+    image: ${PRESTO_JAVA_IMAGE:-prestodb/presto:latest}
+    build:
+      context: ../../../presto/docker
+
+  presto-base-coordinator:
+    extends:
+      service: presto-base-java
+    container_name: presto-coordinator
+    ports:
+      - 8080:8080
+    volumes:
+      - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+
+  presto-base-native-worker:
+    extends:
+      service: presto-base-volumes
+    build:
+      context: ../../..
+      dockerfile: velox-testing/presto/docker/native_build.dockerfile
+    environment:
+      - GLOG_logtostderr=1
+    volumes:
+      - ./config/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+      - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties

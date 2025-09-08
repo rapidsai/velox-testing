@@ -1,3 +1,15 @@
+# python virtual environment
 .venv
+# jetbrains IDE folder
 .idea
+# python bytcode cache
 __pycache__/
+# emacs backup files
+*~
+
+# Hive metastore
+.hive_metastore/
+
+# Maven cache for Java builds in docker
+.mvn_cache/
+
