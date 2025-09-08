@@ -23,19 +23,19 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     CUDA_COMPILER=/usr/local/cuda-${CUDA_VERSION}/bin/nvcc \
     CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-12/root/usr/bin" \
     EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_BENCHMARKS=${VELOX_ENABLE_BENCHMARKS} \
-                       -DVELOX_ENABLE_EXAMPLES=ON \
-                       -DVELOX_ENABLE_ARROW=ON \
-                       -DVELOX_ENABLE_GEO=ON \
-                       -DVELOX_ENABLE_PARQUET=ON \
-                       -DVELOX_ENABLE_HDFS=ON \
-                       -DVELOX_ENABLE_S3=ON \
-                       -DVELOX_ENABLE_GCS=ON \
-                       -DVELOX_ENABLE_ABFS=ON \
-                       -DVELOX_ENABLE_WAVE=${BUILD_WITH_VELOX_ENABLE_WAVE} \
-                       -DVELOX_MONO_LIBRARY=ON \
-                       -DVELOX_BUILD_SHARED=ON \
-                       -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
-                       -DVELOX_ENABLE_FAISS=ON" \
+                      -DVELOX_ENABLE_EXAMPLES=ON \
+                      -DVELOX_ENABLE_ARROW=ON \
+                      -DVELOX_ENABLE_GEO=ON \
+                      -DVELOX_ENABLE_PARQUET=ON \
+                      -DVELOX_ENABLE_HDFS=ON \
+                      -DVELOX_ENABLE_S3=ON \
+                      -DVELOX_ENABLE_GCS=ON \
+                      -DVELOX_ENABLE_ABFS=ON \
+                      -DVELOX_ENABLE_WAVE=${BUILD_WITH_VELOX_ENABLE_WAVE} \
+                      -DVELOX_MONO_LIBRARY=ON \
+                      -DVELOX_BUILD_SHARED=ON \
+                      -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
+                      -DVELOX_ENABLE_FAISS=ON" \
     LD_LIBRARY_PATH="${BUILD_BASE_DIR}/release/lib:\
 ${BUILD_BASE_DIR}/release/_deps/cudf-build:\
 ${BUILD_BASE_DIR}/release/_deps/rmm-build:\
