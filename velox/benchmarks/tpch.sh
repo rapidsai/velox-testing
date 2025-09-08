@@ -6,7 +6,7 @@
 TPCH_REQUIRED_TABLES=("customer" "lineitem" "nation" "orders" "part" "partsupp" "region" "supplier")
 
 TPCH_DATA_DIR="../../../velox-benchmark-data/tpch"
-TPCH_NUM_REPEATS="2"
+TPCH_NUM_REPEATS=2
 
 get_tpch_help() {
   cat <<EOF
