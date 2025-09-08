@@ -37,11 +37,11 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
                        -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
                        -DVELOX_ENABLE_FAISS=ON" \
     LD_LIBRARY_PATH="${BUILD_BASE_DIR}/release/lib:\
-                     ${BUILD_BASE_DIR}/release/_deps/cudf-build:\
-                     ${BUILD_BASE_DIR}/release/_deps/rmm-build:\
-                     ${BUILD_BASE_DIR}/release/_deps/rapids_logger-build:\
-                     ${BUILD_BASE_DIR}/release/_deps/kvikio-build:\
-                     ${BUILD_BASE_DIR}/release/_deps/nvcomp_proprietary_binary-src/lib64"
+${BUILD_BASE_DIR}/release/_deps/cudf-build:\
+${BUILD_BASE_DIR}/release/_deps/rmm-build:\
+${BUILD_BASE_DIR}/release/_deps/rapids_logger-build:\
+${BUILD_BASE_DIR}/release/_deps/kvikio-build:\
+${BUILD_BASE_DIR}/release/_deps/nvcomp_proprietary_binary-src/lib64"
 
 WORKDIR /workspace/velox
 
