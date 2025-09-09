@@ -2,6 +2,7 @@ import os
 import pyarrow.parquet as pq
 import pyarrow as pa
 import argparse
+import duckdb
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -33,23 +34,22 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
 
     # Read the parquet file
     table = pq.read_table(input_file_path)
-        
+    table_name = os.path.basename(input_file_path).split('-')[0]
+    table_schema = duckdb.sql(f"SHOW {table_name}").fetchall()
+
     # Convert decimal columns to double
     new_columns = []
     for col in table.columns:
-        if hasattr(col.type, 'precision'):
+        if pa.types.is_decimal(col.type):
+            if verbose:
+                print(f"type mismatch on col: {col._name} (decimal) casting to (float)")
             col = col.cast(pa.float64())
-        # tpchgen generates these keys as int64, but they are expected to be int32.
-        elif col._name == "c_nationkey":
-            col = col.cast(pa.int32())
-        elif col._name == "n_nationkey":
-            col = col.cast(pa.int32())
-        elif col._name == "n_regionkey":
-            col = col.cast(pa.int32())
-        elif col._name == "r_regionkey":
-            col = col.cast(pa.int32())
-        elif col._name == "s_nationkey":
-            col = col.cast(pa.int32())
+        elif col.type == pa.int64():
+            for row in table_schema:
+                if col._name == row[0] and row[1] == "INTEGER":
+                    if verbose:
+                        print(f"type mismatch on col: {col._name} (int64) casting to (int32)")
+                    col = col.cast(pa.int32())
         new_columns.append(col)
         
     new_table = pa.Table.from_arrays(new_columns, schema.names)
@@ -64,9 +64,9 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
-    parser.add_argument('--input_dir', '-i', help='Path to input Parquet files' )
-    parser.add_argument('--output_dir', '-o', help='Path to output Parquet files')
-    parser.add_argument('--num_threads', '-n', help='Number of threads')
+    parser.add_argument('--input-dir', '-i', help='Path to input Parquet files' )
+    parser.add_argument('--output-dir', '-o', help='Path to output Parquet files')
+    parser.add_argument('--num-threads', '-n', help='Number of threads')
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose')
 
     args = parser.parse_args()

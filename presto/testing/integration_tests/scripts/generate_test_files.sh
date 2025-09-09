@@ -19,7 +19,7 @@ OPTIONS:
     -h, --help                          Show this help message.
     -s, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
-    -v, --verbose			Generate additional logging
+    -v, --verbose                       Generate additional logging
 
 EXAMPLES:
     $0 -s 1

@@ -39,21 +39,15 @@ def generate_data_files(benchmark_type, data_dir_path, scale_factor, convert_dec
         generate_data_files_with_duckdb(benchmark_type, data_dir_path, scale_factor, convert_decimals_to_floats)
 
 def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decimals_to_floats, num_threads, verbose, max_rows):
+    tables_sf_ratio = get_table_sf_ratios(scale_factor, max_rows)
 
     raw_data_path = data_dir_path + "-temp" if convert_decimals_to_floats else data_dir_path
+    if os.path.exists(data_dir_path):
+        shutil.rmtree(data_dir_path)
+    if os.path.exists(raw_data_path):
+        shutil.rmtree(raw_data_path)
 
-    int_scale_factor = int(scale_factor)
-    # This dictionary maps each table to the number of partitions it should have based on it's expected file size relative to the SF.
-    # The magic numbers here are how many rows we expect each table to generate for a scale factor of 1.
-    tables_sf_ratio = {"region": 1,
-                       "nation": 1,
-                       "supplier": math.ceil(int_scale_factor / (max_rows / 10_000)),
-                       "customer": math.ceil(int_scale_factor / (max_rows / 150_000)),
-                       "part": math.ceil(int_scale_factor / (max_rows / 200_000)),
-                       "partsupp": math.ceil(int_scale_factor / (max_rows / 800_000)),
-                       "orders": math.ceil(int_scale_factor / (max_rows / 1_500_000)),
-                       "lineitem": math.ceil(int_scale_factor / (max_rows / 6_000_000))}
-
+    max_partitions = 1
     with ThreadPoolExecutor(num_threads) as executor:
         futures = []
 
@@ -62,11 +56,12 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
                 print(f"Generating TPC-H data for table '{table}' with {num_partitions} partitions")
             for partition in range(1, num_partitions + 1):
                 futures.append(executor.submit(generate_partition, table, partition, raw_data_path, scale_factor, num_partitions, verbose))
+            max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
 
         for future in futures:
             future.result()
 
-    rearrange_directory(raw_data_path, num_partitions)
+    rearrange_directory(raw_data_path, max_partitions)
 
     if verbose:
         print(f"Raw data created at: {raw_data_path}")
@@ -76,6 +71,19 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
         shutil.rmtree(raw_data_path)
 
     write_metadata(data_dir_path, scale_factor)
+
+# This dictionary maps each table to the number of partitions it should have based on it's expected file size relative to the SF.
+# We generate a small sample bechmark (sf-0.01) to sample the ratio of how many rows are generated.
+def get_table_sf_ratios(scale_factor, max_rows):
+    int_scale_factor = int(scale_factor)
+    tables_sf_ratio = {}
+    init_benchmark_tables("tpch", 0.01)
+    tables = duckdb.sql(f"SHOW TABLES").fetchall()
+    for table in tables:
+        stripped_table = table[0].strip('\'')
+        num_rows = duckdb.sql(f"SELECT COUNT (*) FROM {stripped_table}").fetchall()
+        tables_sf_ratio[stripped_table] = math.ceil(int_scale_factor / (max_rows / (int(num_rows[0][0]) * 100)))
+    return tables_sf_ratio
 
 def rearrange_directory(raw_data_path, num_partitions):
     # When we generate partitioned data it will have the form <data_dir>/<partition>/<table_name>.parquet.
@@ -155,8 +163,8 @@ if __name__ == "__main__":
                         default=4, help="Number of threads to generate data with tpchgen")
     parser.add_argument("--verbose", action="store_true", required=False,
                         default=False, help="Extra verbose logging")
-    parser.add_argument("--max-rows", type=int, required=False,
+    parser.add_argument("--max-rows-per-file", type=int, required=False,
                         default=100_000_000, help="Limit number of rows in each file (creates more partitions)")
     args = parser.parse_args()
 
-    generate_data_files(args.benchmark_type, args.data_dir_path, args.scale_factor, args.convert_decimals_to_floats, args.use_duckdb, args.num_threads, args.verbose, args.max_rows)
+    generate_data_files(args.benchmark_type, args.data_dir_path, args.scale_factor, args.convert_decimals_to_floats, args.use_duckdb, args.num_threads, args.verbose, args.max_rows_per_file)
