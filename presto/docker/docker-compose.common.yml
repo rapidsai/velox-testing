@@ -4,6 +4,7 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./.hive_metastore:/var/lib/presto/data/hive/metastore
       - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
+      - ${PRESTO_DATA_DIR:-./presto_data}:/var/lib/presto/data/hive/data/user_data
 
   presto-base-java:
     extends:

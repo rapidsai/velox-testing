@@ -1,6 +1,7 @@
 import prestodb
 import pytest
 
+from . import create_hive_tables
 from . import test_utils
 
 
@@ -16,9 +17,14 @@ def presto_cursor(request):
 def setup_and_teardown(request, presto_cursor):
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     test_utils.init_duckdb_tables(benchmark_type)
-    schemas = test_utils.get_table_schemas(benchmark_type)
-    test_utils.create_tables(presto_cursor, schemas, benchmark_type)
+
+    schema_name = f"{benchmark_type}_test"
+    schemas_dir = test_utils.get_abs_file_path(f"schemas/{benchmark_type}")
+    data_sub_directory = f"integration_test/{benchmark_type}"
+    create_hive_tables.create_tables(presto_cursor, schema_name, schemas_dir, data_sub_directory)
+
     yield
+
     keep_tables = request.config.getoption("--keep-tables")
     if not keep_tables:
-        test_utils.drop_tables(presto_cursor, schemas, benchmark_type)
+        create_hive_tables.drop_schema(presto_cursor, schema_name)
