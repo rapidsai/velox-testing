@@ -17,12 +17,14 @@ This script generates the files required to run integration tests for supported 
 
 OPTIONS:
     -h, --help                          Show this help message.
+    -b, --benchmark-type                Type of benchmark to generate files for. Only "tpch" and "tpcds" are currently supported.
+                                        By default, files are generated for all supported benchmark types.
     -s, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
     -v, --verbose                       Generate additional logging
 
 EXAMPLES:
-    $0 -s 1
+    $0 -s 1 -b tpch
     $0 --scale-factor 0.01 --convert-decimals-to-floats
 
 EOF
@@ -37,6 +39,15 @@ parse_args() {
       -h|--help)
         print_help
         exit 0
+        ;;
+      -b|--benchmark-type)
+        if [[ -n $2 ]]; then
+          BENCHMARK_TYPE=$2
+          shift 2
+        else
+          echo "Error: --benchmark-type requires a value"
+          exit 1
+        fi
         ;;
       -s|--scale-factor)
         if [[ -n $2 ]]; then
@@ -66,6 +77,16 @@ parse_args() {
 
 parse_args "$@"
 
+if [[ -z $BENCHMARK_TYPE ]]; then
+  BENCHMARK_TYPES_TO_GENERATE=("tpch" "tpcds")
+elif [[ ! $BENCHMARK_TYPE =~ ^tpc(h|ds)$ ]]; then
+  echo "Error: Invalid benchmark type value. Only tpch and tpcds benchmarks are currently supported."
+  print_help
+  exit 1
+else
+  BENCHMARK_TYPES_TO_GENERATE=($BENCHMARK_TYPE)
+fi
+
 rm -rf .venv
 python3 -m venv .venv
 source .venv/bin/activate
@@ -79,7 +100,8 @@ if [[ "$CONVERT_DECIMALS_TO_FLOATS" == "true" ]]; then
   CONVERT_DECIMALS_TO_FLOATS_ARG="--convert-decimals-to-floats"
 fi
 
-for BENCHMARK_TYPE in "tpch tpcds"; do
+echo "Generating required test files for ${BENCHMARK_TYPES_TO_GENERATE[@]} benchmark(s)..."
+for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
   SCHEMAS_DIR=../schemas/$BENCHMARK_TYPE
   rm -rf $SCHEMAS_DIR
   echo "Generating table schema files for $BENCHMARK_TYPE..."

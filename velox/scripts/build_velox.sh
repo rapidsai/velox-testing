@@ -1,5 +1,7 @@
 #!/bin/bash
 set -euo pipefail
+# load common variables and functions
+source ./config.sh
 
 ALL_CUDA_ARCHS=false
 NO_CACHE=false
@@ -7,6 +9,7 @@ PLAIN_OUTPUT=false
 BUILD_WITH_VELOX_ENABLE_CUDF="ON"
 VELOX_ENABLE_BENCHMARKS="ON"
 LOG_ENABLED=false
+TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
 
 print_help() {
@@ -22,6 +25,7 @@ Options:
   --log [LOGFILE]             Capture build process to log file, enables --plain, by default LOGFILE='./build_velox.log' (default: false).
   --cpu                       Build for CPU only (disables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=OFF).
   --gpu                       Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
+  -j|--num-threads            NUM Number of threads to use for building (default: 3/4 of CPU cores).
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
   -h, --help                  Show this help message and exit.
 
@@ -34,6 +38,8 @@ Examples:
   $(basename "$0") --cpu --benchmarks false  # CPU-only build without benchmarks
   $(basename "$0") --log
   $(basename "$0") --log mybuild.log --all-cuda-archs
+  $(basename "$0") -j 8 --gpu
+  $(basename "$0") --num-threads 16 --no-cache
 
 By default, the script builds for the Volta (7.0) CUDA architecture, uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
 EOF
@@ -72,6 +78,14 @@ parse_args() {
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
         shift
         ;;
+      -j|--num-threads)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --num-threads requires a value"
+          exit 1
+        fi
+        NUM_THREADS="$2"
+        shift 2
+        ;;
       --benchmarks)
         if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
           case "${2,,}" in
@@ -106,7 +120,6 @@ parse_args() {
   done
 }
 
-COMPOSE_FILE="../docker/docker-compose.adapters.yml"
 
 parse_args "$@"
 
@@ -125,7 +138,9 @@ if [[ "$ALL_CUDA_ARCHS" == true ]]; then
   DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120")
 fi
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_WITH_VELOX_ENABLE_CUDF="${BUILD_WITH_VELOX_ENABLE_CUDF}")
+DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
+DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
@@ -135,9 +150,6 @@ else
   docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
   BUILD_EXIT_CODE=$?
 fi
-
-CONTAINER_NAME="velox-adapters-build"
-EXPECTED_OUTPUT_DIR="/opt/velox-build/release"
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
