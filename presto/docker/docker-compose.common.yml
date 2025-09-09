@@ -8,7 +8,6 @@ services:
   presto-base-java:
     extends:
       service: presto-base-volumes
-    image: ${PRESTO_JAVA_IMAGE:-prestodb/presto:latest}
     build:
       context: ../../../presto/docker
 
@@ -16,6 +15,7 @@ services:
     extends:
       service: presto-base-java
     container_name: presto-coordinator
+    image: presto-coordinator:latest
     ports:
       - 8080:8080
     volumes:
