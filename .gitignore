@@ -8,3 +8,9 @@ __pycache__/
 *~
 # default output for benchmark runs
 benchmark_output
+
+# Hive metastore
+.hive_metastore/
+
+# Maven cache for Java builds in docker
+.mvn_cache/

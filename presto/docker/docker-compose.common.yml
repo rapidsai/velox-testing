@@ -2,15 +2,22 @@ services:
   presto-base-volumes:
     volumes:
       - ./config/etc_common:/opt/presto-server/etc
+      - ./.hive_metastore:/var/lib/presto/data/hive/metastore
       - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
       - ../testing/integration_tests/queries:/queries
       - ../../benchmark_output:/benchmark_output
 
-  presto-base-coordinator:
+  presto-base-java:
     extends:
       service: presto-base-volumes
+    image: ${PRESTO_JAVA_IMAGE:-prestodb/presto:latest}
+    build:
+      context: ../../../presto/docker
+
+  presto-base-coordinator:
+    extends:
+      service: presto-base-java
     container_name: presto-coordinator
-    image: prestodb/presto:latest
     ports:
       - 8080:8080
     volumes:
