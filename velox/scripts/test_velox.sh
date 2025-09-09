@@ -68,12 +68,12 @@ if [[ "$BUILD_TARGET" == "cpu" ]]; then
   CONTAINER_NAME="$CPU_CONTAINER_NAME"
   echo "Running tests on Velox adapters (CPU-only build)..."
   # Exclude CUDA tests for CPU builds
-  test_cmd="LD_LIBRARY_PATH=${EXPECTED_OUTPUT_LIB_DIR} ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
+  test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
 else
   CONTAINER_NAME="$GPU_CONTAINER_NAME"
   echo "Running tests on Velox adapters (GPU build)..."
   # Include all tests for GPU builds (CUDA tests may be available)
-  test_cmd="LD_LIBRARY_PATH=${EXPECTED_OUTPUT_LIB_DIR} ctest -j ${NUM_THREADS} --output-on-failure --no-tests=error --stop-on-failure"
+  test_cmd="ctest -j ${NUM_THREADS} -R cudf -V"
 fi
 
 echo ""
