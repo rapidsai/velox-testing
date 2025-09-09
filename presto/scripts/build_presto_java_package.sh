@@ -1,11 +1,9 @@
-echo "Building Presto Java from source..."
-
 if [[ -z $PRESTO_VERSION ]]; then
-  echo "Error: PRESTO_VERSION must be set"
+  echo "Internal error: PRESTO_VERSION must be set"
   exit 1
 fi
 
-echo "Building Presto Java from source with presto version $PRESTO_VERSION..."
+echo "Building Presto Java from source with PRESTO_VERSION: $PRESTO_VERSION..."
 
 docker run --rm \
     -v $(pwd)/../../../presto:/presto \
