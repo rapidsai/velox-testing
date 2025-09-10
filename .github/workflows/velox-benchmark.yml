@@ -14,7 +14,7 @@ on:
         required: false
         default: 'main'
       benchmark_type:
-        description: 'Benchmark type' 
+        description: 'Benchmark type'
         type: choice
         required: false
         default: 'tpch'
@@ -27,7 +27,7 @@ on:
       repository: *repository
       velox_commit: *velox_commit
       benchmark_type:
-        description: 'Benchmark type' 
+        description: 'Benchmark type'
         type: string
         required: false
         default: 'tpch'
@@ -39,13 +39,14 @@ jobs:
       - name: Setup Velox Testing and Velox
         uses: ./.github/parts/velox-setup
         with:
-          repository: ${{ inputs.repository || github.event.inputs.repository }}
-          velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
+          repository: ${{ inputs.repository }}
+          velox_commit: ${{ inputs.velox_commit }}
 
       - name: "Build Velox GPU with Benchmarks (SHA: ${{ env.VELOX_COMMIT_SHA }})"
         run: |
-          cd ${{ github.workspace }}/velox-testing/velox/scripts
+          pushd ${{ github.workspace }}/velox-testing/velox/scripts
           TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh -j $(nproc) --all-cuda-archs --gpu --benchmarks true --log build_velox_gpu.log
+          popd
 
       - name: Upload velox_gpu_build_log as an artifact
         uses: actions/upload-artifact@v4
@@ -69,7 +70,7 @@ jobs:
       - name: Upload benchmark results as an artifact
         uses: actions/upload-artifact@v4
         with:
-          name: "Velox_GPU_benchmark_results_${{ inputs.benchmark_type }}_${{ env.VELOX_COMMIT_SHA }}" 
+          name: "Velox_GPU_benchmark_results_${{ inputs.benchmark_type }}_${{ env.VELOX_COMMIT_SHA }}"
           path: ${{ github.workspace }}/velox-testing/benchmark-results
           if-no-files-found: error
           retention-days: 14
