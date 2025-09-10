@@ -22,6 +22,6 @@ services:
       - GROUP_ID=${GROUP_ID}
     volumes:
       - ../../../velox:/workspace/velox
-      - ${BENCHMARK_TPCH_DATA_HOST_PATH}:/workspace/velox/velox-tpch-data:ro
+      - ${BENCHMARK_DATA_HOST_PATH}:/workspace/velox/velox-benchmark-data:ro
       - ${BENCHMARK_RESULTS_HOST_PATH}:/workspace/velox/benchmark_results
     working_dir: /workspace/velox

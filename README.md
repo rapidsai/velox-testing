@@ -83,7 +83,10 @@ cd velox-testing/velox/scripts
 ./benchmark_velox.sh --queries 6 --device-type gpu --profile true -o ./my-results
 
 # Run TPC-H Q6 with 5 repetitions
-./benchmark_velox.sh --queries 6 --device-type cpu --tpch-num-repeats 5
+./benchmark_velox.sh --queries 6 --device-type cpu --num-repeats 5
+
+# Use custom data directory
+./benchmark_velox.sh --queries 6 --device-type cpu --data-dir /path/to/data
 ```
 
 ### Results

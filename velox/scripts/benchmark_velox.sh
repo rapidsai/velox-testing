@@ -7,6 +7,8 @@ QUERIES=""  # Will be set to benchmark-specific defaults if not provided
 DEVICE_TYPE="cpu gpu"
 BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
 PROFILE="false"
+DATA_DIR="../../../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
+NUM_REPEATS=2
 
 # Docker compose configuration
 COMPOSE_FILE="../docker/docker-compose.adapters.yml"
@@ -28,6 +30,8 @@ Benchmark Options:
   -q, --queries "1 2 ..."                 Query numbers to run, specified as a space-separated list of query numbers (default: all queries for benchmark type)
   -d, --device-type "cpu gpu"             Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")  
   -p, --profile BOOL                      Enable profiling: true or false (default: false)
+  --data-dir DIR                          Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
+  --num-repeats NUM                       Number of times to repeat each query (default: 2)
 
 General Options:
   -o, --output DIR                        Save benchmark results to DIR (default: ./benchmark-results)
@@ -35,9 +39,18 @@ General Options:
 
 $(get_tpch_help)
 
+Examples:
+  $(basename "$0")                                      # Run all queries on CPU and GPU (defaults)
+  $(basename "$0") --queries 6 --device-type cpu        # Run Q6 on CPU only
+  $(basename "$0") --queries "1 6" --device-type "cpu gpu"  # Run Q1 and Q6 on both CPU and GPU
+  $(basename "$0") --queries 6 --device-type gpu --profile true  # Run Q6 on GPU with profiling
+  $(basename "$0") --queries 6 --device-type gpu -o /tmp/results  # Custom output directory
+  $(basename "$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
+  $(basename "$0") --queries 6 --device-type cpu --num-repeats 5  # Run Q6 with 5 repetitions
+
 Prerequisites:
   1. Velox must be built using: ./build_velox.sh
-  2. Benchmark data must exist and location can be specified with appropriate benchmark-specific option (see options above)
+  2. Benchmark data must exist and location can be specified with --data-dir option
   3. Docker and docker-compose must be available
   4. Uses velox-benchmark Docker service (pre-configured with volumes and environment)
 
@@ -48,10 +61,6 @@ EOF
 }
 
 parse_args() {
-
-  # Parse benchmark-specific arguments and get filtered list in FILTERED_ARGS
-  parse_tpch_args "$@"
-  set -- "${FILTERED_ARGS[@]}"  # Reset arguments to filtered list
 
   # Parse general arguments
   while [[ $# -gt 0 ]]; do
@@ -101,6 +110,24 @@ parse_args() {
           exit 1
         fi
         ;;
+      --data-dir)
+        if [[ -n "${2:-}" ]]; then
+          DATA_DIR="$2"
+          shift 2
+        else
+          echo "ERROR: --data-dir requires a directory argument" >&2
+          exit 1
+        fi
+        ;;
+      --num-repeats)
+        if [[ -n "${2:-}" ]]; then
+          NUM_REPEATS="$2"
+          shift 2
+        else
+          echo "ERROR: --num-repeats requires a number argument" >&2
+          exit 1
+        fi
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -138,11 +165,8 @@ create_docker_env_file() {
 USER_ID=$(id -u)
 GROUP_ID=$(id -g)
 BENCHMARK_RESULTS_HOST_PATH=$(realpath "$BENCHMARK_RESULTS_OUTPUT")
+BENCHMARK_DATA_HOST_PATH=$(realpath "$DATA_DIR")
 EOF
-
-
- # Update the environment file with benchmark-specific configurations
- update_docker_env_tpch "$env_file"
 
 }
 
@@ -200,7 +224,7 @@ check_benchmark_data() {
   
   case "$BENCHMARK_TYPE" in
     "tpch")
-      check_tpch_data 
+      check_tpch_data "$DATA_DIR"
       ;;
     *)
       echo "ERROR: Unknown benchmark type: $BENCHMARK_TYPE" >&2
@@ -229,7 +253,7 @@ run_benchmark() {
 
       case "$benchmark_type" in
         "tpch")
-          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container"
+          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS"
           local exit_code=$?
           ;;
         *)
