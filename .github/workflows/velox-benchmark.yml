@@ -36,8 +36,13 @@ jobs:
   velox-benchmark:
     runs-on: linux-amd64-gpu-l4-latest-1
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
       - name: Setup Velox Testing and Velox
-        uses: ./.github/parts/velox-setup
+        uses: ./.github/actions/velox-setup
         with:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
