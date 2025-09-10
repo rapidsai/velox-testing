@@ -18,14 +18,6 @@ TPC-H Build Requirements:
 EOF
 }
 
-update_docker_env_tpch() {
-  local env_file=$1
-  local data_dir=$2
-
-  echo "BENCHMARK_TPCH_DATA_HOST_PATH=$(realpath "$data_dir")" >> "$env_file"
-}
-
-
 
 # Check for Hive managed tables with directory structure containing parquet files
 check_tpch_hive_managed_tables() {
