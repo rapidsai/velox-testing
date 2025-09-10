@@ -1,0 +1,75 @@
+name: Velox Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository: &repository
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit: &velox_commit
+        description: 'Velox commit SHA or branch'
+        type: string
+        required: false
+        default: 'main'
+      benchmark_type:
+        description: 'Benchmark type' 
+        type: choice
+        required: false
+        default: 'tpch'
+        options:
+          - tpch
+          - tpcds
+
+  workflow_call:
+    inputs:
+      repository: *repository
+      velox_commit: *velox_commit
+      benchmark_type:
+        description: 'Benchmark type' 
+        type: string
+        required: false
+        default: 'tpch'
+
+jobs:
+  velox-benchmark:
+    runs-on: linux-amd64-gpu-l4-latest-1
+    steps:
+      - name: Setup Velox Testing and Velox
+        uses: ./.github/parts/velox-setup
+        with:
+          repository: ${{ inputs.repository || github.event.inputs.repository }}
+          velox_commit: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
+
+      - name: "Build Velox GPU with Benchmarks (SHA: ${{ env.VELOX_COMMIT_SHA }})"
+        run: |
+          cd ${{ github.workspace }}/velox-testing/velox/scripts
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh -j $(nproc) --all-cuda-archs --gpu --benchmarks true --log build_velox_gpu.log
+
+      - name: Upload velox_gpu_build_log as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: velox_gpu_build_log
+          path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_gpu.log
+
+      - name: Generate ${{ inputs.benchmark_type }} Benchmark Data
+        run: |
+          pushd ${{ github.workspace }}/velox-testing/presto/testing/integration_tests/scripts
+          ./generate_test_files.sh -b ${{ inputs.benchmark_type }} -s 1
+          popd
+
+      - name: Run ${{ inputs.benchmark_type }} Velox GPU Benchmarks
+        run: |
+          DATA_DIR=${{ github.workspace }}/velox-testing/presto/testing/integration_tests/data
+          pushd velox-testing/velox/scripts
+          ./benchmark_velox.sh -b ${{ inputs.benchmark_type }} -D $DATA_DIR -d gpu -p true -o ${{ github.workspace }}/velox-testing/benchmark-results
+          popd
+
+      - name: Upload benchmark results as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Velox_GPU_benchmark_results_${{ inputs.benchmark_type }}_${{ env.VELOX_COMMIT_SHA }}" 
+          path: ${{ github.workspace }}/velox-testing/benchmark-results
+          if-no-files-found: error
+          retention-days: 14
