@@ -42,7 +42,7 @@ jobs:
           path: velox-testing
 
       - name: Setup Velox Testing and Velox
-        uses: ./.github/actions/velox-setup
+        uses: ./velox-testing/.github/actions/velox-setup
         with:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
