@@ -12,17 +12,15 @@ if [[ -z $SCRIPT_EXAMPLE_ARGS ]]; then
   exit 1
 fi
 
-if [[ -z $PRESTO_DATA_DIR ]]; then
-  echo "Error: PRESTO_DATA_DIR must be set to the directory path that contains the benchmark data directories"
-  exit 1
-fi
-
 print_help() {
   cat << EOF
 
 Usage: $0 [OPTIONS]
 
 $SCRIPT_DESCRIPTION
+
+NOTE: The PRESTO_DATA_DIR environment variable must be set before running this script. This environment variable 
+must also be set before starting the Presto instance/running the `start_*_presto.sh` script.
 
 OPTIONS:
     -h, --help                          Show this help message.
@@ -38,6 +36,12 @@ EXAMPLES:
 
 EOF
 }
+
+if [[ -z $PRESTO_DATA_DIR ]]; then
+  echo "Error: PRESTO_DATA_DIR must be set to the directory path that contains the benchmark data directories"
+  print_help
+  exit 1
+fi
 
 parse_args() { 
   while [[ $# -gt 0 ]]; do
