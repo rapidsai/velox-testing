@@ -1,7 +1,15 @@
 # script which shares common variables and functions for the velox build and test scripts
 
-# container name
-CONTAINER_NAME="velox-adapters-build"
+# Container names for different build targets
+GPU_CONTAINER_NAME="velox-adapters-build"
+CPU_CONTAINER_NAME="velox-adapters-build-cpu"
+
+# Docker Compose service names for different build targets
+GPU_COMPOSE_SERVICE="velox-adapters-build"
+CPU_COMPOSE_SERVICE="velox-adapters-build-cpu"
+
+# Backward compatibility - default container name (GPU)
+CONTAINER_NAME="$GPU_CONTAINER_NAME"
 
 NUM_THREADS=${NUM_THREADS:-$(($(nproc) * 3 / 4))}
 

@@ -11,6 +11,7 @@ VELOX_ENABLE_BENCHMARKS="ON"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
+BUILD_TARGET="gpu"  # Default to GPU build
 
 print_help() {
   cat <<EOF
@@ -72,10 +73,12 @@ parse_args() {
         ;;
       --cpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="OFF"
+        BUILD_TARGET="cpu"
         shift
         ;;
       --gpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
+        BUILD_TARGET="gpu"
         shift
         ;;
       -j|--num-threads)
@@ -123,6 +126,25 @@ parse_args() {
 
 parse_args "$@"
 
+# Set Docker Compose service and container name based on build target
+if [[ "$BUILD_TARGET" == "cpu" ]]; then
+  COMPOSE_SERVICE="$CPU_COMPOSE_SERVICE"
+  CONTAINER_NAME="$CPU_CONTAINER_NAME"
+  echo "Building Velox for CPU-only (CUDF disabled)"
+  # Set default log file for CPU build if not already customized
+  if [[ "$LOG_ENABLED" == true && "$LOGFILE" == "./build_velox.log" ]]; then
+    LOGFILE="./build_velox_cpu.log"
+  fi
+else
+  COMPOSE_SERVICE="$GPU_COMPOSE_SERVICE"
+  CONTAINER_NAME="$GPU_CONTAINER_NAME"
+  echo "Building Velox for GPU (CUDF enabled)"
+  # Set default log file for GPU build if not already customized
+  if [[ "$LOG_ENABLED" == true && "$LOGFILE" == "./build_velox.log" ]]; then
+    LOGFILE="./build_velox_gpu.log"
+  fi
+fi
+
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"
 
@@ -144,10 +166,10 @@ DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ER
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
-  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
+  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" "$COMPOSE_SERVICE" | tee "$LOGFILE"
   BUILD_EXIT_CODE=${PIPESTATUS[0]}
 else
-  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
+  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" "$COMPOSE_SERVICE"
   BUILD_EXIT_CODE=$?
 fi
 
