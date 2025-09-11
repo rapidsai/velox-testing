@@ -142,27 +142,25 @@ DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 
-create_dummy_docker_env_file
-
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
-  docker compose --env-file ./.env-build-velox -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
+  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
   BUILD_EXIT_CODE=${PIPESTATUS[0]}
 else
-  docker compose --env-file ./.env-build-velox -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
+  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
   BUILD_EXIT_CODE=$?
 fi
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
-  if docker compose --env-file ./.env-build-velox -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
+  if docker compose  -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
     echo "  Built velox-adapters. View logs with:"
-    echo "    docker compose --env-file ./.env-build-velox -f $COMPOSE_FILE logs -f ${CONTAINER_NAME}"
+    echo "    docker compose -f $COMPOSE_FILE logs -f ${CONTAINER_NAME}"
     echo ""
     echo "  The Velox build output is located in the container at:"
     echo "    ${EXPECTED_OUTPUT_DIR}"
     echo ""
     echo "  To access the build output, you can run:"
-    echo "    docker compose --env-file ./.env-build-velox -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} ls ${EXPECTED_OUTPUT_DIR}"
+    echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} ls ${EXPECTED_OUTPUT_DIR}"
     echo ""
     if [[ "$VELOX_ENABLE_BENCHMARKS" == "ON" ]]; then
       echo "  Benchmarks and nsys profiling are enabled in this build."
@@ -173,7 +171,7 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   else
     echo "  ERROR: Build succeeded but ${EXPECTED_OUTPUT_DIR} not found in the container."
     echo "  View logs with:"
-    echo "    docker compose --env-file ./.env-build-velox -f $COMPOSE_FILE logs -f ${CONTAINER_NAME}"
+    echo "    docker compose -f $COMPOSE_FILE logs -f ${CONTAINER_NAME}"
     echo ""
   fi
 else

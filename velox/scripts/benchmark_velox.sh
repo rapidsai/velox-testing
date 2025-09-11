@@ -11,7 +11,7 @@ DATA_DIR="../../../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjus
 NUM_REPEATS=2
 
 # Docker compose configuration
-COMPOSE_FILE="../docker/docker-compose.adapters.yml"
+COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
 CONTAINER_NAME="velox-benchmark"  # Uses dedicated benchmark service with pre-configured volumes
 
 # Source benchmark-specific libraries
