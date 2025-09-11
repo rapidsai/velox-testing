@@ -19,10 +19,10 @@ EOF
 }
 
 
-# Check for Hive managed tables with directory structure containing parquet files
-check_tpch_hive_managed_tables() {
+# Check for Hive-style data layout with directory structure containing parquet files
+check_tpch_hive_data_layout() {
   local data_dir=$1
-  echo "Validating TPC-H Hive managed table structure..."
+      echo "Validating TPC-H Hive-style data layout..."
   
   local missing_tables=0
   
@@ -55,8 +55,8 @@ check_tpch_hive_managed_tables() {
   done
   
   if [[ "$missing_tables" -ne 0 ]]; then
-    echo "ERROR: TPC-H Hive managed table validation failed." >&2
-    echo "Expected Hive managed table structure with at least one parquet file per table:" >&2
+    echo "ERROR: TPC-H Hive-style data layout validation failed." >&2
+    echo "Expected Hive-style directory structure with at least one parquet file per table:" >&2
     echo "  $data_dir/customer/*.parquet (or in subdirectories)" >&2
     echo "  $data_dir/lineitem/*.parquet (or in subdirectories)" >&2
     echo "  $data_dir/nation/*.parquet (or in subdirectories)" >&2
@@ -78,25 +78,25 @@ check_tpch_hive_managed_tables() {
   return 0
 }
 
-# Check if external table structure is detected (not supported)
-check_for_unsupported_external_tables() {
+# Check if table definition files exist (indicating unsupported file-based table definitions)
+check_for_table_definition_files() {
   local data_dir=$1
-  local external_files_found=0
+  local definition_files_found=0
   
   for table in "${TPCH_REQUIRED_TABLES[@]}"; do
     if [[ -f "$data_dir/${table}" ]]; then
-      external_files_found=1
+      definition_files_found=1
       break
     fi
   done
   
-  if [[ $external_files_found -eq 1 ]]; then
-    echo "ERROR: External table structure detected but not supported." >&2
+  if [[ $definition_files_found -eq 1 ]]; then
+    echo "ERROR: Table definition files detected but not supported." >&2
     echo "" >&2
-    echo "Found table definition files (e.g., '$data_dir/${table}') which indicate external table structure." >&2
-    echo "External tables are not supported due to Docker container path complexity." >&2
+    echo "Found table definition files (e.g., '$data_dir/${table}') instead of directory structure." >&2
+    echo "File-based table definitions are not supported due to Docker container path complexity." >&2
     echo "" >&2
-    echo "Please use Hive managed table structure instead:" >&2
+    echo "Please use Hive-style directory structure instead:" >&2
     echo "  $data_dir/customer/*.parquet (directory with parquet files)" >&2
     echo "  $data_dir/lineitem/*.parquet (directory with parquet files)" >&2
     echo "  $data_dir/nation/*.parquet (directory with parquet files)" >&2
@@ -121,14 +121,14 @@ check_tpch_data() {
   
   echo "Found TPC-H data directory: $data_dir"
   
-  # Check for unsupported external table structure first
-  if ! check_for_unsupported_external_tables "$data_dir"; then
+  # Check for unsupported table definition files first
+  if ! check_for_table_definition_files "$data_dir"; then
     exit 1
   fi
   
-  # Validate Hive managed table structure
-  if check_tpch_hive_managed_tables "$data_dir"; then
-    echo "TPC-H Hive managed table validation passed"
+  # Validate Hive-style data layout
+  if check_tpch_hive_data_layout "$data_dir"; then
+    echo "TPC-H Hive-style data layout validation passed"
   else
     exit 1
   fi
