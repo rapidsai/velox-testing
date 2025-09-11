@@ -148,13 +148,13 @@ get_tpch_benchmark_executable_path() {
 }
 
 # Enables GPU metrics collection in nsys profiling if supported
-# Requires GPU compute capability > 7.0 (Volta+) and nvidia-smi availability
+# Requires GPU compute capability > 7  and nvidia-smi availability
 # Modifies the profile command variable passed by reference to include --gpu-metrics-devices
 setup_gpu_metrics_profiling_if_supported() {
   local run_in_container_func="$1"
   local -n profile_cmd_ref=$2  
   
-  # Check GPU compute capability (>7.0 required for metrics)
+  # Check GPU compute capability (>7 required for metrics)
   if $run_in_container_func "nvidia-smi --query-gpu=compute_cap --format=csv,noheader -i 0 2>/dev/null | cut -d '.' -f 1" | awk '{if ($1 > 7) exit 0; else exit 1}'; then
     local device_id=${CUDA_VISIBLE_DEVICES:-"all"}
     profile_cmd_ref="${profile_cmd_ref} --gpu-metrics-devices=${device_id}"

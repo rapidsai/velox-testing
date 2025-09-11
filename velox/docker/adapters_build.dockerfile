@@ -4,7 +4,7 @@ FROM ghcr.io/facebookincubator/velox-dev:adapters
 # environment variables, or via the docker build command
 ARG NUM_THREADS=8
 ARG CUDA_VERSION=12.8
-ARG CUDA_ARCHITECTURES=70
+ARG CUDA_ARCHITECTURES="native"
 ARG BUILD_WITH_VELOX_ENABLE_CUDF=ON
 ARG BUILD_WITH_VELOX_ENABLE_WAVE=OFF
 ARG TREAT_WARNINGS_AS_ERRORS=1
