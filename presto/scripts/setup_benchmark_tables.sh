@@ -8,7 +8,7 @@ that matches the value set for the --data-dir-name argument."
 
 SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100 -c"
 
-source ./setup_benchmark_helper_parse_args.sh
+source ./setup_benchmark_helper_check_instance_and_parse_args.sh
 
 if [[ ! -d ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} ]]; then
   echo "Error: Benchmark data must already exist inside: ${PRESTO_DATA_DIR}/${DATA_DIR_NAME}"

@@ -30,7 +30,7 @@ function extra_options_parser() {
 }
 SCRIPT_EXTRA_OPTIONS_PARSER=extra_options_parser
 
-source ./setup_benchmark_helper_parse_args.sh
+source ./setup_benchmark_helper_check_instance_and_parse_args.sh
 
 DATA_GEN_SCRIPT_PATH=$(readlink -f ../../benchmark_data_tools/generate_data_files.py)
 
