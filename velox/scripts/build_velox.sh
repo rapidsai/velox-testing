@@ -121,6 +121,25 @@ parse_args() {
 }
 
 
+# Detect CUDA architecture since native architecture detection doesn't work
+# inside Docker containers
+detect_cuda_architecture() {
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    return 0
+  fi
+  
+  local compute_cap
+  if compute_cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1); then
+    if [[ -n "$compute_cap" && "$compute_cap" =~ ^[0-9]+\.[0-9]+$ ]]; then
+      local cuda_arch=$(echo "$compute_cap" | tr -d '.')
+      DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="${cuda_arch}")
+      echo "Using CUDA architecture: ${cuda_arch}"
+    fi
+  fi
+}
+
+
+
 parse_args "$@"
 
 # Validate repo layout using shared script
@@ -136,6 +155,9 @@ if [[ "$PLAIN_OUTPUT" == true ]]; then
 fi
 if [[ "$ALL_CUDA_ARCHS" == true ]]; then
   DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120")
+else
+  # Only detect native architecture if not building for all architectures
+  detect_cuda_architecture
 fi
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_WITH_VELOX_ENABLE_CUDF="${BUILD_WITH_VELOX_ENABLE_CUDF}")
 DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
