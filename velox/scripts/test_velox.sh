@@ -3,6 +3,9 @@ set -euo pipefail
 
 source ./config.sh
 
+# Default to GPU runtime unless overridden
+DOCKER_RUNTIME="nvidia"
+
 print_help() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -10,6 +13,8 @@ Usage: $(basename "$0") [OPTIONS]
 Runs tests on the Velox adapters using ctest with parallel execution.
 
 Options:
+  --cpu                 Run tests with CPU runtime (sets DOCKER_RUNTIME=runc).
+  --gpu                 Run tests with GPU runtime (sets DOCKER_RUNTIME=nvidia) [default].
   -j, --num-threads NUM  Number of threads to use for testing (default: 3/4 of CPU cores).
   -h, --help            Show this help message and exit.
 
@@ -25,6 +30,14 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
+      --cpu)
+        DOCKER_RUNTIME="runc"
+        shift
+        ;;
+      --gpu)
+        DOCKER_RUNTIME="nvidia"
+        shift
+        ;;
       -j|--num-threads)
         if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
           echo "Error: --num-threads requires a value"
@@ -48,9 +61,15 @@ parse_args() {
 
 parse_args "$@"
 
+export DOCKER_RUNTIME
+
 echo "Running tests on Velox adapters..."
 echo ""
-test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
+if [[ "$DOCKER_RUNTIME" == "nvidia" ]]; then
+  test_cmd="ctest -j ${NUM_THREADS} -R cudf -V"
+else
+  test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
+fi
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "cd ${EXPECTED_OUTPUT_DIR} && ${test_cmd}"; then
   echo ""
   echo "  Tests passed successfully!"
