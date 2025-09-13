@@ -11,6 +11,7 @@ VELOX_ENABLE_BENCHMARKS="ON"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
+DOCKER_RUNTIME="nvidia"
 
 print_help() {
   cat <<EOF
@@ -72,10 +73,12 @@ parse_args() {
         ;;
       --cpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="OFF"
+        DOCKER_RUNTIME="runc"
         shift
         ;;
       --gpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
+        DOCKER_RUNTIME="nvidia"
         shift
         ;;
       -j|--num-threads)
@@ -122,6 +125,8 @@ parse_args() {
 
 
 parse_args "$@"
+
+export DOCKER_RUNTIME
 
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"
