@@ -13,7 +13,7 @@ on:
         description: 'Presto commit SHA or branch'
         type: string
         required: false
-        default: '493639063b0f5d7bcc570dbabb448b33fcc70093'
+        default: 'f31246e1ecce7cc1ea6b2fff34a0dc701fa9c5a9'
         #default: 'master'
       presto_worker_type:
         description: 'Type of presto worker to use'
