@@ -52,8 +52,10 @@ on:
         default: true
 
 jobs:
+  temp:
+    steps:
+      run: "conditional: github.event.inputs.run_java_tests }}"
   java:
-    run: "conditional: github.event.inputs.run_java_tests }}"
     if: ${{ github.event.inputs.run_java_tests == 'true' }}
     uses: ./.github/workflows/presto-test-composite.yml
     with:
