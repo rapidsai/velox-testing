@@ -4,12 +4,12 @@ set -e
 
 function install_miniforge3() {
   echo "Install miniforge3..."
-  trap "rm -rf temp_install" RETURN
+  TEMP_DIR=$(mktemp -d)
+  trap "rm -rf $TEMP_DIR" EXIT
 
-  mkdir temp_install
-  pushd temp_install
+  pushd $TEMP_DIR
   curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
-  bash Miniforge3-$(uname)-$(uname -m).sh -p "$MINIFORGE_HOME"
+  bash Miniforge3-$(uname)-$(uname -m).sh -b -p "$MINIFORGE_HOME"
   popd
   echo "miniforge3 installation completed"
 }
@@ -61,16 +61,12 @@ function init_python_virtual_env() {
 }
 
 function delete_python_virtual_env() {
-  if python3 -m venv --help &> /dev/null; then
-    if command -v deactivate &> /dev/null; then
-      echo "Deactivating venv environment"
-      deactivate
-    fi
-  else
-    if command -v conda &> /dev/null; then
-      echo "Deactivating conda environment"
-      conda deactivate
-    fi
+  if command -v conda &> /dev/null; then
+    echo "Deactivating conda environment"
+    conda deactivate
+  elif command -v deactivate &> /dev/null; then
+    echo "Deactivating venv environment"
+    deactivate
   fi
 
   echo "Deleting .venv directory"
