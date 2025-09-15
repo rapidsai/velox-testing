@@ -46,6 +46,8 @@ jobs:
           repository: prestodb/presto
           ref: ${{ inputs.presto_commit }}
           path: presto
+          # Fetch-depth needs to be set to perform a commit revert.  Remove this when possible.
+          fetch-depth: 200
       - name: Patch Presto
         run: |
           pushd presto
