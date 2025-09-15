@@ -4,15 +4,15 @@ on:
   # schedule:
   #   - cron: '0 4 * * *'  # daily at 04:00 UTC
   workflow_dispatch:
-    inputs:
-      run_java_tests:
-        type: boolean
-        default: true
   #[push]
 
 jobs:
   nightly:
     uses: ./.github/workflows/presto-test.yml
+    with:
+      run_java_tests: true
+      run_cpu_tests: true
+      run_gpu_tests: true
 
 #    runs-on: ubuntu-latest
 #    steps:
