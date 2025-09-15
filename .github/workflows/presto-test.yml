@@ -59,7 +59,7 @@ jobs:
         run: |
           echo "conditional: ${{ inputs.run_java_tests }}"
   java:
-    if: ${{ inputs.run_java_tests == 'true' }}
+    if: ${{ inputs.run_java_tests == true }}
     uses: ./.github/workflows/presto-test-composite.yml
     with:
       presto_worker_type: 'java'
