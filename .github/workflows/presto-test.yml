@@ -41,11 +41,11 @@ on:
       run_java_tests:
         description: 'Run tests with java worker'
         type: boolean
-        default: false
+        default: true
       run_cpu_tests:
         description: 'Run tests with native-cpu worker'
         type: boolean
-        default: false
+        default: true
       run_gpu_tests:
         description: 'Run tests with native-gpu worker'
         type: boolean

@@ -4,6 +4,10 @@ on:
   # schedule:
   #   - cron: '0 4 * * *'  # daily at 04:00 UTC
   workflow_dispatch:
+    inputs:
+      run_java_tests:
+        type: boolean
+        default: true
   #[push]
 
 jobs:
