@@ -46,14 +46,10 @@ jobs:
           repository: prestodb/presto
           ref: ${{ inputs.presto_commit }}
           path: presto
-          # Fetch-depth needs to be set to perform a commit revert.  Remove this when possible.
-          fetch-depth: 200
       - name: Patch Presto
         run: |
           pushd presto
           git apply ../velox-testing/presto/install_gperf.patch
-          git log --oneline
-          git revert b6c6cbf2d591b96aff67ab5f54c80712b522c516
           popd
       - name: Patch Velox
         run: |
