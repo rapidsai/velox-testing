@@ -7,12 +7,12 @@ on:
         description: 'Velox commit SHA or branch'
         type: string
         required: false
-        default: 'main'
+        default: 'merged-prs'
       presto_commit:
         description: 'Presto commit SHA or branch'
         type: string
         required: false
-        default: 'master'
+        default: 'f31246e1ecce7cc1ea6b2fff34a0dc701fa9c5a9'
       run_java_tests:
         description: 'Run tests with java worker'
         type: boolean
@@ -25,6 +25,8 @@ on:
         description: 'Run tests with native-gpu worker'
         type: boolean
         default: true
+
+  workflow_call:
 
 jobs:
   java:
