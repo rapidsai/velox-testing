@@ -34,9 +34,8 @@ function init_conda() {
 function init_python_virtual_env() {
   rm -rf .venv
 
-  if python3 -m venv --help &> /dev/null; then
-    echo "Creating virtual environment using the venv module"
-    python3 -m venv .venv
+  if python3 -m venv .venv &>/dev/null; then
+    echo "Created virtual environment using the venv module"
 
     echo "Activating venv environment"
     source .venv/bin/activate
