@@ -41,23 +41,17 @@ on:
       run_java_tests:
         description: 'Run tests with java worker'
         type: boolean
-        default: true
+        default: false
       run_cpu_tests:
         description: 'Run tests with native-cpu worker'
         type: boolean
-        default: true
+        default: false
       run_gpu_tests:
         description: 'Run tests with native-gpu worker'
         type: boolean
-        default: true
+        default: false
 
 jobs:
-  temp:
-    runs-on: 'ubuntu-latest'
-    steps:
-      - name: "Temp"
-        run: |
-          echo "conditional: ${{ inputs.run_java_tests }}"
   java:
     if: ${{ inputs.run_java_tests == true }}
     uses: ./.github/workflows/presto-test-composite.yml
@@ -67,7 +61,7 @@ jobs:
       velox_commit: ${{ inputs.velox_commit }}
       presto_commit: ${{ inputs.presto_commit }}
   native-cpu:
-    if: ${{ github.event.inputs.run_cpu_tests == 'true' }}
+    if: ${{ inputs.run_cpu_tests == true }}
     uses: ./.github/workflows/presto-test-composite.yml
     with:
       presto_worker_type: 'native_cpu'
@@ -75,7 +69,7 @@ jobs:
       velox_commit: ${{ inputs.velox_commit }}
       presto_commit: ${{ inputs.presto_commit }}
   native-gpu:
-    if: ${{ github.event.inputs.run_gpu_tests == 'true' }}
+    if: ${{ inputs.run_gpu_tests == true }}
     uses: ./.github/workflows/presto-test-composite.yml
     with:
       presto_worker_type: 'native_gpu'

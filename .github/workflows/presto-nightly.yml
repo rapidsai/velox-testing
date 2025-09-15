@@ -1,5 +1,5 @@
 name: Presto Nightly Test
-
+description: Runs Presto Test nightly for all configurations
 on:
   # schedule:
   #   - cron: '0 4 * * *'  # daily at 04:00 UTC
