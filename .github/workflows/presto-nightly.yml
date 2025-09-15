@@ -7,16 +7,17 @@ on:
 
 jobs:
   nightly:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Fetch latest Velox SHA
-        id: get_sha
-        run: |
-          LATEST=$(curl -s https://api.github.com/repos/facebookincubator/velox/commits/main \
-            | jq -r .sha)
-          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
-
-      - name: Invoke Presto Test
-        uses: ./.github/workflows/presto-test.yml
-        with:
-          velox_commit: ${{ steps.get_sha.outputs.latest }}
+    uses: ./.github/workflows/presto-test.yml@main
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Fetch latest Velox SHA
+#        id: get_sha
+#        run: |
+#          LATEST=$(curl -s https://api.github.com/repos/facebookincubator/velox/commits/main \
+#            | jq -r .sha)
+#          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
+#
+#      - name: Invoke Presto Test
+#        uses: ./.github/workflows/presto-test.yml
+#        with:
+#          velox_commit: ${{ steps.get_sha.outputs.latest }}
