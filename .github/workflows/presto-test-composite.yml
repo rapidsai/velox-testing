@@ -1,5 +1,5 @@
 name: Presto Test Composite
-description: Template for Presto jobs
+description: This is a template job for presto builds.  The expectation is that other jobs will invoke it, and will thefore set the inputs from there.  Therefore all the inputs are required, but have no defaults.
 on:
   workflow_call:
     inputs:

@@ -1,8 +1,8 @@
 name: Presto Test
-description: Tests for each type of presto configuration
+description: Tests for each type of presto configuration.
 on:
   workflow_dispatch:
-    inputs:
+    inputs: &inputs_anchor
       velox_commit:
         description: 'Velox commit SHA or branch'
         type: string
@@ -27,29 +27,7 @@ on:
         default: true
 
   workflow_call:
-    inputs:
-      velox_commit:
-        description: 'Velox commit SHA or branch'
-        type: string
-        required: false
-        default: 'merged-prs'
-      presto_commit:
-        description: 'Presto commit SHA or branch'
-        type: string
-        required: false
-        default: 'f31246e1ecce7cc1ea6b2fff34a0dc701fa9c5a9'
-      run_java_tests:
-        description: 'Run tests with java worker'
-        type: boolean
-        default: false
-      run_cpu_tests:
-        description: 'Run tests with native-cpu worker'
-        type: boolean
-        default: false
-      run_gpu_tests:
-        description: 'Run tests with native-gpu worker'
-        type: boolean
-        default: false
+    *inputs_anchor
 
 jobs:
   java:
