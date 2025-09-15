@@ -1,5 +1,5 @@
 #!/bin/bash
-# TPC-H Benchmark Library for Velox
+# TPC-H Benchmark Module for Velox
 # This file contains TPC-H specific benchmark utilities used by benchmark_velox.sh
 
 # TPC-H specific constants
@@ -7,13 +7,6 @@ TPCH_REQUIRED_TABLES=("customer" "lineitem" "nation" "orders" "part" "partsupp" 
 
 get_tpch_help() {
   cat <<EOF
-TPC-H Examples:
-  \$(basename "\$0")                                       # Run all TPC-H queries on CPU and GPU (defaults)
-  \$(basename "\$0") --queries 6 --device-type cpu        # Run TPC-H Q6 on CPU only
-  \$(basename "\$0") --queries "1 6" --device-type "cpu gpu"  # Run Q1 and Q6 on both CPU and GPU
-  \$(basename "\$0") --queries 6 --device-type gpu --profile true  # Run Q6 on GPU with profiling
-  \$(basename "\$0") --queries 6 --device-type gpu -o /tmp/results  # Custom output directory
-  \$(basename "\$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
 
 TPC-H Data Requirements:
     
@@ -25,43 +18,33 @@ TPC-H Build Requirements:
 EOF
 }
 
-check_tpch_data() {
-  local data_dir="$1"
-  
-  TPCH_DATA_PATH="$data_dir/tpch"
-  
-  if [[ ! -d "$TPCH_DATA_PATH" ]]; then
-    echo "ERROR: TPC-H data directory not found at $TPCH_DATA_PATH" >&2
-    echo "Please ensure TPC-H data exists in a directory named 'tpch'" >&2
-    exit 1
-  fi
-  
-  echo "Found TPC-H data directory: $TPCH_DATA_PATH"
-  
-  # Validate Hive directory structure
-  echo "Validating TPC-H Hive directory structure..."
+
+# Check for Hive-style data layout with directory structure containing parquet files
+check_tpch_hive_data_layout() {
+  local data_dir=$1
+      echo "Validating TPC-H Hive-style data layout..."
   
   local missing_tables=0
   
   for table in "${TPCH_REQUIRED_TABLES[@]}"; do
     # Check for Hive-style directory structure: table/*.parquet
-    if [[ ! -d "$TPCH_DATA_PATH/${table}" ]]; then
-      echo "ERROR: Required TPC-H table directory '$TPCH_DATA_PATH/${table}/' not found." >&2
+    if [[ ! -d "$data_dir/${table}" ]]; then
+      echo "ERROR: Required TPC-H table directory '$data_dir/${table}/' not found." >&2
       missing_tables=1
     else
       # Check for parquet files in the directory and subdirectories (for partitioned data)
       local parquet_files=()
       while IFS= read -r -d '' file; do
         parquet_files+=("$file")
-      done < <(find "$TPCH_DATA_PATH/${table}" -name "*.parquet" -type f -print0 2>/dev/null)
+      done < <(find "$data_dir/${table}" -name "*.parquet" -type f -print0 2>/dev/null)
       
       if [[ ${#parquet_files[@]} -eq 0 ]]; then
-        echo "ERROR: No parquet files found in '$TPCH_DATA_PATH/${table}/' directory (including subdirectories)." >&2
+        echo "ERROR: No parquet files found in '$data_dir/${table}/' directory (including subdirectories)." >&2
         missing_tables=1
       else
         local parquet_count=${#parquet_files[@]}
         # Check if partitioned (has subdirectories with parquet files)
-        local direct_files=("$TPCH_DATA_PATH/${table}"/*.parquet)
+        local direct_files=("$data_dir/${table}"/*.parquet)
         if [[ -f "${direct_files[0]}" ]]; then
           echo "  $table table directory contains $parquet_count parquet file(s)"
         else
@@ -72,16 +55,16 @@ check_tpch_data() {
   done
   
   if [[ "$missing_tables" -ne 0 ]]; then
-    echo "ERROR: TPC-H Hive directory validation failed." >&2
-    echo "Expected Hive directory structure with at least one parquet file per table:" >&2
-    echo "  $TPCH_DATA_PATH/customer/*.parquet (or in subdirectories)" >&2
-    echo "  $TPCH_DATA_PATH/lineitem/*.parquet (or in subdirectories)" >&2
-    echo "  $TPCH_DATA_PATH/nation/*.parquet (or in subdirectories)" >&2
-    echo "  $TPCH_DATA_PATH/orders/*.parquet (or in subdirectories)" >&2
-    echo "  $TPCH_DATA_PATH/part/*.parquet (or in subdirectories)" >&2
-    echo "  $TPCH_DATA_PATH/partsupp/*.parquet (or in subdirectories)" >&2
-    echo "  $TPCH_DATA_PATH/region/*.parquet (or in subdirectories)" >&2
-    echo "  $TPCH_DATA_PATH/supplier/*.parquet (or in subdirectories)" >&2
+    echo "ERROR: TPC-H Hive-style data layout validation failed." >&2
+    echo "Expected Hive-style directory structure with at least one parquet file per table:" >&2
+    echo "  $data_dir/customer/*.parquet (or in subdirectories)" >&2
+    echo "  $data_dir/lineitem/*.parquet (or in subdirectories)" >&2
+    echo "  $data_dir/nation/*.parquet (or in subdirectories)" >&2
+    echo "  $data_dir/orders/*.parquet (or in subdirectories)" >&2
+    echo "  $data_dir/part/*.parquet (or in subdirectories)" >&2
+    echo "  $data_dir/partsupp/*.parquet (or in subdirectories)" >&2
+    echo "  $data_dir/region/*.parquet (or in subdirectories)" >&2
+    echo "  $data_dir/supplier/*.parquet (or in subdirectories)" >&2
     echo "" >&2
     echo "Each table directory can contain one or multiple parquet files in the directory itself or in partitioned subdirectories." >&2
     echo "Examples of supported patterns:" >&2
@@ -89,11 +72,67 @@ check_tpch_data() {
     echo "  - Multiple files: lineitem/part-00000.parquet, lineitem/part-00001.parquet, ..." >&2
     echo "  - Partitioned: orders/year=1992/part-00000.parquet, orders/year=1993/part-00000.parquet, ..." >&2
     echo "  - Multi-partition: customer/region=AMERICA/part-00000.parquet, customer/region=EUROPE/part-00001.parquet, ..." >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+# Check if table definition files exist (indicating unsupported file-based table definitions)
+check_for_table_definition_files() {
+  local data_dir=$1
+  local definition_files_found=0
+  
+  for table in "${TPCH_REQUIRED_TABLES[@]}"; do
+    if [[ -f "$data_dir/${table}" ]]; then
+      definition_files_found=1
+      break
+    fi
+  done
+  
+  if [[ $definition_files_found -eq 1 ]]; then
+    echo "ERROR: Table definition files detected but not supported." >&2
+    echo "" >&2
+    echo "Found table definition files (e.g., '$data_dir/${table}') instead of directory structure." >&2
+    echo "File-based table definitions are not supported due to Docker container path complexity." >&2
+    echo "" >&2
+    echo "Please use Hive-style directory structure instead:" >&2
+    echo "  $data_dir/customer/*.parquet (directory with parquet files)" >&2
+    echo "  $data_dir/lineitem/*.parquet (directory with parquet files)" >&2
+    echo "  $data_dir/nation/*.parquet (directory with parquet files)" >&2
+    echo "  $data_dir/orders/*.parquet (directory with parquet files)" >&2
+    echo "  $data_dir/part/*.parquet (directory with parquet files)" >&2
+    echo "  $data_dir/partsupp/*.parquet (directory with parquet files)" >&2
+    echo "  $data_dir/region/*.parquet (directory with parquet files)" >&2
+    echo "  $data_dir/supplier/*.parquet (directory with parquet files)" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+check_tpch_data() {
+  local data_dir=$1
+  
+  if [[ ! -d "$data_dir" ]]; then
+    echo "ERROR: TPC-H data directory not found at $data_dir" >&2
     exit 1
   fi
   
-  echo "TPC-H benchmark data verification passed"
-  echo "Data directory: $TPCH_DATA_PATH"
+  echo "Found TPC-H data directory: $data_dir"
+  
+  # Check for unsupported table definition files first
+  if ! check_for_table_definition_files "$data_dir"; then
+    exit 1
+  fi
+  
+  # Validate Hive-style data layout
+  if check_tpch_hive_data_layout "$data_dir"; then
+    echo "TPC-H Hive-style data layout validation passed"
+  else
+    exit 1
+  fi
+
 }
 
 get_tpch_benchmark_executable_path() {
@@ -108,12 +147,30 @@ get_tpch_benchmark_executable_path() {
   esac
 }
 
+# Enables GPU metrics collection in nsys profiling if supported
+# Requires GPU compute capability > 7  and nvidia-smi availability
+# Modifies the profile command variable passed by reference to include --gpu-metrics-devices
+setup_gpu_metrics_profiling_if_supported() {
+  local run_in_container_func="$1"
+  local -n profile_cmd_ref=$2  
+  
+  # Check GPU compute capability (>7 required for metrics)
+  if $run_in_container_func "nvidia-smi --query-gpu=compute_cap --format=csv,noheader -i 0 2>/dev/null | cut -d '.' -f 1" | awk '{if ($1 > 7) exit 0; else exit 1}'; then
+    local device_id=${CUDA_VISIBLE_DEVICES:-"all"}
+    profile_cmd_ref="${profile_cmd_ref} --gpu-metrics-devices=${device_id}"
+    echo "GPU metrics enabled for device ${device_id}"
+    return 0
+  else
+    return 1
+  fi
+}
+
 run_tpch_single_benchmark() {
   local query_number="$1"
   local device_type="$2"
   local profile="$3"
-  local data_path="$4"
-  local run_in_container_func="$5"
+  local run_in_container_func="$4"
+  local num_repeats="$5"
   
   printf -v query_number_padded '%02d' "$query_number"
   
@@ -123,7 +180,7 @@ run_tpch_single_benchmark() {
       num_drivers=${NUM_DRIVERS:-32}
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
       CUDF_FLAGS=""
-      VELOX_CUDF_ENABLED=false
+      VELOX_CUDF_FLAGS=""
       ;;
     "gpu")
       num_drivers=${NUM_DRIVERS:-4}
@@ -131,13 +188,12 @@ run_tpch_single_benchmark() {
       cudf_pass_read_limit=0
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
       CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit}"
-      VELOX_CUDF_ENABLED=true
+      VELOX_CUDF_FLAGS="--velox_cudf_enabled=true --velox_cudf_memory_resource=async"
       ;;
   esac
   
   # Common benchmark settings
   output_batch_rows=${BATCH_SIZE_ROWS:-100000}
-  VELOX_CUDF_MEMORY_RESOURCE="async"
   
   echo "Running query ${query_number_padded} on ${device_type} with ${num_drivers} drivers."
   
@@ -153,6 +209,10 @@ run_tpch_single_benchmark() {
         --cuda-um-cpu-page-faults=true \
         --cuda-um-gpu-page-faults=true \
         --output=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers.nsys-rep"
+
+      # Configure GPU metrics collection if supported
+      setup_gpu_metrics_profiling_if_supported "$run_in_container_func" PROFILE_CMD
+
     else
       echo "WARNING: nsys not found in container. Profiling disabled." >&2
       echo "         To enable profiling, rebuild with: ./build_velox.sh --benchmarks" >&2
@@ -162,20 +222,25 @@ run_tpch_single_benchmark() {
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
   set +e
   $run_in_container_func 'bash -c "
-      set -euo pipefail
+      set -exuo pipefail
+      BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
       '"${PROFILE_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \
-        --data_path=/workspace/velox/velox-tpch-data \
+        --data_path=/workspace/velox/velox-benchmark-data \
         --data_format=parquet \
         --run_query_verbose='"${query_number_padded}"' \
-        --num_repeats=1 \
-        --velox_cudf_enabled='"${VELOX_CUDF_ENABLED}"' \
-        --velox_cudf_memory_resource='"${VELOX_CUDF_MEMORY_RESOURCE}"' \
+        --num_repeats='"${num_repeats}"' \
         --num_drivers='"${num_drivers}"' \
         --preferred_output_batch_rows='"${output_batch_rows}"' \
         --max_output_batch_rows='"${output_batch_rows}"' \
+        '"${VELOX_CUDF_FLAGS}"' \
         '"${CUDF_FLAGS}"' 2>&1 | \
-        tee benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers
+        tee \"\$BASE_FILENAME\"
+      chown \"${USER_ID}:${GROUP_ID}\" \"\$BASE_FILENAME\"
+      NSYS_REP_FILE=\"\${BASE_FILENAME}.nsys-rep\"
+      if [ -f \"\$NSYS_REP_FILE\" ]; then
+        chown \"${USER_ID}:${GROUP_ID}\" \"\$NSYS_REP_FILE\"
+      fi
     "'
 
   EXIT_CODE=$?
