@@ -27,7 +27,7 @@ on:
         default: true
 
   workflow_call:
-    *inputs_anchor
+    inputs: *inputs_anchor
 
 jobs:
   java:
