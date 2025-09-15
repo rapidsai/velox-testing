@@ -13,7 +13,7 @@ on:
         description: 'Presto commit SHA or branch'
         type: string
         required: false
-        default: '7a209483ca'
+        default: '493639063b'
         #default: 'master'
       presto_worker_type:
         description: 'Type of presto worker to use'
@@ -35,6 +35,7 @@ jobs:
       - name: Checkout Velox
         uses: actions/checkout@v4
         with:
+          # Move this back to facebookincubator once PRs are merged upstream.
           #repository: facebookincubator/velox
           repository: rapidsai/velox
           ref: ${{ inputs.velox_commit }}
