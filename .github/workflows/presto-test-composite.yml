@@ -6,15 +6,11 @@ on:
       velox_commit:
         description: 'Velox commit SHA or branch'
         type: string
-        required: false
-        default: 'merged-prs'
-        #default: 'main'
+        required: true
       presto_commit:
         description: 'Presto commit SHA or branch'
         type: string
-        required: false
-        default: 'f31246e1ecce7cc1ea6b2fff34a0dc701fa9c5a9'
-        #default: 'master'
+        required: true
       presto_worker_type:
         description: 'Type of presto worker to use'
         type: string
@@ -35,8 +31,7 @@ jobs:
       - name: Checkout Velox
         uses: actions/checkout@v4
         with:
-          # Move this back to facebookincubator once PRs are merged upstream.
-          #repository: facebookincubator/velox
+          # Change the repo back to facebookincubator/velox once PRs are merged upstream.
           repository: rapidsai/velox
           ref: ${{ inputs.velox_commit }}
           path: velox
