@@ -13,7 +13,7 @@ on:
         description: 'Presto commit SHA or branch'
         type: string
         required: false
-        default: '493639063b'
+        default: '493639063b0f5d7bcc570dbabb448b33fcc70093'
         #default: 'master'
       presto_worker_type:
         description: 'Type of presto worker to use'
@@ -50,7 +50,7 @@ jobs:
         run: |
           pushd presto
           git apply ../velox-testing/presto/install_gperf.patch
-          git revert b6c6cbf2d5
+          git revert b6c6cbf2d591b96aff67ab5f54c80712b522c516
           popd
       - name: Patch Velox
         run: |
