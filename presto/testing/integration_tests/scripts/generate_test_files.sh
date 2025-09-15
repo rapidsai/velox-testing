@@ -21,6 +21,7 @@ OPTIONS:
                                         By default, files are generated for all supported benchmark types.
     -s, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
+    -v, --verbose                       Generate additional logging
 
 EXAMPLES:
     $0 -s 1 -b tpch
@@ -59,6 +60,10 @@ parse_args() {
         ;;
       -c|--convert-decimals-to-floats)
         CONVERT_DECIMALS_TO_FLOATS=true
+        shift
+        ;;
+      -v|--verbose)
+        VERBOSE="--verbose"
         shift
         ;;
       *)
@@ -115,6 +120,6 @@ for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
   rm -rf $DATA_DIR
   echo "Generating benchmark data files for $BENCHMARK_TYPE..."
   python $BENCHMARK_DATA_TOOLS_DIR/generate_data_files.py --benchmark-type $BENCHMARK_TYPE \
-         --data-dir-path $DATA_DIR --scale-factor $SCALE_FACTOR $CONVERT_DECIMALS_TO_FLOATS_ARG
+         --data-dir-path $DATA_DIR --scale-factor $SCALE_FACTOR $CONVERT_DECIMALS_TO_FLOATS_ARG $VERBOSE
   echo "Benchmark data files generated for $BENCHMARK_TYPE"
 done
