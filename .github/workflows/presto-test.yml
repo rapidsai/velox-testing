@@ -26,12 +26,11 @@ on:
         type: boolean
         default: true
 
-# TODO: Change the reference from the PrestoActions branch to main.
 jobs:
   java:
     if: ${{ github.event.inputs.run_java_tests == 'true' }}
     uses: ./.github/workflows/presto-test-composite.yml
-    with:      
+    with:
       presto_worker_type: 'java'
       node_label: 'linux-amd64-cpu4'
       velox_commit: ${{ inputs.velox_commit }}

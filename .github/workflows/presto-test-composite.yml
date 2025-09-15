@@ -7,12 +7,14 @@ on:
         description: 'Velox commit SHA or branch'
         type: string
         required: false
-        default: 'main'
+        default: 'merged-prs'
+        #default: 'main'
       presto_commit:
         description: 'Presto commit SHA or branch'
         type: string
         required: false
-        default: 'master'
+        default: '7a209483ca'
+        #default: 'master'
       presto_worker_type:
         description: 'Type of presto worker to use'
         type: string
@@ -33,7 +35,8 @@ jobs:
       - name: Checkout Velox
         uses: actions/checkout@v4
         with:
-          repository: facebookincubator/velox
+          #repository: facebookincubator/velox
+          repository: rapidsai/velox
           ref: ${{ inputs.velox_commit }}
           path: velox
       - name: Checkout Presto
@@ -46,6 +49,12 @@ jobs:
         run: |
           pushd presto
           git apply ../velox-testing/presto/install_gperf.patch
+          git revert b6c6cbf2d5
+          popd
+      - name: Patch Velox
+        run: |
+          pushd velox
+          git apply ../velox-testing/velox/merged-prs_091025.patch
           popd
       - name: Build and run presto
         run: |

@@ -1,0 +1,22 @@
+diff --git a/velox/experimental/cudf/connectors/parquet/CudfHiveConnector.cpp b/velox/experimental/cudf/connectors/parquet/CudfHiveConnector.cpp
+index 8b4292146..df49494ae 100644
+--- a/velox/experimental/cudf/connectors/parquet/CudfHiveConnector.cpp
++++ b/velox/experimental/cudf/connectors/parquet/CudfHiveConnector.cpp
+@@ -48,7 +48,7 @@ std::unique_ptr<DataSource> CudfHiveConnector::createDataSource(
+         outputType,
+         tableHandle,
+         columnHandles,
+-        executor_,
++        ioExecutor(),
+         connectorQueryCtx,
+         parquetConfig_);
+   }
+@@ -58,7 +58,7 @@ std::unique_ptr<DataSource> CudfHiveConnector::createDataSource(
+       tableHandle,
+       columnHandles,
+       &fileHandleFactory_,
+-      executor_,
++      ioExecutor(),
+       connectorQueryCtx,
+       hiveConfig_);
+ }
