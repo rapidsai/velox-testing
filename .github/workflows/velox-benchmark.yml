@@ -6,17 +6,17 @@ on:
       repository: &repository
         description: 'Velox repository'
         type: string
-        required: false
+        required: true
         default: 'facebookincubator/velox'
       velox_commit: &velox_commit
         description: 'Velox commit SHA or branch'
         type: string
-        required: false
+        required: true
         default: 'main'
       benchmark_type:
         description: 'Benchmark type'
         type: choice
-        required: false
+        required: true
         default: 'tpch'
         options:
           - tpch
