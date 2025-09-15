@@ -56,7 +56,8 @@ jobs:
     runs-on: 'ubuntu-latest'
     steps:
       - name: "Temp"
-        echo: "conditional: ${{ inputs.run_java_tests }}"
+        run: |
+          echo "conditional: ${{ inputs.run_java_tests }}"
   java:
     if: ${{ inputs.run_java_tests == 'true' }}
     uses: ./.github/workflows/presto-test-composite.yml
