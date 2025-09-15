@@ -3,11 +3,13 @@ name: Presto Nightly Test
 on:
   # schedule:
   #   - cron: '0 4 * * *'  # daily at 04:00 UTC
-  workflow_dispatch:
+  #workflow_dispatch:
+  [push]
 
 jobs:
   nightly:
     uses: ./.github/workflows/presto-test.yml
+
 #    runs-on: ubuntu-latest
 #    steps:
 #      - name: Fetch latest Velox SHA
