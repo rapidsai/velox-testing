@@ -41,7 +41,7 @@ Examples:
   $(basename "$0") -j 8 --gpu
   $(basename "$0") --num-threads 16 --no-cache
 
-By default, the script builds for the Volta (7.0) CUDA architecture, uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
+By default, the script builds for the Native CUDA architecture (detected on host), uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
 EOF
 }
 
