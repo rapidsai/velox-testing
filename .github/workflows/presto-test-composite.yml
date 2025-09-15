@@ -22,6 +22,7 @@ on:
 
 jobs:
   build-and-test:
+    name: "${{ inputs.presto_worker_type }}: build-and-test"
     runs-on: ${{ inputs.node_label }}
     steps:
       - name: Checkout velox-testing

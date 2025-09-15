@@ -3,8 +3,8 @@ description: Runs Presto Test nightly for all configurations
 on:
   # schedule:
   #   - cron: '0 4 * * *'  # daily at 04:00 UTC
-  #workflow_dispatch:
-  [push]
+  workflow_dispatch:
+  #[push]
 
 jobs:
   nightly:
@@ -14,16 +14,3 @@ jobs:
       run_cpu_tests: true
       run_gpu_tests: true
 
-#    runs-on: ubuntu-latest
-#    steps:
-#      - name: Fetch latest Velox SHA
-#        id: get_sha
-#        run: |
-#          LATEST=$(curl -s https://api.github.com/repos/facebookincubator/velox/commits/main \
-#            | jq -r .sha)
-#          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
-#
-#      - name: Invoke Presto Test
-#        uses: ./.github/workflows/presto-test.yml
-#        with:
-#          velox_commit: ${{ steps.get_sha.outputs.latest }}
