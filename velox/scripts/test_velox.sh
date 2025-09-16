@@ -3,8 +3,8 @@ set -euo pipefail
 
 source ./config.sh
 
-# Default to GPU runtime unless overridden
-DOCKER_RUNTIME="nvidia"
+# Default runtime mode (cpu|gpu|auto)
+DOCKER_RUNTIME_MODE="auto"
 
 print_help() {
   cat <<EOF
@@ -13,8 +13,7 @@ Usage: $(basename "$0") [OPTIONS]
 Runs tests on the Velox adapters using ctest with parallel execution.
 
 Options:
-  --cpu                 Run tests with CPU runtime (sets DOCKER_RUNTIME=runc).
-  --gpu                 Run tests with GPU runtime (sets DOCKER_RUNTIME=nvidia) [default].
+  --docker-runtime MODE  Docker runtime mode: cpu|gpu|auto (default: auto)
   -j, --num-threads NUM  Number of threads to use for testing (default: 3/4 of CPU cores).
   -h, --help            Show this help message and exit.
 
@@ -30,13 +29,13 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --cpu)
-        DOCKER_RUNTIME="runc"
-        shift
-        ;;
-      --gpu)
-        DOCKER_RUNTIME="nvidia"
-        shift
+      --docker-runtime)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --docker-runtime requires a value: cpu|gpu|auto" >&2
+          exit 1
+        fi
+        DOCKER_RUNTIME_MODE="$2"
+        shift 2
         ;;
       -j|--num-threads)
         if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
@@ -61,7 +60,8 @@ parse_args() {
 
 parse_args "$@"
 
-export DOCKER_RUNTIME
+# Resolve docker runtime from mode and export DOCKER_RUNTIME
+set_docker_runtime_from_mode "$DOCKER_RUNTIME_MODE"
 
 echo "Running tests on Velox adapters..."
 echo ""

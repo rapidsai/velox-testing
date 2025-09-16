@@ -11,7 +11,7 @@ VELOX_ENABLE_BENCHMARKS="ON"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
-DOCKER_RUNTIME="nvidia"
+DOCKER_RUNTIME_MODE="auto"
 
 print_help() {
   cat <<EOF
@@ -73,13 +73,19 @@ parse_args() {
         ;;
       --cpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="OFF"
-        DOCKER_RUNTIME="runc"
         shift
         ;;
       --gpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
-        DOCKER_RUNTIME="nvidia"
         shift
+        ;;
+      --docker-runtime)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --docker-runtime requires a value: cpu|gpu|auto" >&2
+          exit 1
+        fi
+        DOCKER_RUNTIME_MODE="$2"
+        shift 2
         ;;
       -j|--num-threads)
         if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
@@ -126,7 +132,8 @@ parse_args() {
 
 parse_args "$@"
 
-export DOCKER_RUNTIME
+# Resolve docker runtime from mode and export DOCKER_RUNTIME
+set_docker_runtime_from_mode "$DOCKER_RUNTIME_MODE"
 
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"

@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+source ./config.sh
 # Default values
 BENCHMARK_TYPE="tpch"
 QUERIES=""  # Will be set to benchmark-specific defaults if not provided
@@ -8,6 +9,7 @@ DEVICE_TYPE="cpu gpu"
 DATA_DIR="../../../velox-benchmark-data"
 BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
 PROFILE="false"
+DOCKER_RUNTIME_MODE="auto"
 
 # Docker compose configuration
 COMPOSE_FILE="../docker/docker-compose.adapters.yml"
@@ -29,7 +31,7 @@ Benchmark Options:
   -q, --queries "Q1 Q2 ..."               Query numbers to run (default: all queries for benchmark type)
   -d, --device-type "cpu gpu"             Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")  
   -p, --profile BOOL                      Enable profiling: true or false (default: false)
-
+  --docker-runtime MODE                    Docker runtime mode: cpu|gpu|auto (default: auto)
 General Options:
   -D, --data-dir DIR                      Path to benchmark data directory (default: ../../../velox-benchmark-data)
   -o, --output DIR                    Save benchmark results to DIR (default: ./benchmark-results)
@@ -105,6 +107,14 @@ parse_args() {
           echo "ERROR: --output requires a directory argument" >&2
           exit 1
         fi
+        ;;
+      --docker-runtime)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --docker-runtime requires a value: cpu|gpu|auto" >&2
+          exit 1
+        fi
+        DOCKER_RUNTIME_MODE="$2"
+        shift 2
         ;;
       -h|--help)
         print_help
@@ -238,6 +248,9 @@ run_benchmark() {
 
 # Parse arguments
 parse_args "$@"
+
+# Resolve docker runtime from mode and export DOCKER_RUNTIME
+set_docker_runtime_from_mode "$DOCKER_RUNTIME_MODE"
 
 echo ""
 echo "Velox Benchmark Runner"
