@@ -5,6 +5,7 @@ import subprocess
 import os
 import shutil
 import math
+import sys
 
 from duckdb_utils import init_benchmark_tables, is_decimal_column
 from pathlib import Path
@@ -144,6 +145,9 @@ def get_column_projection(column_metadata, convert_decimals_to_floats):
     return projection
 
 if __name__ == "__main__":
+    if (sys.version_info < (3, 12)):
+        sys.exit(f"Error: generate_data_files.py requires minimum Python 3.12")
+
     parser = argparse.ArgumentParser(
         description="Generate benchmark parquet data files for a given scale factor. "
                     "Only the TPC-H and TPC-DS benchmarks are currently supported.")
