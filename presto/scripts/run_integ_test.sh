@@ -2,12 +2,6 @@
 
 set -e
 
-function cleanup() {
-  rm -rf .venv
-}
-
-trap cleanup EXIT
-
 print_help() {
   cat << EOF
 
@@ -121,13 +115,7 @@ if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   exit 1
 fi
 
-rm -rf .venv
-python3 -m venv .venv
-source .venv/bin/activate
-
 INTEGRATION_TEST_DIR=$(readlink -f ../testing/integration_tests)
-
-pip install -q -r ${INTEGRATION_TEST_DIR}/requirements.txt
 
 PYTEST_ARGS=()
 
@@ -158,5 +146,13 @@ fi
 source ./common_functions.sh
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
+
+source ../../scripts/py_env_functions.sh
+
+trap delete_python_virtual_env EXIT
+
+init_python_virtual_env
+
+pip install -q -r ${INTEGRATION_TEST_DIR}/requirements.txt
 
 pytest -v ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
