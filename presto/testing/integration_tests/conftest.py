@@ -1,6 +1,10 @@
 def pytest_addoption(parser):
     parser.addoption("--queries")
     parser.addoption("--keep-tables", action="store_true", default=False)
+    parser.addoption("--hostname", default="localhost")
+    parser.addoption("--port", default=8080)
+    parser.addoption("--user", default="test_user")
+    parser.addoption("--schema-name")
 
 
 def pytest_generate_tests(metafunc):

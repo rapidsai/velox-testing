@@ -21,10 +21,17 @@ OPTIONS:
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
     -k, --keep-tables       If this argument is specified, created benchmark tables will not be dropped.
+    -h, --hostname          Hostname of the Presto coordinator.
+    -p, --port              Port number of the Presto coordinator.
+    -u, --user              User who queries will be executed as.
+    -s, --schema-name       Name of the schema containing the tables that will be queried.
+
 
 EXAMPLES:
     $0 -b tpch
     $0 -b tpch -q "1,2" --keep-tables
+    $0 -b tpch -q "1,2" -s my_sf1_schema
+    $0 -b tpch -q "1,2" -h myhostname.com -p 8081 -s my_sf1_schema
     $0 -h
 
 EOF
@@ -61,6 +68,42 @@ parse_args() {
         KEEP_TABLES=true
         shift
         ;;
+      -h|--hostname)
+        if [[ -n $2 ]]; then
+          HOST_NAME=$2
+          shift 2
+        else
+          echo "Error: --hostname requires a value"
+          exit 1
+        fi
+        ;;
+      -p|--port)
+        if [[ -n $2 ]]; then
+          PORT=$2
+          shift 2
+        else
+          echo "Error: --port requires a value"
+          exit 1
+        fi
+        ;;
+      -u|--user)
+        if [[ -n $2 ]]; then
+          USER=$2
+          shift 2
+        else
+          echo "Error: --user requires a value"
+          exit 1
+        fi
+        ;;
+      -s|--schema-name)
+        if [[ -n $2 ]]; then
+          SCHEMA_NAME=$2
+          shift 2
+        else
+          echo "Error: --schema-name requires a value"
+          exit 1
+        fi
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -96,8 +139,24 @@ if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
 fi
 
+if [[ -n ${HOST_NAME} ]]; then
+  PYTEST_ARGS+=("--hostname ${HOST_NAME}")
+fi
+
+if [[ -n ${PORT} ]]; then
+  PYTEST_ARGS+=("--port ${PORT}")
+fi
+
+if [[ -n ${USER} ]]; then
+  PYTEST_ARGS+=("--user ${USER}")
+fi
+
+if [[ -n ${SCHEMA_NAME} ]]; then
+  PYTEST_ARGS+=("--schema-name ${SCHEMA_NAME}")
+fi
+
 source ./common_functions.sh
 
-wait_for_worker_node_registration
+wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 pytest -v ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
