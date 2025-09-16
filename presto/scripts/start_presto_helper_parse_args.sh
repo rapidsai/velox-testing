@@ -22,7 +22,7 @@ EXAMPLES:
     $SCRIPT_NAME --no-cache
     $SCRIPT_NAME -b worker
     $SCRIPT_NAME --build c
-    $SCRIPT_NAME -t 8
+    $SCRIPT_NAME -j 8
     $SCRIPT_NAME -h
 
 EOF
