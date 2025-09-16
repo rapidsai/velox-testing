@@ -20,7 +20,6 @@ on:
         default: 'tpch'
         options:
           - tpch
-          - tpcds
 
   workflow_call:
     inputs:
@@ -58,12 +57,6 @@ jobs:
         with:
           name: velox_gpu_build_log
           path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_gpu.log
-
-      - name: Generate ${{ inputs.benchmark_type }} Benchmark Data
-        run: |
-          pushd ${{ github.workspace }}/velox-testing/presto/testing/integration_tests/scripts
-          ./generate_test_files.sh -b ${{ inputs.benchmark_type }} -s 1
-          popd
 
       - name: Run ${{ inputs.benchmark_type }} Velox GPU Benchmarks
         run: |
