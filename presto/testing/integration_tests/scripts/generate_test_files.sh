@@ -103,10 +103,11 @@ fi
 echo "Generating required test files for ${BENCHMARK_TYPES_TO_GENERATE[@]} benchmark(s)..."
 for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
   SCHEMAS_DIR=../schemas/$BENCHMARK_TYPE
+  SCHEMA_NAME=${BENCHMARK_TYPE}_test
   rm -rf $SCHEMAS_DIR
   echo "Generating table schema files for $BENCHMARK_TYPE..."
   python $BENCHMARK_DATA_TOOLS_DIR/generate_table_schemas.py --benchmark-type $BENCHMARK_TYPE \
-         --schemas-dir-path $SCHEMAS_DIR $CONVERT_DECIMALS_TO_FLOATS_ARG
+         --schema-name $SCHEMA_NAME --schemas-dir-path $SCHEMAS_DIR $CONVERT_DECIMALS_TO_FLOATS_ARG
   echo "Table schema files generated for $BENCHMARK_TYPE"
 
   QUERIES_DIR=../queries/$BENCHMARK_TYPE

@@ -110,5 +110,8 @@ The integration tests can be executed against tables with different scale factor
 
 Note that `velox-testing/presto/testing/integration_tests` and `velox-testing/benchmark_data_tools` are separate projects that are expected to be operated with their own virtual environment.
 
+### Setting Up Benchmark Tables
+A couple of utility scripts have been added to facilitate the process of setting up benchmark tables either from scratch or on top of existing benchmark data (Parquet) files. Specifically, the `setup_benchmark_tables.sh` script can be used to set up a new schema and tables on top of already generated benchmark data files. Execute `./setup_benchmark_tables.sh --help` to get more details about script options. The `setup_benchmark_data_and_tables.sh` script can be used to generate benchmark data at a specified scale factor and set up a schema and tables on top of the generated data files. Execute `./setup_benchmark_data_and_tables.sh --help` to get more details about script options. Both scripts should be executed from within the `velox-testing/presto/scripts` directory.
+
 ## Presto Benchmarking
 TODO: Add details when related infrastructure is added.
