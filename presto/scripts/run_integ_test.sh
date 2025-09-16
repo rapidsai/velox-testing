@@ -143,10 +143,6 @@ if [[ -n ${SCHEMA_NAME} ]]; then
   PYTEST_ARGS+=("--schema-name ${SCHEMA_NAME}")
 fi
 
-source ./common_functions.sh
-
-wait_for_worker_node_registration "$HOST_NAME" "$PORT"
-
 source ../../scripts/py_env_functions.sh
 
 trap delete_python_virtual_env EXIT
@@ -154,5 +150,9 @@ trap delete_python_virtual_env EXIT
 init_python_virtual_env
 
 pip install -q -r ${INTEGRATION_TEST_DIR}/requirements.txt
+
+source ./common_functions.sh
+
+wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 pytest -v ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
