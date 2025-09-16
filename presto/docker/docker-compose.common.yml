@@ -6,6 +6,7 @@ services:
       - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
       - ../testing/integration_tests/queries:/queries
       - ../../benchmark_output:/benchmark_output
+      - ${PRESTO_DATA_DIR:-/dev/null}:/var/lib/presto/data/hive/data/user_data
 
   presto-base-java:
     extends:
