@@ -13,6 +13,11 @@ on:
         type: string
         required: false
         default: 'main'
+      apply_patches: &apply_patches
+        description: 'Apply patches'
+        type: boolean
+        required: true
+        default: true
       benchmark_type:
         description: 'Benchmark type'
         type: choice
@@ -26,6 +31,7 @@ on:
     inputs:
       repository: *repository
       velox_commit: *velox_commit
+      apply_patches: *apply_patches
       benchmark_type:
         description: 'Benchmark type'
         type: string
@@ -36,11 +42,18 @@ jobs:
   velox-benchmark:
     runs-on: linux-amd64-gpu-l4-latest-1
     steps:
+      - &checkout-velox-testing
+        name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
       - name: Setup Velox Testing and Velox
         uses: ./.github/parts/velox-setup
         with:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
+          apply_patches: ${{ inputs.apply_patches }}
 
       - name: "Build Velox GPU with Benchmarks (SHA: ${{ env.VELOX_COMMIT_SHA }})"
         run: |
