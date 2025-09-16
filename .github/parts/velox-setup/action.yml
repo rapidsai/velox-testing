@@ -1,5 +1,5 @@
 name: Velox Setup
-description: Checkout velox-testing and Velox repos and resolve Velox commit SHA
+description: Checkout Velox repository and resolve Velox commit SHA and apply patches
 
 inputs:
   repository:
@@ -11,7 +11,7 @@ inputs:
     required: false
     default: main
   apply_patches:
-    description: Apply patches
+    description: Apply patches to Velox repository
     required: false
     default: false
 

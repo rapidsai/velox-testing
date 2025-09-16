@@ -56,7 +56,7 @@ jobs:
 
       - &setup-velox
         name: Setup Velox Testing and Velox
-        uses: ./.github/parts/velox-setup
+        uses: velox-testing/.github/parts/velox-setup
         with:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
