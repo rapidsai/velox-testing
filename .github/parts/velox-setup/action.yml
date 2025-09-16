@@ -13,7 +13,7 @@ inputs:
   apply_patches:
     description: Apply patches
     required: false
-    default: true
+    default: false
 
 outputs:
   velox_sha:
@@ -53,29 +53,5 @@ runs:
       if: ${{ inputs.apply_patches }}
       id: apply_patches
       run: |
-        PATCH_DIR="${{ github.workspace }}/velox-testing/patches/velox"
-        pushd ${{ github.workspace }}/velox
-        if [ -d "$PATCH_DIR" ]; then
-          shopt -s nullglob
-          patch_files=("$PATCH_DIR"/*.patch)
-          shopt -u nullglob
-          if [ ${#patch_files[@]} -eq 0 ]; then
-            echo "Patches directory exists, but no .patch files found. Skipping."
-          else
-            echo "Found ${#patch_files[@]} patch(es). Applying..."
-            for patch_file in "${patch_files[@]}"; do
-              echo "Applying patch: $patch_file"
-              if git apply --check "$patch_file"; then
-                git apply "$patch_file"
-                echo "Patch applied successfully."
-              else
-                echo "Patch failed to apply: $patch_file"
-                exit 1
-              fi
-            done
-          fi
-        else
-          echo "No patches directory found. Skipping patch application."
-        fi
-        popd
-
+        bash ${{ github.workspace }}/velox-testing/scripts/apply_patches.sh \
+          --target velox

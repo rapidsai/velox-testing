@@ -16,8 +16,8 @@ on:
       apply_patches: &apply_patches
         description: 'Apply patches'
         type: boolean
-        required: true
-        default: true
+        required: false
+        default: false
       benchmark_type:
         description: 'Benchmark type'
         type: choice
