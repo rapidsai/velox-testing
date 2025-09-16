@@ -30,16 +30,19 @@ OPTIONS:
                          "coordinator" or "c", "worker" or "w", and "all" or "a".
                          By default, services will be lazily built i.e. a build 
                          will only occur if there is no local image for the service.
+    -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
     $SCRIPT_NAME -b worker
     $SCRIPT_NAME --build c
+    $SCRIPT_NAME -j 8
     $SCRIPT_NAME -h
 
 EOF
 }
 
+NUM_THREADS=$(($(nproc) / 2))
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -61,6 +64,15 @@ parse_args() {
           exit 1
         fi
         ;;
+      -j|--num-threads)
+        if [[ -n $2 ]]; then
+          NUM_THREADS=$2
+          shift 2
+        else
+          echo "Error: --num-threads requires a value"
+          exit 1
+        fi
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -74,6 +86,12 @@ parse_args "$@"
 
 if [[ -n ${BUILD_TARGET} && ! ${BUILD_TARGET} =~ ^(coordinator|c|worker|w|all|a)$ ]]; then
   echo "Error: invalid --build value."
+  print_help
+  exit 1
+fi
+
+if (( NUM_THREADS <= 0 )); then
+  echo "Error: --num-threads must be a positive integer."
   print_help
   exit 1
 fi
