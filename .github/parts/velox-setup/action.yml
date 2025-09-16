@@ -52,6 +52,7 @@ runs:
     - name: Apply patches
       if: ${{ inputs.apply_patches }}
       id: apply_patches
+      shell: bash
       run: |
         bash ${{ github.workspace }}/velox-testing/scripts/apply_patches.sh \
           --target velox
