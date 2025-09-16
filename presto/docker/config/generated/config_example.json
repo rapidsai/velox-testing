@@ -1,0 +1,12 @@
+{
+    "cluster_size": "small",
+    "coordinator_instance_type": "Simon Eves Home Workstation 24/128",
+    "coordinator_instance_ebs_size": 50,
+    "worker_instance_type": "Simon Eves Home Workstation 24/128",
+    "worker_instance_ebs_size": 50,
+    "number_of_workers": 1,
+    "memory_per_node_gb": 128,
+    "vcpu_per_worker": 24,
+    "fragment_result_cache_enabled": true,
+    "data_cache_enabled": true
+}
