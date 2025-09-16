@@ -21,6 +21,7 @@ OPTIONS:
                                         By default, files are generated for all supported benchmark types.
     -s, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
+    -v, --verbose                       Generate additional logging
 
 EXAMPLES:
     $0 -s 1 -b tpch
@@ -61,6 +62,10 @@ parse_args() {
         CONVERT_DECIMALS_TO_FLOATS=true
         shift
         ;;
+      -v|--verbose)
+        VERBOSE="--verbose"
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -98,10 +103,11 @@ fi
 echo "Generating required test files for ${BENCHMARK_TYPES_TO_GENERATE[@]} benchmark(s)..."
 for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
   SCHEMAS_DIR=../schemas/$BENCHMARK_TYPE
+  SCHEMA_NAME=${BENCHMARK_TYPE}_test
   rm -rf $SCHEMAS_DIR
   echo "Generating table schema files for $BENCHMARK_TYPE..."
   python $BENCHMARK_DATA_TOOLS_DIR/generate_table_schemas.py --benchmark-type $BENCHMARK_TYPE \
-         --schemas-dir-path $SCHEMAS_DIR $CONVERT_DECIMALS_TO_FLOATS_ARG
+         --schema-name $SCHEMA_NAME --schemas-dir-path $SCHEMAS_DIR $CONVERT_DECIMALS_TO_FLOATS_ARG
   echo "Table schema files generated for $BENCHMARK_TYPE"
 
   QUERIES_DIR=../queries/$BENCHMARK_TYPE
@@ -115,6 +121,6 @@ for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
   rm -rf $DATA_DIR
   echo "Generating benchmark data files for $BENCHMARK_TYPE..."
   python $BENCHMARK_DATA_TOOLS_DIR/generate_data_files.py --benchmark-type $BENCHMARK_TYPE \
-         --data-dir-path $DATA_DIR --scale-factor $SCALE_FACTOR $CONVERT_DECIMALS_TO_FLOATS_ARG
+         --data-dir-path $DATA_DIR --scale-factor $SCALE_FACTOR $CONVERT_DECIMALS_TO_FLOATS_ARG $VERBOSE
   echo "Benchmark data files generated for $BENCHMARK_TYPE"
 done

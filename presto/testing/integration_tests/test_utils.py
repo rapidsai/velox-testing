@@ -16,33 +16,9 @@ import sqlglot
 from duckdb_utils import init_benchmark_tables
 
 
-def get_table_schemas(benchmark_type):
-    result = []
-    schemas_dir = get_abs_file_path(f"schemas/{benchmark_type}")
-    for file_name in os.listdir(schemas_dir):
-        with open(os.path.join(schemas_dir, file_name), "r") as file:
-            result.append((file_name.replace(".sql", ""), file.read()))
-    return result
-
-
-def create_tables(presto_cursor, schemas, benchmark_type):
-    drop_tables(presto_cursor, schemas, benchmark_type)
-    presto_cursor.execute(f"CREATE SCHEMA IF NOT EXISTS hive.{benchmark_type}_test")
-
-    for table_name, schema in schemas:
-        presto_cursor.execute(
-            schema.format(file_path=f"/var/lib/presto/data/hive/data/integration_test/{benchmark_type}/{table_name}"))
-
-
 def get_queries(benchmark_type):
     with open(get_abs_file_path(f"queries/{benchmark_type}/queries.json"), "r") as file:
         return json.load(file)
-
-
-def drop_tables(presto_cursor, schemas, benchmark_type):
-    for table, _ in schemas:
-        presto_cursor.execute(f"DROP TABLE IF EXISTS hive.{benchmark_type}_test.{table}")
-    presto_cursor.execute(f"DROP SCHEMA IF EXISTS hive.{benchmark_type}_test")
 
 
 def execute_query_and_compare_results(presto_cursor, queries, query_id):

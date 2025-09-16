@@ -1,0 +1,13 @@
+services:
+  velox-benchmark:
+    container_name: velox-benchmark
+    image: velox-adapters-build:latest
+    runtime: nvidia
+    environment:
+      - USER_ID=${USER_ID}
+      - GROUP_ID=${GROUP_ID}
+    volumes:
+      - ../../../velox:/workspace/velox
+      - ${BENCHMARK_DATA_HOST_PATH}:/workspace/velox/velox-benchmark-data:ro
+      - ${BENCHMARK_RESULTS_HOST_PATH}:/workspace/velox/benchmark_results
+    working_dir: /workspace/velox 
