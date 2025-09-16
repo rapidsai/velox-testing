@@ -56,8 +56,7 @@ apply_for() {
     pushd "$repo_dir" >/dev/null
     for patch_file in "${patch_files[@]}"; do
       echo "Applying patch: $patch_file"
-      if git apply --check "$patch_file"; then
-        git apply "$patch_file"
+      if git apply "$patch_file"; then
         echo "Patch applied successfully."
       else
         echo "Patch failed to apply: $patch_file"
