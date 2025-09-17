@@ -4,11 +4,11 @@ description: Checkout velox-testing and Velox repos and resolve Velox commit SHA
 inputs:
   repository:
     description: Velox repository
-    required: false
+    required: true
     default: facebookincubator/velox
   velox_commit:
     description: Velox commit SHA or branch
-    required: false
+    required: true
     default: main
 
 outputs:
