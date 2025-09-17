@@ -5,6 +5,7 @@ def pytest_addoption(parser):
     parser.addoption("--port", default=8080)
     parser.addoption("--user", default="test_user")
     parser.addoption("--schema-name")
+    parser.addoption("--scale-factor")
 
 
 def pytest_generate_tests(metafunc):

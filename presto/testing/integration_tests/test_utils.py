@@ -51,8 +51,8 @@ def compare_results(presto_rows, duckdb_rows, types, is_sorted_query):
     assert presto_rows == duckdb_rows
 
 
-def init_duckdb_tables(benchmark_type):
-    init_benchmark_tables(benchmark_type, get_scale_factor(benchmark_type))
+def init_duckdb_tables(benchmark_type, scale_factor):
+    init_benchmark_tables(benchmark_type, scale_factor)
 
 
 def execute_duckdb_query(query):

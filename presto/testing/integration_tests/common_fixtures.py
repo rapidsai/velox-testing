@@ -20,9 +20,20 @@ def presto_cursor(request):
 @pytest.fixture(scope="module")
 def setup_and_teardown(request, presto_cursor):
     benchmark_type = request.node.obj.BENCHMARK_TYPE
-    test_utils.init_duckdb_tables(benchmark_type)
 
-    should_create_tables = False if request.config.getoption("--schema-name") else True
+    has_schema_name = bool(request.config.getoption("--schema-name"))
+    scale_factor = request.config.getoption("--scale-factor")
+
+    if has_schema_name and not scale_factor:
+        raise pytest.UsageError("--scale-factor must be set when --schema-name is specified")
+
+    if scale_factor and not has_schema_name:
+        raise pytest.UsageError("--scale-factor should be set only when --schema-name is specified")
+
+    scale_factor = scale_factor if scale_factor else test_utils.get_scale_factor(benchmark_type)
+    test_utils.init_duckdb_tables(benchmark_type, scale_factor)
+
+    should_create_tables = not has_schema_name
     if should_create_tables:
         schema_name = f"{benchmark_type}_test"
         schemas_dir = test_utils.get_abs_file_path(f"schemas/{benchmark_type}")
