@@ -10,10 +10,6 @@ fi
 SCRIPT_DIR=$( cd -- "$( dirname -- "$SCRIPT_DIR" )" &> /dev/null && pwd )
 echo "SCRIPT_DIR=$SCRIPT_DIR"
 
-if [[ "$ARCH" == "x86_64" ]]; then
-    ARCH=amd64
-fi
-
 EXE="$SCRIPT_DIR/pbench_${OS}_${ARCH}"
 
 if [ ! -f "$EXE" ]; then
