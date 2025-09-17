@@ -48,6 +48,9 @@ WORKDIR /workspace/velox
 # Print environment variables for debugging
 RUN printenv | sort
 
+# TODO: revert this change once facebook updates the adapters image
+RUN dnf install -y -q libnvjitlink-devel-12-8
+
 # Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
 RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       set -euxo pipefail && \
