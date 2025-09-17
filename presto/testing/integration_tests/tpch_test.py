@@ -10,10 +10,12 @@ BENCHMARK_TYPE = "tpch"
 def tpch_queries():
     queries = test_utils.get_queries(BENCHMARK_TYPE)
     scale_factor = test_utils.get_scale_factor(BENCHMARK_TYPE)
+    # The "fraction" portion of Q11 is a value that depends on scale factor
+    # (it should be 0.0001 / scale_factor), whereas our query is currently hard-coded as 0.0001.
     value_ratio = 0.0001 / float(scale_factor)
+    queries["Q11"] = queries["Q11"].replace("0.0001000000", str(value_ratio))
     # Referencing the CTE defined "supplier_no" alias in the parent query causes issues on presto.
     queries["Q15"] = queries["Q15"].replace(" AS supplier_no", "").replace("supplier_no", "l_suppkey")
-    queries["Q11"] = queries["Q11"].replace("0.0001000000", str(value_ratio))
     return queries
 
 

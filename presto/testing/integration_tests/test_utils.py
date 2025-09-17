@@ -52,7 +52,9 @@ def compare_results(presto_rows, duckdb_rows, types, is_sorted_query):
 
 
 def init_duckdb_tables(benchmark_type):
-    init_benchmark_tables_from_parquet(benchmark_type, get_scale_factor(benchmark_type), get_abs_file_path(f"data/{benchmark_type}"))
+    init_benchmark_tables_from_parquet(benchmark_type, get_scale_factor(benchmark_type),
+                                       get_abs_file_path(f"data/{benchmark_type}"),
+                                       get_abs_file_path(f"schemas/{benchmark_type}"))
 
 
 def execute_duckdb_query(query):
