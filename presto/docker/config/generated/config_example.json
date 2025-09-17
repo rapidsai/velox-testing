@@ -1,8 +1,8 @@
 {
     "cluster_size": "small",
-    "coordinator_instance_type": "Simon Eves Home Workstation 24/128",
+    "coordinator_instance_type": "Workstation with 24-core CPU and 128GB RAM",
     "coordinator_instance_ebs_size": 50,
-    "worker_instance_type": "Simon Eves Home Workstation 24/128",
+    "worker_instance_type": "Workstation with 24-core CPU and 128GB RAM",
     "worker_instance_ebs_size": 50,
     "number_of_workers": 1,
     "memory_per_node_gb": 128,
