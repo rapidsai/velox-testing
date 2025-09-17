@@ -32,7 +32,7 @@ EOF
 
 KEEP_TABLES=false
 
-parse_args() { 
+parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -h|--help)

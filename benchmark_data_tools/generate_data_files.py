@@ -92,7 +92,7 @@ def rearrange_directory(raw_data_path, num_partitions):
     tables = []
     for p_file in parquet_files:
         tables.append(p_file.replace(".parquet", ""))
-    
+
     for table in tables:
         Path(f"{raw_data_path}/{table}").mkdir(parents=True, exist_ok=True)
 
@@ -147,21 +147,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate benchmark parquet data files for a given scale factor. "
                     "Only the TPC-H and TPC-DS benchmarks are currently supported.")
-    parser.add_argument("--benchmark-type", type=str, required=True, choices=["tpch", "tpcds"],
+    parser.add_argument("-b", "--benchmark-type", type=str, required=True, choices=["tpch", "tpcds"],
                         help="The type of benchmark to generate data for.")
-    parser.add_argument("--data-dir-path", type=str, required=True,
+    parser.add_argument("-d", "--data-dir-path", type=str, required=True,
                         help="The path to the directory that will contain the benchmark data files. "
                              "This directory will be created if it does not already exist.")
-    parser.add_argument("--scale-factor", type=str, required=True,
+    parser.add_argument("-s", "--scale-factor", type=str, required=True,
                         choices=["0.01", "0.1", "1", "10", "100", "1000"],
                         help="The scale factor of the generated dataset.")
-    parser.add_argument("--convert-decimals-to-floats", action="store_true", required=False,
+    parser.add_argument("-c", "--convert-decimals-to-floats", action="store_true", required=False,
                         default=False, help="Convert all decimal columns to float column type.")
     parser.add_argument("--use-duckdb", action="store_true", required=False,
                         default=False, help="Use duckdb instead of tpchgen")
-    parser.add_argument("--num-threads", type=int, required=False,
+    parser.add_argument("-j", "--num-threads", type=int, required=False,
                         default=4, help="Number of threads to generate data with tpchgen")
-    parser.add_argument("--verbose", action="store_true", required=False,
+    parser.add_argument("-v", "--verbose", action="store_true", required=False,
                         default=False, help="Extra verbose logging")
     parser.add_argument("--max-rows-per-file", type=int, required=False,
                         default=100_000_000, help="Limit number of rows in each file (creates more partitions)")
