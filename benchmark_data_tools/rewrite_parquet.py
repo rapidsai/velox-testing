@@ -6,25 +6,36 @@ import duckdb
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
+# Perform a single-threaded pass to obtain the table names and schema.
+# Assumes hive data heirarchy.
+def map_table_schemas(input_dir, verbose):
+    table_to_schema_map = {}
+    for root, subdirs, files in os.walk(input_dir):
+        for table_name in subdirs: # assumes each subdir in root path represents a table.
+            if verbose and table_name not in table_to_schema_map:
+                print(f"found table: {table_name}")
+            table_to_schema_map[table_name] = duckdb.sql(f"SHOW {table_name}").fetchall()
+    return table_to_schema_map
+
 # Multi-thread file processing
-def process_dir(input_dir, output_dir, num_threads, verbose):
+def process_dir(input_dir, output_dir, num_threads, verbose, table_to_schema_map):
     with ThreadPoolExecutor(num_threads) as executor:
         futures = []
         for root, _, files in os.walk(input_dir):
             for file in files:
                 if file.endswith('.parquet'):
                     input_file_path = os.path.join(root, file)
-                    futures.append(executor.submit(process_file, input_file_path, output_dir, input_dir, verbose))
+                    futures.append(executor.submit(process_file, input_file_path, output_dir, input_dir, verbose, table_to_schema_map))
         for future in futures:
             future.result()
 
-def process_file(input_file_path, output_dir, input_dir, verbose):
+def process_file(input_file_path, output_dir, input_dir, verbose, table_to_schema_map):
     relative_path = os.path.relpath(os.path.dirname(input_file_path), input_dir)
     output_file_path = os.path.join(output_dir, relative_path, os.path.basename(input_file_path))
-    
+
     # Create output directory if it doesn't exist
     os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-    
+
     # Read the parquet file metadata
     parquet_file = pq.ParquetFile(input_file_path)
     schema = parquet_file.schema_arrow
@@ -35,7 +46,7 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
     # Read the parquet file
     table = pq.read_table(input_file_path)
     table_name = os.path.basename(input_file_path).split('-')[0]
-    table_schema = duckdb.sql(f"SHOW {table_name}").fetchall()
+    table_schema = table_to_schema_map.get(table_name)
 
     # Convert decimal columns to double
     new_columns = []
@@ -51,7 +62,7 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
                         print(f"type mismatch on col: {col._name} (int64) casting to (int32)")
                     col = col.cast(pa.int32())
         new_columns.append(col)
-        
+
     new_table = pa.Table.from_arrays(new_columns, schema.names)
 
     # Write the table back to a parquet file.
@@ -63,11 +74,12 @@ if __name__ == "__main__":
         description="Alter an exising directory of parquet files",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
+
     parser.add_argument('--input-dir', '-i', help='Path to input Parquet files' )
     parser.add_argument('--output-dir', '-o', help='Path to output Parquet files')
     parser.add_argument('--num-threads', '-n', help='Number of threads')
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose')
 
     args = parser.parse_args()
-    process_dir(Path(args.input_dir), Path(args.output_dir), int(args.num_threads), bool(args.verbose))
+    table_to_schema_map = map_table_schemas(Path(args.input_dir), bool(args.verbose))
+    process_dir(Path(args.input_dir), Path(args.output_dir), int(args.num_threads), bool(args.verbose), table_to_schema_map)

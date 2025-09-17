@@ -8,7 +8,7 @@ import math
 
 from duckdb_utils import init_benchmark_tables, is_decimal_column
 from pathlib import Path
-from rewrite_parquet import process_dir
+from rewrite_parquet import process_dir, map_table_schemas
 from concurrent.futures import ThreadPoolExecutor
 
 def generate_partition(table, partition, raw_data_path, scale_factor, num_partitions, verbose):
@@ -42,6 +42,7 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
     tables_sf_ratio = get_table_sf_ratios(scale_factor, max_rows)
 
     raw_data_path = data_dir_path + "-temp" if convert_decimals_to_floats else data_dir_path
+
     if os.path.exists(data_dir_path):
         shutil.rmtree(data_dir_path)
     if os.path.exists(raw_data_path):
@@ -67,7 +68,8 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
         print(f"Raw data created at: {raw_data_path}")
 
     if convert_decimals_to_floats:
-        process_dir(raw_data_path, data_dir_path, num_threads, verbose)
+        table_to_schema_map = map_table_schemas(raw_data_path, verbose)
+        process_dir(raw_data_path, data_dir_path, num_threads, verbose, table_to_schema_map)
         shutil.rmtree(raw_data_path)
 
     write_metadata(data_dir_path, scale_factor)
@@ -92,7 +94,7 @@ def rearrange_directory(raw_data_path, num_partitions):
     tables = []
     for p_file in parquet_files:
         tables.append(p_file.replace(".parquet", ""))
-    
+
     for table in tables:
         Path(f"{raw_data_path}/{table}").mkdir(parents=True, exist_ok=True)
 
