@@ -73,7 +73,7 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
-  --build-arg NUM_THREADS=$(($(nproc) * 3 / 4)) ${BUILD_TARGET_ARG[@]}
+  --build-arg NUM_THREADS=$NUM_THREADS ${BUILD_TARGET_ARG[@]}
 fi
 
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
