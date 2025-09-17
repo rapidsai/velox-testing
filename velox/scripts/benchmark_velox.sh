@@ -6,13 +6,14 @@ source ./config.sh
 BENCHMARK_TYPE="tpch"
 QUERIES=""  # Will be set to benchmark-specific defaults if not provided
 DEVICE_TYPE="cpu gpu"
-DATA_DIR="../../../velox-benchmark-data"
 BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
 PROFILE="false"
 DOCKER_RUNTIME_MODE="auto"
+DATA_DIR="../../../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
+NUM_REPEATS=2
 
 # Docker compose configuration
-COMPOSE_FILE="../docker/docker-compose.adapters.yml"
+COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
 CONTAINER_NAME="velox-benchmark"  # Uses dedicated benchmark service with pre-configured volumes
 
 # Source benchmark-specific libraries
@@ -28,20 +29,31 @@ Uses the velox-benchmark Docker service with pre-configured volumes and environm
 
 Benchmark Options:
   -b, --benchmark-type TYPE               Type of benchmark to run (default: tpch)
-  -q, --queries "Q1 Q2 ..."               Query numbers to run (default: all queries for benchmark type)
+  -q, --queries "1 2 ..."                 Query numbers to run, specified as a space-separated list of query numbers (default: all queries for benchmark type)
   -d, --device-type "cpu gpu"             Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")  
   -p, --profile BOOL                      Enable profiling: true or false (default: false)
-  --docker-runtime MODE                    Docker runtime mode: cpu|gpu|auto (default: auto)
+  --docker-runtime MODE                   Docker runtime mode: cpu|gpu|auto (default: auto)
+  --data-dir DIR                          Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
+  --num-repeats NUM                       Number of times to repeat each query (default: 2)
+
 General Options:
-  -D, --data-dir DIR                      Path to benchmark data directory (default: ../../../velox-benchmark-data)
-  -o, --output DIR                    Save benchmark results to DIR (default: ./benchmark-results)
-  -h, --help                          Show this help message and exit
+  -o, --output DIR                        Save benchmark results to DIR (default: ./benchmark-results)
+  -h, --help                              Show this help message and exit
 
 $(get_tpch_help)
 
+Examples:
+  $(basename "$0")                                      # Run all queries on CPU and GPU (defaults)
+  $(basename "$0") --queries 6 --device-type cpu        # Run Q6 on CPU only
+  $(basename "$0") --queries "1 6" --device-type "cpu gpu"  # Run Q1 and Q6 on both CPU and GPU
+  $(basename "$0") --queries 6 --device-type gpu --profile true  # Run Q6 on GPU with profiling
+  $(basename "$0") --queries 6 --device-type gpu -o /tmp/results  # Custom output directory
+  $(basename "$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
+  $(basename "$0") --queries 6 --device-type cpu --num-repeats 5  # Run Q6 with 5 repetitions
+
 Prerequisites:
   1. Velox must be built using: ./build_velox.sh
-  2. Benchmark data must exist at: <data-dir>/[benchmark_type]/ (e.g., ../../../velox-benchmark-data/tpch/)
+  2. Benchmark data must exist and location can be specified with --data-dir option
   3. Docker and docker-compose must be available
   4. Uses velox-benchmark Docker service (pre-configured with volumes and environment)
 
@@ -52,6 +64,8 @@ EOF
 }
 
 parse_args() {
+
+  # Parse general arguments
   while [[ $# -gt 0 ]]; do
     case $1 in
       -b|--benchmark-type)
@@ -90,7 +104,16 @@ parse_args() {
           exit 1
         fi
         ;;
-      -D|--data-dir)
+      -o|--output)
+        if [[ -n "${2:-}" ]]; then
+          BENCHMARK_RESULTS_OUTPUT="$2"
+          shift 2
+        else
+          echo "ERROR: --output requires a directory argument" >&2
+          exit 1
+        fi
+        ;;
+      --data-dir)
         if [[ -n "${2:-}" ]]; then
           DATA_DIR="$2"
           shift 2
@@ -99,12 +122,12 @@ parse_args() {
           exit 1
         fi
         ;;
-      -o|--output)
+      --num-repeats)
         if [[ -n "${2:-}" ]]; then
-          BENCHMARK_RESULTS_OUTPUT="$2"
+          NUM_REPEATS="$2"
           shift 2
         else
-          echo "ERROR: --output requires a directory argument" >&2
+          echo "ERROR: --num-repeats requires a number argument" >&2
           exit 1
         fi
         ;;
@@ -144,12 +167,27 @@ parse_args() {
   
 }
 
+# Helper function to create/update environment file for Docker Compose
+create_docker_env_file() {
+  local env_file="./.env"
+  
+  # Always override the environment file
+  cat > "$env_file" << EOF
+USER_ID=$(id -u)
+GROUP_ID=$(id -g)
+BENCHMARK_RESULTS_HOST_PATH=$(realpath "$BENCHMARK_RESULTS_OUTPUT")
+BENCHMARK_DATA_HOST_PATH=$(realpath "$DATA_DIR")
+EOF
+
+}
+
 # Helper function to run commands in the Velox benchmark container
 run_in_container() {
   local cmd="$1"
   
-  BENCHMARK_RESULTS_HOST_PATH="$(realpath "$BENCHMARK_RESULTS_OUTPUT")" \
-  docker compose -f "$COMPOSE_FILE" run --rm "$CONTAINER_NAME" bash -c "$cmd"
+  docker compose -f "$COMPOSE_FILE" --env-file ./.env run --rm \
+    --cap-add=SYS_ADMIN \
+    "$CONTAINER_NAME" bash -c "$cmd"
 }
 
 prepare_benchmark_results_dir() {
@@ -195,9 +233,6 @@ check_velox_build() {
 check_benchmark_data() {
   echo "Checking benchmark data..."
   
-  # Use the validation script to check base data directory
-  ../../scripts/validate_directories_exist.sh "$DATA_DIR"
-  
   case "$BENCHMARK_TYPE" in
     "tpch")
       check_tpch_data "$DATA_DIR"
@@ -229,7 +264,7 @@ run_benchmark() {
 
       case "$benchmark_type" in
         "tpch")
-          run_tpch_single_benchmark "$query_number" "$device" "$profile" "$DATA_DIR/tpch" "run_in_container"
+          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS"
           local exit_code=$?
           ;;
         *)
@@ -257,18 +292,20 @@ echo "Velox Benchmark Runner"
 echo "====================="
 echo ""
 echo "Benchmark type: $BENCHMARK_TYPE"
-echo "Data directory: $DATA_DIR"
 echo "Results output: $BENCHMARK_RESULTS_OUTPUT"
 echo ""
 
 # Validate repo layout
 ../../scripts/validate_directories_exist.sh "../../../velox"
 
-# Check Velox build
-check_velox_build
-
 # Check benchmark data 
 check_benchmark_data
+
+# Create environment file for Docker Compose
+create_docker_env_file
+
+# Check Velox build
+check_velox_build
 
 # Prepare benchmark results directory
 prepare_benchmark_results_dir "$BENCHMARK_RESULTS_OUTPUT"

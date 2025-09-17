@@ -81,6 +81,12 @@ cd velox-testing/velox/scripts
 
 # Custom output directory for results
 ./benchmark_velox.sh --queries 6 --device-type gpu --profile true -o ./my-results
+
+# Run TPC-H Q6 with 5 repetitions
+./benchmark_velox.sh --queries 6 --device-type cpu --num-repeats 5
+
+# Use custom data directory
+./benchmark_velox.sh --queries 6 --device-type cpu --data-dir /path/to/data
 ```
 
 ### Results
@@ -103,6 +109,9 @@ The Presto integration tests are implemented using the [pytest](https://docs.pyt
 The integration tests can be executed against tables with different scale factors by navigating (`cd`) into the `velox-testing/presto/testing/integration_tests/scripts` directory and executing the `generate_test_files.sh` script with a `--scale-factor` or `-s` argument. After this, the tests can then be executed using the steps described in the "Running Integration Tests" section.
 
 Note that `velox-testing/presto/testing/integration_tests` and `velox-testing/benchmark_data_tools` are separate projects that are expected to be operated with their own virtual environment.
+
+### Setting Up Benchmark Tables
+A couple of utility scripts have been added to facilitate the process of setting up benchmark tables either from scratch or on top of existing benchmark data (Parquet) files. Specifically, the `setup_benchmark_tables.sh` script can be used to set up a new schema and tables on top of already generated benchmark data files. Execute `./setup_benchmark_tables.sh --help` to get more details about script options. The `setup_benchmark_data_and_tables.sh` script can be used to generate benchmark data at a specified scale factor and set up a schema and tables on top of the generated data files. Execute `./setup_benchmark_data_and_tables.sh --help` to get more details about script options. Both scripts should be executed from within the `velox-testing/presto/scripts` directory.
 
 ## Presto Benchmarking
 TODO: Add details when related infrastructure is added.
