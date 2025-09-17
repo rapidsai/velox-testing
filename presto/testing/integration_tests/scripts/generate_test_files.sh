@@ -88,8 +88,8 @@ else
 fi
 
 PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-if (( $(echo "$PYTHON_VERSION < 3.12" | bc -l) )); then
-    echo "Error: Minimum required python version is 3.12."
+if (( $(echo "$PYTHON_VERSION < 3.10" | bc -l) )); then
+    echo "Error: Minimum required python version is 3.10."
     exit 1
 fi
 
