@@ -1,5 +1,5 @@
 name: Velox Setup
-description: Checkout velox-testing and Velox repos and resolve Velox commit SHA
+description: Checkout Velox repository and resolve Velox commit SHA and apply patches
 
 inputs:
   repository:
@@ -10,6 +10,10 @@ inputs:
     description: Velox commit SHA or branch
     required: false
     default: main
+  apply_patches:
+    description: Apply patches to Velox repository
+    required: false
+    default: false
 
 outputs:
   velox_sha:
@@ -19,18 +23,13 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Checkout velox-testing
-      uses: actions/checkout@v4
-      with:
-        path: velox-testing
-
     - name: Checkout Velox
       uses: actions/checkout@v4
       with:
         repository: ${{ inputs.repository }}
         ref: ${{ inputs.velox_commit }}
         path: velox
-
+    
     - id: resolve-sha
       name: Get Velox commit SHA
       shell: bash
@@ -49,3 +48,11 @@ runs:
           echo "VELOX_COMMIT_SHA=$VELOX_REF" >> $GITHUB_ENV
           echo "velox_sha=$VELOX_REF" >> $GITHUB_OUTPUT
         fi
+
+    - name: Apply patches
+      if: ${{ inputs.apply_patches }}
+      id: apply_patches
+      shell: bash
+      run: |
+        bash ${{ github.workspace }}/velox-testing/scripts/apply_patches.sh \
+          --target velox
