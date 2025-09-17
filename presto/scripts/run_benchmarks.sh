@@ -8,6 +8,7 @@ QUERIES="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22"
 COMPOSE_FILE=""
 WORKER=""
 QUERY_VIA_CURL="true"
+SCHEMA="tpch_test"
 
 # --- Print error messages in red ---
 echo_error() {
@@ -60,6 +61,15 @@ function parse_args() {
 		exit 1
             fi
 	    ;;
+        --schema)
+            if [[ -n $2 ]]; then
+		SCHEMA=$2
+		shift 2
+            else
+		echo "Error: --schema requires a value"
+		exit 1
+            fi
+	    ;;
         -l|--command-line)
             QUERY_VIA_CURL=""
             shift 1
@@ -107,7 +117,7 @@ function stop_profile() {
 function presto_cli() {
     docker compose -f $COMPOSE_FILE exec \
            presto-cli presto-cli --server presto-coordinator:8080 --catalog hive \
-           --schema tpch_test --execute "$1"
+           --schema $SCHEMA --execute "$1"
 }
 
 function get_query() {
@@ -123,6 +133,11 @@ function get_query() {
                        | jq ".scale_factor")
         sf=$(awk "BEGIN {printf \"%10f\\n\", 0.0001 / $sf}")
         sql="${sql/0.0001000000/$sf}"
+    fi
+    # Referencing the CTE defined "supplier_no" alias in the parent query causes issues on presto.
+    if [[ "$query" == "15" ]]; then
+        sql=$(echo "$sql" | sed "s/ AS supplier_no//g")
+        sql=$(echo "$sql" | sed "s/supplier_no/l_suppkey/g")
     fi
     echo "$sql"
 }
@@ -199,7 +214,7 @@ function filter_output() {
 }
 
 function create_tables() {
-    presto_cli "CREATE SCHEMA IF NOT EXISTS hive.tpch_test"
+    presto_cli "CREATE SCHEMA IF NOT EXISTS hive.$SCHEMA"
     local pattern="\/([^\/]*)\.sql"
     for sql_file in $(ls $BASE_DIR/presto/testing/integration_tests/schemas/tpch/*.sql); do
         local drop_table=""
@@ -230,7 +245,7 @@ function run_queries() {
         if [[ -n $QUERY_VIA_CURL ]]; then
 	    local response=$(curl -sS -X POST "http://localhost:8080/v1/statement" \
 			          -H "X-Presto-Catalog: hive" \
-			          -H "X-Presto-Schema: tpch_test" \
+			          -H "X-Presto-Schema: $SCHEMA" \
 			          -H "X-Presto-User: tpch-benchmark" \
 			          --data "$sql")
             final_response="$(process_response $response)"
@@ -239,7 +254,7 @@ function run_queries() {
         else
             docker compose -f $COMPOSE_FILE exec presto-cli presto-cli \
                    --server presto-coordinator:8080 --catalog hive \
-                   --schema tpch_test --execute "$sql" > "$OUTPUT_DIR/$query.out"
+                   --schema $SCHEMA --execute "$sql" > "$OUTPUT_DIR/$query.out"
             end_time=$(date +%s.%N)
         fi
 	local execution_time=$(echo "$end_time - $start_time" | bc -l)
