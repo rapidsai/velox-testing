@@ -32,7 +32,7 @@ gpu_present() {
 }
 
 # Resolve docker runtime from a mode: cpu|gpu|auto
-# Echoes: runc or nvidia; returns non-zero on invalid mode or unavailable GPU runtime
+# Echoes: runc or nvidia; falback to runc if unavailable GPU runtime
 resolve_docker_runtime() {
   local mode="$1"
   case "${mode,,}" in
@@ -43,8 +43,7 @@ resolve_docker_runtime() {
       if docker_runtime_nvidia_available && gpu_present; then
         echo "nvidia"
       else
-        echo "ERROR: Requested GPU runtime but 'nvidia' runtime or GPU is unavailable." >&2
-        return 1
+        echo "runc"
       fi
       ;;
     auto)
@@ -55,8 +54,8 @@ resolve_docker_runtime() {
       fi
       ;;
     *)
-      echo "ERROR: Invalid docker runtime mode: '${mode}'. Use cpu|gpu|auto." >&2
-      return 1
+      echo "ERROR: Invalid docker runtime mode: '${mode}'. Use cpu|gpu|auto. Fallback to 'runc'" >&2
+      echo "runc"
       ;;
   esac
 }
@@ -66,8 +65,6 @@ resolve_docker_runtime() {
 set_docker_runtime_from_mode() {
   local mode="$1"
   local resolved
-  if ! resolved=$(resolve_docker_runtime "$mode"); then
-    return 1
-  fi
+  resolved="$(resolve_docker_runtime "$mode")"
   export DOCKER_RUNTIME="$resolved"
 }
