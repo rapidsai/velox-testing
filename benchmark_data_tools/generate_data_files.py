@@ -19,6 +19,7 @@ import subprocess
 import os
 import shutil
 import math
+import sys
 
 from duckdb_utils import init_benchmark_tables, is_decimal_column
 from pathlib import Path
@@ -106,7 +107,7 @@ def rearrange_directory(raw_data_path, num_partitions):
     tables = []
     for p_file in parquet_files:
         tables.append(p_file.replace(".parquet", ""))
-    
+
     for table in tables:
         Path(f"{raw_data_path}/{table}").mkdir(parents=True, exist_ok=True)
 
@@ -144,7 +145,7 @@ def get_select_query(table_name, convert_decimals_to_floats):
             get_column_projection(column_metadata, convert_decimals_to_floats)
             for column_metadata in column_metadata_rows
         ]
-        query = f"SELECT {",".join(column_projections)} FROM {table_name}"
+        query = f"SELECT {','.join(column_projections)} FROM {table_name}"
     else:
         query = f"SELECT * FROM {table_name}"
     return query
@@ -158,6 +159,9 @@ def get_column_projection(column_metadata, convert_decimals_to_floats):
     return projection
 
 if __name__ == "__main__":
+    if (sys.version_info < (3, 10)):
+        sys.exit(f"Error: generate_data_files.py requires minimum Python 3.10")
+
     parser = argparse.ArgumentParser(
         description="Generate benchmark parquet data files for a given scale factor. "
                     "Only the TPC-H and TPC-DS benchmarks are currently supported.")
