@@ -1,4 +1,19 @@
 #!/bin/bash
+
+# Copyright (c) 2025, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 set -euo pipefail
 
 source ./config.sh
@@ -70,7 +85,7 @@ if [[ "$DOCKER_RUNTIME" == "nvidia" ]]; then
 else
   test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
 fi
-if docker compose --env-file ./.env-build-velox -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "cd ${EXPECTED_OUTPUT_DIR} && ${test_cmd}"; then
+if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "cd ${EXPECTED_OUTPUT_DIR} && ${test_cmd}"; then
   echo ""
   echo "  Tests passed successfully!"
   echo ""
@@ -81,7 +96,7 @@ else
   echo "  ERROR: Tests failed with exit code $TEST_EXIT_CODE"
   echo ""
   echo "  To debug, you can run:"
-  echo "    docker compose --env-file ./.env-build-velox -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} bash"
+  echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} bash"
   echo "    # Then inside the container:"
   echo "    # cd ${EXPECTED_OUTPUT_DIR}"
   echo "    # ${test_cmd}"
