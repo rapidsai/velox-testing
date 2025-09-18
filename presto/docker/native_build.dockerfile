@@ -11,6 +11,9 @@ ENV CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120"
 ENV EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS}
 ENV NUM_THREADS=${NUM_THREADS}
 
+RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && dnf install -y nsight-systems-cli-2025.5.1.121
+RUN RUN dnf install -y -q libnvjitlink-devel-12-8
+
 RUN mkdir /runtime-libraries
 
 RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_native_staging/presto \
@@ -22,6 +25,12 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
 
 RUN mkdir /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
-    echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
+    echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf && \
+    echo "/usr/local/lib" >> /etc/ld.so.conf.d/presto_native.conf
 
-CMD bash -c "ldconfig && presto_server --etc-dir=/opt/presto-server/etc"
+CMD bash -c "ldconfig && nsys launch -t nvtx,cuda,osrt \
+        --cuda-memory-usage=true \
+        --cuda-um-cpu-page-faults=true \
+        --cuda-um-gpu-page-faults=true \
+        --cudabacktrace=true \
+         presto_server --etc-dir=/opt/presto-server/etc"

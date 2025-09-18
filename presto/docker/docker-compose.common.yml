@@ -4,6 +4,8 @@ services:
       - ./config/etc_common:/opt/presto-server/etc
       - ./.hive_metastore:/var/lib/presto/data/hive/metastore
       - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
+      - ../testing/integration_tests/queries:/queries
+      - ../../benchmark_output:/benchmark_output
       - ${PRESTO_DATA_DIR:-/dev/null}:/var/lib/presto/data/hive/data/user_data
 
   presto-base-java:
@@ -33,3 +35,12 @@ services:
     volumes:
       - ./config/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+
+  # Cli interface for running queries from the command line.
+  # Example: docker compose -f docker-compose-native_gpu.yml exec presto-cli presto-cli --server presto-coordinator:8080 --catalog hive --schema sf1k --execute $(cat "$query.sql") > query_output.txt
+  presto-base-cli:
+    image: prestodb/presto:latest
+    container_name: presto-cli
+    command: ["tail", "-f", "/dev/null"]  # Keep container running
+    depends_on:
+      - presto-coordinator
