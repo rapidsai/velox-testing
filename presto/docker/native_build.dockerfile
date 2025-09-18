@@ -17,7 +17,7 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
     --mount=type=bind,source=velox,target=/presto_native_staging/presto/velox \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
     make --directory="/presto_native_staging/presto" cmake-and-build BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR} && \
-    ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 { system("cp " $3 " /runtime-libraries") }' && \
+    LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib:/usr/local/lib64 ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 { system("cp " $3 " /runtime-libraries") }' && \
     cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin
 
 RUN mkdir /usr/lib64/presto-native-libs && \
