@@ -1,5 +1,19 @@
 #!/bin/bash
 
+# Copyright (c) 2025, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 set -e
 
 SCRIPT_DESCRIPTION="This script sets up benchmark tables under the given schema name. The benchmark data 
@@ -23,7 +37,7 @@ function cleanup() {
   rm -rf $TEMP_SCHEMA_DIR
 }
 
-trap cleanup EXIT 
+trap cleanup EXIT
 
 ../../scripts/run_py_script.sh -p $SCHEMA_GEN_SCRIPT_PATH --benchmark-type $BENCHMARK_TYPE \
 --schema-name $SCHEMA_NAME --schemas-dir-path $TEMP_SCHEMA_DIR $CONVERT_DECIMALS_TO_FLOATS_ARG
