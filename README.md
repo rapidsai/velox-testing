@@ -21,6 +21,23 @@ A Docker-based build infrastructure has been added to facilitate building Velox 
 
 Specifically, the `velox-testing` and `velox` repositories must be checked out as sibling directories under the same parent directory. Once that is done, navigate (`cd`) into the `velox-testing/velox/scripts` directory and execute the build script `build_velox.sh`. After a successful build, the Velox libraries and executables are available in the container at `/opt/velox-build/release`.
 
+## `sccache` Usage
+`sccache` has been integrated to significantly accelerate builds by using a build server to share cached compiled objects during the build process. Currently it is only supported for Velox builds (not Presto.)
+
+### Setup and Usage
+First, set up authentication credentials:
+```bash
+cd velox-testing/velox/scripts
+./setup_sccache_auth.sh
+```
+
+Then build Velox with sccache enabled:
+```bash
+./build_velox.sh --sccache --sccache-auth-dir ~/.sccache-auth
+```
+
+The authentication setup only needs to be done once and credentials are valid for 12 hours.
+
 ## Velox Benchmarking
 A Docker-based benchmarking infrastructure has been added to facilitate running Velox benchmarks with support for CPU/GPU execution engines and profiling capabilities. The infrastructure uses a dedicated `velox-benchmark` Docker service with pre-configured volume mounts that automatically sync benchmark data and results. The data follows Hive directory structure, making it compatible with Presto. Currently, only TPC-H is implemented, but the infrastructure is designed to be easily extended to support additional benchmarks in the future.
 

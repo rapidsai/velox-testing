@@ -10,6 +10,7 @@ ARG BUILD_WITH_VELOX_ENABLE_WAVE=OFF
 ARG TREAT_WARNINGS_AS_ERRORS=1
 ARG VELOX_ENABLE_BENCHMARKS=ON
 ARG BUILD_BASE_DIR=/opt/velox-build
+ARG ENABLE_SCCACHE=OFF
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -41,12 +42,26 @@ ${BUILD_BASE_DIR}/release/_deps/cudf-build:\
 ${BUILD_BASE_DIR}/release/_deps/rmm-build:\
 ${BUILD_BASE_DIR}/release/_deps/rapids_logger-build:\
 ${BUILD_BASE_DIR}/release/_deps/kvikio-build:\
-${BUILD_BASE_DIR}/release/_deps/nvcomp_proprietary_binary-src/lib64"
+${BUILD_BASE_DIR}/release/_deps/nvcomp_proprietary_binary-src/lib64" \
+    ENABLE_SCCACHE=${ENABLE_SCCACHE}
 
 WORKDIR /workspace/velox
 
 # Print environment variables for debugging
 RUN printenv | sort
+
+# Install sccache if enabled
+RUN if [ "$ENABLE_SCCACHE" = "ON" ]; then \
+      set -euxo pipefail && \
+      # Install RAPIDS sccache fork
+      wget --no-hsts -q -O- "https://github.com/rapidsai/sccache/releases/download/v0.10.0-rapids.68/sccache-v0.10.0-rapids.68-$(uname -m)-unknown-linux-musl.tar.gz" | \
+      tar -C /usr/bin -zf - --wildcards --strip-components=1 -x '*/sccache' 2>/dev/null && \
+      chmod +x /usr/bin/sccache && \
+      # Verify installation
+      sccache --version; \
+    else \
+      echo "Skipping sccache installation (ENABLE_SCCACHE=OFF)"; \
+    fi
 
 # Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
 RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
@@ -64,7 +79,30 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
     fi
 
+# Copy sccache setup script (if sccache enabled)
+COPY velox-testing/velox/docker/sccache/sccache_setup.sh /sccache_setup.sh
+RUN if [ "$ENABLE_SCCACHE" = "ON" ]; then chmod +x /sccache_setup.sh; fi
+
+# Copy sccache auth files (note source of copy must be within the docker build context)
+COPY velox-testing/velox/docker/sccache/sccache_auth/ /sccache_auth/
+
 # Build in Release mode into ${BUILD_BASE_DIR}
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     set -euxo pipefail && \
-    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"
+    # Configure sccache if enabled
+    if [ "$ENABLE_SCCACHE" = "ON" ]; then \
+      # Run sccache setup script
+      /sccache_setup.sh && \
+      # Add sccache CMake flags
+      EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache" && \
+      echo "sccache distributed status:" && \
+      sccache --dist-status && \
+      echo "Pre-build sccache (zeroed out) statistics:" && \
+      sccache --show-stats; \
+    fi && \
+    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"; \
+    # Show final sccache stats if enabled
+    if [ "$ENABLE_SCCACHE" = "ON" ]; then \
+      echo "Post-build sccache statistics:" && \
+      sccache --show-stats; \
+    fi
