@@ -16,13 +16,9 @@ import pytest
 
 from . import test_utils
 from .common_fixtures import presto_cursor, setup_and_teardown
+from ..common.fixtures import tpcds_queries
 
 BENCHMARK_TYPE = "tpcds"
-
-
-@pytest.fixture(scope="module")
-def tpcds_queries():
-    return test_utils.get_queries(BENCHMARK_TYPE)
 
 
 @pytest.mark.usefixtures("setup_and_teardown")
