@@ -302,6 +302,14 @@ parse_args "$@"
 # Resolve docker runtime from mode and export DOCKER_RUNTIME
 set_docker_runtime_from_mode "$DOCKER_RUNTIME_MODE"
 
+# If running with runc (no GPU runtime), force CPU-only benchmarking
+if [[ "${DOCKER_RUNTIME:-}" == *"runc"* ]]; then
+  if [[ "$DEVICE_TYPE" == *"gpu"* ]]; then
+    echo "GPU device requested, but only CPU detected (docker runtime: runc). Falling back to running CPU benchmarks only."
+  fi
+  DEVICE_TYPE="cpu"
+fi
+
 echo ""
 echo "Velox Benchmark Runner"
 echo "====================="
