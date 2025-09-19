@@ -16,12 +16,14 @@
 
 set -euo pipefail
 
+source ./config.sh
 # Default values
 BENCHMARK_TYPE="tpch"
 QUERIES=""  # Will be set to benchmark-specific defaults if not provided
 DEVICE_TYPE="cpu gpu"
 BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
 PROFILE="false"
+DOCKER_RUNTIME_MODE="auto"
 DATA_DIR="../../../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
 NUM_REPEATS=2
 
@@ -45,6 +47,7 @@ Benchmark Options:
   -q, --queries "1 2 ..."                 Query numbers to run, specified as a space-separated list of query numbers (default: all queries for benchmark type)
   -d, --device-type "cpu gpu"             Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")  
   -p, --profile BOOL                      Enable profiling: true or false (default: false)
+  --docker-runtime MODE                   Docker runtime mode: cpu|gpu|auto (default: auto)
   --data-dir DIR                          Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
 
@@ -142,6 +145,14 @@ parse_args() {
           echo "ERROR: --num-repeats requires a number argument" >&2
           exit 1
         fi
+        ;;
+      --docker-runtime)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --docker-runtime requires a value: cpu|gpu|auto" >&2
+          exit 1
+        fi
+        DOCKER_RUNTIME_MODE="$2"
+        shift 2
         ;;
       -h|--help)
         print_help
@@ -287,6 +298,17 @@ run_benchmark() {
 
 # Parse arguments
 parse_args "$@"
+
+# Resolve docker runtime from mode and export DOCKER_RUNTIME
+set_docker_runtime_from_mode "$DOCKER_RUNTIME_MODE"
+
+# If running with runc (no GPU runtime), force CPU-only benchmarking
+if [[ "${DOCKER_RUNTIME:-}" == *"runc"* ]]; then
+  if [[ "$DEVICE_TYPE" == *"gpu"* ]]; then
+    echo "GPU device requested, but only CPU detected (docker runtime: runc). Falling back to running CPU benchmarks only."
+  fi
+  DEVICE_TYPE="cpu"
+fi
 
 echo ""
 echo "Velox Benchmark Runner"
