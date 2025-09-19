@@ -1,7 +1,7 @@
 services:
   presto-base-volumes:
     volumes:
-      - ./config/etc_common:/opt/presto-server/etc
+      - ./config/generated/etc_common:/opt/presto-server/etc
       - ./.hive_metastore:/var/lib/presto/data/hive/metastore
       - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
       - ${PRESTO_DATA_DIR:-/dev/null}:/var/lib/presto/data/hive/data/user_data
@@ -20,7 +20,7 @@ services:
     ports:
       - 8080:8080
     volumes:
-      - ./config/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
 
   presto-base-native-worker:
     extends:
@@ -31,5 +31,5 @@ services:
     environment:
       - GLOG_logtostderr=1
     volumes:
-      - ./config/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
-      - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/etc_worker/node.properties:/opt/presto-server/etc/node.properties
