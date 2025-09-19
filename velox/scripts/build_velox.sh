@@ -11,6 +11,8 @@ VELOX_ENABLE_BENCHMARKS="ON"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
+ENABLE_SCCACHE=false
+SCCACHE_AUTH_DIR=""
 
 print_help() {
   cat <<EOF
@@ -27,7 +29,22 @@ Options:
   --gpu                       Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
   -j|--num-threads            NUM Number of threads to use for building (default: 3/4 of CPU cores).
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
+  --sccache                   Enable sccache distributed compilation caching.
+  --sccache-auth-dir DIR      Directory containing sccache authentication files (github_token, aws_credentials).
   -h, --help                  Show this help message and exit.
+
+sccache Usage:
+  The --sccache option enables distributed compilation caching using the RAPIDS sccache infrastructure.
+  
+  Setup authentication first:
+    ./setup_sccache_auth.sh [output_dir]
+  
+  Then use with build:
+    --sccache --sccache-auth-dir ~/.sccache-auth
+  
+  Or set environment variable:
+    export SCCACHE_AUTH_DIR=~/.sccache-auth
+    ./build_velox.sh --sccache
 
 Examples:
   $(basename "$0") --all-cuda-archs --no-cache
@@ -40,6 +57,9 @@ Examples:
   $(basename "$0") --log mybuild.log --all-cuda-archs
   $(basename "$0") -j 8 --gpu
   $(basename "$0") --num-threads 16 --no-cache
+  $(basename "$0") --sccache                                    # Local cache only
+  $(basename "$0") --sccache --sccache-github-token ghp_xxx  # Full distributed compilation
+  $(basename "$0") --sccache --sccache-show-stats            # Build with sccache and show stats
 
 By default, the script builds for the Native CUDA architecture (detected on host), uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
 EOF
@@ -107,6 +127,18 @@ parse_args() {
           exit 1
         fi
         ;;
+      --sccache)
+        ENABLE_SCCACHE=true
+        shift
+        ;;
+      --sccache-auth-dir)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --sccache-auth-dir requires a directory path"
+          exit 1
+        fi
+        SCCACHE_AUTH_DIR="$2"
+        shift 2
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -120,6 +152,30 @@ parse_args() {
   done
 }
 
+# Validate sccache authentication
+validate_sccache_auth() {
+  if [[ "$ENABLE_SCCACHE" == true ]]; then
+    
+    if [[ -n "$SCCACHE_AUTH_DIR" ]]; then
+      if [[ ! -d "$SCCACHE_AUTH_DIR" ]]; then
+        echo "ERROR: sccache auth directory not found: $SCCACHE_AUTH_DIR"
+        exit 1
+      fi
+      if [[ ! -f "$SCCACHE_AUTH_DIR/github_token" ]]; then
+        echo "ERROR: GitHub token not found: $SCCACHE_AUTH_DIR/github_token"
+        exit 1
+      fi
+      if [[ ! -f "$SCCACHE_AUTH_DIR/aws_credentials" ]]; then
+        echo "ERROR: AWS credentials not found: $SCCACHE_AUTH_DIR/aws_credentials"
+        exit 1
+      fi
+      echo "sccache authentication files found in: $SCCACHE_AUTH_DIR"
+    else
+      echo "ERROR: No sccache auth directory provided but sccache is enabled. Run setup_sccache_auth.sh first."
+      exit 1
+    fi
+  fi
+}
 
 # Detect CUDA architecture since native architecture detection doesn't work
 # inside Docker containers
@@ -138,9 +194,10 @@ detect_cuda_architecture() {
   fi
 }
 
-
-
 parse_args "$@"
+
+# Validate sccache authentication if sccache is enabled
+validate_sccache_auth
 
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"
@@ -164,6 +221,16 @@ DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 
+# Add sccache build arguments
+if [[ "$ENABLE_SCCACHE" == true ]]; then
+  DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="ON")
+  # Copy auth files to build context
+  cp "$SCCACHE_AUTH_DIR/github_token" ../docker/sccache/sccache_auth/
+  cp "$SCCACHE_AUTH_DIR/aws_credentials" ../docker/sccache/sccache_auth/
+else
+  DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="OFF")
+fi
+
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
   docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
@@ -172,6 +239,9 @@ else
   docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
   BUILD_EXIT_CODE=$?
 fi
+
+# Cleanup temporary auth files
+rm -rf ../docker/sccache_auth_tmp
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   if docker compose  -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
@@ -188,6 +258,13 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
       echo "  Benchmarks and nsys profiling are enabled in this build."
     else
       echo "  Benchmarks and nsys profiling are disabled in this build."
+    fi
+    if [[ "$ENABLE_SCCACHE" == true ]]; then
+      echo "  sccache distributed compilation caching was enabled for this build."
+      if [[ -n "$SCCACHE_AUTH_DIR" ]]; then
+        echo "  To check sccache stats, run:"
+        echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} sccache --show-stats"
+      fi
     fi
     echo ""
   else
