@@ -127,11 +127,8 @@ parse_args() {
         ;;
       -c|--create-schema)
         if [[ -n $2 ]]; then
-          CREATE_SCHEMA=$2
-          shift 2
-        else
-          echo "Error: --create-schema requires a value"
-          exit 1
+          CREATE_SCHEMA=true
+          shift
         fi
         ;;
       -d|--data-dir)

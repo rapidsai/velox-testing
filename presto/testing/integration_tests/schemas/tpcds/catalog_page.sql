@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.catalog_page (
+CREATE TABLE hive.{schema}.catalog_page (
     cp_catalog_page_sk INTEGER,
     cp_catalog_page_id VARCHAR,
     cp_start_date_sk INTEGER,

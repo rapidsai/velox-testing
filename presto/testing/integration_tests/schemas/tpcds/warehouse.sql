@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.warehouse (
+CREATE TABLE hive.{schema}.warehouse (
     w_warehouse_sk INTEGER,
     w_warehouse_id VARCHAR,
     w_warehouse_name VARCHAR,

@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.date_dim (
+CREATE TABLE hive.{schema}.date_dim (
     d_date_sk INTEGER,
     d_date_id VARCHAR,
     d_date DATE,

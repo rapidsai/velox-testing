@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.ship_mode (
+CREATE TABLE hive.{schema}.ship_mode (
     sm_ship_mode_sk INTEGER,
     sm_ship_mode_id VARCHAR,
     sm_type VARCHAR,
