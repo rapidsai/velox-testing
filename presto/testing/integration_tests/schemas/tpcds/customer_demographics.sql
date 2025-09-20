@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.customer_demographics (
+CREATE TABLE hive.{schema}.customer_demographics (
     cd_demo_sk INTEGER,
     cd_gender VARCHAR,
     cd_marital_status VARCHAR,

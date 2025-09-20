@@ -61,7 +61,7 @@ source ./common_functions.sh
 
 wait_for_worker_node_registration
 
-parse_args() { 
+parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -h|--help)

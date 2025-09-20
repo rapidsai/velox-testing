@@ -32,24 +32,26 @@ OPTIONS:
     -h, --hostname          Hostname of the Presto coordinator.
     -p, --port              Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
-    -s, --schema-name       Name of the schema containing the tables that will be queried.
-    -f, --scale-factor      Scale factor of the schema containing the tables that will be queried. This must be
-                            set when (and only when) --schema-name is specified.
+    -s, --schema-name       Name of the schema containing the tables that will be queried (default is {benchmark_type}_test).
+    -c, --create-schema     Create a new schema with --schema-name
+    -d, --data-dir          What directory (contained within presto/testing/integration_tests/data/) to get data from (default is value of {benchmark-type})
 
 
 EXAMPLES:
     $0 -b tpch
     $0 -b tpch -q "1,2" --keep-tables
-    $0 -b tpch -q "1,2" -s my_sf1_schema -f 1
-    $0 -b tpch -q "1,2" -h myhostname.com -p 8081 -s my_sf1_schema -f 1
+    $0 -b tpch -q "1,2" -s my_sf1_schema
+    $0 -b tpch -q "1,2" -h myhostname.com -p 8081 -s my_sf1_schema
+    $0 -b tpch -q "1" -c my_sf10_schema -k -d tpch_sf10 -s my_sf10_schema
     $0 -h
 
 EOF
 }
 
 KEEP_TABLES=false
+CREATE_SCHEMA=""
 
-parse_args() { 
+parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -h|--help)
@@ -123,6 +125,21 @@ parse_args() {
           exit 1
         fi
         ;;
+      -c|--create-schema)
+        if [[ -n $2 ]]; then
+          CREATE_SCHEMA=true
+          shift
+        fi
+        ;;
+      -d|--data-dir)
+        if [[ -n $2 ]]; then
+          DATA_DIR=$2
+          shift 2
+        else
+          echo "Error: --data-dir requires a value"
+          exit 1
+        fi
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -164,22 +181,16 @@ if [[ -n ${USER} ]]; then
   PYTEST_ARGS+=("--user ${USER}")
 fi
 
-if [[ -n ${SCHEMA_NAME} ]]; then
-  if [[ -z ${SCALE_FACTOR} ]]; then
-    echo "Error: A valid scale factor is required when --schema-name is specified. Use the -f or --scale-factor argument."
-    print_help
-    exit 1
-  fi
-  PYTEST_ARGS+=("--schema-name ${SCHEMA_NAME}")
+if [[ -n ${CREATE_SCHEMA} ]]; then
+  PYTEST_ARGS+=("--create-schema")
 fi
 
-if [[ -n ${SCALE_FACTOR} ]]; then
-  if [[ -z ${SCHEMA_NAME} ]]; then
-    echo "Error: Scale factor should be set only when --schema-name is specified."
-    print_help
-    exit 1
-  fi
-  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
+if [[ -n ${DATA_DIR} ]]; then
+  PYTEST_ARGS+=("--data-dir ${DATA_DIR}")
+fi
+
+if [[ -n ${SCHEMA_NAME} ]]; then
+  PYTEST_ARGS+=("--schema-name ${SCHEMA_NAME}")
 fi
 
 source ../../scripts/py_env_functions.sh

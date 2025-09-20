@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.catalog_sales (
+CREATE TABLE hive.{schema}.catalog_sales (
     cs_sold_date_sk INTEGER,
     cs_sold_time_sk INTEGER,
     cs_ship_date_sk INTEGER,

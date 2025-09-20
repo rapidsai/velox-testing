@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.time_dim (
+CREATE TABLE hive.{schema}.time_dim (
     t_time_sk INTEGER,
     t_time_id VARCHAR,
     t_time INTEGER,

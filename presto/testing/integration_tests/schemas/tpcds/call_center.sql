@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.call_center (
+CREATE TABLE hive.{schema}.call_center (
     cc_call_center_sk INTEGER,
     cc_call_center_id VARCHAR,
     cc_rec_start_date DATE,

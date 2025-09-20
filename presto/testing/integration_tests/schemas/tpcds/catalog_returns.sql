@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.catalog_returns (
+CREATE TABLE hive.{schema}.catalog_returns (
     cr_returned_date_sk INTEGER,
     cr_returned_time_sk INTEGER,
     cr_item_sk INTEGER,

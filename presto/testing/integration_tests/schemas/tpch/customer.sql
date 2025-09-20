@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpch_test.customer (
+CREATE TABLE hive.{schema}.customer (
     c_custkey BIGINT NOT NULL,
     c_name VARCHAR NOT NULL,
     c_address VARCHAR NOT NULL,

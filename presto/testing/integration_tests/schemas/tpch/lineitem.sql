@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpch_test.lineitem (
+CREATE TABLE hive.{schema}.lineitem (
     l_orderkey BIGINT NOT NULL,
     l_partkey BIGINT NOT NULL,
     l_suppkey BIGINT NOT NULL,

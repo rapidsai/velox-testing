@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.item (
+CREATE TABLE hive.{schema}.item (
     i_item_sk INTEGER,
     i_item_id VARCHAR,
     i_rec_start_date DATE,
