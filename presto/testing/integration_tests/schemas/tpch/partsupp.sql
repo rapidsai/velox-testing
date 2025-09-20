@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpch_test.partsupp (
+CREATE TABLE hive.{schema}.partsupp (
     ps_partkey BIGINT NOT NULL,
     ps_suppkey BIGINT NOT NULL,
     ps_availqty BIGINT NOT NULL,

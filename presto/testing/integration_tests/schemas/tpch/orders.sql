@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpch_test.orders (
+CREATE TABLE hive.{schema}.orders (
     o_orderkey BIGINT NOT NULL,
     o_custkey BIGINT NOT NULL,
     o_orderstatus VARCHAR NOT NULL,

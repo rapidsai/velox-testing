@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import sys
 
@@ -5,6 +19,8 @@ import sys
 def get_abs_file_path(relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
 
+def dir_exists(path):
+    return os.path.isdir(path)
 
 sys.path.append(get_abs_file_path("../../../benchmark_data_tools"))
 
@@ -13,7 +29,7 @@ import json
 import pytest
 import sqlglot
 
-from duckdb_utils import init_benchmark_tables_from_parquet
+from duckdb_utils import init_benchmark_tables_from_parquet, create_table
 
 
 def get_queries(benchmark_type):
@@ -51,10 +67,8 @@ def compare_results(presto_rows, duckdb_rows, types, is_sorted_query):
     assert presto_rows == duckdb_rows
 
 
-def init_duckdb_tables(benchmark_type):
-    init_benchmark_tables_from_parquet(benchmark_type, get_scale_factor(benchmark_type),
-                                       get_abs_file_path(f"data/{benchmark_type}"),
-                                       get_abs_file_path(f"schemas/{benchmark_type}"))
+def create_duckdb_table(table_name, data_path):
+    create_table(table_name, get_abs_file_path(data_path))
 
 
 def execute_duckdb_query(query):
@@ -62,8 +76,8 @@ def execute_duckdb_query(query):
     return relation.fetchall(), relation.types
 
 
-def get_scale_factor(benchmark_type):
-    with open(get_abs_file_path(f"data/{benchmark_type}/metadata.json"), "r") as file:
+def get_scale_factor_from_file(file):
+    with open(get_abs_file_path(file), "r") as file:
         metadata = json.load(file)
         return metadata["scale_factor"]
 
