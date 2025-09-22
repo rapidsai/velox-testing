@@ -40,6 +40,7 @@ jobs:
 
     env:
       GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: runc
 
     steps:
       - &checkout-velox-testing
@@ -100,6 +101,7 @@ jobs:
     
     env:
       GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: nvidia
 
     steps:
       - *checkout-velox-testing
