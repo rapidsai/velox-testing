@@ -66,7 +66,7 @@ parse_args "$@"
 echo "Running tests on Velox adapters..."
 echo ""
 if [[ "$DOCKER_RUNTIME" == "runc" ]]; then
-  test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
+  test_cmd="ctest -j ${NUM_THREADS} -E cudf -V"
 else
   test_cmd="ctest -j ${NUM_THREADS} -R cudf -V"
 fi
