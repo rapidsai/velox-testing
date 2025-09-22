@@ -20,7 +20,7 @@ import os
 import shutil
 import math
 
-from duckdb_utils import init_benchmark_tables, is_decimal_column
+from duckdb_utils import init_benchmark_tables, is_decimal_column, map_table_schemas
 from pathlib import Path
 from rewrite_parquet import process_dir
 from concurrent.futures import ThreadPoolExecutor
@@ -56,6 +56,7 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
     tables_sf_ratio = get_table_sf_ratios(scale_factor, max_rows)
 
     raw_data_path = data_dir_path + "-temp" if convert_decimals_to_floats else data_dir_path
+
     if os.path.exists(data_dir_path):
         shutil.rmtree(data_dir_path)
     if os.path.exists(raw_data_path):
@@ -81,7 +82,8 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
         print(f"Raw data created at: {raw_data_path}")
 
     if convert_decimals_to_floats:
-        process_dir(raw_data_path, data_dir_path, num_threads, verbose)
+        table_to_schema_map = map_table_schemas(verbose)
+        process_dir(raw_data_path, data_dir_path, num_threads, verbose, table_to_schema_map)
         shutil.rmtree(raw_data_path)
 
     write_metadata(data_dir_path, scale_factor)
