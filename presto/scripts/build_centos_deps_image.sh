@@ -2,9 +2,9 @@
 
 set -e
 
-# patch deps image script to omit problematic Hadoop SDK download
+# apply patches to deps image build
 pushd ../../../presto
-git apply ../velox-testing/presto/scripts/omit_hadoop_sdk_install_patch.diff
+git apply ../velox-testing/presto/scripts/build_centos_deps_image_patches.diff
 popd
 
 # now build the deps image if needed
