@@ -68,7 +68,7 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
         print(f"Raw data created at: {raw_data_path}")
 
     if convert_decimals_to_floats:
-        table_to_schema_map = map_table_schemas(raw_data_path, verbose)
+        table_to_schema_map = map_table_schemas(verbose)
         process_dir(raw_data_path, data_dir_path, num_threads, verbose, table_to_schema_map)
         shutil.rmtree(raw_data_path)
 

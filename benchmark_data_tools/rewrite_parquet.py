@@ -5,17 +5,7 @@ import argparse
 import duckdb
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-
-# Perform a single-threaded pass to obtain the table names and schema.
-# Assumes hive data heirarchy.
-def map_table_schemas(input_dir, verbose):
-    table_to_schema_map = {}
-    for root, subdirs, files in os.walk(input_dir):
-        for table_name in subdirs: # assumes each subdir in root path represents a table.
-            if verbose and table_name not in table_to_schema_map:
-                print(f"found table: {table_name}")
-            table_to_schema_map[table_name] = duckdb.sql(f"SHOW {table_name}").fetchall()
-    return table_to_schema_map
+from duckdb_utils import map_table_schemas
 
 # Multi-thread file processing
 def process_dir(input_dir, output_dir, num_threads, verbose, table_to_schema_map):
@@ -46,6 +36,7 @@ def process_file(input_file_path, output_dir, input_dir, verbose, table_to_schem
     # Read the parquet file
     table = pq.read_table(input_file_path)
     table_name = os.path.basename(input_file_path).split('-')[0]
+    assert table_name in table_to_schema_map, f"Expected table {table_name} not found in schema"
     table_schema = table_to_schema_map.get(table_name)
 
     # Convert decimal columns to double
@@ -81,5 +72,5 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose')
 
     args = parser.parse_args()
-    table_to_schema_map = map_table_schemas(Path(args.input_dir), bool(args.verbose))
+    table_to_schema_map = map_table_schemas(bool(args.verbose))
     process_dir(Path(args.input_dir), Path(args.output_dir), int(args.num_threads), bool(args.verbose), table_to_schema_map)
