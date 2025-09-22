@@ -10,6 +10,8 @@ ARG BUILD_WITH_VELOX_ENABLE_WAVE=OFF
 ARG TREAT_WARNINGS_AS_ERRORS=1
 ARG VELOX_ENABLE_BENCHMARKS=ON
 ARG BUILD_BASE_DIR=/opt/velox-build
+ARG BUILD_TYPE=Release
+ARG BUILD_DIR_NAME=release
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -22,6 +24,8 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     CUDA_COMPILER=/usr/local/cuda-${CUDA_VERSION}/bin/nvcc \
     CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-12/root/usr/bin" \
+    BUILD_TYPE=${BUILD_TYPE} \
+    BUILD_DIR_NAME=${BUILD_DIR_NAME} \
     EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_BENCHMARKS=${VELOX_ENABLE_BENCHMARKS} \
                       -DVELOX_ENABLE_EXAMPLES=ON \
                       -DVELOX_ENABLE_ARROW=ON \
@@ -36,12 +40,12 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
                       -DVELOX_BUILD_SHARED=ON \
                       -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
                       -DVELOX_ENABLE_FAISS=ON" \
-    LD_LIBRARY_PATH="${BUILD_BASE_DIR}/release/lib:\
-${BUILD_BASE_DIR}/release/_deps/cudf-build:\
-${BUILD_BASE_DIR}/release/_deps/rmm-build:\
-${BUILD_BASE_DIR}/release/_deps/rapids_logger-build:\
-${BUILD_BASE_DIR}/release/_deps/kvikio-build:\
-${BUILD_BASE_DIR}/release/_deps/nvcomp_proprietary_binary-src/lib64"
+    LD_LIBRARY_PATH="${BUILD_BASE_DIR}/${BUILD_DIR_NAME}/lib:\
+${BUILD_BASE_DIR}/${BUILD_DIR_NAME}/_deps/cudf-build:\
+${BUILD_BASE_DIR}/${BUILD_DIR_NAME}/_deps/rmm-build:\
+${BUILD_BASE_DIR}/${BUILD_DIR_NAME}/_deps/rapids_logger-build:\
+${BUILD_BASE_DIR}/${BUILD_DIR_NAME}/_deps/kvikio-build:\
+${BUILD_BASE_DIR}/${BUILD_DIR_NAME}/_deps/nvcomp_proprietary_binary-src/lib64"
 
 WORKDIR /workspace/velox
 
@@ -64,7 +68,8 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
     fi
 
-# Build in Release mode into ${BUILD_BASE_DIR}
+# Build using the specified build type and directory
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     set -euxo pipefail && \
-    make release EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"
+    make cmake BUILD_DIR="${BUILD_DIR_NAME}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
+    make build BUILD_DIR="${BUILD_DIR_NAME}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"

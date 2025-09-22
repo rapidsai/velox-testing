@@ -16,7 +16,15 @@
 
 set -euo pipefail
 
-source ./config.sh
+source "config.sh"
+source "utils.sh"
+
+# Auto-detect which build directory exists
+BUILD_DIR_NAME=$(detect_build_dir $COMPOSE_FILE $CONTAINER_NAME)
+
+# expected output directory
+EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_DIR_NAME}"
+EXPECTED_OUTPUT_LIB_DIR="${EXPECTED_OUTPUT_DIR}/lib"
 
 print_help() {
   cat <<EOF
