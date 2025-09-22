@@ -16,9 +16,27 @@
 
 set -euo pipefail
 
-if [[ ! -e generated/config.json ]]; then
-	echo "Failed to find generated/config.json"
-	exit 1
-fi
+# get host values
+NPROC=`nproc`
+RAM_GB=`lsmem | awk '/Total online/ { print $4 }'`
+RAM_GB=${RAM_GB::-1}
 
+# generate the config.json file
+mkdir -p generated
+cat > generated/config.json << EOF
+{
+    "cluster_size": "small",
+    "coordinator_instance_type": "${NPROC}-core CPU and ${RAM_GB}GB RAM",
+    "coordinator_instance_ebs_size": 50,
+    "worker_instance_type": "${NPROC}-core CPU and ${RAM_GB}GB RAM",
+    "worker_instance_ebs_size": 50,
+    "number_of_workers": 1,
+    "memory_per_node_gb": ${RAM_GB},
+    "vcpu_per_worker": ${NPROC},
+    "fragment_result_cache_enabled": true,
+    "data_cache_enabled": true
+}
+EOF
+
+# run pbench to generate the config files
 ../../pbench/pbench genconfig -p params.json -t template generated
