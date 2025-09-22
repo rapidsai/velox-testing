@@ -23,8 +23,7 @@ def get_table_schema(benchmark_type, table_name, schema_name, convert_decimals_t
         f"{' ' * 4}{get_column_definition(column_metadata, convert_decimals_to_floats)}"
         for column_metadata in column_metadata_rows
     ]
-    nl = '\n'
-    columns_text = f"{',{nl}'.join(columns_ddl_list)}"
+    columns_text = ",\n".join(columns_ddl_list)
     schema = f"CREATE TABLE hive.{schema_name}.{table_name} \
     (\n{columns_text}\n) \
     WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{{file_path}}')"

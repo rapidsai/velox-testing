@@ -5,7 +5,6 @@ import subprocess
 import os
 import shutil
 import math
-import sys
 
 from duckdb_utils import init_benchmark_tables, is_decimal_column
 from pathlib import Path
