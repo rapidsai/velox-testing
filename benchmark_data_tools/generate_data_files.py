@@ -6,9 +6,9 @@ import os
 import shutil
 import math
 
-from duckdb_utils import init_benchmark_tables, is_decimal_column
+from duckdb_utils import init_benchmark_tables, is_decimal_column, map_table_schemas
 from pathlib import Path
-from rewrite_parquet import process_dir, map_table_schemas
+from rewrite_parquet import process_dir
 from concurrent.futures import ThreadPoolExecutor
 
 def generate_partition(table, partition, raw_data_path, scale_factor, num_partitions, verbose):
