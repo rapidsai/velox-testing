@@ -16,7 +16,6 @@
 
 set -euo pipefail
 
-source ./config.sh
 # Default values
 BENCHMARK_TYPE="tpch"
 QUERIES=""  # Will be set to benchmark-specific defaults if not provided
@@ -289,8 +288,6 @@ run_benchmark() {
 # Parse arguments
 parse_args "$@"
 
-:
-
 echo ""
 echo "Velox Benchmark Runner"
 echo "====================="
@@ -323,4 +320,4 @@ run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE"
 
 echo ""
 echo "Benchmarks completed successfully!"
-echo "Results available in: $BENCHMARK_RESULTS_OUTPUT" 
+echo "Results available in: $BENCHMARK_RESULTS_OUTPUT"
