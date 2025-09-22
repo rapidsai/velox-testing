@@ -1,5 +1,5 @@
 diff --git a/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile b/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
-index e67770e78a..6795a522f8 100644
+index e67770e78a..ae78b76006 100644
 --- a/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
 +++ b/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
 @@ -28,9 +28,16 @@ RUN bash -c "mkdir build && \
@@ -16,6 +16,8 @@ index e67770e78a..6795a522f8 100644
                   install_clang15 && \
 -                 install_cuda 12.8) && \
 +                 install_cuda 12.8 && \
-+                 # also install matching nvjitlink
-+		 dnf install -y -q libnvjitlink-12-8 libnvjitlink-devel-12-8) && \
++                 # also install matching libnvjitlink
++                 dnf install -y -q libnvjitlink-12-8 libnvjitlink-devel-12-8) && \
      rm -rf build"
+ 
+ # put CUDA binaries on the PATH
