@@ -241,8 +241,6 @@ else
   BUILD_EXIT_CODE=$?
 fi
 
-# Cleanup temporary auth files
-rm -rf ../docker/sccache_auth_tmp
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   if docker compose  -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
