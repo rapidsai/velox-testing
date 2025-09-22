@@ -145,9 +145,6 @@ def get_column_projection(column_metadata, convert_decimals_to_floats):
     return projection
 
 if __name__ == "__main__":
-    if (sys.version_info < (3, 10)):
-        sys.exit(f"Error: generate_data_files.py requires minimum Python 3.10")
-
     parser = argparse.ArgumentParser(
         description="Generate benchmark parquet data files for a given scale factor. "
                     "Only the TPC-H and TPC-DS benchmarks are currently supported.")

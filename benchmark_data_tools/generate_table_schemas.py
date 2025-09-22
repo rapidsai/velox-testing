@@ -24,8 +24,9 @@ def get_table_schema(benchmark_type, table_name, schema_name, convert_decimals_t
         for column_metadata in column_metadata_rows
     ]
     nl = '\n'
+    columns_text = f"{',{nl}'.join(columns_ddl_list)}"
     schema = f"CREATE TABLE hive.{schema_name}.{table_name} \
-    ({nl}{',{nl}'.join(columns_ddl_list)}{nl}) \
+    (\n{columns_text}\n) \
     WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{{file_path}}')"
     return schema
 

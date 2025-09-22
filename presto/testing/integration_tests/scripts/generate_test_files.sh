@@ -87,12 +87,6 @@ else
   BENCHMARK_TYPES_TO_GENERATE=($BENCHMARK_TYPE)
 fi
 
-PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-if (( $(echo "$PYTHON_VERSION < 3.10" | bc -l) )); then
-    echo "Error: Minimum required python version is 3.10."
-    exit 1
-fi
-
 rm -rf .venv
 python3 -m venv .venv
 source .venv/bin/activate
