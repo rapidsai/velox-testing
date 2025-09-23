@@ -62,7 +62,7 @@ jobs:
         run: |
           DATA_DIR=${{ github.workspace }}/velox-testing/presto/testing/integration_tests/data/${{ inputs.benchmark_type }}
           pushd velox-testing/velox/scripts
-          ./benchmark_velox.sh -b ${{ inputs.benchmark_type }} --data-dir $DATA_DIR -d gpu -p true -o ${{ github.workspace }}/velox-testing/benchmark-results
+          ./benchmark_velox.sh -b ${{ inputs.benchmark_type }} --data-dir $DATA_DIR -d gpu -p false -o ${{ github.workspace }}/velox-testing/benchmark-results
           popd
 
       - name: Upload benchmark results as an artifact
