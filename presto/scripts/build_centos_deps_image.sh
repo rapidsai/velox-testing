@@ -4,7 +4,7 @@ set -e
 
 # apply patches to deps image build
 pushd ../../../presto
-git apply ../velox-testing/presto/scripts/build_centos_deps_image_patches.diff || true
+git apply ../velox-testing/presto/scripts/build_centos_deps_image_patches.diff
 popd
 
 # now build the deps image if needed
