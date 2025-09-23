@@ -22,7 +22,7 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
     cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin
 
 RUN mkdir /usr/lib64/presto-native-libs && \
-    cp /runtime-libraries/* /usr/lib64/presto-native-libs && \
+    cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
     echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
 
 CMD bash -c "ldconfig && presto_server --etc-dir=/opt/presto-server/etc"
