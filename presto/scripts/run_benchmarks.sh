@@ -9,6 +9,9 @@ COMPOSE_FILE=""
 WORKER=""
 QUERY_VIA_CURL="true"
 SCHEMA="tpch_test"
+COORD="localhost:8080"
+CATALOG="hive"
+DATA_DIR="/var/lib/presto/data/hive/data/integration_test/tpch" # local to container.
 
 # --- Print error messages in red ---
 echo_error() {
@@ -29,6 +32,10 @@ OPTIONS:
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
     -l, --command-line      Run queries via presto-cli instead of curl.
+    -d, --data-dir          Location (in docker image) where benchmark data reside.
+                            This location is mapped in the containers to ${PRESTO_DATA_DIR}
+    -s, --schema            Schema name for benchmark (default tpch_test).
+    -C, --coordinator       Coordinator URL (default localhost:8080 - only used for curl runs).
 
 EXAMPLES:
     $0 -c -q "1 2" -p
@@ -61,7 +68,7 @@ function parse_args() {
 		exit 1
             fi
 	    ;;
-        --schema)
+        -s|--schema)
             if [[ -n $2 ]]; then
 		SCHEMA=$2
 		shift 2
@@ -74,6 +81,25 @@ function parse_args() {
             QUERY_VIA_CURL=""
             shift 1
             ;;
+        -d|--data-dir)
+	    if [[ -n $2 ]]; then
+                # 'user_data' in the container is mapped to PRESTO_DATA_DIR environment variable externally.
+		DATA_DIR="/var/lib/presto/data/hive/data/user_data/$2"
+		shift 2
+            else
+		echo "Error: --data-dirs requires a value"
+		exit 1
+            fi
+	    ;;
+	-C|--coordinator)
+	    if [[ -n $2 ]]; then
+		COORD=$2
+		shift 2
+            else
+		echo "Error: --coordinator requires a value"
+		exit 1
+            fi
+	    ;;
 	*)
             echo "Error: Unknown argument $1"
             print_help
@@ -90,12 +116,12 @@ function detect_containers() {
         WORKER="presto-native-worker-gpu"
     fi
     if echo "$images" | grep -q "presto-native-worker-cpu"; then
-        [[ -n $WORKER ]] & echo_error "mismatch in worker types" && exit 1
+        [[ -n $WORKER ]] && echo_error "mismatch in worker types" && exit 1
         COMPOSE_FILE="$BASE_DIR/presto/docker/docker-compose.native-cpu.yml"
         WORKER="presto-native-worker-cpu"
     fi
     if echo "$images" | grep -q "presto-java-worker"; then
-        [[ -n $WORKER ]] & echo_error "mismatch in worker types" && exit 1
+        [[ -n $WORKER ]] && echo_error "mismatch in worker types" && exit 1
         COMPOSE_FILE="$BASE_DIR/presto/docker/docker-compose.java.yml"
         WORKER="presto-java-worker"
     fi
@@ -116,7 +142,7 @@ function stop_profile() {
 
 function presto_cli() {
     docker compose -f $COMPOSE_FILE exec \
-           presto-cli presto-cli --server presto-coordinator:8080 --catalog hive \
+           presto-cli presto-cli --server presto-coordinator:8080 --catalog $CATALOG \
            --schema $SCHEMA --execute "$1"
 }
 
@@ -125,7 +151,6 @@ function get_query() {
     local sql=$(cat $BASE_DIR/presto/testing/integration_tests/queries/tpch/queries.json \
                     | jq ".Q${query}")
     sql="${sql:1:-1}" # remove quotes wrapping query.
-    sql=$(echo "$sql" | sed "s/LIMIT .*//g") # removing limits
     # Q11 uses a constant that needs to be modified based on the SF of the data.
     # The value is calculated as (0.0001 / scale_factor)
     if [[ "$query" == "11" ]]; then
@@ -214,7 +239,7 @@ function filter_output() {
 }
 
 function create_tables() {
-    presto_cli "CREATE SCHEMA IF NOT EXISTS hive.$SCHEMA"
+    presto_cli "CREATE SCHEMA IF NOT EXISTS $CATALOG.$SCHEMA"
     local pattern="\/([^\/]*)\.sql"
     for sql_file in $(ls $BASE_DIR/presto/testing/integration_tests/schemas/tpch/*.sql); do
         local drop_table=""
@@ -226,8 +251,8 @@ function create_tables() {
 	    exit 1
 	fi
         presto_cli "$drop_table"
-        local table_dir="/var/lib/presto/data/hive/data/integration_test/tpch/$table_name"
-        local create_table=$(cat $sql_file | sed "s+{file_path}+$table_dir+g")
+        local table_dir="$DATA_DIR/$table_name"
+        local create_table=$(cat $sql_file | sed "s+{file_path}+$table_dir+g" | sed "s+tpch_test+$SCHEMA+g")
         presto_cli "$create_table"
     done
 }
@@ -243,8 +268,8 @@ function run_queries() {
         local end_time=""
         local start_time=$(date +%s.%N)
         if [[ -n $QUERY_VIA_CURL ]]; then
-	    local response=$(curl -sS -X POST "http://localhost:8080/v1/statement" \
-			          -H "X-Presto-Catalog: hive" \
+	    local response=$(curl -sS -X POST "http://${COORD}/v1/statement" \
+			          -H "X-Presto-Catalog: $CATALOG" \
 			          -H "X-Presto-Schema: $SCHEMA" \
 			          -H "X-Presto-User: tpch-benchmark" \
 			          --data "$sql")
@@ -253,7 +278,7 @@ function run_queries() {
             echo "$final_response" > "$OUTPUT_DIR/$query.out.json"
         else
             docker compose -f $COMPOSE_FILE exec presto-cli presto-cli \
-                   --server presto-coordinator:8080 --catalog hive \
+                   --server presto-coordinator:8080 --catalog $CATALOG \
                    --schema $SCHEMA --execute "$sql" > "$OUTPUT_DIR/$query.out"
             end_time=$(date +%s.%N)
         fi
