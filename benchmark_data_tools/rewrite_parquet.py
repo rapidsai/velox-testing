@@ -19,20 +19,21 @@ import argparse
 import duckdb
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from duckdb_utils import map_table_schemas
 
 # Multi-thread file processing
-def process_dir(input_dir, output_dir, num_threads, verbose):
+def process_dir(input_dir, output_dir, num_threads, verbose, table_to_schema_map):
     with ThreadPoolExecutor(num_threads) as executor:
         futures = []
         for root, _, files in os.walk(input_dir):
             for file in files:
                 if file.endswith('.parquet'):
                     input_file_path = os.path.join(root, file)
-                    futures.append(executor.submit(process_file, input_file_path, output_dir, input_dir, verbose))
+                    futures.append(executor.submit(process_file, input_file_path, output_dir, input_dir, verbose, table_to_schema_map))
         for future in futures:
             future.result()
 
-def process_file(input_file_path, output_dir, input_dir, verbose):
+def process_file(input_file_path, output_dir, input_dir, verbose, table_to_schema_map):
     relative_path = os.path.relpath(os.path.dirname(input_file_path), input_dir)
     output_file_path = os.path.join(output_dir, relative_path, os.path.basename(input_file_path))
 
@@ -49,7 +50,8 @@ def process_file(input_file_path, output_dir, input_dir, verbose):
     # Read the parquet file
     table = pq.read_table(input_file_path)
     table_name = os.path.basename(input_file_path).split('-')[0]
-    table_schema = duckdb.sql(f"SHOW {table_name}").fetchall()
+    assert table_name in table_to_schema_map, f"Expected table {table_name} not found in schema"
+    table_schema = table_to_schema_map.get(table_name)
 
     # Convert decimal columns to double
     new_columns = []
@@ -84,4 +86,5 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose')
 
     args = parser.parse_args()
-    process_dir(Path(args.input_dir), Path(args.output_dir), int(args.num_threads), bool(args.verbose))
+    table_to_schema_map = map_table_schemas(bool(args.verbose))
+    process_dir(Path(args.input_dir), Path(args.output_dir), int(args.num_threads), bool(args.verbose), table_to_schema_map)

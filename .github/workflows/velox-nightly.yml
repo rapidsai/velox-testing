@@ -9,12 +9,12 @@ on:
         description: 'Velox repository'
         type: string
         required: false
-        default: 'facebookincubator/velox'
+        default: 'rapidsai/velox'
       velox_commit:
         description: 'Velox commit SHA or branch'
         type: string
         required: false
-        default: 'main'
+        default: 'merged-prs'
       build_target:
         description: 'Select the build target'
         type: choice
@@ -29,6 +29,6 @@ jobs:
   nightly-test:
     uses: ./.github/workflows/velox-test.yml
     with:
-      repository: ${{ inputs.repository || 'facebookincubator/velox' }}
-      velox_commit: ${{ inputs.velox_commit || 'main' }}
+      repository: ${{ inputs.repository || 'rapidsai/velox' }}
+      velox_commit: ${{ inputs.velox_commit || 'merged-prs' }}
       build_target: ${{ inputs.build_target || 'all' }}
