@@ -34,7 +34,6 @@ OPTIONS:
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried (default is {benchmark_type}_test).
     -f, --scale-factor      Overwrite the scale factor detection with an explicit value
-    -d, --data-dir-name     What directory (contained within PRESTO_DATA_DIR) to get data from (default is value of {benchmark-type})
 
 
 EXAMPLES:
@@ -42,7 +41,6 @@ EXAMPLES:
     $0 -b tpch -q "1,2" --keep-tables
     $0 -b tpch -q "1,2" -s my_sf1_schema
     $0 -b tpch -q "1,2" -h myhostname.com -p 8081 -s my_sf1_schema
-    $0 -b tpch -q "1" -c my_sf10_schema -k -d tpch_sf10 -s my_sf10_schema
     $0 -h
 
 EOF
@@ -125,15 +123,6 @@ parse_args() {
           exit 1
         fi
         ;;
-      -d|--data-dir-name)
-        if [[ -n $2 ]]; then
-          DATA_DIR_NAME=$2
-          shift 2
-        else
-          echo "Error: --data-dir-name requires a value"
-          exit 1
-        fi
-        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -177,15 +166,6 @@ fi
 
 if [[ -n ${SCALE_FACTOR} ]]; then
   PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
-fi
-
-if [[ -n ${DATA_DIR_NAME} ]]; then
-  if [[ -z ${PRESTO_DATA_DIR} ]]; then
-    echo "Error: PRESTO_DATA_DIR must be set to the directory path that contains the benchmark data directories"
-    print_help
-    exit 1
-  fi
-  PYTEST_ARGS+=("--data-dir ${PRESTO_DATA_DIR}/${DATA_DIR_NAME}")
 fi
 
 if [[ -n ${SCHEMA_NAME} ]]; then
