@@ -2,6 +2,7 @@
 
 BASE_DIR="$(dirname $(realpath $0))/../.."
 OUTPUT_DIR="$BASE_DIR/benchmark_output/tpch"
+PROFILES_DIR="benchmark_output/tpch/profiles"
 CREATE_TABLES=""
 CREATE_PROFILES=""
 QUERIES="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22"
@@ -130,14 +131,13 @@ function detect_containers() {
 function start_profile() {
     local query=$1
     local options=""
-    [ -f "$OUTPUT_DIR/$query.nsys-rep" ] && options="--force-overwrite true" || options=""
+    [ -f "${BASE_DIR}/${PROFILES_DIR}/Q${query}.nsys-rep" ] && options="--force-overwrite true" || options=""
     docker compose -f $COMPOSE_FILE exec $WORKER bash -c \
-           "nsys start -o /benchmark_output/Q${query}.nsys-rep ${options}"
+           "nsys start -o /${PROFILES_DIR}/Q${query}.nsys-rep ${options}"
 }
 
 function stop_profile() {
-    docker compose -f $COMPOSE_FILE exec $WORKER bash -c \
-           exec presto-native-worker-gpu bash -c "nsys stop"
+    docker compose -f $COMPOSE_FILE exec $WORKER bash -c "nsys stop"
 }
 
 function presto_cli() {
@@ -293,6 +293,7 @@ function run_queries() {
 
 parse_args "$@"
 detect_containers
-mkdir -p "$BASE_DIR/benchmark_output/tpch"
+mkdir -p "$OUTPUT_DIR"
+[ -z "$CREATE_PROFILES" ] || mkdir -p "$BASE_DIR/$PROFILES_DIR"
 [ -z "$CREATE_TABLES" ] || create_tables
 run_queries

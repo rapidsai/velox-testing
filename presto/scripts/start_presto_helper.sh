@@ -54,7 +54,7 @@ function conditionally_add_build_target() {
     echo "Added $2 to the list of services to build because the '$BUILD_TARGET' build target was specified"
     BUILD_TARGET_ARG+=($2)
   fi
-} 
+}
 
 conditionally_add_build_target $COORDINATOR_IMAGE $COORDINATOR_SERVICE "coordinator|c"
 
@@ -89,5 +89,7 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS ${BUILD_TARGET_ARG[@]}
 fi
+
+mkdir -p ../../benchmark_output
 
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
