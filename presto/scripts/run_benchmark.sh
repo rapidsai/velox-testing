@@ -21,33 +21,33 @@ print_help() {
 
 Usage: $0 [OPTIONS]
 
-This script runs integration tests for the specified type of benchmark.
+This script runs the specified type of benchmark.
 
 OPTIONS:
     -h, --help              Show this help message.
-    -b, --benchmark-type    Type of benchmark to run tests for. Only "tpch" and "tpcds" are currently supported.
+    -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
-    -k, --keep-tables       If this argument is specified, created benchmark tables will not be dropped.
     -h, --hostname          Hostname of the Presto coordinator.
     -p, --port              Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried.
-    -f, --scale-factor      Scale factor of the schema containing the tables that will be queried. This must be
-                            set when (and only when) --schema-name is specified.
-
+    -o, --output-dir        Directory path that will contain the output files from the benchmark run.
+                            By default, output files are written to "$(pwd)/benchmark_output".
+    -i, --iterations        Number of query run iterations. By default, 5 iterations are run.
+    -t, --tag               Tag associated with the benchmark run. When a tag is specified, benchmark output will be
+                            stored inside a directory under the --output-dir path with a name matching the tag name.
+                            Tags must contain only alphanumeric and underscore characters.
 
 EXAMPLES:
-    $0 -b tpch
-    $0 -b tpch -q "1,2" --keep-tables
-    $0 -b tpch -q "1,2" -s my_sf1_schema -f 1
-    $0 -b tpch -q "1,2" -h myhostname.com -p 8081 -s my_sf1_schema -f 1
+    $0 -b tpch -s bench_sf100
+    $0 -b tpch -q "1,2" -s bench_sf100
+    $0 -b tpch -s bench_sf100 -i 10 -o ~/tpch_benchmark_output
+    $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -h
 
 EOF
 }
-
-KEEP_TABLES=false
 
 parse_args() { 
   while [[ $# -gt 0 ]]; do
@@ -73,10 +73,6 @@ parse_args() {
           echo "Error: --queries requires a value"
           exit 1
         fi
-        ;;
-      -k|--keep-tables)
-        KEEP_TABLES=true
-        shift
         ;;
       -h|--hostname)
         if [[ -n $2 ]]; then
@@ -114,12 +110,30 @@ parse_args() {
           exit 1
         fi
         ;;
-      -f|--scale-factor)
+      -o|--output-dir)
         if [[ -n $2 ]]; then
-          SCALE_FACTOR=$2
+          OUTPUT_DIR=$2
           shift 2
         else
-          echo "Error: --scale-factor requires a value"
+          echo "Error: --output-dir requires a value"
+          exit 1
+        fi
+        ;;
+      -i|--iterations)
+        if [[ -n $2 ]]; then
+          ITERATIONS=$2
+          shift 2
+        else
+          echo "Error: --iterations requires a value"
+          exit 1
+        fi
+        ;;
+      -t|--tag)
+        if [[ -n $2 ]]; then
+          TAG=$2
+          shift 2
+        else
+          echo "Error: --tag requires a value"
           exit 1
         fi
         ;;
@@ -140,11 +154,13 @@ if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   exit 1
 fi
 
-PYTEST_ARGS=()
-
-if [[ "${KEEP_TABLES}" == "true" ]]; then
-  PYTEST_ARGS+=("--keep-tables")
+if [[ -z ${SCHEMA_NAME} ]]; then
+  echo "Error: A schema name must be set. Use the -s or --schema-name argument."
+  print_help
+  exit 1
 fi
+
+PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
@@ -162,22 +178,21 @@ if [[ -n ${USER_NAME} ]]; then
   PYTEST_ARGS+=("--user ${USER_NAME}")
 fi
 
-if [[ -n ${SCHEMA_NAME} ]]; then
-  if [[ -z ${SCALE_FACTOR} ]]; then
-    echo "Error: A valid scale factor is required when --schema-name is specified. Use the -f or --scale-factor argument."
-    print_help
-    exit 1
-  fi
-  PYTEST_ARGS+=("--schema-name ${SCHEMA_NAME}")
+if [[ -n ${OUTPUT_DIR} ]]; then
+  PYTEST_ARGS+=("--output-dir ${OUTPUT_DIR}")
 fi
 
-if [[ -n ${SCALE_FACTOR} ]]; then
-  if [[ -z ${SCHEMA_NAME} ]]; then
-    echo "Error: Scale factor should be set only when --schema-name is specified."
+if [[ -n ${ITERATIONS} ]]; then
+  PYTEST_ARGS+=("--iterations ${ITERATIONS}")
+fi
+
+if [[ -n ${TAG} ]]; then
+  if [[ ! ${TAG} =~ ^[a-zA-Z0-9_]+$ ]]; then
+    echo "Error: Invalid --tag value. Tags must contain only alphanumeric and underscore characters."
     print_help
     exit 1
   fi
-  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
+  PYTEST_ARGS+=("--tag ${TAG}")
 fi
 
 source ../../scripts/py_env_functions.sh
@@ -193,5 +208,5 @@ source ./common_functions.sh
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
-INTEGRATION_TEST_DIR=${TEST_DIR}/integration_tests
-pytest -v ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
+pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}

@@ -16,16 +16,9 @@ import pytest
 
 from . import test_utils
 from .common_fixtures import presto_cursor, setup_and_teardown
+from ..common.fixtures import tpch_queries
 
 BENCHMARK_TYPE = "tpch"
-
-
-@pytest.fixture(scope="module")
-def tpch_queries():
-    queries = test_utils.get_queries(BENCHMARK_TYPE)
-    # Referencing the CTE defined "supplier_no" alias in the parent query causes issues on presto.
-    queries["Q15"] = queries["Q15"].replace(" AS supplier_no", "").replace("supplier_no", "l_suppkey")
-    return queries
 
 
 @pytest.mark.usefixtures("setup_and_teardown")

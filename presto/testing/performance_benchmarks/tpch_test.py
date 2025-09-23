@@ -12,15 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
+from .common_fixtures import *
 
-from . import test_utils
-from .common_fixtures import presto_cursor, setup_and_teardown
-from ..common.fixtures import tpcds_queries
-
-BENCHMARK_TYPE = "tpcds"
+BENCHMARK_TYPE = "tpch"
 
 
-@pytest.mark.usefixtures("setup_and_teardown")
-def test_query(presto_cursor, tpcds_queries, tpcds_query_id):
-    test_utils.execute_query_and_compare_results(presto_cursor, tpcds_queries, tpcds_query_id)
+def test_query(benchmark_query, tpch_query_id):
+    benchmark_query(tpch_query_id)
