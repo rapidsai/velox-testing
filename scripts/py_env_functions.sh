@@ -75,12 +75,12 @@ function init_python_virtual_env() {
 }
 
 function delete_python_virtual_env() {
-  if command -v deactivate &> /dev/null; then
-    echo "Deactivating venv environment"
-    deactivate
-  elif command -v conda &> /dev/null; then
+  if command -v conda &> /dev/null; then
     echo "Deactivating conda environment"
     conda deactivate
+  elif command -v deactivate &> /dev/null; then
+    echo "Deactivating venv environment"
+    deactivate
   fi
 
   echo "Deleting .venv directory"
