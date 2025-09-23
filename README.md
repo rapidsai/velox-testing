@@ -24,6 +24,8 @@ Specifically, the `velox-testing` and `velox` repositories must be checked out a
 ## `sccache` Usage
 `sccache` has been integrated to significantly accelerate builds by using a build server to share cached compiled objects during the build process. Currently it is only supported for Velox builds (not Presto.)
 
+The fork `rapidsai/sccache` is integrated and is currently configured for use with the `NVIDIA` GitHub organization.
+
 ### Setup and Usage
 First, set up authentication credentials:
 ```bash
