@@ -12,7 +12,7 @@ ENV EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS}
 ENV NUM_THREADS=${NUM_THREADS}
 
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && dnf install -y nsight-systems-cli-2025.5.1.121
-RUN RUN dnf install -y -q libnvjitlink-devel-12-8
+RUN dnf install -y -q libnvjitlink-devel-12-8
 
 RUN mkdir /runtime-libraries
 
