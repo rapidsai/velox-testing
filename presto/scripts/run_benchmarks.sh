@@ -57,70 +57,70 @@ EOF
 }
 
 function parse_args() {
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-	-h|--help)
-            print_help
-            exit 0
-            ;;
-	-c|--create-tables)
-	    CREATE_TABLES=true
-	    shift 1
-	    ;;
-	-p|--profile)
-	    CREATE_PROFILES=true
-	    shift 1
-	    ;;
-	-q|--queries)
-	    if [[ -n $2 ]]; then
-		QUERIES=$2
-		shift 2
-            else
-		echo_fail "Error: --queries requires a value"
-            fi
-	    ;;
-        -s|--schema)
-            if [[ -n $2 ]]; then
-		SCHEMA=$2
-		shift 2
-            else
-		echo_fail "Error: --schema requires a value"
-            fi
-	    ;;
-        -l|--command-line)
-            QUERY_VIA_CURL=""
-            shift 1
-            ;;
-        -d|--data-dir)
-            [ -z "$PRESTO_DATA_DIR" ] && echo_fail "PRESTO_DATA_DIR needs to be set to use --data-dir"
-            [ -z "$CREATE_TABLES" ] && echo_warning "--data-dir won't do anything unless --create-tables is specified"
-	    if [[ -n $2 ]]; then
-                # 'user_data' in the container is mapped to PRESTO_DATA_DIR environment variable externally.
-		DATA_DIR="/var/lib/presto/data/hive/data/user_data/$2"
-		shift 2
-            else
-		echo_fail "Error: --data-dirs requires a value"
-            fi
-	    ;;
-	-C|--coordinator)
-	    if [[ -n $2 ]]; then
-		COORD=$2
-		shift 2
-            else
-		echo_fail "Error: --coordinator requires a value"
-            fi
-	    ;;
-        -S|--skip-warmup)
-            SKIP_WARMUP=true
-            shift 1
-            ;;
-	*)
-            echo_error "Error: Unknown argument $1"
-            print_help
-            exit 1
-            ;;
-    esac
-  done
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+	    -h|--help)
+                print_help
+                exit 0
+                ;;
+	    -c|--create-tables)
+	        CREATE_TABLES=true
+	        shift 1
+	        ;;
+	    -p|--profile)
+	        CREATE_PROFILES=true
+	        shift 1
+	        ;;
+	    -q|--queries)
+	        if [[ -n $2 ]]; then
+		    QUERIES=$2
+		    shift 2
+                else
+		    echo_fail "Error: --queries requires a value"
+                fi
+	        ;;
+            -s|--schema)
+                if [[ -n $2 ]]; then
+		    SCHEMA=$2
+		    shift 2
+                else
+		    echo_fail "Error: --schema requires a value"
+                fi
+	        ;;
+            -l|--command-line)
+                QUERY_VIA_CURL=""
+                shift 1
+                ;;
+            -d|--data-dir)
+                [ -z "$PRESTO_DATA_DIR" ] && echo_fail "PRESTO_DATA_DIR needs to be set to use --data-dir"
+                [ -z "$CREATE_TABLES" ] && echo_warning "--data-dir won't do anything unless --create-tables is specified"
+	        if [[ -n $2 ]]; then
+                    # 'user_data' in the container is mapped to PRESTO_DATA_DIR environment variable externally.
+		    DATA_DIR="/var/lib/presto/data/hive/data/user_data/$2"
+		    shift 2
+                else
+		    echo_fail "Error: --data-dirs requires a value"
+                fi
+	        ;;
+	    -C|--coordinator)
+	        if [[ -n $2 ]]; then
+		    COORD=$2
+		    shift 2
+                else
+		    echo_fail "Error: --coordinator requires a value"
+                fi
+	        ;;
+            -S|--skip-warmup)
+                SKIP_WARMUP=true
+                shift 1
+                ;;
+	    *)
+                echo_error "Error: Unknown argument $1"
+                print_help
+                exit 1
+                ;;
+        esac
+    done
 }
 
 function detect_containers() {
