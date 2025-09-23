@@ -304,7 +304,7 @@ function run_queries() {
         end_time=$(date +%s.%N)
         [ -n "$FINAL_RESPONSE" ] && echo "$FINAL_RESPONSE" > "$OUTPUT_DIR/$query.out.json"
 	local execution_time=$(echo "$end_time - $start_time" | bc -l)
-        local output_json=$(filter_output "$query" "$execution_time" "$final_response")
+        local output_json=$(filter_output "$query" "$execution_time" "$FINAL_RESPONSE")
         echo "$output_json"
         echo "$output_json" > "$OUTPUT_DIR/$query.summary.json"
 
