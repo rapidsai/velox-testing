@@ -293,9 +293,9 @@ function run_queries() {
         local sql=$(get_query $query)
 
         echo "running query: $query"
-        FINAL_RESPONSE=""
         [ -z "$SKIP_WARMUP" ] && echo "running warmup query" && run_query "$sql" "$query"
         [ -z "$CREATE_PROFILES" ] || start_profile "$query"
+        FINAL_RESPONSE=""
         echo "executing sql: ($sql)"
 
         local end_time=""
