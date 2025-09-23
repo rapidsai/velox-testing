@@ -33,8 +33,8 @@ OPTIONS:
     -p, --port              Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried (default is {benchmark_type}_test).
-    -c, --create-schema     Create a new schema with --schema-name
-    -d, --data-dir          What directory (contained within presto/testing/integration_tests/data/) to get data from (default is value of {benchmark-type})
+    -f, --scale-factor      Overwrite the scale factor detection with an explicit value
+    -d, --data-dir-name     What directory (contained within PRESTO_DATA_DIR) to get data from (default is value of {benchmark-type})
 
 
 EXAMPLES:
@@ -125,18 +125,12 @@ parse_args() {
           exit 1
         fi
         ;;
-      -c|--create-schema)
+      -d|--data-dir-name)
         if [[ -n $2 ]]; then
-          CREATE_SCHEMA=true
-          shift
-        fi
-        ;;
-      -d|--data-dir)
-        if [[ -n $2 ]]; then
-          DATA_DIR=$2
+          DATA_DIR_NAME=$2
           shift 2
         else
-          echo "Error: --data-dir requires a value"
+          echo "Error: --data-dir-name requires a value"
           exit 1
         fi
         ;;
@@ -181,12 +175,17 @@ if [[ -n ${USER} ]]; then
   PYTEST_ARGS+=("--user ${USER}")
 fi
 
-if [[ -n ${CREATE_SCHEMA} ]]; then
-  PYTEST_ARGS+=("--create-schema")
+if [[ -n ${SCALE_FACTOR} ]]; then
+  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
 fi
 
-if [[ -n ${DATA_DIR} ]]; then
-  PYTEST_ARGS+=("--data-dir ${DATA_DIR}")
+if [[ -n ${DATA_DIR_NAME} ]]; then
+  if [[ -z ${PRESTO_DATA_DIR ]]; then
+    echo "Error: PRESTO_DATA_DIR must be set to the directory path that contains the benchmark data directories"
+    print_help
+    exit 1
+  fi
+  PYTEST_ARGS+=("--data-dir ${PRESTO_DATA_DIR}/${DATA_DIR_NAME}")
 fi
 
 if [[ -n ${SCHEMA_NAME} ]]; then
