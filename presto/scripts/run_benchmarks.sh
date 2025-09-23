@@ -13,10 +13,20 @@ SCHEMA="tpch_test"
 COORD="localhost:8080"
 CATALOG="hive"
 DATA_DIR="/var/lib/presto/data/hive/data/integration_test/tpch" # local to container.
+SKIP_WARMUP=""
 
 # --- Print error messages in red ---
 echo_error() {
     echo -e "\033[0;31m$*\033[0m" >&2
+}
+
+echo_fail() {
+    echo_error $1
+    exit 1
+}
+
+echo_warning() {
+    echo -e "\033[0;33mWARNING: $*\033[0m: " >&2
 }
 
 function print_help() {
@@ -37,6 +47,7 @@ OPTIONS:
                             This location is mapped in the containers to ${PRESTO_DATA_DIR}
     -s, --schema            Schema name for benchmark (default tpch_test).
     -C, --coordinator       Coordinator URL (default localhost:8080 - only used for curl runs).
+    -S, --skip-warmup       Skip warmup queries.
 
 EXAMPLES:
     $0 -c -q "1 2" -p
@@ -65,8 +76,7 @@ function parse_args() {
 		QUERIES=$2
 		shift 2
             else
-		echo "Error: --queries requires a value"
-		exit 1
+		echo_fail "Error: --queries requires a value"
             fi
 	    ;;
         -s|--schema)
@@ -74,8 +84,7 @@ function parse_args() {
 		SCHEMA=$2
 		shift 2
             else
-		echo "Error: --schema requires a value"
-		exit 1
+		echo_fail "Error: --schema requires a value"
             fi
 	    ;;
         -l|--command-line)
@@ -83,13 +92,14 @@ function parse_args() {
             shift 1
             ;;
         -d|--data-dir)
+            [ -z "$PRESTO_DATA_DIR" ] && echo_fail "PRESTO_DATA_DIR needs to be set to use --data-dir"
+            [ -z "$CREATE_TABLES" ] && echo_warning "--data-dir won't do anything unless --create-tables is specified"
 	    if [[ -n $2 ]]; then
                 # 'user_data' in the container is mapped to PRESTO_DATA_DIR environment variable externally.
 		DATA_DIR="/var/lib/presto/data/hive/data/user_data/$2"
 		shift 2
             else
-		echo "Error: --data-dirs requires a value"
-		exit 1
+		echo_fail "Error: --data-dirs requires a value"
             fi
 	    ;;
 	-C|--coordinator)
@@ -97,12 +107,15 @@ function parse_args() {
 		COORD=$2
 		shift 2
             else
-		echo "Error: --coordinator requires a value"
-		exit 1
+		echo_fail "Error: --coordinator requires a value"
             fi
 	    ;;
+        -S|--skip-warmup)
+            SKIP_WARMUP=true
+            shift 1
+            ;;
 	*)
-            echo "Error: Unknown argument $1"
+            echo_error "Error: Unknown argument $1"
             print_help
             exit 1
             ;;
@@ -117,15 +130,16 @@ function detect_containers() {
         WORKER="presto-native-worker-gpu"
     fi
     if echo "$images" | grep -q "presto-native-worker-cpu"; then
-        [[ -n $WORKER ]] && echo_error "mismatch in worker types" && exit 1
+        [[ -n $WORKER ]] && echo_fail "mismatch in worker types"
         COMPOSE_FILE="$BASE_DIR/presto/docker/docker-compose.native-cpu.yml"
         WORKER="presto-native-worker-cpu"
     fi
     if echo "$images" | grep -q "presto-java-worker"; then
-        [[ -n $WORKER ]] && echo_error "mismatch in worker types" && exit 1
+        [[ -n $WORKER ]] && echo_fail "mismatch in worker types"
         COMPOSE_FILE="$BASE_DIR/presto/docker/docker-compose.java.yml"
         WORKER="presto-java-worker"
     fi
+    [ -z $WORKER ] && echo_fail "No worker container running"
 }
 
 function start_profile() {
@@ -151,6 +165,7 @@ function get_query() {
     local sql=$(cat $BASE_DIR/presto/testing/integration_tests/queries/tpch/queries.json \
                     | jq ".Q${query}")
     sql="${sql:1:-1}" # remove quotes wrapping query.
+    #sql=$(echo "$sql" | sed "s/LIMIT .*//g") # removing limits
     # Q11 uses a constant that needs to be modified based on the SF of the data.
     # The value is calculated as (0.0001 / scale_factor)
     if [[ "$query" == "11" ]]; then
@@ -247,8 +262,7 @@ function create_tables() {
 	    local table_name="${BASH_REMATCH[1]}"
 	    drop_table="DROP TABLE IF EXISTS $table_name"
 	else
-	    echo "failed to parse schema files"
-	    exit 1
+	    echo_fail "failed to parse schema files"
 	fi
         presto_cli "$drop_table"
         local table_dir="$DATA_DIR/$table_name"
@@ -257,31 +271,38 @@ function create_tables() {
     done
 }
 
+function run_query() {
+    local sql=$1
+    local query=$2
+    if [[ -n $QUERY_VIA_CURL ]]; then
+        local response=$(curl -sS -X POST "http://${COORD}/v1/statement" \
+			      -H "X-Presto-Catalog: $CATALOG" \
+			      -H "X-Presto-Schema: $SCHEMA" \
+			      -H "X-Presto-User: tpch-benchmark" \
+			      --data "$sql")
+        FINAL_RESPONSE="$(process_response $response)"
+    else
+        docker compose -f $COMPOSE_FILE exec presto-cli presto-cli \
+               --server presto-coordinator:8080 --catalog $CATALOG \
+               --schema $SCHEMA --execute "$sql" > "$OUTPUT_DIR/$query.out"
+    fi
+}
+
 function run_queries() {
     for query in $QUERIES; do
         local sql=$(get_query $query)
 
+        echo "running query: $query"
+        FINAL_RESPONSE=""
+        [ -z "$SKIP_WARMUP" ] && echo "running warmup query" && run_query "$sql" "$query"
         [ -z "$CREATE_PROFILES" ] || start_profile "$query"
+        echo "executing sql: ($sql)"
 
-        echo "running $query: ($sql)"
-        local final_response=""
         local end_time=""
         local start_time=$(date +%s.%N)
-        if [[ -n $QUERY_VIA_CURL ]]; then
-	    local response=$(curl -sS -X POST "http://${COORD}/v1/statement" \
-			          -H "X-Presto-Catalog: $CATALOG" \
-			          -H "X-Presto-Schema: $SCHEMA" \
-			          -H "X-Presto-User: tpch-benchmark" \
-			          --data "$sql")
-            final_response="$(process_response $response)"
-            end_time=$(date +%s.%N)
-            echo "$final_response" > "$OUTPUT_DIR/$query.out.json"
-        else
-            docker compose -f $COMPOSE_FILE exec presto-cli presto-cli \
-                   --server presto-coordinator:8080 --catalog $CATALOG \
-                   --schema $SCHEMA --execute "$sql" > "$OUTPUT_DIR/$query.out"
-            end_time=$(date +%s.%N)
-        fi
+        run_query "$sql" "$query"
+        end_time=$(date +%s.%N)
+        [ -n "$FINAL_RESPONSE" ] && echo "$FINAL_RESPONSE" > "$OUTPUT_DIR/$query.out.json"
 	local execution_time=$(echo "$end_time - $start_time" | bc -l)
         local output_json=$(filter_output "$query" "$execution_time" "$final_response")
         echo "$output_json"
