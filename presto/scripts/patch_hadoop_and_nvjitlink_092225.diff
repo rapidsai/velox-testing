@@ -1,0 +1,38 @@
+diff --git a/scripts/setup-centos-adapters.sh b/scripts/setup-centos-adapters.sh
+index a58b27af6..206562dcc 100755
+--- a/scripts/setup-centos-adapters.sh
++++ b/scripts/setup-centos-adapters.sh
+@@ -58,6 +58,7 @@ function install_cuda {
+     cuda-minimal-build-"$dashed" \
+     cuda-nvrtc-devel-"$dashed" \
+     libcufile-devel-"$dashed" \
++    libnvjitlink-devel-"$dashed" \
+     numactl-libs
+ }
+ 
+diff --git a/scripts/setup-common.sh b/scripts/setup-common.sh
+index 594616649..15049326f 100755
+--- a/scripts/setup-common.sh
++++ b/scripts/setup-common.sh
+@@ -393,7 +393,7 @@ function install_azure-storage-sdk-cpp {
+ 
+ function install_hdfs_deps {
+   # Dependencies for Hadoop testing
+-  wget_and_untar https://archive.apache.org/dist/hadoop/common/hadoop-"${HADOOP_VERSION}"/hadoop-"${HADOOP_VERSION}".tar.gz hadoop
++  wget_and_untar https://dlcdn.apache.org/dist/hadoop/common/hadoop-"${HADOOP_VERSION}"/hadoop-"${HADOOP_VERSION}".tar.gz hadoop
+   cp -a "${DEPENDENCY_DIR}"/hadoop "$INSTALL_PREFIX"
+   wget "${WGET_OPTS[@]}" -P "$INSTALL_PREFIX"/hadoop/share/hadoop/common/lib/ https://repo1.maven.org/maven2/junit/junit/4.11/junit-4.11.jar
+ }
+diff --git a/scripts/setup-versions.sh b/scripts/setup-versions.sh
+index 43428a7f4..bb761b100 100755
+--- a/scripts/setup-versions.sh
++++ b/scripts/setup-versions.sh
+@@ -49,7 +49,7 @@ GRPC_VERSION="v1.48.1"
+ CRC32_VERSION="1.1.2"
+ NLOHMAN_JSON_VERSION="v3.11.3"
+ GOOGLE_CLOUD_CPP_VERSION="v2.22.0"
+-HADOOP_VERSION="3.3.0"
++HADOOP_VERSION="3.3.6"
+ AZURE_SDK_VERSION="12.8.0"
+ MINIO_VERSION="2022-05-26T05-48-41Z"
+ MINIO_BINARY_NAME="minio-2022-05-26"

@@ -2,7 +2,10 @@
 
 set -e
 
-PATCH_FILE_PATH=$(readlink -f copy_arrow_patch.patch)
+# patch Velox submodule for deps container build success
+pushd ../../../presto
+git apply ../velox-testing/presto/scripts/patch_hadoop_and_nvjitlink_092225.diff || true
+popd
 
 pushd ../../../presto/presto-native-execution
 make submodules
