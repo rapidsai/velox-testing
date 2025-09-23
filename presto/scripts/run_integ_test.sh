@@ -180,7 +180,7 @@ if [[ -n ${SCALE_FACTOR} ]]; then
 fi
 
 if [[ -n ${DATA_DIR_NAME} ]]; then
-  if [[ -z ${PRESTO_DATA_DIR ]]; then
+  if [[ -z ${PRESTO_DATA_DIR} ]]; then
     echo "Error: PRESTO_DATA_DIR must be set to the directory path that contains the benchmark data directories"
     print_help
     exit 1

@@ -15,6 +15,7 @@
 import prestodb
 import pytest
 import re
+import os
 
 from . import create_hive_tables
 from . import test_utils
@@ -38,32 +39,15 @@ def get_scale_factor(request, presto_cursor):
         return scale_factor
 
     # If no SF was provided, then we need to detect one from the data.
-    data_dir = request.config.getoption("--data-dir")
     schema_name = request.config.getoption("--schema-name")
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     meta_file = ""
-    if bool(data_dir):
-        # If a data directory is specicied, get the scale factor from the metadata file there.
-        meta_file = test_utils.get_abs_file_path(f"{data_dir}/metadata.json")
-    elif bool(schema_name):
+    if bool(schema_name):
         # If a schema name is specified, get the scale factor from the metadata file located
         # where the table are fetching data from.
         table = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchone()[0]
-        location = get_table_external_location(schema_name, table)
+        location = get_table_external_location(schema_name, table, presto_cursor)
         meta_file = test_utils.get_abs_file_path(f"{location}/../metadata.json")
-        #create_table_text = presto_cursor.execute(f"SHOW CREATE TABLE hive.{schema_name}.{table}").fetchone()
-        #test_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/integration_test/(.*)/[^/]*'"
-        #user_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/user_data/(.*)/[^/]*'"
-        #for line in create_table_text:
-        #    test_match = re.search(test_pattern, line)
-        #    if test_match:
-        #        meta_file = test_utils.get_abs_file_path(f"data/{test_match.group(1)}/metadata.json")
-        #        break
-        #    else:
-        #        user_match = re.search(user_pattern, line)
-        #        if user_match:
-        #            meta_file = test_utils.get_abs_file_path(f"{data_dir}/{user_match.group(1)}/metadata.json")
-        #            break
     else:
         # default assumed location for metadata file.
         meta_file = test_utils.get_abs_file_path(f"data/{benchmark_type}/metadata.json")
@@ -71,20 +55,7 @@ def get_scale_factor(request, presto_cursor):
         raise pytest.UsageError("Could not find metadata file in data repository")
     return test_utils.get_scale_factor_from_file(meta_file)
 
-def validate_options(request):
-    benchmark_type = request.node.obj.BENCHMARK_TYPE
-    data_dir = request.config.getoption("--data-dir")
-
-    if bool(data_dir) and not test_utils.dir_exists(test_utils.get_abs_file_path(f"{data_dir}")):
-        raise pytest.UsageError("--data-dir must point to a valid directory")
-
-    if not bool(data_dir): # default data directory
-        data_dir = benchmark_type
-        abs_data_dir = test_utils.get_abs_file_path(f"data/{data_dir}")
-        if not test_utils.dir_exists(abs_data_dir):
-            raise pytest.UsageError("default data directory {abs_data_dir} does not exist and --data-dir was not specified")
-
-def get_table_external_location(schema_name, table):
+def get_table_external_location(schema_name, table, presto_cursor):
     create_table_text = presto_cursor.execute(f"SHOW CREATE TABLE hive.{schema_name}.{table}").fetchone()
     test_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/integration_test/(.*)'"
     user_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/user_data/(.*)'"
@@ -95,17 +66,13 @@ def get_table_external_location(schema_name, table):
         else:
             user_match = re.search(user_pattern, line)
             if user_match:
-                return f"{data_dir}/{user_match.group(1)}"
+                return f"{os.environ['PRESTO_DATA_DIR']}/{user_match.group(1)}"
 
 @pytest.fixture(scope="module")
 def setup_and_teardown(request, presto_cursor):
-    validate_options(request)
-
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     has_schema_name = bool(request.config.getoption("--schema-name"))
     schema_name = request.config.getoption("--schema-name") if has_schema_name else f"{benchmark_type}_test"
-    data_dir = request.config.getoption("--data-dir")
-    data_dir = data_dir if bool(data_dir) else f"data/{benchmark_type}"
 
     should_create_tables = not has_schema_name
     if should_create_tables:
@@ -116,23 +83,8 @@ def setup_and_teardown(request, presto_cursor):
     # duckdb will need to know the name of each table in a hive schema, as well as the path to the parquet directory they are based on.
     tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
     for table, in tables:
-        location = get_table_external_location(schema_name, table)
+        location = get_table_external_location(schema_name, table, presto_cursor)
         test_utils.create_duckdb_table(table, location)
-
-        #create_table_text = presto_cursor.execute(f"SHOW CREATE TABLE hive.{schema_name}.{table}").fetchone()
-        # The data path in presto will be local to the container
-        # If the data are under integration_test, then they are mapped to a known path outside the container.
-        # If the data are user_data, then they will be mapped relative to the PRESTO_DATA_DIR environment variable.
-        #test_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/integration_test/(.*)'"
-        #user_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/user_data/(.*)'"
-        #for line in create_table_text:
-        #    test_match = re.search(test_pattern, line)
-        #    if test_match:
-        #        test_utils.create_duckdb_table(table, f"data/{test_match.group(1)}")
-        #    else:
-        #        user_match = re.search(user_pattern, line)
-        #        if user_match:
-        #            test_utils.create_duckdb_table(table, f"{data_dir}/{user_match.group(1)}")
 
     yield
 

@@ -19,6 +19,7 @@ import prestodb
 
 def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directory):
     drop_schema(presto_cursor, schema_name)
+    print(f"CREATE SCHEMA hive.{schema_name}")
     presto_cursor.execute(f"CREATE SCHEMA hive.{schema_name}")
 
     schemas = get_table_schemas(schemas_dir_path)
