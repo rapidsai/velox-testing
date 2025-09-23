@@ -37,10 +37,11 @@ def get_table_schema(benchmark_type, table_name, schema_name, convert_decimals_t
         f"{' ' * 4}{get_column_definition(column_metadata, convert_decimals_to_floats)}"
         for column_metadata in column_metadata_rows
     ]
+    columns_text = ",\n".join(columns_ddl_list)
     schema_var = "{schema}"
-    schema = (f"CREATE TABLE hive.{schema_var}.{table_name} "
-              f"(\n{",\n".join(columns_ddl_list)}\n) "
-              f"WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{{file_path}}')")
+    schema = f"CREATE TABLE hive.{schema_var}.{table_name} \
+    (\n{columns_text}\n) \
+    WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{{file_path}}')"
     return schema
 
 
