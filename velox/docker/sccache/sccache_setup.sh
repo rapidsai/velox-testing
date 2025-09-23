@@ -18,19 +18,6 @@ mkdir -p ~/.config/sccache ~/.aws
 # Install AWS credentials
 cp /sccache_auth/aws_credentials ~/.aws/credentials
 
-# Verify AWS credentials file exists and has content
-if [[ ! -s ~/.aws/credentials ]]; then
-    echo "ERROR: AWS credentials file is empty or invalid"
-    exit 1
-fi
-
-echo "AWS credentials file preview:"
-head -3 ~/.aws/credentials
-
-# Set AWS environment variables to ensure sccache uses the credentials file
-export AWS_SHARED_CREDENTIALS_FILE=~/.aws/credentials
-export AWS_PROFILE=default
-
 # Read GitHub token
 GITHUB_TOKEN=$(cat /sccache_auth/github_token | tr -d '\n\r ')
 

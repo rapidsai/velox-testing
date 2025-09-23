@@ -14,6 +14,15 @@ LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR=""
 
+# Cleanup function to remove copied sccache auth files
+cleanup_sccache_auth() {
+    if [[ "$ENABLE_SCCACHE" == true && -d "../docker/sccache/sccache_auth/" ]]; then
+        rm -f ../docker/sccache/sccache_auth/github_token ../docker/sccache/sccache_auth/aws_credentials
+    fi
+}
+
+trap cleanup_sccache_auth EXIT SIGTERM SIGINT SIGQUIT
+
 print_help() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -33,19 +42,6 @@ Options:
   --sccache-auth-dir DIR      Directory containing sccache authentication files (github_token, aws_credentials).
   -h, --help                  Show this help message and exit.
 
-sccache Usage:
-  The --sccache option enables distributed compilation caching using the RAPIDS sccache infrastructure.
-  
-  Setup authentication first:
-    ./setup_sccache_auth.sh [output_dir]
-  
-  Then use with build:
-    --sccache --sccache-auth-dir ~/.sccache-auth
-  
-  Or set environment variable:
-    export SCCACHE_AUTH_DIR=~/.sccache-auth
-    ./build_velox.sh --sccache
-
 Examples:
   $(basename "$0") --all-cuda-archs --no-cache
   $(basename "$0") --plain
@@ -57,9 +53,7 @@ Examples:
   $(basename "$0") --log mybuild.log --all-cuda-archs
   $(basename "$0") -j 8 --gpu
   $(basename "$0") --num-threads 16 --no-cache
-  $(basename "$0") --sccache                                    # Local cache only
-  $(basename "$0") --sccache --sccache-github-token ghp_xxx  # Full distributed compilation
-  $(basename "$0") --sccache --sccache-show-stats            # Build with sccache and show stats
+  $(basename "$0") --sccache --sccache-auth-dir /auth_dir/      # Build with sccache and use auth files in /auth_dir/
 
 By default, the script builds for the Native CUDA architecture (detected on host), uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
 EOF

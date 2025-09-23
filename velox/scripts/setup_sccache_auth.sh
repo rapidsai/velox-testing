@@ -33,10 +33,12 @@ if [[ -f "$OUTPUT_DIR/github_token" || -f "$OUTPUT_DIR/aws_credentials" ]]; then
   rm -f "$OUTPUT_DIR/github_token" "$OUTPUT_DIR/aws_credentials"
 fi
 
+# Use Docker BuildKit to ensure hereto RUN commands are available
+export DOCKER_BUILDKIT=1
+
 # Build the authentication container
 echo -e "${YELLOW}Building sccache authentication container...${NC}"
-cd "$(dirname "$0")/../docker"
-docker build -f sccache_auth.dockerfile -t sccache-auth .
+docker build -f ../docker/sccache_auth.dockerfile -t sccache-auth .
 
 echo -e "${GREEN}Authentication container built successfully${NC}"
 echo
