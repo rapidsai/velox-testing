@@ -19,11 +19,11 @@ set -euo pipefail
 source "config.sh"
 source "utils.sh"
 
-# Auto-detect which build directory exists
-BUILD_DIR_NAME=$(detect_build_dir $COMPOSE_FILE $CONTAINER_NAME)
+# Get BUILD_TYPE from container environment
+BUILD_TYPE=$(get_build_type_from_container "$COMPOSE_FILE" "$CONTAINER_NAME")
 
 # expected output directory
-EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_DIR_NAME}"
+EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
 EXPECTED_OUTPUT_LIB_DIR="${EXPECTED_OUTPUT_DIR}/lib"
 
 print_help() {

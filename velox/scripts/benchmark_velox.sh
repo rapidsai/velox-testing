@@ -213,7 +213,7 @@ check_velox_build() {
   fi
   
   # Check if the build output exists in the container
-  EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_DIR_NAME}"
+  EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
   
   if ! run_in_container "test -d ${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
     echo "ERROR: Velox build output not found in container at ${EXPECTED_OUTPUT_DIR}" >&2
@@ -303,8 +303,8 @@ echo ""
 # Create environment file for Docker Compose
 create_docker_env_file
 
-# Auto-detect which build directory exists
-export BUILD_DIR_NAME=$(detect_build_dir_with_run_in_container "run_in_container")
+# Get BUILD_TYPE from container environment
+export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
 
 # Source benchmark-specific libraries
 source "../benchmarks/tpch.sh"

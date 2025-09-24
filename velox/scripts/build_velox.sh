@@ -23,7 +23,7 @@ NO_CACHE=false
 PLAIN_OUTPUT=false
 BUILD_WITH_VELOX_ENABLE_CUDF="ON"
 VELOX_ENABLE_BENCHMARKS="ON"
-BUILD_TYPE="Release"
+BUILD_TYPE="release"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
@@ -43,7 +43,7 @@ Options:
   --gpu                       Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
   -j|--num-threads            NUM Number of threads to use for building (default: 3/4 of CPU cores).
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
-  --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (default: Release).
+  --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
   -h, --help                  Show this help message and exit.
 
 Examples:
@@ -58,7 +58,8 @@ Examples:
   $(basename "$0") -j 8 --gpu
   $(basename "$0") --num-threads 16 --no-cache
   $(basename "$0") --build-type Debug
-  $(basename "$0") --build-type RelWithDebInfo --gpu
+  $(basename "$0") --build-type debug --gpu
+  $(basename "$0") --build-type RELWITHDEBINFO --gpu
 
 By default, the script builds for the Native CUDA architecture (detected on host), uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
 EOF
@@ -128,18 +129,20 @@ parse_args() {
         ;;
       --build-type)
         if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
-          case "${2}" in
-            "Release"|"Debug"|"RelWithDebInfo")
-              BUILD_TYPE="$2"
+          # Convert to lowercase first, then validate
+          local build_type_lower="${2@L}"
+          case "${build_type_lower}" in
+            "release"|"debug"|"relwithdebinfo")
+              BUILD_TYPE="${build_type_lower}"
               shift 2
               ;;
             *)
-              echo "ERROR: --build-type must be one of: Release, Debug, RelWithDebInfo (got: $2)" >&2
+              echo "ERROR: --build-type must be one of: Release, Debug, RelWithDebInfo (case insensitive, got: $2)" >&2
               exit 1
               ;;
           esac
         else
-          echo "ERROR: --build-type requires a value: Release, Debug, or RelWithDebInfo" >&2
+          echo "ERROR: --build-type requires a value: Release, Debug, or RelWithDebInfo (case insensitive)" >&2
           exit 1
         fi
         ;;
@@ -195,20 +198,11 @@ else
   # Only detect native architecture if not building for all architectures
   detect_cuda_architecture
 fi
-# Determine build directory name based on build type
-case "${BUILD_TYPE}" in
-  "Debug") BUILD_DIR_NAME="debug" ;;
-  "RelWithDebInfo") BUILD_DIR_NAME="relwithdebinfo" ;;
-  "Release") BUILD_DIR_NAME="release" ;;
-  *) BUILD_DIR_NAME="release" ;;
-esac
-
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_WITH_VELOX_ENABLE_CUDF="${BUILD_WITH_VELOX_ENABLE_CUDF}")
 DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
-DOCKER_BUILD_OPTS+=(--build-arg BUILD_DIR_NAME="${BUILD_DIR_NAME}")
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
@@ -221,7 +215,7 @@ fi
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   # Update EXPECTED_OUTPUT_DIR to use the correct build directory
-  EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_DIR_NAME}"
+  EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
   
   if docker compose  -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
     echo "  Built velox-adapters (${BUILD_TYPE} build). View logs with:"
@@ -230,7 +224,7 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
     echo "  The Velox build output is located in the container at:"
     echo "    ${EXPECTED_OUTPUT_DIR}"
     echo ""
-    echo "  Build directory name: ${BUILD_DIR_NAME}"
+    echo "  Build type: ${BUILD_TYPE}"
     echo "  Downstream tasks will auto-detect this build directory."
     echo ""
     echo "  To access the build output, you can run:"
