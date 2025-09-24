@@ -76,8 +76,13 @@ function init_python_virtual_env() {
 
 function delete_python_virtual_env() {
   if command -v conda &> /dev/null; then
-    echo "Deactivating conda environment"
-    conda deactivate
+    # We know conda is installed, but don't know if the environment has been initialized.
+    # Check for that here before attempting a deactivation or the failure will terminate
+    # scripts due to the "-e" option.
+    if [[ "$CONDA_SHLVL" -gt "0" ]]; then
+        echo "Deactivating conda environment"
+        conda deactivate
+    fi
   elif command -v deactivate &> /dev/null; then
     echo "Deactivating venv environment"
     deactivate
