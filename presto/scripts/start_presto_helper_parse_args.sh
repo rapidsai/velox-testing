@@ -44,48 +44,25 @@ EOF
 
 NUM_THREADS=$(($(nproc) / 2))
 
-parse_args() {
+source ../../scripts/helper_functions.sh
+declare -A OPTION_MAP=( ["-b"]="--build-target" ["-j"]="--num-threads" )
+make_options "OPTION_MAP"
+
+custom_parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
-      -h|--help)
-        print_help
-        exit 0
-        ;;
-      -n|--no-cache)
-        SKIP_CACHE_ARG="--no-cache"
-        shift
-        ;;
-      -b|--build)
-        if [[ -n $2 ]]; then
-          BUILD_TARGET=$2
-          shift 2
-        else
-          echo "Error: --build requires a value"
-          exit 1
-        fi
-        ;;
-      -j|--num-threads)
-        if [[ -n $2 ]]; then
-          NUM_THREADS=$2
-          shift 2
-        else
-          echo "Error: --num-threads requires a value"
-          exit 1
-        fi
-        ;;
-      *)
-        echo "Error: Unknown argument $1"
-        print_help
-        exit 1
-        ;;
+      -h|--help) print_help; exit 0 ;;
+      -n|--no-cache) SKIP_CACHE_ARG="--no-cache"; shift ;;
+      $OPTIONS) parse_option $1 $2; shift 2 ;;
+      *) echo "Error: Unknown argument $1"; print_help; exit 1 ;;
     esac
   done
 }
 
-parse_args "$@"
+custom_parse_args "$@"
 
 if [[ -n ${BUILD_TARGET} && ! ${BUILD_TARGET} =~ ^(coordinator|c|worker|w|all|a)$ ]]; then
-  echo "Error: invalid --build value."
+  echo "Error: invalid --build-target value."
   print_help
   exit 1
 fi

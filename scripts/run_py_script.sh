@@ -21,7 +21,7 @@ print_help() {
 
 Usage: $0 [OPTIONS]
 
-This script sets up a new python virtual environment, installs dependencies, 
+This script sets up a new python virtual environment, installs dependencies,
 runs the given python script, and then deletes the created virtual environment.
 
 OPTIONS:
@@ -39,51 +39,33 @@ EXAMPLES:
 EOF
 }
 
+source ./helper_functions.sh
+
+declare -A OPTION_MAP=( ["-p"]="--python-script-path" ["-r"]="--requirements-file-path" )
+make_options "OPTION_MAP"
+
 SCRIPT_ARGS=()
 
-parse_args() {
+custom_parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
-      -h|--help)
-        print_help
-        exit 0
-        ;;
-      -p|--python-script-path)
-        if [[ -n $2 ]]; then
-          SCRIPT_PATH=$2
-          shift 2
-        else
-          echo "Error: --python-script-path requires a value"
-          exit 1
-        fi
-        ;;
-      -r|--requirements-file-path)
-        if [[ -n $2 ]]; then
-          REQUIREMENTS_FILE_PATH=$2
-          shift 2
-        else
-          echo "Error: --requirements-file-path requires a value"
-          exit 1
-        fi
-        ;;
-      *)
-        SCRIPT_ARGS+=($1)
-        shift
-        ;;
+      -h|--help) print_help; exit 0;;
+      $OPTIONS) parse_option $1 $2; shift 2;;
+      *) SCRIPT_ARGS+=($1); shift 1;;
     esac
   done
 }
 
-parse_args "$@"
+custom_parse_args "$@"
 
-if [[ -z $SCRIPT_PATH ]]; then
+if [[ -z $PYTHON_SCRIPT_PATH ]]; then
   echo "Error: --python-script-path must be set"
   print_help
   exit 1
 fi
 
 if [[ -z $REQUIREMENTS_FILE_PATH ]]; then
-  REQUIREMENTS_FILE_PATH="$(dirname $SCRIPT_PATH)/requirements.txt"
+  REQUIREMENTS_FILE_PATH="$(dirname $PYTHON_SCRIPT_PATH)/requirements.txt"
 fi
 
 source "$(dirname $(readlink -f $0))/py_env_functions.sh"
@@ -96,6 +78,6 @@ init_python_virtual_env
 echo "Running pip install for requirements file: $REQUIREMENTS_FILE_PATH"
 pip install -q -r $REQUIREMENTS_FILE_PATH
 
-echo -e "\nRunning python script with args:\n$SCRIPT_PATH ${SCRIPT_ARGS[@]}\n"
-python $SCRIPT_PATH ${SCRIPT_ARGS[@]}
+echo -e "\nRunning python script with args:\n$PYTHON_SCRIPT_PATH ${SCRIPT_ARGS[@]}\n"
+python $PYTHON_SCRIPT_PATH ${SCRIPT_ARGS[@]}
 echo "Finished running python script"
