@@ -14,6 +14,7 @@ COORD="localhost:8080"
 CATALOG="hive"
 DATA_DIR="/var/lib/presto/data/hive/data/integration_test/tpch" # local to container.
 SKIP_WARMUP=""
+ITERATIONS=1
 
 # --- Print error messages in red ---
 echo_error() {
@@ -38,8 +39,8 @@ This script runs tpch benchmarks
 
 OPTIONS:
     -h, --help              Show this help message.
-    -c, --create-tables	    Create the tpch tables.
-    -p, --profile	    Profile queries with nsys.
+    -c, --create-tables     Create the tpch tables.
+    -p, --profile           Profile queries with nsys.
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
     -l, --command-line      Run queries via presto-cli instead of curl.
@@ -48,6 +49,7 @@ OPTIONS:
     -s, --schema            Schema name for benchmark (default tpch_test).
     -C, --coordinator       Coordinator URL (default localhost:8080 - only used for curl runs).
     -S, --skip-warmup       Skip warmup queries.
+    -i, --iterations        Number of iterations to run for each query (default 5).
 
 EXAMPLES:
     $0 -c -q "1 2" -p
@@ -114,6 +116,14 @@ function parse_args() {
                 SKIP_WARMUP=true
                 shift 1
                 ;;
+            -i|--iterations)
+                if [[ -n $2 ]]; then
+                    ITERATIONS=$2
+                    shift 2
+                else
+                    echo_fail "Error: --iterations requires a value"
+                fi
+                ;;
             *)
                 echo_error "Error: Unknown argument $1"
                 print_help
@@ -138,6 +148,7 @@ function detect_containers() {
         [[ -n $WORKER ]] && echo_fail "mismatch in worker types"
         COMPOSE_FILE="$BASE_DIR/presto/docker/docker-compose.java.yml"
         WORKER="presto-java-worker"
+        [ -n "$CREATE_PROFILES" ] && echo_fail "Creating profiles is not currentlysupported with java worker"
     fi
     [ -z $WORKER ] && echo_fail "No worker container running"
 }
@@ -225,7 +236,7 @@ function filter_output() {
         local cpu_time_ms=$(echo "$stats" | jq -r '.cpuTimeMillis // 0')
         local wall_time_ms=$(echo "$stats" | jq -r '.wallTimeMillis // 0')
         local elapsed_time_ms=$(echo "$stats" | jq -r '.elapsedTimeMillis // 0')
-        jq -C -n \
+        jq -n \
            --arg query "$query" \
            --arg execution_time "$execution_time" \
            --arg processed_rows "$processed_rows" \
@@ -295,20 +306,40 @@ function run_queries() {
         echo "running query: $query"
         [ -z "$SKIP_WARMUP" ] && echo "running warmup query" && run_query "$sql" "$query"
         [ -z "$CREATE_PROFILES" ] || start_profile "$query"
-        FINAL_RESPONSE=""
         echo "executing sql: ($sql)"
 
-        local end_time=""
-        local start_time=$(date +%s.%N)
-        run_query "$sql" "$query"
-        end_time=$(date +%s.%N)
-        [ -n "$FINAL_RESPONSE" ] && echo "$FINAL_RESPONSE" > "$OUTPUT_DIR/$query.out.json"
-	local execution_time=$(echo "$end_time - $start_time" | bc -l)
-        local output_json=$(filter_output "$query" "$execution_time" "$FINAL_RESPONSE")
-        echo "$output_json"
-        echo "$output_json" > "$OUTPUT_DIR/$query.summary.json"
-
+        # Run query multiple times and collect outputs
+        local -a run_outputs=()
+        for i in $(seq 1 $ITERATIONS); do
+            echo "running iteration $i"
+            FINAL_RESPONSE=""
+            local start_time=$(date +%s.%N)
+            run_query "$sql" "$query"
+            local end_time=$(date +%s.%N)
+            [ -n "$FINAL_RESPONSE" ] && echo "$FINAL_RESPONSE" > "$OUTPUT_DIR/Q$query.I$i.out.json"
+            local execution_time=$(echo "$end_time - $start_time" | bc -l)
+            local output_json=$(filter_output "$query" "$execution_time" "$FINAL_RESPONSE")
+            run_outputs+=("$output_json")
+            echo "$output_json" > "$OUTPUT_DIR/Q$query.I$i.summary.json"
+        done
         [ -z "$CREATE_PROFILES" ] || stop_profile
+
+        # Compute and write averages across the iterations
+        local avg_json=$(printf '%s
+' "${run_outputs[@]}" | jq -s '
+            def avg: (length) as $n | if $n == 0 then null else (add / $n) end;
+            {
+                query_number: (last | .query_number),
+                repeats: (length),
+                avg_execution_time_seconds: ([ .[] | (.curl_execution_time_seconds // .execution_time_seconds) ] | avg),
+                avg_processed_rows: ([ .[] | .processed_rows ] | map(select(. != null)) | avg),
+                avg_processed_bytes: ([ .[] | .processed_bytes ] | map(select(. != null)) | avg),
+                avg_cpu_time_ms: ([ .[] | .cpu_time_ms ] | map(select(. != null)) | avg),
+                avg_wall_time_ms: ([ .[] | .wall_time_ms ] | map(select(. != null)) | avg),
+                avg_elapsed_time_ms: ([ .[] | .elapsed_time_ms ] | map(select(. != null)) | avg)
+            }')
+        echo "$avg_json" > "$OUTPUT_DIR/Q$query.summary.avg.json"
+        echo "$avg_json" | jq -C .
     done
 }
 
