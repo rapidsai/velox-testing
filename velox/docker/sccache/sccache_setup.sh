@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 
 # Check for required auth files
 if [[ ! -f /sccache_auth/github_token ]]; then
