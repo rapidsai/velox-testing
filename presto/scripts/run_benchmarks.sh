@@ -254,7 +254,7 @@ function filter_output() {
 		elapsed_time_ms: ($elapsed_time_ms | tonumber)
            }'
     else
-        jq -C -n \
+        jq -n \
            --arg query "$query" \
            --arg execution_time "$execution_time" \
            '{
@@ -280,6 +280,38 @@ function create_tables() {
         local create_table=$(cat $sql_file | sed "s+{file_path}+$table_dir+g" | sed "s+tpch_test+$SCHEMA+g")
         presto_cli "$create_table"
     done
+}
+
+# Compute and write averages across the iterations
+function compute_averages() {
+    local using_curl=$1
+    local avg_json=""
+    if [[ -n "$using_curl" ]]; then
+        avg_json=$(printf '%s
+        ' "${run_outputs[@]}" | jq -s '
+          def avg: (length) as $n | if $n == 0 then null else (add / $n) end;
+          {
+                query_number: (last | .query_number),
+                repeats: (length),
+                avg_execution_time_seconds: ([ .[] | (.curl_execution_time_seconds // .execution_time_seconds) ] | avg),
+                avg_processed_rows: ([ .[] | .processed_rows ] | map(select(. != null)) | avg),
+                avg_processed_bytes: ([ .[] | .processed_bytes ] | map(select(. != null)) | avg),
+                avg_cpu_time_ms: ([ .[] | .cpu_time_ms ] | map(select(. != null)) | avg),
+                avg_wall_time_ms: ([ .[] | .wall_time_ms ] | map(select(. != null)) | avg),
+                avg_elapsed_time_ms: ([ .[] | .elapsed_time_ms ] | map(select(. != null)) | avg)
+          }')
+    else
+        avg_json=$(printf '%s
+        ' "${run_outputs[@]}" | jq -s '
+        def avg: (length) as $n | if $n == 0 then null else (add / $n) end;
+        {
+                query_number: (last | .query_number),
+                repeats: (length),
+                avg_execution_time_seconds: ([ .[] | (.curl_execution_time_seconds // .execution_time_seconds) ] | avg)
+        }')
+    fi
+    echo "$avg_json" > "$OUTPUT_DIR/Q$query.summary.avg.json"
+    echo "$avg_json" | jq -C .
 }
 
 function run_query() {
@@ -324,22 +356,7 @@ function run_queries() {
         done
         [ -z "$CREATE_PROFILES" ] || stop_profile
 
-        # Compute and write averages across the iterations
-        local avg_json=$(printf '%s
-' "${run_outputs[@]}" | jq -s '
-            def avg: (length) as $n | if $n == 0 then null else (add / $n) end;
-            {
-                query_number: (last | .query_number),
-                repeats: (length),
-                avg_execution_time_seconds: ([ .[] | (.curl_execution_time_seconds // .execution_time_seconds) ] | avg),
-                avg_processed_rows: ([ .[] | .processed_rows ] | map(select(. != null)) | avg),
-                avg_processed_bytes: ([ .[] | .processed_bytes ] | map(select(. != null)) | avg),
-                avg_cpu_time_ms: ([ .[] | .cpu_time_ms ] | map(select(. != null)) | avg),
-                avg_wall_time_ms: ([ .[] | .wall_time_ms ] | map(select(. != null)) | avg),
-                avg_elapsed_time_ms: ([ .[] | .elapsed_time_ms ] | map(select(. != null)) | avg)
-            }')
-        echo "$avg_json" > "$OUTPUT_DIR/Q$query.summary.avg.json"
-        echo "$avg_json" | jq -C .
+        compute_averages "$FINAL_RESPONSE"
     done
 }
 
