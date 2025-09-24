@@ -78,6 +78,7 @@ parse_args() {
         ;;
       --build-type)
         if [[ -n $2 ]]; then
+          # Convert value to lowercase using the "L" transformation operator.
           BUILD_TYPE=${2@L}
           shift 2
         else
