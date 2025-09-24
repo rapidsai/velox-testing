@@ -6,21 +6,20 @@ on:
       repository: &repository
         description: 'Velox repository'
         type: string
-        required: false
+        required: true
         default: 'facebookincubator/velox'
       velox_commit: &velox_commit
         description: 'Velox commit SHA or branch'
         type: string
-        required: false
+        required: true
         default: 'main'
       benchmark_type:
         description: 'Benchmark type'
         type: choice
-        required: false
+        required: true
         default: 'tpch'
         options:
           - tpch
-          - tpcds
 
   workflow_call:
     inputs:
@@ -36,8 +35,13 @@ jobs:
   velox-benchmark:
     runs-on: linux-amd64-gpu-l4-latest-1
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
       - name: Setup Velox Testing and Velox
-        uses: ./.github/parts/velox-setup
+        uses: ./velox-testing/.github/actions/velox-setup
         with:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
@@ -54,17 +58,11 @@ jobs:
           name: velox_gpu_build_log
           path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_gpu.log
 
-      - name: Generate ${{ inputs.benchmark_type }} Benchmark Data
-        run: |
-          pushd ${{ github.workspace }}/velox-testing/presto/testing/integration_tests/scripts
-          ./generate_test_files.sh -b ${{ inputs.benchmark_type }} -s 1
-          popd
-
       - name: Run ${{ inputs.benchmark_type }} Velox GPU Benchmarks
         run: |
-          DATA_DIR=${{ github.workspace }}/velox-testing/presto/testing/integration_tests/data
+          DATA_DIR=${{ github.workspace }}/velox-testing/presto/testing/integration_tests/data/${{ inputs.benchmark_type }}
           pushd velox-testing/velox/scripts
-          ./benchmark_velox.sh -b ${{ inputs.benchmark_type }} -D $DATA_DIR -d gpu -p true -o ${{ github.workspace }}/velox-testing/benchmark-results
+          ./benchmark_velox.sh -b ${{ inputs.benchmark_type }} --data-dir $DATA_DIR -d gpu -p false -o ${{ github.workspace }}/velox-testing/benchmark-results
           popd
 
       - name: Upload benchmark results as an artifact
