@@ -41,7 +41,6 @@ source ../../scripts/helper_functions.sh
 
 declare -A OPTION_MAP=( ["-j"]="--num-threads" )
 make_options "OPTION_MAP"
-FLAGS=""
 
 parse_args_no_flags "$@"
 
