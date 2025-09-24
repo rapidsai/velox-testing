@@ -16,6 +16,8 @@
 
 set -e
 
+source ./start_presto_helper_parse_args.sh
+
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo "Internal error: A valid variant type (cpu, gpu, or java) is required. Set VARIANT_TYPE to an appropriate value."
   exit 1
@@ -28,8 +30,6 @@ fi
 
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
-
-source ./start_presto_helper_parse_args.sh
 
 COORDINATOR_SERVICE="presto-coordinator"
 COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:latest

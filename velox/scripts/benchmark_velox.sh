@@ -75,102 +75,6 @@ Output:
 EOF
 }
 
-parse_args() {
-
-  # Parse general arguments
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-      -b|--benchmark-type)
-        if [[ -n "${2:-}" ]]; then
-          BENCHMARK_TYPE="$2"
-          shift 2
-        else
-          echo "ERROR: --benchmark-type requires a benchmark type argument" >&2
-          exit 1
-        fi
-        ;;
-      -q|--queries)
-        if [[ -n "${2:-}" ]]; then
-          QUERIES="$2"
-          shift 2
-        else
-          echo "ERROR: --queries requires a query list argument" >&2
-          exit 1
-        fi
-        ;;
-      -d|--device-type)
-        if [[ -n "${2:-}" ]]; then
-          DEVICE_TYPE="$2"
-          shift 2
-        else
-          echo "ERROR: --device-type requires a device type argument" >&2
-          exit 1
-        fi
-        ;;
-      -p|--profile)
-        if [[ -n "${2:-}" ]]; then
-          PROFILE="$2"
-          shift 2
-        else
-          echo "ERROR: --profile requires true or false argument" >&2
-          exit 1
-        fi
-        ;;
-      -o|--output)
-        if [[ -n "${2:-}" ]]; then
-          BENCHMARK_RESULTS_OUTPUT="$2"
-          shift 2
-        else
-          echo "ERROR: --output requires a directory argument" >&2
-          exit 1
-        fi
-        ;;
-      --data-dir)
-        if [[ -n "${2:-}" ]]; then
-          DATA_DIR="$2"
-          shift 2
-        else
-          echo "ERROR: --data-dir requires a directory argument" >&2
-          exit 1
-        fi
-        ;;
-      --num-repeats)
-        if [[ -n "${2:-}" ]]; then
-          NUM_REPEATS="$2"
-          shift 2
-        else
-          echo "ERROR: --num-repeats requires a number argument" >&2
-          exit 1
-        fi
-        ;;
-      -h|--help)
-        print_help
-        exit 0
-        ;;
-      *)
-        echo "ERROR: Unknown option: $1" >&2
-        echo "Use --help for usage information" >&2
-        exit 1
-        ;;
-    esac
-  done
-  
-  # Set benchmark-specific defaults for queries if not provided, NOTE: changes with `RUN` commands do not persist
-  if [[ -z "$QUERIES" ]]; then
-    case "$BENCHMARK_TYPE" in
-      "tpch")
-        QUERIES="$(get_tpch_default_queries)"
-        ;;
-      *)
-        echo "ERROR: Unknown benchmark type: $BENCHMARK_TYPE" >&2
-        echo "Supported benchmark types: tpch" >&2
-        exit 1
-        ;;
-    esac
-  fi
-  
-}
-
 # Helper function to create/update environment file for Docker Compose
 create_docker_env_file() {
   local env_file="./.env"
@@ -285,8 +189,32 @@ run_benchmark() {
   done
 }
 
+source ../../scripts/helper_functions.sh
+declare -A OPTION_MAP=( ["-b"]="--benchmark-type"
+                        ["-q"]="--queries"
+                        ["-d"]="--device-type"
+                        ["-p"]="--profile"
+                        ["-o"]="--benchmark-results-output"
+                        ["-D"]="--data-dir"
+                        ["-n"]="--num-repeats" )
+make_options "OPTION_MAP"
+
 # Parse arguments
-parse_args "$@"
+parse_args_no_flags "$@"
+
+# Set benchmark-specific defaults for queries if not provided, NOTE: changes with `RUN` commands do not persist
+if [[ -z "$QUERIES" ]]; then
+    case "$BENCHMARK_TYPE" in
+        "tpch")
+            QUERIES="$(get_tpch_default_queries)"
+            ;;
+        *)
+            echo "ERROR: Unknown benchmark type: $BENCHMARK_TYPE" >&2
+            echo "Supported benchmark types: tpch" >&2
+            exit 1
+            ;;
+    esac
+fi
 
 echo ""
 echo "Velox Benchmark Runner"

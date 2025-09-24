@@ -37,31 +37,12 @@ By default, uses 3/4 of available CPU cores for parallel test execution.
 EOF
 }
 
-parse_args() {
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-      -j|--num-threads)
-        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
-          echo "Error: --num-threads requires a value"
-          exit 1
-        fi
-        NUM_THREADS="$2"
-        shift 2
-        ;;
-      -h|--help)
-        print_help
-        exit 0
-        ;;
-      *)
-        echo "Unknown option: $1"
-        echo "Use -h or --help for usage information"
-        exit 1
-        ;;
-    esac
-  done
-}
+source ../../scripts/helper_functions.sh
 
-parse_args "$@"
+declare -A OPTION_MAP=( ["-j"]="--num-threads" )
+make_options "OPTION_MAP"
+
+parse_args_no_flags "$@"
 
 echo "Running tests on Velox adapters..."
 echo ""

@@ -47,49 +47,26 @@ EOF
 SCALE_FACTOR=0.01
 CONVERT_DECIMALS_TO_FLOATS=false
 
-parse_args() {
+source ../../scripts/helper_functions.sh
+declare -A OPTION_MAP=( ["-b"]="--benchmark-type" ["-f"]="--scale-factor" )
+make_options "OPTION_MAP"
+
+custom_parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
-      -h|--help)
-        print_help
-        exit 0
-        ;;
-      -b|--benchmark-type)
-        if [[ -n $2 ]]; then
-          BENCHMARK_TYPE=$2
-          shift 2
-        else
-          echo "Error: --benchmark-type requires a value"
-          exit 1
-        fi
-        ;;
-      -s|--scale-factor)
-        if [[ -n $2 ]]; then
-          SCALE_FACTOR=$2
-          shift 2
-        else
-          echo "Error: --scale-factor requires a value"
-          exit 1
-        fi
-        ;;
+      -h|--help) print_help; exit 0 ;;
+      $OPTIONS) parse_option $1 $2; shift 2;;
       -c|--convert-decimals-to-floats)
         CONVERT_DECIMALS_TO_FLOATS=true
         shift
         ;;
-      -v|--verbose)
-        VERBOSE="--verbose"
-        shift
-        ;;
-      *)
-        echo "Error: Unknown argument $1"
-        print_help
-        exit 1
-        ;;
+      -v|--verbose) VERBOSE="--verbose"; shift ;;
+      *) echo "Error: Unknown argument $1"; print_help; exit 1;;
     esac
   done
 }
 
-parse_args "$@"
+custom_parse_args "$@"
 
 if [[ -z $BENCHMARK_TYPE ]]; then
   BENCHMARK_TYPES_TO_GENERATE=("tpch" "tpcds")

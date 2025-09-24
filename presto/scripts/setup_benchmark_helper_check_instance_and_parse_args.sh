@@ -57,44 +57,18 @@ if [[ -z $PRESTO_DATA_DIR ]]; then
   exit 1
 fi
 
-source ./common_functions.sh
+source ../../scripts/helper_functions.sh
 
-wait_for_worker_node_registration
+declare -A OPTION_MAP=( ["-b"]="--benchmark-type"
+                        ["-d"]="--data-dir-name"
+                        ["-s"]="--schema-name" )
+make_options "OPTION_MAP"
 
-parse_args() { 
+custom_parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
-      -h|--help)
-        print_help
-        exit 0
-        ;;
-      -b|--benchmark-type)
-        if [[ -n $2 ]]; then
-          BENCHMARK_TYPE=$2
-          shift 2
-        else
-          echo "Error: --benchmark-type requires a value"
-          exit 1
-        fi
-        ;;
-      -s|--schema-name)
-        if [[ -n $2 ]]; then
-          SCHEMA_NAME=$2
-          shift 2
-        else
-          echo "Error: --schema-name requires a value"
-          exit 1
-        fi
-        ;;
-      -d|--data-dir-name)
-        if [[ -n $2 ]]; then
-          DATA_DIR_NAME=$2
-          shift 2
-        else
-          echo "Error: --data-dir-name requires a value"
-          exit 1
-        fi
-        ;;
+      -h|--help) print_help; exit 0;;
+      $OPTIONS) parse_option $1 $2; shift 2;;
       -c|--convert-decimals-to-floats)
         CONVERT_DECIMALS_TO_FLOATS_ARG="--convert-decimals-to-floats"
         shift
@@ -118,7 +92,11 @@ parse_args() {
   done
 }
 
-parse_args "$@"
+custom_parse_args "$@"
+
+source ./common_functions.sh
+
+wait_for_worker_node_registration
 
 if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   echo "Error: A valid benchmark type (tpch or tpcds) is required. Use the -b or --benchmark-type argument."

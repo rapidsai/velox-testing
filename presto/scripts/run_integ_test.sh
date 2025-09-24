@@ -49,88 +49,19 @@ EOF
 
 KEEP_TABLES=false
 
-parse_args() { 
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-      -h|--help)
-        print_help
-        exit 0
-        ;;
-      -b|--benchmark-type)
-        if [[ -n $2 ]]; then
-          BENCHMARK_TYPE=$2
-          shift 2
-        else
-          echo "Error: --benchmark-type requires a value"
-          exit 1
-        fi
-        ;;
-      -q|--queries)
-        if [[ -n $2 ]]; then
-          QUERIES=$2
-          shift 2
-        else
-          echo "Error: --queries requires a value"
-          exit 1
-        fi
-        ;;
-      -k|--keep-tables)
-        KEEP_TABLES=true
-        shift
-        ;;
-      -h|--hostname)
-        if [[ -n $2 ]]; then
-          HOST_NAME=$2
-          shift 2
-        else
-          echo "Error: --hostname requires a value"
-          exit 1
-        fi
-        ;;
-      -p|--port)
-        if [[ -n $2 ]]; then
-          PORT=$2
-          shift 2
-        else
-          echo "Error: --port requires a value"
-          exit 1
-        fi
-        ;;
-      -u|--user)
-        if [[ -n $2 ]]; then
-          USER=$2
-          shift 2
-        else
-          echo "Error: --user requires a value"
-          exit 1
-        fi
-        ;;
-      -s|--schema-name)
-        if [[ -n $2 ]]; then
-          SCHEMA_NAME=$2
-          shift 2
-        else
-          echo "Error: --schema-name requires a value"
-          exit 1
-        fi
-        ;;
-      -f|--scale-factor)
-        if [[ -n $2 ]]; then
-          SCALE_FACTOR=$2
-          shift 2
-        else
-          echo "Error: --scale-factor requires a value"
-          exit 1
-        fi
-        ;;
-      *)
-        echo "Error: Unknown argument $1"
-        print_help
-        exit 1
-        ;;
-    esac
-  done
-}
+source ../../scripts/helper_functions.sh
+
+declare -A OPTION_MAP=( ["-b"]="--benchmark-type"
+                        ["-q"]="--queries"
+                        ["-h"]="--hostname"
+                        ["-p"]="--port"
+                        ["-u"]="--user"
+                        ["-s"]="--schema-name"
+                        ["-f"]="--scale-factor" )
+make_options "OPTION_MAP"
+
+declare -A FLAG_MAP=( ["-k"]="--keep-tables" )
+make_flags "FLAG_MAP"
 
 parse_args "$@"
 
