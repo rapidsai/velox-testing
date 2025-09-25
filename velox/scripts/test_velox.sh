@@ -17,14 +17,20 @@
 set -euo pipefail
 
 source "config.sh"
-source "utils.sh"
+
+# Helper function to get BUILD_TYPE from container environment
+get_build_type_from_container() {
+    local compose_file=$1
+    local container_name=$2
+    
+    docker compose -f "$compose_file" run --rm "${container_name}" bash -c "echo \$BUILD_TYPE"
+}
 
 # Get BUILD_TYPE from container environment
 BUILD_TYPE=$(get_build_type_from_container "$COMPOSE_FILE" "$CONTAINER_NAME")
 
 # expected output directory
 EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
-EXPECTED_OUTPUT_LIB_DIR="${EXPECTED_OUTPUT_DIR}/lib"
 
 print_help() {
   cat <<EOF

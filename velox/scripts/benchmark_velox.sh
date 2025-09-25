@@ -16,8 +16,6 @@
 
 set -euo pipefail
 
-source "utils.sh"
-
 # Default values
 BENCHMARK_TYPE="tpch"
 QUERIES=""  # Will be set to benchmark-specific defaults if not provided
