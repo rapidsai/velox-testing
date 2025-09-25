@@ -16,7 +16,23 @@
 
 set -euo pipefail
 
-source ./config.sh
+source "config.sh"
+
+# Helper function to get BUILD_TYPE from container environment
+get_build_type_from_container() {
+    local compose_file=$1
+    local container_name=$2
+    
+    docker compose -f "$compose_file" run --rm "${container_name}" bash -c "echo \$BUILD_TYPE"
+}
+
+# Get BUILD_TYPE from container environment
+BUILD_TYPE=$(get_build_type_from_container "$COMPOSE_FILE" "$CONTAINER_NAME")
+
+# expected output directory
+EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
+
+DEVICE_TYPE="gpu"
 
 print_help() {
   cat <<EOF
@@ -26,12 +42,14 @@ Runs tests on the Velox adapters using ctest with parallel execution.
 
 Options:
   -j, --num-threads NUM  Number of threads to use for testing (default: 3/4 of CPU cores).
+  -d, --device-type TYPE  Device to target: cpu|gpu (default: gpu).
   -h, --help            Show this help message and exit.
 
 Examples:
   $(basename "$0")
   $(basename "$0") -j 8
   $(basename "$0") --num-threads 4
+  $(basename "$0") --device-type cpu
 
 By default, uses 3/4 of available CPU cores for parallel test execution.
 EOF
@@ -46,6 +64,18 @@ parse_args() {
           exit 1
         fi
         NUM_THREADS="$2"
+        shift 2
+        ;;
+      -d|--device-type)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --device-type requires a value (cpu|gpu)"
+          exit 1
+        fi
+        DEVICE_TYPE="${2,,}"
+        if [[ "$DEVICE_TYPE" != "cpu" && "$DEVICE_TYPE" != "gpu" ]]; then
+          echo "Error: --device-type must be 'cpu' or 'gpu'"
+          exit 1
+        fi
         shift 2
         ;;
       -h|--help)
@@ -65,7 +95,12 @@ parse_args "$@"
 
 echo "Running tests on Velox adapters..."
 echo ""
-test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
+echo "Device type: ${DEVICE_TYPE}"
+if [[ "$DEVICE_TYPE" == "cpu" ]]; then
+  test_cmd="ctest -j ${NUM_THREADS} -E cudf -V"
+else
+  test_cmd="ctest -j ${NUM_THREADS} -R cudf -V"
+fi
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "cd ${EXPECTED_OUTPUT_DIR} && ${test_cmd}"; then
   echo ""
   echo "  Tests passed successfully!"

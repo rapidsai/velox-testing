@@ -29,8 +29,6 @@ NUM_REPEATS=2
 COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
 CONTAINER_NAME="velox-benchmark"  # Uses dedicated benchmark service with pre-configured volumes
 
-# Source benchmark-specific libraries
-source "../benchmarks/tpch.sh"
 
 print_help() {
   cat <<EOF
@@ -171,6 +169,16 @@ parse_args() {
   
 }
 
+# Helper function to run commands in the Velox benchmark container
+run_in_container() {
+  local cmd="$1"
+  
+  docker compose -f "$COMPOSE_FILE" --env-file ./.env run --rm \
+    --cap-add=SYS_ADMIN \
+    "$CONTAINER_NAME" bash -c "$cmd"
+}
+
+
 # Helper function to create/update environment file for Docker Compose
 create_docker_env_file() {
   local env_file="./.env"
@@ -183,15 +191,6 @@ BENCHMARK_RESULTS_HOST_PATH=$(realpath "$BENCHMARK_RESULTS_OUTPUT")
 BENCHMARK_DATA_HOST_PATH=$(realpath "$DATA_DIR")
 EOF
 
-}
-
-# Helper function to run commands in the Velox benchmark container
-run_in_container() {
-  local cmd="$1"
-  
-  docker compose -f "$COMPOSE_FILE" --env-file ./.env run --rm \
-    --cap-add=SYS_ADMIN \
-    "$CONTAINER_NAME" bash -c "$cmd"
 }
 
 prepare_benchmark_results_dir() {
@@ -212,7 +211,7 @@ check_velox_build() {
   fi
   
   # Check if the build output exists in the container
-  EXPECTED_OUTPUT_DIR="/opt/velox-build/release"
+  EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
   
   if ! run_in_container "test -d ${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
     echo "ERROR: Velox build output not found in container at ${EXPECTED_OUTPUT_DIR}" >&2
@@ -299,11 +298,17 @@ echo ""
 # Validate repo layout
 ../../scripts/validate_directories_exist.sh "../../../velox"
 
-# Check benchmark data 
-check_benchmark_data
-
 # Create environment file for Docker Compose
 create_docker_env_file
+
+# Get BUILD_TYPE from container environment
+export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
+
+# Source benchmark-specific libraries
+source "../benchmarks/tpch.sh"
+
+# Check benchmark data 
+check_benchmark_data
 
 # Check Velox build
 check_velox_build
@@ -320,4 +325,4 @@ run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE"
 
 echo ""
 echo "Benchmarks completed successfully!"
-echo "Results available in: $BENCHMARK_RESULTS_OUTPUT" 
+echo "Results available in: $BENCHMARK_RESULTS_OUTPUT"
