@@ -225,43 +225,60 @@ function process_response() {
     return $rc
 }
 
-function filter_output() {
+function filter_curl_output() {
     local query=$1
-    local execution_time=$2
-    local final_response=$3
-    if [[ -n $final_response ]]; then
-        local stats=$(echo "$final_response" | jq '.stats // {}')
-        local processed_rows=$(echo "$stats" | jq -r '.processedRows // 0')
-        local processed_bytes=$(echo "$stats" | jq -r '.processedBytes // 0')
-        local cpu_time_ms=$(echo "$stats" | jq -r '.cpuTimeMillis // 0')
-        local wall_time_ms=$(echo "$stats" | jq -r '.wallTimeMillis // 0')
-        local elapsed_time_ms=$(echo "$stats" | jq -r '.elapsedTimeMillis // 0')
-        jq -n \
-           --arg query "$query" \
-           --arg execution_time "$execution_time" \
-           --arg processed_rows "$processed_rows" \
-           --arg processed_bytes "$processed_bytes" \
-           --arg cpu_time_ms "$cpu_time_ms" \
-           --arg wall_time_ms "$wall_time_ms" \
-           --arg elapsed_time_ms "$elapsed_time_ms" \
-           '{
-                query_number: $query,
-		curl_execution_time_seconds: ($execution_time | tonumber),
-		processed_rows: ($processed_rows | tonumber),
-		processed_bytes: ($processed_bytes | tonumber),
-		cpu_time_ms: ($cpu_time_ms | tonumber),
-		wall_time_ms: ($wall_time_ms | tonumber),
-		elapsed_time_ms: ($elapsed_time_ms | tonumber)
-           }'
-    else
-        jq -n \
-           --arg query "$query" \
-           --arg execution_time "$execution_time" \
-           '{
-                query_number: $query,
-		execution_time_seconds: ($execution_time | tonumber)
-            }'
+    local final_response=$2
+    local stats=$(echo "$final_response" | jq '.stats // {}')
+    local processed_rows=$(echo "$stats" | jq -r '.processedRows // 0')
+    local processed_bytes=$(echo "$stats" | jq -r '.processedBytes // 0')
+    local cpu_time_ms=$(echo "$stats" | jq -r '.cpuTimeMillis // 0')
+    local wall_time_ms=$(echo "$stats" | jq -r '.wallTimeMillis // 0')
+    local elapsed_time_ms=$(echo "$stats" | jq -r '.elapsedTimeMillis // 0')
+    jq -n \
+       --arg query "$query" \
+       --arg processed_rows "$processed_rows" \
+       --arg processed_bytes "$processed_bytes" \
+       --arg cpu_time_ms "$cpu_time_ms" \
+       --arg wall_time_ms "$wall_time_ms" \
+       --arg elapsed_time_ms "$elapsed_time_ms" \
+       '{
+            query_number: $query,
+	    processed_rows: ($processed_rows | tonumber),
+	    processed_bytes: ($processed_bytes | tonumber),
+	    cpu_time_ms: ($cpu_time_ms | tonumber),
+	    wall_time_ms: ($wall_time_ms | tonumber),
+	    elapsed_time_ms: ($elapsed_time_ms | tonumber)
+       }'
+}
+
+function filter_cli_output() {
+    local query=$1
+    local final_response=$2
+    local stats=$(echo "$final_response" | jq '.queryStats')
+    local elapsed_time=$(echo "$stats" | jq -r '.elapsedTime // 0')
+
+    local elapsed_time_ms="$elapsed_time"
+    # Presto is not consistent with the units it uses for elapsed time.  Make sure we convert to ms.
+    if [[ "$elapsed_time" =~ ^([0-9]+([.][0-9]+)?)(ns|us|µs|ms|s|m|h|d)$ ]]; then
+        local num="${BASH_REMATCH[1]}"
+        local unit="${BASH_REMATCH[3]}"
+        local factor="1"
+        case "$unit" in
+            ns) factor="0.000001" ;;
+            us|µs) factor="0.001" ;;
+            ms) factor="1" ;;
+            s)  factor="1000" ;;
+            m)  factor="60000" ;;
+            h)  factor="3600000" ;;
+            d)  factor="86400000" ;;
+        esac
+        elapsed_time_ms="$(awk -v n="$num" -v f="$factor" 'BEGIN{printf "%.0f\n", n*f}')"
     fi
+
+    jq -n \
+       --arg query "$query" \
+       --arg elapsed_time_ms "$elapsed_time_ms" \
+       '{ query_number: $query, elapsed_time_ms: ($elapsed_time_ms | tonumber) }'
 }
 
 function create_tables() {
@@ -287,27 +304,24 @@ function compute_averages() {
     local using_curl=$1
     local avg_json=""
     if [[ -n "$using_curl" ]]; then
-        avg_json=$(printf '%s
-        ' "${run_outputs[@]}" | jq -s '
+        avg_json=$(printf '%s\n' "${run_outputs[@]}" | jq -s '
           def avg: (length) as $n | if $n == 0 then null else (add / $n) end;
           {
                 query_number: (last | .query_number),
                 repeats: (length),
-                avg_execution_time_seconds: ([ .[] | (.curl_execution_time_seconds // .execution_time_seconds) ] | avg),
+                avg_elapsed_time_ms: ([ .[] | .elapsed_time_ms ] | map(select(. != null)) | avg),
                 avg_processed_rows: ([ .[] | .processed_rows ] | map(select(. != null)) | avg),
                 avg_processed_bytes: ([ .[] | .processed_bytes ] | map(select(. != null)) | avg),
                 avg_cpu_time_ms: ([ .[] | .cpu_time_ms ] | map(select(. != null)) | avg),
-                avg_wall_time_ms: ([ .[] | .wall_time_ms ] | map(select(. != null)) | avg),
-                avg_elapsed_time_ms: ([ .[] | .elapsed_time_ms ] | map(select(. != null)) | avg)
+                avg_wall_time_ms: ([ .[] | .wall_time_ms ] | map(select(. != null)) | avg)
           }')
     else
-        avg_json=$(printf '%s
-        ' "${run_outputs[@]}" | jq -s '
+        avg_json=$(printf '%s\n' "${run_outputs[@]}" | jq -s '
         def avg: (length) as $n | if $n == 0 then null else (add / $n) end;
         {
                 query_number: (last | .query_number),
                 repeats: (length),
-                avg_execution_time_seconds: ([ .[] | (.curl_execution_time_seconds // .execution_time_seconds) ] | avg)
+                avg_elapsed_time_ms: ([ .[] | .elapsed_time_ms ] | map(select(. != null)) | avg)
         }')
     fi
     echo "$avg_json" > "$OUTPUT_DIR/Q$query.summary.avg.json"
@@ -322,18 +336,26 @@ function run_query() {
 			      -H "X-Presto-Catalog: $CATALOG" \
 			      -H "X-Presto-Schema: $SCHEMA" \
 			      -H "X-Presto-User: tpch-benchmark" \
-			      --data "$sql")
-        FINAL_RESPONSE="$(process_response $response)"
+			      --data "$sql -- Q$query")
+        CURL_RESPONSE="$(process_response $response)"
     else
+        # Run pipe query directly to docker-cli because --execute interface does
+        # not give us a query ID (which we need to get stats)
         docker compose -f $COMPOSE_FILE exec presto-cli presto-cli \
                --server presto-coordinator:8080 --catalog $CATALOG \
-               --schema $SCHEMA --execute "$sql" > "$OUTPUT_DIR/$query.out"
+               --schema $SCHEMA <<< "$sql; -- Q$query" > "$OUTPUT_DIR/Q$query.I$i.out.raw"
+        local query_line=$(grep -oP "Query[[:space:]]+[^,]+," "$OUTPUT_DIR/Q$query.I$i.out.raw")
+        query_id=""
+        if [[ $query_line =~ Query[[:space:]]+([^,]+), ]]; then
+          query_id="${BASH_REMATCH[1]}"
+        fi
+        CLI_RESPONSE=$(curl -s http://${COORD}/v1/query/$query_id)
     fi
 }
 
 function run_queries() {
     for query in $QUERIES; do
-        local sql=$(get_query $query)
+        local sql="$(get_query $query)"
 
         echo "running query: $query"
         [ -z "$SKIP_WARMUP" ] && echo "running warmup query" && run_query "$sql" "$query"
@@ -344,19 +366,23 @@ function run_queries() {
         local -a run_outputs=()
         for i in $(seq 1 $ITERATIONS); do
             echo "running iteration $i"
-            FINAL_RESPONSE=""
-            local start_time=$(date +%s.%N)
+            CURL_RESPONSE=""
+            CLI_RESPONSE=""
             run_query "$sql" "$query"
-            local end_time=$(date +%s.%N)
-            [ -n "$FINAL_RESPONSE" ] && echo "$FINAL_RESPONSE" > "$OUTPUT_DIR/Q$query.I$i.out.json"
-            local execution_time=$(echo "$end_time - $start_time" | bc -l)
-            local output_json=$(filter_output "$query" "$execution_time" "$FINAL_RESPONSE")
-            run_outputs+=("$output_json")
+            local output_json=""
+            if [[ -n $CURL_RESPONSE ]]; then
+                echo "$CURL_RESPONSE" > "$OUTPUT_DIR/Q$query.I$i.out.json"
+                output_json=$(filter_curl_output "$query" "$CURL_RESPONSE")
+            else
+                echo "$CLI_RESPONSE" > "$OUTPUT_DIR/Q$query.I$i.out.json"
+                output_json=$(filter_cli_output "$query" "$CLI_RESPONSE")
+            fi
+            run_outputs+=("$(echo "$output_json" | jq -c .)")
             echo "$output_json" > "$OUTPUT_DIR/Q$query.I$i.summary.json"
         done
         [ -z "$CREATE_PROFILES" ] || stop_profile
 
-        compute_averages "$FINAL_RESPONSE"
+        compute_averages "$CURL_RESPONSE"
     done
 }
 
