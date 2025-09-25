@@ -153,10 +153,10 @@ get_tpch_benchmark_executable_path() {
   local device_type="$1"
   case "$device_type" in
     "cpu")
-      echo "/opt/velox-build/release/velox/benchmarks/tpch/velox_tpch_benchmark"
+      echo "/opt/velox-build/${BUILD_TYPE}/velox/benchmarks/tpch/velox_tpch_benchmark"
       ;;
     "gpu")
-      echo "/opt/velox-build/release/velox/experimental/cudf/benchmarks/velox_cudf_tpch_benchmark"
+      echo "/opt/velox-build/${BUILD_TYPE}/velox/experimental/cudf/benchmarks/velox_cudf_tpch_benchmark"
       ;;
   esac
 }
