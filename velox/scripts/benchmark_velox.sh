@@ -325,4 +325,4 @@ run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE"
 
 echo ""
 echo "Benchmarks completed successfully!"
-echo "Results available in: $BENCHMARK_RESULTS_OUTPUT" 
+echo "Results available in: $BENCHMARK_RESULTS_OUTPUT"
