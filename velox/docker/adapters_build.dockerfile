@@ -103,7 +103,7 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
       sccache --show-stats; \
     fi && \
     make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
-    make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"
+    make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
     # Show final sccache stats if enabled
     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
       echo "Post-build sccache statistics:" && \
