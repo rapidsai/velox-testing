@@ -16,6 +16,21 @@
 
 shopt -s extglob # needed for paramaterized case statement
 
+# --- Print error messages in red ---
+function echo_error() {
+    echo -e "\033[0;31m$*\033[0m" >&2
+}
+
+# --- Print warning messages in yellow ---
+function echo_warning() {
+    echo -e "\033[0;33m$*\033[0m: " >&2
+}
+
+# --- Print warning messages in green ---
+function echo_success() {
+    echo -e "\033[0;32m$*\033[0m: "
+}
+
 function make_options() {
     local -n LOCAL_OPTION_MAP="$1"
     declare -g OPTIONS="@("
@@ -41,7 +56,7 @@ function make_flags() {
 function parse_option() {
     local option=$1
     [[ -v OPTION_MAP["$option"] ]] && option=${OPTION_MAP["$option"]}
-    [[ $# -lt 2 || -z $2 ]] && echo "Error: $option requires a value" >&2 && exit 1
+    [[ $# -lt 2 || -z $2 ]] && echo_error "Error: $option requires a value" && exit 1
     option=${option//--/} # remove double-dash
     option=${option//-/_} # replace dash with underscore
     option=$(echo "${option^^}") # capitalize
@@ -63,7 +78,7 @@ parse_args() {
             $OPTIONS) parse_option "$@"; shift 2;;
             $FLAGS) parse_flag $1; shift 1;;
             -h|--help) print_help; exit 0;;
-            *) echo "Error: Unknown argument $1"; print_help; exit 1;;
+            *) echo_error "Error: Unknown argument $1"; print_help; exit 1;;
         esac
     done
 }
@@ -73,7 +88,7 @@ parse_args_no_flags() {
         case $1 in
             $OPTIONS) parse_option "$@"; shift 2;;
             -h|--help) print_help; exit 0;;
-            *) echo "Error: Unknown argument $1"; print_help; exit 1;;
+            *) echo_error "Error: Unknown argument $1"; print_help; exit 1;;
         esac
     done
 }
