@@ -47,7 +47,6 @@ EOF
 }
 
 KEEP_TABLES=false
-CREATE_SCHEMA=""
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -165,6 +164,11 @@ if [[ -n ${USER} ]]; then
 fi
 
 if [[ -n ${SCALE_FACTOR} ]]; then
+  if [[ -z ${SCHEMA_NAME} ]]; then
+    echo "Error: Scale factor should be set only when --schema-name is specified."
+    print_help
+    exit 1
+  fi
   PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
 fi
 
