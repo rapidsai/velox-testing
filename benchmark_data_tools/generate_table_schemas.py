@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import duckdb
 
@@ -23,9 +37,10 @@ def get_table_schema(benchmark_type, table_name, schema_name, convert_decimals_t
         f"{' ' * 4}{get_column_definition(column_metadata, convert_decimals_to_floats)}"
         for column_metadata in column_metadata_rows
     ]
-    schema = (f"CREATE TABLE hive.{schema_name}.{table_name} "
-              f"(\n{",\n".join(columns_ddl_list)}\n) "
-              f"WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{{file_path}}')")
+    columns_text = ",\n".join(columns_ddl_list)
+    schema = f"CREATE TABLE hive.{schema_name}.{table_name} \
+    (\n{columns_text}\n) \
+    WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{{file_path}}')"
     return schema
 
 

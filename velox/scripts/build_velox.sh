@@ -1,4 +1,19 @@
 #!/bin/bash
+
+# Copyright (c) 2025, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 set -euo pipefail
 # load common variables and functions
 source ./config.sh
@@ -8,6 +23,7 @@ NO_CACHE=false
 PLAIN_OUTPUT=false
 BUILD_WITH_VELOX_ENABLE_CUDF="ON"
 VELOX_ENABLE_BENCHMARKS="ON"
+BUILD_TYPE="release"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
@@ -40,6 +56,7 @@ Options:
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
   --sccache                   Enable sccache distributed compilation caching.
   --sccache-auth-dir DIR      Directory containing sccache authentication files (github_token, aws_credentials).
+  --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
   -h, --help                  Show this help message and exit.
 
 Examples:
@@ -54,6 +71,9 @@ Examples:
   $(basename "$0") -j 8 --gpu
   $(basename "$0") --num-threads 16 --no-cache
   $(basename "$0") --sccache --sccache-auth-dir /auth_dir/      # Build with sccache and use auth files in /auth_dir/
+  $(basename "$0") --build-type Debug
+  $(basename "$0") --build-type debug --gpu
+  $(basename "$0") --build-type RELWITHDEBINFO --gpu
 
 By default, the script builds for the Native CUDA architecture (detected on host), uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
 EOF
@@ -132,6 +152,24 @@ parse_args() {
         fi
         SCCACHE_AUTH_DIR="$2"
         shift 2
+      --build-type)
+        if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
+          # Convert to lowercase first, then validate
+          local build_type_lower="${2@L}"
+          case "${build_type_lower}" in
+            "release"|"debug"|"relwithdebinfo")
+              BUILD_TYPE="${build_type_lower}"
+              shift 2
+              ;;
+            *)
+              echo "ERROR: --build-type must be one of: Release, Debug, RelWithDebInfo (case insensitive, got: $2)" >&2
+              exit 1
+              ;;
+          esac
+        else
+          echo "ERROR: --build-type requires a value: Release, Debug, or RelWithDebInfo (case insensitive)" >&2
+          exit 1
+        fi
         ;;
       -h|--help)
         print_help
@@ -214,6 +252,7 @@ DOCKER_BUILD_OPTS+=(--build-arg BUILD_WITH_VELOX_ENABLE_CUDF="${BUILD_WITH_VELOX
 DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
+DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
 
 # Add sccache build arguments
 if [[ "$ENABLE_SCCACHE" == true ]]; then
@@ -237,12 +276,18 @@ fi
 
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
+  # Update EXPECTED_OUTPUT_DIR to use the correct build directory
+  EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
+  
   if docker compose  -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
-    echo "  Built velox-adapters. View logs with:"
+    echo "  Built velox-adapters (${BUILD_TYPE} build). View logs with:"
     echo "    docker compose -f $COMPOSE_FILE logs -f ${CONTAINER_NAME}"
     echo ""
     echo "  The Velox build output is located in the container at:"
     echo "    ${EXPECTED_OUTPUT_DIR}"
+    echo ""
+    echo "  Build type: ${BUILD_TYPE}"
+    echo "  Downstream tasks will auto-detect this build directory."
     echo ""
     echo "  To access the build output, you can run:"
     echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} ls ${EXPECTED_OUTPUT_DIR}"

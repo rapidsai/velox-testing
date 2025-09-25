@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import duckdb
 import json
@@ -6,7 +20,7 @@ import os
 import shutil
 import math
 
-from duckdb_utils import init_benchmark_tables, is_decimal_column
+from duckdb_utils import init_benchmark_tables, is_decimal_column, map_table_schemas
 from pathlib import Path
 from rewrite_parquet import process_dir
 from concurrent.futures import ThreadPoolExecutor
@@ -42,6 +56,7 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
     tables_sf_ratio = get_table_sf_ratios(scale_factor, max_rows)
 
     raw_data_path = data_dir_path + "-temp" if convert_decimals_to_floats else data_dir_path
+
     if os.path.exists(data_dir_path):
         shutil.rmtree(data_dir_path)
     if os.path.exists(raw_data_path):
@@ -67,7 +82,8 @@ def generate_data_files_with_tpchgen(data_dir_path, scale_factor, convert_decima
         print(f"Raw data created at: {raw_data_path}")
 
     if convert_decimals_to_floats:
-        process_dir(raw_data_path, data_dir_path, num_threads, verbose)
+        table_to_schema_map = map_table_schemas(verbose)
+        process_dir(raw_data_path, data_dir_path, num_threads, verbose, table_to_schema_map)
         shutil.rmtree(raw_data_path)
 
     write_metadata(data_dir_path, scale_factor)
@@ -92,7 +108,7 @@ def rearrange_directory(raw_data_path, num_partitions):
     tables = []
     for p_file in parquet_files:
         tables.append(p_file.replace(".parquet", ""))
-    
+
     for table in tables:
         Path(f"{raw_data_path}/{table}").mkdir(parents=True, exist_ok=True)
 
@@ -130,7 +146,7 @@ def get_select_query(table_name, convert_decimals_to_floats):
             get_column_projection(column_metadata, convert_decimals_to_floats)
             for column_metadata in column_metadata_rows
         ]
-        query = f"SELECT {",".join(column_projections)} FROM {table_name}"
+        query = f"SELECT {','.join(column_projections)} FROM {table_name}"
     else:
         query = f"SELECT * FROM {table_name}"
     return query
