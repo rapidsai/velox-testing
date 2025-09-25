@@ -3,8 +3,8 @@
 set -e
 
 # patch Velox submodule for deps container build success
-pushd ../../../presto
-git apply ../velox-testing/presto/scripts/patch_hadoop_and_nvjitlink_092225.diff || true
+pushd ../../../presto/presto-native-execution/velox
+git apply ../../../velox-testing/presto/scripts/patch_hadoop_and_nvjitlink_092225.diff || true
 popd
 
 pushd ../../../presto/presto-native-execution
