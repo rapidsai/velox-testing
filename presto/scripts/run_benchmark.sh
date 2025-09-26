@@ -219,4 +219,4 @@ source ./common_functions.sh
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+pytest -s -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
