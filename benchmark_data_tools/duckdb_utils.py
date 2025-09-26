@@ -27,6 +27,9 @@ def init_benchmark_tables(benchmark_type, scale_factor):
 
     duckdb.sql(f"INSTALL {benchmark_type}; LOAD {benchmark_type}; CALL {function_name}(sf = {scale_factor});")
 
+def create_table(table_name, data_path):
+    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet';")
+
 def is_decimal_column(column_type):
     return bool(re.match(r"^DECIMAL\(\d+,\d+\)$", column_type))
 

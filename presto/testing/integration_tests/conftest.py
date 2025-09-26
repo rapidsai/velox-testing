@@ -13,13 +13,12 @@
 # limitations under the License.
 
 def pytest_addoption(parser):
-    parser.addoption("--queries")
+    parser.addoption("--queries") # default is all queries for the benchmark type
     parser.addoption("--keep-tables", action="store_true", default=False)
     parser.addoption("--hostname", default="localhost")
     parser.addoption("--port", default=8080)
     parser.addoption("--user", default="test_user")
-    parser.addoption("--schema-name")
-    parser.addoption("--scale-factor")
+    parser.addoption("--schema-name") # default is determined dynamically based on benchmark type
 
 
 def pytest_generate_tests(metafunc):

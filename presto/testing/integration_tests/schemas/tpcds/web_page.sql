@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.web_page (
+CREATE TABLE hive.{schema}.web_page (
     wp_web_page_sk INTEGER,
     wp_web_page_id VARCHAR,
     wp_rec_start_date DATE,

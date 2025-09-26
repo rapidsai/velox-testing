@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.customer (
+CREATE TABLE hive.{schema}.customer (
     c_customer_sk INTEGER,
     c_customer_id VARCHAR,
     c_current_cdemo_sk INTEGER,

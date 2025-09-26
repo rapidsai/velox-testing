@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.web_sales (
+CREATE TABLE hive.{schema}.web_sales (
     ws_sold_date_sk INTEGER,
     ws_sold_time_sk INTEGER,
     ws_ship_date_sk INTEGER,
