@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+OS=$(uname | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+SCRIPT_DIR="$(readlink ${BASH_SOURCE[0]})"
+if [[ "$SCRIPT_DIR" == "" ]]; then
+    SCRIPT_DIR="${BASH_SOURCE[0]}"
+fi
+SCRIPT_DIR=$( cd -- "$( dirname -- "$SCRIPT_DIR" )" &> /dev/null && pwd )
+echo "SCRIPT_DIR=$SCRIPT_DIR"
+
+if [[ "$ARCH" == "x86_64" ]]; then
+    ARCH=amd64
+fi
+
+EXE="$SCRIPT_DIR/pbench_${OS}_${ARCH}"
+
+if [ ! -f "$EXE" ]; then
+    if [ -f "$SCRIPT_DIR/Makefile" ]; then
+      cd "$SCRIPT_DIR" && make
+    else
+      echo "Cannot find $EXE"
+      exit 1
+    fi
+fi
+
+$EXE "$@"
