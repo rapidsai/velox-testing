@@ -16,12 +16,23 @@
 
 set -euo pipefail
 
+if [ ! -x ../pbench/pbench ]; then
+    echo "ERROR: generate_presto_config.sh script must only be run from presto:presto/scripts"
+    exit 1
+fi
+
 # get host values
 NPROC=`nproc`
 RAM_GB=`lsmem | awk '/Total online/ { print $4 }'`
 RAM_GB=${RAM_GB::-1}
 
-# generate the config.json file
+echo "INFO: Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}GB RAM"
+
+# move to config directory
+pushd ../docker/config
+
+# (re-)generate the config.json file
+rm -rf generated
 mkdir -p generated
 cat > generated/config.json << EOF
 {
@@ -40,3 +51,6 @@ EOF
 
 # run pbench to generate the config files
 ../../pbench/pbench genconfig -p params.json -t template generated
+
+# return to scripts directory
+popd

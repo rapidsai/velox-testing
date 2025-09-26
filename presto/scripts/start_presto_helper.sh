@@ -73,6 +73,8 @@ fi
 
 ./stop_presto.sh
 
+./generate_presto_config.sh
+
 DOCKER_COMPOSE_FILE_PATH=../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml
 if (( ${#BUILD_TARGET_ARG[@]} )); then
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]]; then
