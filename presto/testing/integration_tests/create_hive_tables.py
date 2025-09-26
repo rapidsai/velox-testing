@@ -51,7 +51,7 @@ def analyze_tables(presto_cursor, schema_name, table_names=None):
     for table_name in table_names:
         try:
             print(f"DEBUG: Analyzing table {table_name}...")
-            presto_cursor.execute(f"ANALYZE TABLE hive.{schema_name}.{table_name}")
+            presto_cursor.execute(f"ANALYZE hive.{schema_name}.{table_name}")
             print(f"DEBUG: Successfully analyzed table {table_name}")
         except Exception as e:
             print(f"Warning: Failed to analyze table {table_name}: {e}")
