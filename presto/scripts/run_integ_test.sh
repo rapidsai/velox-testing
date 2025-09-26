@@ -33,7 +33,6 @@ OPTIONS:
     -p, --port              Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried (default is {benchmark_type}_test).
-    -f, --scale-factor      Overwrite the scale factor detection with an explicit value
 
 
 EXAMPLES:
@@ -113,15 +112,6 @@ parse_args() {
           exit 1
         fi
         ;;
-      -f|--scale-factor)
-        if [[ -n $2 ]]; then
-          SCALE_FACTOR=$2
-          shift 2
-        else
-          echo "Error: --scale-factor requires a value"
-          exit 1
-        fi
-        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -161,15 +151,6 @@ fi
 
 if [[ -n ${USER} ]]; then
   PYTEST_ARGS+=("--user ${USER}")
-fi
-
-if [[ -n ${SCALE_FACTOR} ]]; then
-  if [[ -z ${SCHEMA_NAME} ]]; then
-    echo "Error: Scale factor should be set only when --schema-name is specified."
-    print_help
-    exit 1
-  fi
-  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
 fi
 
 if [[ -n ${SCHEMA_NAME} ]]; then
