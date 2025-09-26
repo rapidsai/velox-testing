@@ -4,8 +4,58 @@ set -euo pipefail
 # Default output directory
 DEFAULT_OUTPUT_DIR="$HOME/.sccache-auth"
 
-# Output directory
-OUTPUT_DIR="${1:-$DEFAULT_OUTPUT_DIR}"
+# Parse arguments
+GITHUB_TOKEN=""
+OUTPUT_DIR="$DEFAULT_OUTPUT_DIR"
+INTERACTIVE_MODE=true
+
+print_help() {
+  cat <<EOF
+Usage: $(basename "$0") [OPTIONS] [OUTPUT_DIR]
+
+Setup sccache authentication for distributed compilation caching.
+
+Options:
+  --github-token TOKEN    Use provided GitHub token (non-interactive mode)
+  -h, --help             Show this help message and exit
+
+Arguments:
+  OUTPUT_DIR             Output directory for auth files (default: $DEFAULT_OUTPUT_DIR)
+
+Examples:
+  $(basename "$0")                                    # Interactive mode
+  $(basename "$0") --github-token ghp_xxxx           # Non-interactive with token
+  $(basename "$0") --github-token ghp_xxxx /tmp/auth # Non-interactive with custom output dir
+EOF
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --github-token)
+      if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+        echo "Error: --github-token requires a token value"
+        exit 1
+      fi
+      GITHUB_TOKEN="$2"
+      INTERACTIVE_MODE=false
+      shift 2
+      ;;
+    -h|--help)
+      print_help
+      exit 0
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      print_help
+      exit 1
+      ;;
+    *)
+      OUTPUT_DIR="$1"
+      shift
+      ;;
+  esac
+done
 
 # Timeout for AWS credentials
 AWS_CREDENTIALS_TIMEOUT=43200 # 12 hours
@@ -18,7 +68,11 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}sccache Authentication Setup${NC}"
-echo "This script will help you set up authentication for distributed compilation caching."
+if [[ "$INTERACTIVE_MODE" == true ]]; then
+  echo "Running in interactive mode - will prompt for GitHub authentication."
+else
+  echo "Running in non-interactive mode with provided GitHub token."
+fi
 echo "Output directory: $OUTPUT_DIR"
 echo
 
@@ -27,9 +81,13 @@ mkdir -p "$OUTPUT_DIR"
 
 if [[ -f "$OUTPUT_DIR/github_token" || -f "$OUTPUT_DIR/aws_credentials" ]]; then
   echo -e "${YELLOW}Warning: Existing authentication files detected in $OUTPUT_DIR.${NC}"
-  echo -e "${YELLOW}Continuing will overwrite your current GitHub and AWS credentials.${NC}"
-  echo -e "${YELLOW}Press Enter to continue or Ctrl+C to abort.${NC}"
-  read
+  if [[ "$INTERACTIVE_MODE" == true ]]; then
+    echo -e "${YELLOW}Continuing will overwrite your current GitHub and AWS credentials.${NC}"
+    echo -e "${YELLOW}Press Enter to continue or Ctrl+C to abort.${NC}"
+    read
+  else
+    echo -e "${YELLOW}Overwriting existing files in non-interactive mode.${NC}"
+  fi
   rm -f "$OUTPUT_DIR/github_token" "$OUTPUT_DIR/aws_credentials"
 fi
 
@@ -43,28 +101,39 @@ docker build -f ../docker/sccache_auth.dockerfile -t sccache-auth .
 echo -e "${GREEN}Authentication container built successfully${NC}"
 echo
 
-# Step 1: GitHub Authentication
-echo -e "${BLUE}GitHub Authentication${NC}"
-echo "Please follow the instructions to authenticate with GitHub."
-echo "A device code will be displayed for you to enter in your browser."
-echo
+if [[ "$INTERACTIVE_MODE" == true ]]; then
+  # Step 1: Interactive GitHub Authentication
+  echo -e "${BLUE}GitHub Authentication (Interactive)${NC}"
+  echo "Please follow the instructions to authenticate with GitHub."
+  echo "A device code will be displayed for you to enter in your browser."
+  echo
 
-docker run --rm -it \
-  -v "$OUTPUT_DIR:/output" \
-  sccache-auth \
-  bash -c '
-    echo "GitHub is authenticating with required scopes: gist, repo, read:org, read:enterprise"
-    echo
-    
-    BROWSER="false" gh auth login --git-protocol ssh --skip-ssh-key --web --scopes gist --scopes repo --scopes read:org --scopes read:enterprise
-    
-    echo
-    echo "Verifying authentication"
-    gh auth status
-    
-    gh auth token > /output/github_token
-    echo "GitHub token saved to /output/github_token"
-  '
+  docker run --rm -it \
+    -v "$OUTPUT_DIR:/output" \
+    sccache-auth \
+    bash -c '
+      echo "GitHub is authenticating with required scopes: gist, repo, read:org, read:enterprise"
+      echo
+      
+      BROWSER="false" gh auth login --git-protocol ssh --skip-ssh-key --web --scopes gist --scopes repo --scopes read:org --scopes read:enterprise
+      
+      echo
+      echo "Verifying authentication"
+      gh auth status
+      
+      gh auth token > /output/github_token
+      echo "GitHub token saved to /output/github_token"
+    '
+else
+  # Step 1: Non-interactive GitHub Authentication
+  echo -e "${BLUE}GitHub Authentication (Non-interactive)${NC}"
+  echo "Using provided GitHub token..."
+  echo
+
+  # Save the token directly
+  echo "$GITHUB_TOKEN" > "$OUTPUT_DIR/github_token"
+  echo "GitHub token saved to $OUTPUT_DIR/github_token"
+fi
 
 if [[ ! -f "$OUTPUT_DIR/github_token" ]]; then
   echo -e "${RED}GitHub token not found. Authentication has failed.${NC}"
@@ -74,12 +143,12 @@ fi
 echo -e "${GREEN}GitHub authentication successful${NC}"
 echo
 
-# Step 2: AWS Credential Generation
+# Step 2: AWS Credential Generation (always non-interactive for the AWS part)
 echo -e "${BLUE}AWS Credential Generation${NC}"
 echo "Using the gh-nv-gha-aws plugin for GitHub to generate required AWS credentials."
 echo
 
-docker run --rm -it \
+docker run --rm \
   -v "$OUTPUT_DIR:/output" \
   sccache-auth \
   bash -c '
@@ -88,13 +157,13 @@ docker run --rm -it \
       exit 1
     fi
     
-    # Authenticate with the saved token
+    # Authenticate with the saved token (non-interactive)
     cat /output/github_token | gh auth login --with-token
     
     # Verify GitHub CLI authentication
     gh auth status
     
-    #Generate AWS credentials
+    # Generate AWS credentials
     mkdir -p /root/.aws
     
     gh nv-gha-aws org nvidia \

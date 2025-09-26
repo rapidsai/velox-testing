@@ -34,6 +34,10 @@ on:
 jobs:
   velox-benchmark:
     runs-on: linux-amd64-gpu-l4-latest-1
+    
+    env:
+      GH_TOKEN: ${{ github.token }}
+      
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
@@ -46,11 +50,16 @@ jobs:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
 
-      - name: "Build Velox GPU with Benchmarks (SHA: ${{ env.VELOX_COMMIT_SHA }})"
+      - name: Setup sccache authentication
         run: |
           pushd ${{ github.workspace }}/velox-testing/velox/scripts
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh -j $(nproc) --all-cuda-archs --gpu --benchmarks true --log build_velox_gpu.log
+          ./setup_sccache_auth.sh --github-token "${{ github.token }}" "$HOME/.sccache-auth"
           popd
+
+      - name: "Build Velox GPU with Benchmarks and sccache (SHA: ${{ env.VELOX_COMMIT_SHA }})"
+        run: |
+          cd ${{ github.workspace }}/velox-testing/velox/scripts
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh -j $(nproc) --all-cuda-archs --gpu --benchmarks true --sccache --sccache-auth-dir "$HOME/.sccache-auth" --log build_velox_gpu.log
 
       - name: Upload velox_gpu_build_log as an artifact
         uses: actions/upload-artifact@v4
