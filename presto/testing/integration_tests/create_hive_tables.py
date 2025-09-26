@@ -33,19 +33,29 @@ def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directo
 
 
 def analyze_tables(presto_cursor, schema_name, table_names=None):
+    print(f"DEBUG: analyze_tables called for schema '{schema_name}'")
+    
     if table_names is None:
         try:
+            print(f"DEBUG: Discovering tables in schema {schema_name}")
             tables = presto_cursor.execute(f"SHOW TABLES FROM hive.{schema_name}").fetchall()
             table_names = [table_name for table_name, in tables]
+            print(f"DEBUG: Found tables: {table_names}")
         except Exception as e:
             print(f"Warning: Could not list tables in schema {schema_name}: {e}")
             return
+    else:
+        print(f"DEBUG: Using provided table names: {table_names}")
     
+    print(f"DEBUG: Starting analysis of {len(table_names)} tables")
     for table_name in table_names:
         try:
+            print(f"DEBUG: Analyzing table {table_name}...")
             presto_cursor.execute(f"ANALYZE TABLE hive.{schema_name}.{table_name}")
+            print(f"DEBUG: Successfully analyzed table {table_name}")
         except Exception as e:
             print(f"Warning: Failed to analyze table {table_name}: {e}")
+    print(f"DEBUG: Completed table analysis")
 
 
 def get_table_schemas(schemas_dir):

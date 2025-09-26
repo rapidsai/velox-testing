@@ -34,8 +34,13 @@ def presto_cursor(request):
     
     analyze_tables_flag = request.config.getoption("--analyze-tables")
     if analyze_tables_flag and not hasattr(request.session, '_tables_analyzed'):
+        print(f"DEBUG: Running table analysis for schema '{schema}' (performance benchmark)")
         analyze_tables(cursor, schema)
         request.session._tables_analyzed = True
+    elif analyze_tables_flag:
+        print(f"DEBUG: Skipping table analysis - already done this session")
+    else:
+        print(f"DEBUG: Table analysis not requested (--analyze-tables not specified)")
     
     yield cursor
     conn.close()
