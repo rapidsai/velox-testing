@@ -1,9 +1,9 @@
 
 #!/bin/bash
 
-BASE_DIR="$(dirname $(realpath $0))/.."
+BASE_DIR="$(dirname $(realpath $0))/../.."
 OUTPUT_DIR="$BASE_DIR/pbench_output/tpch"
-PBENCH_DIR="$BASE_DIR/pbench/"
+PBENCH_DIR="$BASE_DIR/presto/pbench/"
 COORD="localhost:8080"
 
 mkdir -p $OUTPUT_DIR
