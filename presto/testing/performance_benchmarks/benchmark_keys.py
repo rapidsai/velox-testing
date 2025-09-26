@@ -20,6 +20,8 @@ class BenchmarkKeys(str, Enum):
     FORMAT_WIDTH_KEY = "format_width"
     AGGREGATE_TIMES_KEY = "agg_times_ms"
     AGGREGATE_TIMES_FIELDS_KEY = "agg_times_fields"
+    MEMORY_STATS_KEY = "memory_stats"
+    PEAK_MEMORY_KEY = "peak_memory_bytes"
     AVG_KEY = "avg"
     MIN_KEY = "min"
     MAX_KEY = "max"

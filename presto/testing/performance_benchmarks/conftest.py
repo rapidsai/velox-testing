@@ -41,13 +41,21 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         terminalreporter.section(f"{benchmark_type} Benchmark Summary", sep="-", bold=True, yellow=True)
 
         width = result[BenchmarkKeys.FORMAT_WIDTH_KEY]
-        header = f" Query ID |{'Avg(ms)':^{width}}|{'Min(ms)':^{width}}|{'Max(ms)':^{width}}"
+        header = f" Query ID |{'Avg(ms)':^{width}}|{'Min(ms)':^{width}}|{'Max(ms)':^{width}}|{'Peak Mem(MB)':^{width+2}}"
         terminalreporter.write_line(header)
         terminalreporter.write_line("-" * len(header), bold=True, yellow=True)
+        
         agg_timings = result[BenchmarkKeys.AGGREGATE_TIMES_KEY]
-        for query_id, agg_timings in agg_timings.items():
-            line = (f"{query_id:^10}|{agg_timings[0]:^{width}}|{agg_timings[1]:^{width}}|"
-                    f"{agg_timings[2]:^{width}}")
+        memory_stats = result.get(BenchmarkKeys.MEMORY_STATS_KEY, {})
+        
+        for query_id, timing_stats in agg_timings.items():
+            peak_mem_mb = 0
+            if query_id in memory_stats:
+                peak_mem_bytes = max(r.get("peakTotalMemoryBytes", 0) for r in memory_stats[query_id])
+                peak_mem_mb = round(peak_mem_bytes / (1024 * 1024), 1)
+            
+            line = (f"{query_id:^10}|{timing_stats[0]:^{width}}|{timing_stats[1]:^{width}}|"
+                    f"{timing_stats[2]:^{width}}|{peak_mem_mb:^{width+2}}")
             terminalreporter.write_line(line)
         terminalreporter.write_line("")
 
@@ -70,13 +78,21 @@ def pytest_sessionfinish(session, exitstatus):
                 BenchmarkKeys.MIN_KEY: {},
                 BenchmarkKeys.MAX_KEY: {},
             },
+            BenchmarkKeys.PEAK_MEMORY_KEY: {},
             BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
         }
         json_agg_timings = json_result[benchmark_type][BenchmarkKeys.AGGREGATE_TIMES_KEY]
+        json_peak_memory = json_result[benchmark_type][BenchmarkKeys.PEAK_MEMORY_KEY]
+        memory_stats = result.get(BenchmarkKeys.MEMORY_STATS_KEY, {})
+        
         for query_id, agg_timings in result[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
             json_agg_timings[BenchmarkKeys.AVG_KEY][query_id] = agg_timings[0]
             json_agg_timings[BenchmarkKeys.MIN_KEY][query_id] = agg_timings[1]
             json_agg_timings[BenchmarkKeys.MAX_KEY][query_id] = agg_timings[2]
+            
+            if query_id in memory_stats:
+                peak_mem_bytes = max(r.get("peakTotalMemoryBytes", 0) for r in memory_stats[query_id])
+                json_peak_memory[query_id] = peak_mem_bytes
 
     with open(f"{bench_output_dir}/benchmark_result.json", "w") as file:
         json.dump(json_result, file, indent=2)

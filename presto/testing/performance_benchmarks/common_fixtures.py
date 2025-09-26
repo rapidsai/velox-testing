@@ -65,6 +65,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     benchmark_result_collector[request.node.obj.BENCHMARK_TYPE] = {
         BenchmarkKeys.RAW_TIMES_KEY: {},
         BenchmarkKeys.FAILED_QUERIES_KEY: {},
+        BenchmarkKeys.MEMORY_STATS_KEY: {},
     }
 
     benchmark_dict = benchmark_result_collector[request.node.obj.BENCHMARK_TYPE]
@@ -73,14 +74,26 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
 
     failed_queries_dict = benchmark_dict[BenchmarkKeys.FAILED_QUERIES_KEY]
     assert failed_queries_dict == {}
+    
+    memory_stats_dict = benchmark_dict[BenchmarkKeys.MEMORY_STATS_KEY]
+    assert memory_stats_dict == {}
 
     def benchmark_query_function(query_id):
         try:
-            result = [
-                presto_cursor.execute(benchmark_queries[query_id]).stats["elapsedTimeMillis"]
-                for _ in range(iterations)
-            ]
-            raw_times_dict[query_id] = result
+            results = []
+            for _ in range(iterations):
+                stats = presto_cursor.execute(benchmark_queries[query_id]).stats
+                results.append({
+                    "elapsedTimeMillis": stats["elapsedTimeMillis"],
+                    "peakUserMemoryBytes": stats.get("peakUserMemoryBytes", 0),
+                    "peakTotalMemoryBytes": stats.get("peakTotalMemoryBytes", 0),
+                    "cumulativeUserMemory": stats.get("cumulativeUserMemory", 0)
+                })
+            raw_times_dict[query_id] = [r["elapsedTimeMillis"] for r in results]
+            
+            # Store memory stats separately
+            memory_stats_dict[query_id] = results
+            
         except Exception as e:
             failed_queries_dict[query_id] = f"{e.error_type}: {e.error_name}"
             raise
