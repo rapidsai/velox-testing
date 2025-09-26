@@ -19,6 +19,9 @@ from .benchmark_keys import BenchmarkKeys
 from ..common.fixtures import tpch_queries, tpcds_queries
 
 
+from ..integration_tests.create_hive_tables import analyze_tables
+
+
 @pytest.fixture(scope="module")
 def presto_cursor(request):
     hostname = request.config.getoption("--hostname")
@@ -27,7 +30,15 @@ def presto_cursor(request):
     schema = request.config.getoption("--schema-name")
     conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive",
                                   schema=schema)
-    return conn.cursor()
+    cursor = conn.cursor()
+    
+    analyze_tables_flag = request.config.getoption("--analyze-tables")
+    if analyze_tables_flag and not hasattr(request.session, '_tables_analyzed'):
+        analyze_tables(cursor, schema)
+        request.session._tables_analyzed = True
+    
+    yield cursor
+    conn.close()
 
 
 @pytest.fixture(scope="session")

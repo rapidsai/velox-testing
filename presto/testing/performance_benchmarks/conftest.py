@@ -29,6 +29,8 @@ def pytest_addoption(parser):
     parser.addoption("--iterations", default=5, type=int)
     parser.addoption("--output-dir", default="benchmark_output")
     parser.addoption("--tag")
+    parser.addoption("--analyze-tables", action="store_true", default=False,
+                     help="Run ANALYZE TABLE before benchmarks to optimize memory usage")
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):

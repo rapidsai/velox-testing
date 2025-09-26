@@ -38,6 +38,8 @@ OPTIONS:
     -t, --tag               Tag associated with the benchmark run. When a tag is specified, benchmark output will be
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
+    --analyze-tables        Run ANALYZE TABLE on all tables before benchmarks to optimize memory usage.
+                            This helps Presto coordinator make plans with lower peak memory usage.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -137,6 +139,10 @@ parse_args() {
           exit 1
         fi
         ;;
+      --analyze-tables)
+        ANALYZE_TABLES="true"
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -193,6 +199,10 @@ if [[ -n ${TAG} ]]; then
     exit 1
   fi
   PYTEST_ARGS+=("--tag ${TAG}")
+fi
+
+if [[ "${ANALYZE_TABLES}" == "true" ]]; then
+  PYTEST_ARGS+=("--analyze-tables")
 fi
 
 source ../../scripts/py_env_functions.sh

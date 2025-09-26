@@ -17,14 +17,35 @@ import os
 import prestodb
 
 
-def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directory):
+def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directory, analyze_tables_flag):
     drop_schema(presto_cursor, schema_name)
     presto_cursor.execute(f"CREATE SCHEMA hive.{schema_name}")
 
     schemas = get_table_schemas(schemas_dir_path)
+    table_names = []
     for table_name, schema in schemas:
         presto_cursor.execute(
             schema.format(file_path=f"/var/lib/presto/data/hive/data/{data_sub_directory}/{table_name}"))
+        table_names.append(table_name)
+    
+    if analyze_tables_flag:
+        analyze_tables(presto_cursor, schema_name, table_names)
+
+
+def analyze_tables(presto_cursor, schema_name, table_names=None):
+    if table_names is None:
+        try:
+            tables = presto_cursor.execute(f"SHOW TABLES FROM hive.{schema_name}").fetchall()
+            table_names = [table_name for table_name, in tables]
+        except Exception as e:
+            print(f"Warning: Could not list tables in schema {schema_name}: {e}")
+            return
+    
+    for table_name in table_names:
+        try:
+            presto_cursor.execute(f"ANALYZE TABLE hive.{schema_name}.{table_name}")
+        except Exception as e:
+            print(f"Warning: Failed to analyze table {table_name}: {e}")
 
 
 def get_table_schemas(schemas_dir):
@@ -53,9 +74,12 @@ if __name__ == "__main__":
                         help="The path to the directory that will contain the schema files.")
     parser.add_argument("--data-dir-name", type=str, required=True,
                         help="The name of the directory that contains the benchmark data.")
+    parser.add_argument("--no-analyze-tables", action="store_true", default=False,
+                        help="Skip ANALYZE TABLE step (analysis runs by default)")
     args = parser.parse_args()
 
     conn = prestodb.dbapi.connect(host="localhost", port=8080, user="test_user", catalog="hive")
     cursor = conn.cursor()
     data_sub_directory = f"user_data/{args.data_dir_name}"
-    create_tables(cursor, args.schema_name, args.schemas_dir_path, data_sub_directory)
+    create_tables(cursor, args.schema_name, args.schemas_dir_path, data_sub_directory, 
+                  analyze_tables_flag=not args.no_analyze_tables)
