@@ -15,12 +15,16 @@
 import pytest
 
 from . import test_utils
-from .common_fixtures import presto_cursor, setup_and_teardown
-from ..common.fixtures import tpcds_queries
-
-BENCHMARK_TYPE = "tpcds"
 
 
-@pytest.mark.usefixtures("setup_and_teardown")
-def test_query(presto_cursor, tpcds_queries, tpcds_query_id):
-    test_utils.execute_query_and_compare_results(presto_cursor, tpcds_queries, tpcds_query_id)
+@pytest.fixture(scope="module")
+def tpch_queries(request):
+    queries = test_utils.get_queries(request.node.obj.BENCHMARK_TYPE)
+    # Referencing the CTE defined "supplier_no" alias in the parent query causes issues on presto.
+    queries["Q15"] = queries["Q15"].replace(" AS supplier_no", "").replace("supplier_no", "l_suppkey")
+    return queries
+
+
+@pytest.fixture(scope="module")
+def tpcds_queries(request):
+    return test_utils.get_queries(request.node.obj.BENCHMARK_TYPE)

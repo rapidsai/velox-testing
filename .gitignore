@@ -12,3 +12,6 @@ __pycache__/
 
 # Maven cache for Java builds in docker
 .mvn_cache/
+
+# Default benchmark output directory
+benchmark_output
