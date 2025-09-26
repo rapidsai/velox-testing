@@ -152,6 +152,7 @@ parse_args() {
         fi
         SCCACHE_AUTH_DIR="$2"
         shift 2
+        ;;
       --build-type)
         if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
           # Convert to lowercase first, then validate
