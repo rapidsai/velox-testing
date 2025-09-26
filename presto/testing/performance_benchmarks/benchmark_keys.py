@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
+from enum import Enum
 
-from . import test_utils
-from .common_fixtures import presto_cursor, setup_and_teardown
-from ..common.fixtures import tpcds_queries
-
-BENCHMARK_TYPE = "tpcds"
-
-
-@pytest.mark.usefixtures("setup_and_teardown")
-def test_query(presto_cursor, tpcds_queries, tpcds_query_id):
-    test_utils.execute_query_and_compare_results(presto_cursor, tpcds_queries, tpcds_query_id)
+class BenchmarkKeys(str, Enum):
+    RAW_TIMES_KEY = "raw_times_ms"
+    FAILED_QUERIES_KEY = "failed_queries"
+    FORMAT_WIDTH_KEY = "format_width"
+    AGGREGATE_TIMES_KEY = "agg_times_ms"
+    AGGREGATE_TIMES_FIELDS_KEY = "agg_times_fields"
+    AVG_KEY = "avg"
+    MIN_KEY = "min"
+    MAX_KEY = "max"
+    MEDIAN_KEY = "median"
+    GMEAN_KEY = "geometric_mean"
+    TAG_KEY = "tag"
