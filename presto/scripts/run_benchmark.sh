@@ -31,7 +31,8 @@ OPTIONS:
     -h, --hostname          Hostname of the Presto coordinator.
     -p, --port              Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
-    -s, --schema-name       Name of the schema containing the tables that will be queried.
+    -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
+                            schema that contains the benchmark tables.
     -o, --output-dir        Directory path that will contain the output files from the benchmark run.
                             By default, output files are written to "$(pwd)/benchmark_output".
     -i, --iterations        Number of query run iterations. By default, 5 iterations are run.

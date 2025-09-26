@@ -38,14 +38,21 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         terminalreporter.write_line("")
         terminalreporter.section(f"{benchmark_type} Benchmark Summary", sep="-", bold=True, yellow=True)
 
-        width = result[BenchmarkKeys.FORMAT_WIDTH_KEY]
-        header = f" Query ID |{'Avg(ms)':^{width}}|{'Min(ms)':^{width}}|{'Max(ms)':^{width}}"
+        AGG_HEADERS = ["Avg(ms)", "Min(ms)", "Max(ms)", "Median(ms)", "GMean(ms)"]
+        width = max([len(agg_header) for agg_header in AGG_HEADERS])
+        width = max(width, result[BenchmarkKeys.FORMAT_WIDTH_KEY]) + 2  # Additional padding on each side
+        header = " Query ID "
+        for agg_header in AGG_HEADERS:
+            header += f"|{agg_header:^{width}}"
         terminalreporter.write_line(header)
         terminalreporter.write_line("-" * len(header), bold=True, yellow=True)
-        agg_timings = result[BenchmarkKeys.AGGREGATE_TIMES_KEY]
-        for query_id, agg_timings in agg_timings.items():
-            line = (f"{query_id:^10}|{agg_timings[0]:^{width}}|{agg_timings[1]:^{width}}|"
-                    f"{agg_timings[2]:^{width}}")
+        for query_id, agg_timings in result[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
+            line = f"{query_id:^10}"
+            if agg_timings:
+                for agg_timing in agg_timings:
+                    line += f"|{agg_timing:^{width}}"
+            else:
+                line += (f"|{'NULL':^{width}}" * len(AGG_HEADERS))
             terminalreporter.write_line(line)
         terminalreporter.write_line("")
 
@@ -60,21 +67,21 @@ def pytest_sessionfinish(session, exitstatus):
         json_result[BenchmarkKeys.TAG_KEY] = tag
     Path(bench_output_dir).mkdir(parents=True, exist_ok=True)
 
+    AGG_KEYS = [BenchmarkKeys.AVG_KEY, BenchmarkKeys.MIN_KEY, BenchmarkKeys.MAX_KEY,
+                BenchmarkKeys.MEDIAN_KEY, BenchmarkKeys.GMEAN_KEY]
     for benchmark_type, result in session.benchmark_results.items():
         compute_aggregate_timings(result)
         json_result[benchmark_type] = {
-            BenchmarkKeys.AGGREGATE_TIMES_KEY: {
-                BenchmarkKeys.AVG_KEY: {},
-                BenchmarkKeys.MIN_KEY: {},
-                BenchmarkKeys.MAX_KEY: {},
-            },
+            BenchmarkKeys.AGGREGATE_TIMES_KEY: {},
             BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
         }
         json_agg_timings = json_result[benchmark_type][BenchmarkKeys.AGGREGATE_TIMES_KEY]
+        for agg_key in AGG_KEYS:
+            json_agg_timings[agg_key] = {}
         for query_id, agg_timings in result[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
-            json_agg_timings[BenchmarkKeys.AVG_KEY][query_id] = agg_timings[0]
-            json_agg_timings[BenchmarkKeys.MIN_KEY][query_id] = agg_timings[1]
-            json_agg_timings[BenchmarkKeys.MAX_KEY][query_id] = agg_timings[2]
+            if agg_timings:
+                for i, agg_key in enumerate(AGG_KEYS):
+                    json_agg_timings[agg_key][query_id] = agg_timings[i]
 
     with open(f"{bench_output_dir}/benchmark_result.json", "w") as file:
         json.dump(json_result, file, indent=2)
@@ -84,9 +91,13 @@ def pytest_sessionfinish(session, exitstatus):
 def compute_aggregate_timings(benchmark_results):
     raw_times = benchmark_results[BenchmarkKeys.RAW_TIMES_KEY]
     benchmark_results[BenchmarkKeys.AGGREGATE_TIMES_KEY] = {}
-    format_width = 8
+    format_width = 0
     for query_id, timings in raw_times.items():
-        stats = (round(statistics.mean(timings), 2), min(timings), max(timings))
+        if timings:
+            stats = (round(statistics.mean(timings), 2), min(timings), max(timings),
+                     statistics.median(timings), round(statistics.geometric_mean(timings), 2))
+            format_width = max(format_width, *[len(str(stat)) for stat in stats])
+        else:
+            stats = None
         benchmark_results[BenchmarkKeys.AGGREGATE_TIMES_KEY][query_id] = stats
-        format_width = max(format_width, *[len(str(stat)) for stat in stats])
-    benchmark_results[BenchmarkKeys.FORMAT_WIDTH_KEY] = format_width + 2  # Additional padding on each side
+    benchmark_results[BenchmarkKeys.FORMAT_WIDTH_KEY] = format_width

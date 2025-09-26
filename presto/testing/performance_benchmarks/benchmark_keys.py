@@ -23,4 +23,6 @@ class BenchmarkKeys(str, Enum):
     AVG_KEY = "avg"
     MIN_KEY = "min"
     MAX_KEY = "max"
+    MEDIAN_KEY = "median"
+    GMEAN_KEY = "geometric_mean"
     TAG_KEY = "tag"

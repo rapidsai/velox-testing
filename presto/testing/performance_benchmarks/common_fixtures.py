@@ -72,6 +72,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             raw_times_dict[query_id] = result
         except Exception as e:
             failed_queries_dict[query_id] = f"{e.error_type}: {e.error_name}"
+            raw_times_dict[query_id] = None
             raise
 
     return benchmark_query_function
