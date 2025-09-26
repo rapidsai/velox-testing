@@ -38,8 +38,7 @@ def get_table_schema(benchmark_type, table_name, schema_name, convert_decimals_t
         for column_metadata in column_metadata_rows
     ]
     columns_text = ",\n".join(columns_ddl_list)
-    schema_var = "{schema}"
-    schema = f"CREATE TABLE hive.{schema_var}.{table_name} \
+    schema = f"CREATE TABLE hive.{{schema}}.{table_name} \
     (\n{columns_text}\n) \
     WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{{file_path}}')"
     return schema

@@ -19,7 +19,6 @@ def pytest_addoption(parser):
     parser.addoption("--port", default=8080)
     parser.addoption("--user", default="test_user")
     parser.addoption("--schema-name") # default is determined dynamically based on benchmark type
-    parser.addoption("--scale-factor") # if not provided, SF is detected from data files.
 
 
 def pytest_generate_tests(metafunc):

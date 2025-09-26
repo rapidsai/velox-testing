@@ -19,9 +19,6 @@ import sys
 def get_abs_file_path(relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
 
-def dir_exists(path):
-    return os.path.isdir(path)
-
 sys.path.append(get_abs_file_path("../../../benchmark_data_tools"))
 
 import duckdb
@@ -29,7 +26,7 @@ import json
 import pytest
 import sqlglot
 
-from duckdb_utils import init_benchmark_tables_from_parquet, create_table
+from duckdb_utils import create_table
 
 
 def get_queries(benchmark_type):
@@ -44,23 +41,22 @@ def execute_query_and_compare_results(presto_cursor, queries, query_id):
     presto_rows = presto_cursor.fetchall()
     duckdb_rows, types = execute_duckdb_query(query)
 
-    compare_results(presto_rows, duckdb_rows, types, get_is_sorted_query(query))
+    compare_results(presto_rows, duckdb_rows, types)
 
 
 def get_is_sorted_query(query):
     return any(isinstance(expr, sqlglot.exp.Order) for expr in sqlglot.parse_one(query).iter_expressions())
 
 
-def compare_results(presto_rows, duckdb_rows, types, is_sorted_query):
+def compare_results(presto_rows, duckdb_rows, types):
     row_count = len(presto_rows)
     assert row_count == len(duckdb_rows)
 
     duckdb_rows = normalize_rows(duckdb_rows, types)
     presto_rows = normalize_rows(presto_rows, types)
 
-    if not is_sorted_query:
-        duckdb_rows = sorted(duckdb_rows)
-        presto_rows = sorted(presto_rows)
+    duckdb_rows = sorted(duckdb_rows)
+    presto_rows = sorted(presto_rows)
 
     approx_floats(duckdb_rows, types)
 

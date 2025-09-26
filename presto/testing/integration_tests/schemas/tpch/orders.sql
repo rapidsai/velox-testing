@@ -1,4 +1,4 @@
-CREATE TABLE hive.{schema}.orders (
+CREATE TABLE hive.{schema}.orders     (
     o_orderkey BIGINT NOT NULL,
     o_custkey BIGINT NOT NULL,
     o_orderstatus VARCHAR NOT NULL,
@@ -8,4 +8,4 @@ CREATE TABLE hive.{schema}.orders (
     o_clerk VARCHAR NOT NULL,
     o_shippriority INTEGER NOT NULL,
     o_comment VARCHAR NOT NULL
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+)     WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')

@@ -27,7 +27,7 @@ def tpch_queries(get_scale_factor):
     # The "fraction" portion of Q11 is a value that depends on scale factor
     # (it should be 0.0001 / scale_factor), whereas our query is currently hard-coded as 0.0001.
     value_ratio = 0.0001 / float(scale_factor)
-    queries["Q11"] = queries["Q11"].replace("<SF_PLACEHOLDER>", str(value_ratio))
+    queries["Q11"] = queries["Q11"].format(SF_FRACTION=f"{value_ratio:f}")
     # Referencing the CTE defined "supplier_no" alias in the parent query causes issues on presto.
     queries["Q15"] = queries["Q15"].replace(" AS supplier_no", "").replace("supplier_no", "l_suppkey")
     return queries
