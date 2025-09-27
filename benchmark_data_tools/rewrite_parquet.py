@@ -15,6 +15,7 @@
 import os
 import pyarrow.parquet as pq
 import pyarrow as pa
+from pyarrow import compute as pc
 import argparse
 import duckdb
 from pathlib import Path
@@ -40,39 +41,51 @@ def process_file(input_file_path, output_dir, input_dir, verbose, table_to_schem
     # Create output directory if it doesn't exist
     os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
 
-    # Read the parquet file metadata
+    # Open parquet file and derive original schema
     parquet_file = pq.ParquetFile(input_file_path)
-    schema = parquet_file.schema_arrow
+    original_schema = parquet_file.schema_arrow
 
     if verbose:
         print(f"Converting {input_file_path} to {output_file_path}")
 
-    # Read the parquet file
-    table = pq.read_table(input_file_path)
+    # Determine expected types from DuckDB schema for this table
     table_name = os.path.basename(input_file_path).split('-')[0]
     assert table_name in table_to_schema_map, f"Expected table {table_name} not found in schema"
     table_schema = table_to_schema_map.get(table_name)
+    expected_types = {row[0]: row[1] for row in table_schema}
 
-    # Convert decimal columns to double
-    new_columns = []
-    for col in table.columns:
-        if pa.types.is_decimal(col.type):
+    # Build output schema (cast DECIMAL->FLOAT64, optionally INT64->INT32 when DuckDB says INTEGER)
+    new_fields = []
+    for field in original_schema:
+        new_type = field.type
+        if pa.types.is_decimal(new_type):
             if verbose:
-                print(f"type mismatch on col: {col._name} (decimal) casting to (float)")
-            col = col.cast(pa.float64())
-        elif col.type == pa.int64():
-            for row in table_schema:
-                if col._name == row[0] and row[1] == "INTEGER":
-                    if verbose:
-                        print(f"type mismatch on col: {col._name} (int64) casting to (int32)")
-                    col = col.cast(pa.int32())
-        new_columns.append(col)
+                print(f"type mismatch on col: {field.name} (decimal) casting to (float)")
+            new_type = pa.float64()
+        elif pa.types.is_int64(new_type) and expected_types.get(field.name) == "INTEGER":
+            if verbose:
+                print(f"type mismatch on col: {field.name} (int64) casting to (int32)")
+            new_type = pa.int32()
+        new_fields.append(pa.field(field.name, new_type))
+    new_schema = pa.schema(new_fields)
 
-    new_table = pa.Table.from_arrays(new_columns, schema.names)
-
-    # Write the table back to a parquet file.
-    # If we want to alter the file's properties (page_size, use_dictionary=False, column_encoding), we can do so here.
-    pq.write_table(new_table, output_file_path)
+    # Stream-read and write in small batches to avoid high memory usage
+    writer = pq.ParquetWriter(output_file_path, new_schema)
+    try:
+        for batch in parquet_file.iter_batches(batch_size=65536):
+            names = batch.schema.names
+            casted_arrays = []
+            for i, name in enumerate(names):
+                arr = batch.column(i)
+                if pa.types.is_decimal(arr.type):
+                    arr = pc.cast(arr, pa.float64())
+                elif pa.types.is_int64(arr.type) and expected_types.get(name) == "INTEGER":
+                    arr = pc.cast(arr, pa.int32())
+                casted_arrays.append(arr)
+            casted_batch = pa.RecordBatch.from_arrays(casted_arrays, names)
+            writer.write_table(pa.Table.from_batches([casted_batch]))
+    finally:
+        writer.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

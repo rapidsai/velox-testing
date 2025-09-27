@@ -31,6 +31,7 @@ fi
 
 SCHEMA_GEN_SCRIPT_PATH=$(readlink -f ../../benchmark_data_tools/generate_table_schemas.py)
 CREATE_TABLES_SCRIPT_PATH=$(readlink -f ../../presto/testing/integration_tests/create_hive_tables.py)
+CREATE_TABLES_REQUIREMENTS_PATH=$(readlink -f ../../presto/testing/requirements.txt)
 TEMP_SCHEMA_DIR=$(readlink -f temp-schema-dir)
 
 function cleanup() {
@@ -42,5 +43,5 @@ trap cleanup EXIT
 ../../scripts/run_py_script.sh -p $SCHEMA_GEN_SCRIPT_PATH --benchmark-type $BENCHMARK_TYPE \
 --schema-name $SCHEMA_NAME --schemas-dir-path $TEMP_SCHEMA_DIR $CONVERT_DECIMALS_TO_FLOATS_ARG
 
-../../scripts/run_py_script.sh -p $CREATE_TABLES_SCRIPT_PATH --schema-name $SCHEMA_NAME \
---schemas-dir-path $TEMP_SCHEMA_DIR --data-dir-name $DATA_DIR_NAME
+../../scripts/run_py_script.sh -p $CREATE_TABLES_SCRIPT_PATH -r $CREATE_TABLES_REQUIREMENTS_PATH \
+--schema-name $SCHEMA_NAME --schemas-dir-path $TEMP_SCHEMA_DIR --data-dir-name $DATA_DIR_NAME

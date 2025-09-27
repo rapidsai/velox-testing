@@ -31,6 +31,9 @@ OPTIONS:
                          By default, services will be lazily built i.e. a build 
                          will only occur if there is no local image for the service.
     -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
+    --build-type         Build type for native CPU and GPU image builds. Possible values are "release",
+                         "relwithdebinfo", or "debug". Values are case insensitive. The default value
+                         is "release".
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -43,7 +46,7 @@ EOF
 }
 
 NUM_THREADS=$(($(nproc) / 2))
-
+BUILD_TYPE=release
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -73,6 +76,16 @@ parse_args() {
           exit 1
         fi
         ;;
+      --build-type)
+        if [[ -n $2 ]]; then
+          # Convert value to lowercase using the "L" transformation operator.
+          BUILD_TYPE=${2@L}
+          shift 2
+        else
+          echo "Error: --build-type requires a value"
+          exit 1
+        fi
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -92,6 +105,12 @@ fi
 
 if (( NUM_THREADS <= 0 )); then
   echo "Error: --num-threads must be a positive integer."
+  print_help
+  exit 1
+fi
+
+if [[ ! ${BUILD_TYPE} =~ ^(release|relwithdebinfo|debug)$ ]]; then
+  echo "Error: invalid --build-type value."
   print_help
   exit 1
 fi
