@@ -65,6 +65,7 @@ function init_python_virtual_env() {
     fi
 
     init_conda
+    LOCAL_CONDA_INIT=true # keep track of whether we set up the current conda environment
 
     echo "Creating virtual environment using conda"
     conda create -q -y --prefix ".venv" python=3.12 > /dev/null
@@ -75,9 +76,10 @@ function init_python_virtual_env() {
 }
 
 function delete_python_virtual_env() {
-  if command -v conda &> /dev/null; then
-    echo "Deactivating conda environment"
-    conda deactivate
+  if [ -n "$LOCAL_CONDA_INIT" ] && command -v conda &> /dev/null; then
+      echo "Deactivating conda environment"
+      conda deactivate
+      LOCAL_CONDA_INIT=""
   elif command -v deactivate &> /dev/null; then
     echo "Deactivating venv environment"
     deactivate
