@@ -47,6 +47,10 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64"
 
 WORKDIR /workspace/velox
 
+# Copy and run CentOS adapters setup script
+COPY velox/scripts/ /scripts
+RUN bash /scripts/setup-centos-adapters.sh
+
 # Print environment variables for debugging
 RUN printenv | sort
 
