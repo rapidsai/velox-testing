@@ -31,6 +31,9 @@ echo "INFO: Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}G
 # move to config directory
 pushd ../docker/config
 
+# always move back even on failure
+trap popd EXIT
+
 # (re-)generate the config.json file
 rm -rf generated
 mkdir -p generated
@@ -51,6 +54,3 @@ EOF
 
 # run pbench to generate the config files
 ../../pbench/pbench genconfig -p params.json -t template generated
-
-# return to scripts directory
-popd
