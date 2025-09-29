@@ -52,15 +52,30 @@ jobs:
 
       - name: Setup sccache authentication
         run: |
+          echo "=== Token Debug Info ==="
+          if [[ -n "${{ secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN }}" ]]; then
+            echo "GIST_REPO_READ_ORG_GITHUB_TOKEN secret is available"
+            echo "Token length: ${#GIST_REPO_READ_ORG_GITHUB_TOKEN}"
+            echo "Token prefix: ${GIST_REPO_READ_ORG_GITHUB_TOKEN:0:10}..."
+          else
+            echo "ERROR: GIST_REPO_READ_ORG_GITHUB_TOKEN secret is NOT available"
+            echo "Available secrets that start with 'G': ${{ toJSON(secrets) }}" | grep -o '"G[^"]*"' || echo "No secrets starting with G"
+          fi
+          echo "========================"
+          
           pushd ${{ github.workspace }}/velox-testing/velox/scripts
           if ./setup_sccache_auth.sh --github-token "${{ secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN }}" "$HOME/.sccache-auth"; then
             echo "SCCACHE_ENABLED=true" >> $GITHUB_ENV
             echo "sccache authentication successful"
           else
             echo "SCCACHE_ENABLED=false" >> $GITHUB_ENV
-            echo "sccache authentication failed - build will fail"
+            echo "sccache authentication failed - building without sccache"
+            echo "Note: For sccache to work in CI, you may need a personal access token"
+            echo "with broader permissions than the default github.token"
           fi
           popd
+        env:
+          GIST_REPO_READ_ORG_GITHUB_TOKEN: ${{ secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN }}
 
       - name: "Build Velox GPU with Benchmarks and sccache (SHA: ${{ env.VELOX_COMMIT_SHA }})"
         run: |
