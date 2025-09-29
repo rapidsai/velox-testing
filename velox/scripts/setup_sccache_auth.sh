@@ -143,7 +143,7 @@ fi
 echo -e "${GREEN}GitHub authentication successful${NC}"
 echo
 
-# Step 2: AWS Credential Generation (always non-interactive for the AWS part)
+# Step 2: AWS Credential Generation
 echo -e "${BLUE}AWS Credential Generation${NC}"
 echo "Using the gh-nv-gha-aws plugin for GitHub to generate required AWS credentials."
 echo
@@ -157,23 +157,39 @@ docker run --rm \
       exit 1
     fi
     
-    # Authenticate with the saved token (non-interactive)
+    # Authenticate with the saved token
     cat /output/github_token | gh auth login --with-token
     
     # Verify GitHub CLI authentication
-    gh auth status
+    if ! gh auth status; then
+      echo "ERROR: GitHub authentication failed"
+      exit 1
+    fi
     
     # Generate AWS credentials
     mkdir -p /root/.aws
     
-    gh nv-gha-aws org nvidia \
+    echo "Attempting to generate AWS credentials..."
+    echo "Command: gh nv-gha-aws org rapidsai --profile default --output creds-file --duration '$AWS_CREDENTIALS_TIMEOUT' --aud sts.amazonaws.com --idp-url https://token.gha-runners.nvidia.com --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs"
+    
+    if ! gh nv-gha-aws org rapidsai \
       --profile default \
       --output creds-file \
       --duration '$AWS_CREDENTIALS_TIMEOUT' \
       --aud sts.amazonaws.com \
       --idp-url https://token.gha-runners.nvidia.com \
       --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs \
-      > /root/.aws/credentials
+      > /root/.aws/credentials; then
+      
+      echo "ERROR: Failed to generate AWS credentials"
+      exit 1
+    fi
+    
+    # Verify credentials file was created and has content
+    if [[ ! -f /root/.aws/credentials ]] || [[ ! -s /root/.aws/credentials ]]; then
+      echo "ERROR: AWS credentials file is empty or missing"
+      exit 1
+    fi
     
     # Copy AWS credentials to output
     cp /root/.aws/credentials /output/aws_credentials
@@ -181,6 +197,17 @@ docker run --rm \
 
 if [[ ! -f "$OUTPUT_DIR/aws_credentials" ]]; then
   echo -e "${RED}AWS credentials not found. Generation has failed.${NC}"
+  echo -e "${RED}This is required for sccache to work properly.${NC}"
+  echo -e "${RED}Possible solutions:${NC}"
+  echo -e "${RED}  1. Ensure you're running on NVIDIA infrastructure${NC}"
+  echo -e "${RED}  2. Use a GitHub token with appropriate permissions${NC}"
+  echo -e "${RED}  3. Run the interactive setup: ./setup_sccache_auth.sh${NC}"
+  exit 1
+fi
+
+# Verify the AWS credentials file has actual content
+if [[ ! -s "$OUTPUT_DIR/aws_credentials" ]]; then
+  echo -e "${RED}AWS credentials file is empty. Generation has failed.${NC}"
   exit 1
 fi
 
