@@ -148,6 +148,18 @@ echo -e "${BLUE}AWS Credential Generation${NC}"
 echo "Using the gh-nv-gha-aws plugin for GitHub to generate required AWS credentials."
 echo
 
+# Debug: Check what token we have
+echo "=== Token Debug (outside Docker) ==="
+if [[ -f "$OUTPUT_DIR/github_token" ]]; then
+  TOKEN_LENGTH=$(wc -c < "$OUTPUT_DIR/github_token")
+  TOKEN_PREFIX=$(head -c 10 "$OUTPUT_DIR/github_token")
+  echo "Token file exists, length: $TOKEN_LENGTH"
+  echo "Token prefix: ${TOKEN_PREFIX}..."
+else
+  echo "ERROR: Token file not found at $OUTPUT_DIR/github_token"
+fi
+echo "=================================="
+
 docker run --rm \
   -v "$OUTPUT_DIR:/output" \
   sccache-auth \
@@ -157,11 +169,24 @@ docker run --rm \
       exit 1
     fi
     
+    # Debug: Show token info inside Docker
+    echo "=== Token Debug (inside Docker) ==="
+    TOKEN_LENGTH=\$(wc -c < /output/github_token)
+    TOKEN_PREFIX=\$(head -c 10 /output/github_token)
+    echo "Token file exists, length: \$TOKEN_LENGTH"
+    echo "Token prefix: \${TOKEN_PREFIX}..."
+    echo "=================================="
+    
     # Authenticate with the saved token
+    echo "Authenticating with GitHub using token..."
     cat /output/github_token | gh auth login --with-token
     
-    # Verify GitHub CLI authentication
-    if ! gh auth status; then
+    # Verify GitHub CLI authentication and show what account we're using
+    echo "=== GitHub Auth Status ==="
+    gh auth status
+    echo "=========================="
+    
+    if ! gh auth status >/dev/null 2>&1; then
       echo "ERROR: GitHub authentication failed"
       exit 1
     fi
@@ -170,12 +195,12 @@ docker run --rm \
     mkdir -p /root/.aws
     
     echo "Attempting to generate AWS credentials..."
-    echo "Command: gh nv-gha-aws org rapidsai --profile default --output creds-file --duration '$AWS_CREDENTIALS_TIMEOUT' --aud sts.amazonaws.com --idp-url https://token.gha-runners.nvidia.com --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs"
+    echo "Command: gh nv-gha-aws org rapidsai --profile default --output creds-file --duration $AWS_CREDENTIALS_TIMEOUT --aud sts.amazonaws.com --idp-url https://token.gha-runners.nvidia.com --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs"
     
     if ! gh nv-gha-aws org rapidsai \
       --profile default \
       --output creds-file \
-      --duration '$AWS_CREDENTIALS_TIMEOUT' \
+      --duration $AWS_CREDENTIALS_TIMEOUT \
       --aud sts.amazonaws.com \
       --idp-url https://token.gha-runners.nvidia.com \
       --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs \
@@ -194,11 +219,15 @@ docker run --rm \
     fi
     if ! grep -q "aws_access_key_id" /root/.aws/credentials; then
       echo "ERROR: AWS credentials file does not contain valid credentials"
+      echo "=== Credentials file content ==="
+      cat /root/.aws/credentials
+      echo "==============================="
       exit 1
     fi
     
     # Copy AWS credentials to output
     cp /root/.aws/credentials /output/aws_credentials
+    echo "AWS credentials successfully generated"
 EOF
 
 # Verify the AWS credentials file has actual content
