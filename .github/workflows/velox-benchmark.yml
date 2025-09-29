@@ -36,7 +36,7 @@ jobs:
     runs-on: linux-amd64-gpu-l4-latest-1
     
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN }}
       
     steps:
       - name: Checkout velox-testing
@@ -53,7 +53,13 @@ jobs:
       - name: Setup sccache authentication
         run: |
           pushd ${{ github.workspace }}/velox-testing/velox/scripts
-          ./setup_sccache_auth.sh --github-token "${{ github.token }}" "$HOME/.sccache-auth"
+          if ./setup_sccache_auth.sh --github-token "${{ secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN }}" "$HOME/.sccache-auth"; then
+            echo "SCCACHE_ENABLED=true" >> $GITHUB_ENV
+            echo "sccache authentication successful"
+          else
+            echo "SCCACHE_ENABLED=false" >> $GITHUB_ENV
+            echo "sccache authentication failed - build will fail"
+          fi
           popd
 
       - name: "Build Velox GPU with Benchmarks and sccache (SHA: ${{ env.VELOX_COMMIT_SHA }})"

@@ -151,7 +151,7 @@ echo
 docker run --rm \
   -v "$OUTPUT_DIR:/output" \
   sccache-auth \
-  bash -c '
+  bash <<EOF
     if [[ ! -f /output/github_token ]]; then
       echo "Error: GitHub token not found"
       exit 1
@@ -180,30 +180,26 @@ docker run --rm \
       --idp-url https://token.gha-runners.nvidia.com \
       --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs \
       > /root/.aws/credentials; then
-      
       echo "ERROR: Failed to generate AWS credentials"
       exit 1
     fi
     
-    # Verify credentials file was created and has content
+    
+    # Check if the credentials file contains actual AWS credentials, the gh
+    # plugin command does not return non-zero exit status if it fails to
+    # authenticate
     if [[ ! -f /root/.aws/credentials ]] || [[ ! -s /root/.aws/credentials ]]; then
       echo "ERROR: AWS credentials file is empty or missing"
+      exit 1
+    fi
+    if ! grep -q "aws_access_key_id" /root/.aws/credentials; then
+      echo "ERROR: AWS credentials file does not contain valid credentials"
       exit 1
     fi
     
     # Copy AWS credentials to output
     cp /root/.aws/credentials /output/aws_credentials
-  '
-
-if [[ ! -f "$OUTPUT_DIR/aws_credentials" ]]; then
-  echo -e "${RED}AWS credentials not found. Generation has failed.${NC}"
-  echo -e "${RED}This is required for sccache to work properly.${NC}"
-  echo -e "${RED}Possible solutions:${NC}"
-  echo -e "${RED}  1. Ensure you're running on NVIDIA infrastructure${NC}"
-  echo -e "${RED}  2. Use a GitHub token with appropriate permissions${NC}"
-  echo -e "${RED}  3. Run the interactive setup: ./setup_sccache_auth.sh${NC}"
-  exit 1
-fi
+EOF
 
 # Verify the AWS credentials file has actual content
 if [[ ! -s "$OUTPUT_DIR/aws_credentials" ]]; then
