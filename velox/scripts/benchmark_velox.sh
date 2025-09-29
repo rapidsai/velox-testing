@@ -29,6 +29,8 @@ NUM_REPEATS=2
 COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
 CONTAINER_NAME="velox-benchmark"  # Uses dedicated benchmark service with pre-configured volumes
 
+# Source benchmark-specific libraries
+source "../benchmarks/tpch.sh"
 
 print_help() {
   cat <<EOF
@@ -303,9 +305,6 @@ create_docker_env_file
 
 # Get BUILD_TYPE from container environment
 export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
-
-# Source benchmark-specific libraries
-source "../benchmarks/tpch.sh"
 
 # Check benchmark data 
 check_benchmark_data
