@@ -29,6 +29,18 @@ NUM_REPEATS=2
 COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
 CONTAINER_NAME="velox-benchmark"  # Uses dedicated benchmark service with pre-configured volumes
 
+# Helper function to run commands in the Velox benchmark container
+run_in_container() {
+  local cmd="$1"
+  
+  docker compose -f "$COMPOSE_FILE" --env-file ./.env run --rm \
+    --cap-add=SYS_ADMIN \
+    "$CONTAINER_NAME" bash -c "$cmd"
+}
+
+# Get BUILD_TYPE from container environment
+export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
+
 # Source benchmark-specific libraries
 source "../benchmarks/tpch.sh"
 
@@ -171,16 +183,6 @@ parse_args() {
   
 }
 
-# Helper function to run commands in the Velox benchmark container
-run_in_container() {
-  local cmd="$1"
-  
-  docker compose -f "$COMPOSE_FILE" --env-file ./.env run --rm \
-    --cap-add=SYS_ADMIN \
-    "$CONTAINER_NAME" bash -c "$cmd"
-}
-
-
 # Helper function to create/update environment file for Docker Compose
 create_docker_env_file() {
   local env_file="./.env"
@@ -302,9 +304,6 @@ echo ""
 
 # Create environment file for Docker Compose
 create_docker_env_file
-
-# Get BUILD_TYPE from container environment
-export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
 
 # Check benchmark data 
 check_benchmark_data
