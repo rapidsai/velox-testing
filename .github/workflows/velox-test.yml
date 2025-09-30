@@ -19,7 +19,6 @@ on:
         required: false
         default: 'gpu'
         options:
-          - all
           - cpu
           - gpu
 
@@ -34,8 +33,7 @@ on:
         default: 'gpu'
 
 jobs:
-  velox-cpu:
-    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'cpu' || github.event.inputs.build_target == 'all' || github.event.inputs.build_target == 'cpu' }}
+  build-velox:
     runs-on: linux-amd64-cpu4
 
     env:
@@ -49,55 +47,65 @@ jobs:
         with:
           path: velox-testing
 
-      - &checkout-velox
-        name: Checkout Velox
-        uses: actions/checkout@v4
+      - name: Setup Velox Testing and Velox
+        uses: ./velox-testing/.github/actions/velox-setup
         with:
-          repository: ${{ inputs.repository || github.event.inputs.repository }}
-          ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
-          path: velox
+          repository: ${{ inputs.repository }}
+          velox_commit: ${{ inputs.velox_commit }}
 
-      - &get-velox-sha
-        name: Get Velox commit SHA
-        id: velox-sha
+      - name: Build Velox (${{ inputs.build_target }})
         run: |
-          VELOX_REF="${{ inputs.velox_commit || github.event.inputs.velox_commit }}"
-          echo "Input ref: $VELOX_REF"
-          
-          if [[ "$VELOX_REF" == "main" || "$VELOX_REF" == "master" ]]; then
-            cd velox
-            ACTUAL_SHA=$(git rev-parse HEAD)
-            echo "Resolved SHA for branch '$VELOX_REF': $ACTUAL_SHA"
-            echo "VELOX_COMMIT_SHA=$ACTUAL_SHA" >> $GITHUB_ENV
-            echo "velox_sha=$ACTUAL_SHA" >> $GITHUB_OUTPUT
-          else
-            echo "Using provided ref: $VELOX_REF"
-            echo "VELOX_COMMIT_SHA=$VELOX_REF" >> $GITHUB_ENV
-            echo "velox_sha=$VELOX_REF" >> $GITHUB_OUTPUT
-          fi
+          cd $HOME/velox-testing/velox/scripts
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --${{ inputs.build_target }} --log build_velox.log
 
-      - name: Building Velox for CPU
-        run: |
-          echo "   - CUDF support: DISABLED"
-          echo "   - Target: CPU-only build"
-          cd ${{ github.workspace }}/velox-testing/velox/scripts
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --cpu --log build_velox_cpu.log
-
-      - name: Upload velox_cpu_build_log as an artifact
+      - name: Upload velox_build_log as an artifact
         uses: actions/upload-artifact@v4
         with:
-          name: velox_cpu_build_log
-          path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_cpu.log
+          name: velox_build_log
+          path: $HOME/velox-testing/velox/scripts/build_velox.log
 
-      - &run-velox-tests
-        name: Run Velox CPU Tests
+      - name: Save velox-adapters-build image as artifact
+        run: |
+          docker save -o $HOME/artifacts/velox-adapters-build.tar velox-adapters-build:latest
+
+      - name: Upload velox image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: velox_adapters_image
+          path: $HOME/artifacts/velox-adapters-build.tar
+          retention-days: 5
+
+  velox-cpu:
+    if: ${{ inputs.build_target == 'cpu' }}
+    needs: build-velox
+    runs-on: linux-amd64-cpu4
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: runc
+
+    steps:
+      - *checkout-velox-testing
+
+      - name: Download built image artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: velox_adapters_image
+          path: ${{ github.workspace }}/artifacts/velox-adapters-build.tar
+
+      - name: Load built image
+        run: |
+          docker load -i ${{ github.workspace }}/artifacts/velox-adapters-build.tar
+
+      - name: Run Velox CPU Tests
         run: |
           pushd ${{ github.workspace }}/velox-testing/velox/scripts
           ./test_velox.sh --device-type cpu
           popd
 
   velox-gpu:
-    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'gpu' || github.event.inputs.build_target == 'all' || github.event.inputs.build_target == 'gpu' }}
+    if: ${{ inputs.build_target == 'gpu' }}
+    needs: build-velox
     runs-on: linux-amd64-gpu-l4-latest-1
     
     env:
@@ -107,22 +115,15 @@ jobs:
     steps:
       - *checkout-velox-testing
 
-      - *checkout-velox
-
-      - *get-velox-sha
-
-      - name: Building Velox for GPU
-        run: |
-          echo "   - CUDF support: ENABLED"
-          echo "   - Target: GPU-accelerated build"
-          cd ${{ github.workspace }}/velox-testing/velox/scripts
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --gpu --log build_velox_gpu.log
-
-      - name: Upload velox_gpu_build_log as an artifact
-        uses: actions/upload-artifact@v4
+      - name: Download built image artifact
+        uses: actions/download-artifact@v5
         with:
-          name: velox_gpu_build_log
-          path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_gpu.log
+          name: velox_adapters_image
+          path: ${{ github.workspace }}/artifacts/velox-adapters-build.tar
+
+      - name: Load built image
+        run: |
+          docker load -i ${{ github.workspace }}/artifacts/velox-adapters-build.tar
 
       - name: Run Velox GPU Tests
         run: |
