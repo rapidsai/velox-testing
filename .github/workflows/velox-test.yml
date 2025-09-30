@@ -58,7 +58,7 @@ jobs:
           velox_commit: ${{ inputs.velox_commit }}
 
       - name: Build Velox (${{ inputs.build_target }})
-        working-directory: ${{env.HOME}}/velox-testing/velox/scripts
+        working-directory: ${{github.workspace}}/velox-testing/velox/scripts
         run: |
           TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --${{ inputs.build_target }} --log build_velox.log
 
@@ -66,17 +66,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: velox_build_log
-          path: ${{env.HOME}}/velox-testing/velox/scripts/build_velox.log
+          path: ${{github.workspace}}/velox-testing/velox/scripts/build_velox.log
 
       - name: Save velox-adapters-build image as artifact
         run: |
-          docker save -o ${{env.HOME}}/artifacts/velox-adapters-build.tar velox-adapters-build:latest
+          docker save -o ${{github.workspace}}/artifacts/velox-adapters-build.tar velox-adapters-build:latest
 
       - name: Upload velox image artifact
         uses: actions/upload-artifact@v4
         with:
           name: velox_adapters_image_${{ inputs.build_target }}
-          path: ${{env.HOME}}/artifacts/velox-adapters-build.tar
+          path: ${{github.workspace}}/artifacts/velox-adapters-build.tar
           retention-days: 5
 
   velox-cpu:
@@ -95,15 +95,15 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: velox_adapters_image_${{ inputs.build_target }}
-          path: ${{env.HOME}}/artifacts/velox-adapters-build.tar
+          path: ${{github.workspace}}/artifacts/velox-adapters-build.tar
 
       - name: Load built image
         run: |
-          docker load -i ${{env.HOME}}/artifacts/velox-adapters-build.tar
+          docker load -i ${{github.workspace}}/artifacts/velox-adapters-build.tar
 
       - name: Run Velox CPU Tests
         run: |
-          pushd ${{env.HOME}}/velox-testing/velox/scripts
+          pushd ${{github.workspace}}/velox-testing/velox/scripts
           ./test_velox.sh --device-type cpu
           popd
 
@@ -123,14 +123,14 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: velox_adapters_image_${{ inputs.build_target }}
-          path: ${{env.HOME}}/artifacts/velox-adapters-build.tar
+          path: ${{github.workspace}}/artifacts/velox-adapters-build.tar
 
       - name: Load built image
         run: |
-          docker load -i ${{env.HOME}}/artifacts/velox-adapters-build.tar
+          docker load -i ${{github.workspace}}/artifacts/velox-adapters-build.tar
 
       - name: Run Velox GPU Tests
         run: |
-          pushd ${{env.HOME}}/velox-testing/velox/scripts
+          pushd ${{github.workspace}}/velox-testing/velox/scripts
           ./test_velox.sh --device-type gpu
           popd
