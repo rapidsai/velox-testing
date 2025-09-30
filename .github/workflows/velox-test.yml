@@ -42,7 +42,7 @@ jobs:
 
     steps:
       - &checkout-velox-testing
-        name: Checkout this repository for CI scripts
+        name: Checkout Velox Testing
         uses: actions/checkout@v4
         with:
           path: velox-testing

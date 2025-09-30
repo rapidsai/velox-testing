@@ -20,7 +20,7 @@ runs:
   using: composite
   steps:
     - name: Setup runner environment
-      uses: ./.github/actions/runner-setup
+      uses: ./velox-testing/.github/actions/runner-setup
 
     - name: Checkout Velox
       uses: actions/checkout@v4
