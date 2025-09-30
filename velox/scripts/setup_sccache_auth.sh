@@ -164,71 +164,78 @@ docker run --rm \
   -v "$OUTPUT_DIR:/output" \
   sccache-auth \
   bash <<EOF
+    # Create debug log file
+    DEBUG_LOG="/output/debug.log"
+    echo "=== Docker Container Debug Started ===" > \$DEBUG_LOG
+    
     if [[ ! -f /output/github_token ]]; then
-      echo "Error: GitHub token not found"
+      echo "Error: GitHub token not found" | tee -a \$DEBUG_LOG
       exit 1
     fi
     
-    # Debug: Show token info inside Docker
-    echo "=== Token Debug (inside Docker) ==="
-    TOKEN_LENGTH=\$(wc -c < /output/github_token)
-    TOKEN_PREFIX=\$(head -c 10 /output/github_token)
-    echo "Token file exists, length: \$TOKEN_LENGTH"
-    echo "Token prefix: \${TOKEN_PREFIX}..."
-    echo "=================================="
+    echo "=== Docker Container Debug ===" | tee -a \$DEBUG_LOG
+    echo "Token file exists: \$(ls -la /output/github_token)" | tee -a \$DEBUG_LOG
+    echo "Token length: \$(wc -c < /output/github_token)" | tee -a \$DEBUG_LOG
+    echo "Token prefix: \$(head -c 10 /output/github_token)..." | tee -a \$DEBUG_LOG
     
     # Authenticate with the saved token
-    echo "Authenticating with GitHub using token..."
-    cat /output/github_token | gh auth login --with-token
+    echo "Authenticating with GitHub using token..." | tee -a \$DEBUG_LOG
+    cat /output/github_token | gh auth login --with-token 2>&1 | tee -a \$DEBUG_LOG
     
-    # Verify GitHub CLI authentication and show what account we're using
-    echo "=== GitHub Auth Status ==="
-    gh auth status
-    echo "=========================="
-    
-    if ! gh auth status >/dev/null 2>&1; then
-      echo "ERROR: GitHub authentication failed"
-      exit 1
-    fi
+    # Show auth status
+    echo "=== GitHub Auth Status ===" | tee -a \$DEBUG_LOG
+    gh auth status 2>&1 | tee -a \$DEBUG_LOG || echo "Auth status failed" | tee -a \$DEBUG_LOG
     
     # Generate AWS credentials
     mkdir -p /root/.aws
     
-    echo "Attempting to generate AWS credentials..."
-    echo "Command: gh nv-gha-aws org rapidsai --profile default --output creds-file --duration $AWS_CREDENTIALS_TIMEOUT --aud sts.amazonaws.com --idp-url https://token.gha-runners.nvidia.com --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs"
+    echo "Attempting to generate AWS credentials..." | tee -a \$DEBUG_LOG
+    echo "Command: gh nv-gha-aws org rapidsai --profile default --output creds-file --duration $AWS_CREDENTIALS_TIMEOUT --aud sts.amazonaws.com --idp-url https://token.gha-runners.nvidia.com --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs" | tee -a \$DEBUG_LOG
     
-    if ! gh nv-gha-aws org rapidsai \
+    # Run the command and capture everything
+    echo "=== Running gh nv-gha-aws command ===" | tee -a \$DEBUG_LOG
+    gh nv-gha-aws org rapidsai \
       --profile default \
       --output creds-file \
       --duration $AWS_CREDENTIALS_TIMEOUT \
       --aud sts.amazonaws.com \
       --idp-url https://token.gha-runners.nvidia.com \
       --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs \
-      > /root/.aws/credentials; then
-      echo "ERROR: Failed to generate AWS credentials"
+      > /root/.aws/credentials 2>&1
+    
+    AWS_EXIT_CODE=\$?
+    echo "gh nv-gha-aws exit code: \$AWS_EXIT_CODE" | tee -a \$DEBUG_LOG
+    
+    echo "=== AWS credentials file content ===" | tee -a \$DEBUG_LOG
+    if [[ -f /root/.aws/credentials ]]; then
+      echo "File exists, size: \$(wc -c < /root/.aws/credentials)" | tee -a \$DEBUG_LOG
+      echo "Content:" | tee -a \$DEBUG_LOG
+      cat /root/.aws/credentials | tee -a \$DEBUG_LOG
+    else
+      echo "File does not exist" | tee -a \$DEBUG_LOG
+    fi
+    echo "=== End credentials content ===" | tee -a \$DEBUG_LOG
+    
+    # Check if valid credentials
+    if [[ -f /root/.aws/credentials ]] && [[ -s /root/.aws/credentials ]] && grep -q "aws_access_key_id" /root/.aws/credentials; then
+      cp /root/.aws/credentials /output/aws_credentials
+      echo "SUCCESS: AWS credentials generated and copied" | tee -a \$DEBUG_LOG
+    else
+      echo "FAILED: AWS credentials not valid" | tee -a \$DEBUG_LOG
       exit 1
     fi
     
-    
-    # Check if the credentials file contains actual AWS credentials, the gh
-    # plugin command does not return non-zero exit status if it fails to
-    # authenticate
-    if [[ ! -f /root/.aws/credentials ]] || [[ ! -s /root/.aws/credentials ]]; then
-      echo "ERROR: AWS credentials file is empty or missing"
-      exit 1
-    fi
-    if ! grep -q "aws_access_key_id" /root/.aws/credentials; then
-      echo "ERROR: AWS credentials file does not contain valid credentials"
-      echo "=== Credentials file content ==="
-      cat /root/.aws/credentials
-      echo "==============================="
-      exit 1
-    fi
-    
-    # Copy AWS credentials to output
-    cp /root/.aws/credentials /output/aws_credentials
-    echo "AWS credentials successfully generated"
+    echo "=== Docker Container Debug Finished ===" >> \$DEBUG_LOG
 EOF
+
+# After Docker finishes, show the debug log
+echo "=== Docker Debug Log ==="
+if [[ -f "$OUTPUT_DIR/debug.log" ]]; then
+  cat "$OUTPUT_DIR/debug.log"
+else
+  echo "No debug log found"
+fi
+echo "========================="
 
 # Verify the AWS credentials file has actual content
 if [[ ! -s "$OUTPUT_DIR/aws_credentials" ]]; then

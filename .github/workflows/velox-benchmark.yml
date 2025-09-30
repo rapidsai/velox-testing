@@ -77,7 +77,15 @@ jobs:
         env:
           GIST_REPO_READ_ORG_GITHUB_TOKEN: ${{ secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN }}
 
-      - name: "Build Velox GPU with Benchmarks and sccache (SHA: ${{ env.VELOX_COMMIT_SHA }})"
+      - name: Upload sccache debug log as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sccache_debug_log
+          path: ~/.sccache-auth/debug.log
+          if-no-files-found: ignore
+
+      - name: "Build Velox GPU with Benchmarks (SHA: ${{ env.VELOX_COMMIT_SHA }})"
         run: |
           cd ${{ github.workspace }}/velox-testing/velox/scripts
           TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh -j $(nproc) --all-cuda-archs --gpu --benchmarks true --sccache --sccache-auth-dir "$HOME/.sccache-auth" --log build_velox_gpu.log
