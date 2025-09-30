@@ -12,6 +12,7 @@ if [ "${REBUILD_DEPS}" == "1" ]; then
 	echo "Forcing rebuild of Presto dependencies/run-time container image"
 	echo "This does not delete any existing worker container images which must be manually deleted"
 	docker rmi -f ${DEPS_IMAGE} 
+	docker builder prune -f
 elif [ ! -z $(docker images -q ${DEPS_IMAGE}) ]; then
 	echo "Found existing Presto dependencies/run-time container image"
 	exit 0
