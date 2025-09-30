@@ -16,6 +16,9 @@
 
 set -euo pipefail
 
+# Source benchmark-specific libraries
+source "../benchmarks/tpch.sh"
+
 # Default values
 BENCHMARK_TYPE="tpch"
 QUERIES=""  # Will be set to benchmark-specific defaults if not provided
@@ -303,9 +306,6 @@ create_docker_env_file
 
 # Get BUILD_TYPE from container environment
 export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
-
-# Source benchmark-specific libraries
-source "../benchmarks/tpch.sh"
 
 # Check benchmark data 
 check_benchmark_data
