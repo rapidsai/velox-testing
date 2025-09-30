@@ -34,6 +34,7 @@ OPTIONS:
     --build-type         Build type for native CPU and GPU image builds. Possible values are "release",
                          "relwithdebinfo", or "debug". Values are case insensitive. The default value
                          is "release".
+    -r, --rebuild-deps   Delete and force rebuild of dependencies/run-time container image
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -85,6 +86,10 @@ parse_args() {
           echo "Error: --build-type requires a value"
           exit 1
         fi
+        ;;
+      -r|--rebuild-deps)
+        REBUILD_DEPS=1
+        shift
         ;;
       *)
         echo "Error: Unknown argument $1"
