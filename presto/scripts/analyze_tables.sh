@@ -25,7 +25,8 @@ This script runs ANALYZE TABLE on all tables in a given schema to collect
 statistics for query optimization. This helps Presto create better query plans 
 with lower peak memory usage.
 
-NOTE: This script assumes a Presto server is already running.
+NOTE: This script assumes a Presto server is already running and the schema is
+pre-created.
 
 IMPORTANT: Currently, you should run this with CPU Presto (start_java_presto.sh 
 or start_native_cpu_presto.sh) rather than GPU Presto, as ANALYZE TABLE may not 
