@@ -1,15 +1,3 @@
-diff --git a/scripts/setup-centos-adapters.sh b/scripts/setup-centos-adapters.sh
-index a58b27af6..206562dcc 100755
---- a/scripts/setup-centos-adapters.sh
-+++ b/scripts/setup-centos-adapters.sh
-@@ -58,6 +58,7 @@ function install_cuda {
-     cuda-minimal-build-"$dashed" \
-     cuda-nvrtc-devel-"$dashed" \
-     libcufile-devel-"$dashed" \
-+    libnvjitlink-devel-"$dashed" \
-     numactl-libs
- }
- 
 diff --git a/scripts/setup-common.sh b/scripts/setup-common.sh
 index 594616649..15049326f 100755
 --- a/scripts/setup-common.sh

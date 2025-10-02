@@ -22,25 +22,31 @@ fi
 
 #
 # apply current patches for Presto deps container build success
-# as of 09/25/25
+# as of 10/2/25
 #
 
-echo "Applying required local patches to Presto repo and contained Velox sub-module (as of 9/25/25)"
-
-# in Presto, disable re-build of arrow
-pushd ../../../presto
 if [ "${REBUILD_DEPS}" == "1" ]; then
-	git checkout .
+	echo "Modifying Presto repo and contained Velox sub-module for deps container build (as of 10/2/25)"
+	pushd ../../../presto
+	# change Velox submodule to rapidsai/velox:merged-prs (latest)
+	cat << EOF > .gitmodules
+[submodule "presto-native-execution/velox"]
+	path = presto-native-execution/velox
+	url = https://github.com/rapidsai/velox.git
+	branch = merged-prs
+EOF
+	# resync submodule
+	git submodule sync
+	git submodule update --init --remote presto-native-execution/velox
+	# apply Arrow patch (remove if/when this is applied to devavret/presto)
+	git apply ../velox-testing/presto/patches/patch_arrow_092525.diff
+	# apply Hadoop patch (remove if/when this is applied to rapidsai/velox)
+	pushd presto-native-execution/velox
+	git apply ../../../velox-testing/presto/patches/patch_hadoop_100225.diff
+	# done
+	popd
+	popd
 fi
-git apply ../velox-testing/presto/patches/patch_arrow_092525.diff
-popd
-# in Velox sub-module, change the Hadoop version and mirror, and add libnvjitlink install
-pushd ../../../presto/presto-native-execution/velox
-if [ "${REBUILD_DEPS}" == "1" ]; then
-	git checkout .
-fi
-git apply ../../../velox-testing/presto/patches/patch_hadoop_and_nvjitlink_092225.diff
-popd
 
 #
 # build deps container
