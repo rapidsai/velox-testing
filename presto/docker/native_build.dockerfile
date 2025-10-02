@@ -1,5 +1,9 @@
 FROM presto/prestissimo-dependency:centos9
 
+RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
+    dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
+    dnf install -y nsight-systems-cli-2025.5.1.121
+
 ARG GPU=ON
 ARG BUILD_TYPE=release
 ARG BUILD_BASE_DIR=/presto_native_${BUILD_TYPE}_gpu_${GPU}_build
@@ -25,4 +29,6 @@ RUN mkdir /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
     echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
 
-CMD bash -c "ldconfig && presto_server --etc-dir=/opt/presto-server/etc"
+COPY velox-testing/presto/docker/launch_presto_server.sh /opt
+
+CMD ["bash", "/opt/launch_presto_server.sh"]

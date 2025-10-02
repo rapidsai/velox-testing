@@ -29,6 +29,8 @@ def pytest_addoption(parser):
     parser.addoption("--iterations", default=5, type=int)
     parser.addoption("--output-dir", default="benchmark_output")
     parser.addoption("--tag")
+    parser.addoption("--profile", action="store_true", default=False)
+    parser.addoption("--profile-script-path")
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
