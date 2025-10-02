@@ -25,37 +25,70 @@ fi
 # as of 10/2/25
 #
 
-if [ "${REBUILD_DEPS}" == "1" ]; then
-	echo "Modifying Presto repo and contained Velox sub-module for deps container build (as of 10/2/25)"
-	pushd ../../../presto
-	# change Velox submodule to rapidsai/velox:merged-prs (latest)
-	cat << EOF > .gitmodules
+echo "Modifying Presto clone and contained Velox sub-module for deps container build (as of 10/2/25)"
+
+# move to Presto clone
+pushd ../../../presto
+
+# reset Presto clone
+echo "Resetting Presto clone files"
+git checkout .
+
+# reset Velox submodule
+echo "Resetting Velox submodule files"
+cd presto-native-execution/velox
+git checkout .
+cd ../..
+
+# reset submodule
+echo "Resetting Velox submodule version"
+cd presto-native-execution
+make submodules
+cd ..
+
+# rewrite .gitmodules file to override Velox submodule to rapidsai/velox:merged-prs (latest)
+echo "Rewriting .gitmodules file"
+cat << EOF > .gitmodules
 [submodule "presto-native-execution/velox"]
-	path = presto-native-execution/velox
-	url = https://github.com/rapidsai/velox.git
-	branch = merged-prs
+path = presto-native-execution/velox
+url = https://github.com/rapidsai/velox.git
+branch = merged-prs
 EOF
-	# resync submodule
-	git submodule sync
-	git submodule update --init --remote presto-native-execution/velox
-	# apply Arrow patch (remove if/when this is applied to devavret/presto)
-	git apply ../velox-testing/presto/patches/patch_arrow_092525.diff
-	# apply Hadoop patch (remove if/when this is applied to rapidsai/velox)
-	pushd presto-native-execution/velox
-	git apply ../../../velox-testing/presto/patches/patch_hadoop_100225.diff
-	# done
-	popd
-	popd
-fi
+
+# force override submodule contents
+echo "Updating Velox submodule to fork"
+git submodule sync
+git submodule update --init --remote presto-native-execution/velox
+
+#########################################
+# apply patches here while still required
+#########################################
+
+echo "Applying patches"
+
+# apply Arrow patch (remove if/when this is applied to devavret/presto)
+git apply ../velox-testing/presto/patches/patch_arrow_092525.diff
+
+# move to Velox submodule
+cd presto-native-execution/velox
+
+# apply Hadoop patch (remove if/when this is applied to rapidsai/velox)
+git apply ../../../velox-testing/presto/patches/patch_hadoop_100225.diff
+
+#########################################
+# to here
+#########################################
+
+# done
+popd
 
 #
-# build deps container
+# build deps container image
 #
 
 echo "Building Presto dependencies/run-time image..."
 
 pushd ../../../presto/presto-native-execution
-make submodules
 docker compose up centos-native-dependency # Build dependencies image if there is none present.
 docker compose down centos-native-dependency
 popd
