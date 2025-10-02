@@ -82,10 +82,20 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
     fi
 
 # Install NVIDIA Compute Sanitizer for debugging GPU applications
+# Using CUDA 13.1 kitpick version to avoid false positives in 12.8
+# See: https://nvbugspro.nvidia.com/bug/5501759
 RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       set -euxo pipefail && \
-      # Install compute-sanitizer from CUDA toolkit
-      dnf install -y cuda-sanitizer-${CUDA_VERSION/./-} && \
+      # Add NVIDIA kitpick repository for CUDA 13.1
+      cat > /etc/yum.repos.d/cuda-sanitizer-kitpick.repo << 'EOF'
+[cuda-sanitizer-kitpick]
+name=CUDA Sanitizer 13.1 Kitpick Repository
+baseurl=https://kitmaker-web.nvidia.com/kitpicks/cuda-r13-1/13.1.0/014/repos/rhel9/x86_64/
+enabled=1
+gpgcheck=0
+EOF
+      # Install compute-sanitizer from kitpick repo (13.1)
+      dnf install -y cuda-sanitizer-13-1 && \
       # Verify compute-sanitizer installation
       which compute-sanitizer && compute-sanitizer --version; \
     else \
