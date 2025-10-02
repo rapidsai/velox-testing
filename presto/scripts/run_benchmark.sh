@@ -29,7 +29,7 @@ OPTIONS:
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
     -h, --hostname          Hostname of the Presto coordinator.
-    -p, --port              Port number of the Presto coordinator.
+    --port                  Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
                             schema that contains the benchmark tables.
@@ -39,12 +39,14 @@ OPTIONS:
     -t, --tag               Tag associated with the benchmark run. When a tag is specified, benchmark output will be
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
+    -p, --profile           Enable profiling of benchmark queries.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
     $0 -b tpch -q "1,2" -s bench_sf100
     $0 -b tpch -s bench_sf100 -i 10 -o ~/tpch_benchmark_output
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
+    $0 -b tpch -s bench_sf100 --profile
     $0 -h
 
 EOF
@@ -84,7 +86,7 @@ parse_args() {
           exit 1
         fi
         ;;
-      -p|--port)
+      --port)
         if [[ -n $2 ]]; then
           PORT=$2
           shift 2
@@ -137,6 +139,10 @@ parse_args() {
           echo "Error: --tag requires a value"
           exit 1
         fi
+        ;;
+      -p|--profile)
+        PROFILE=true
+        shift
         ;;
       *)
         echo "Error: Unknown argument $1"
@@ -194,6 +200,10 @@ if [[ -n ${TAG} ]]; then
     exit 1
   fi
   PYTEST_ARGS+=("--tag ${TAG}")
+fi
+
+if [[ "${PROFILE}" == "true" ]]; then
+  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
 fi
 
 source ../../scripts/py_env_functions.sh

@@ -15,7 +15,9 @@
 import prestodb
 import pytest
 
+from pathlib import Path
 from .benchmark_keys import BenchmarkKeys
+from .profiler_utils import start_profiler, stop_profiler
 from ..common.fixtures import tpch_queries, tpcds_queries
 
 
@@ -50,13 +52,22 @@ def benchmark_queries(request, tpch_queries, tpcds_queries):
 @pytest.fixture(scope="module")
 def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_collector):
     iterations = request.config.getoption("--iterations")
+    profile = request.config.getoption("--profile")
+    profile_script_path = request.config.getoption("--profile-script-path")
+    benchmark_type = request.node.obj.BENCHMARK_TYPE
 
-    benchmark_result_collector[request.node.obj.BENCHMARK_TYPE] = {
+    if profile:
+        assert profile_script_path is not None
+        bench_output_dir = request.config.getoption("--output-dir")
+        profile_output_dir_path = Path(f"{bench_output_dir}/profiles/{benchmark_type}")
+        profile_output_dir_path.mkdir(parents=True, exist_ok=True)
+
+    benchmark_result_collector[benchmark_type] = {
         BenchmarkKeys.RAW_TIMES_KEY: {},
         BenchmarkKeys.FAILED_QUERIES_KEY: {},
     }
 
-    benchmark_dict = benchmark_result_collector[request.node.obj.BENCHMARK_TYPE]
+    benchmark_dict = benchmark_result_collector[benchmark_type]
     raw_times_dict = benchmark_dict[BenchmarkKeys.RAW_TIMES_KEY]
     assert raw_times_dict == {}
 
@@ -65,6 +76,9 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
 
     def benchmark_query_function(query_id):
         try:
+            if profile:
+                profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}.nsys-rep"
+                start_profiler(profile_script_path, profile_output_file_path)
             result = [
                 presto_cursor.execute(benchmark_queries[query_id]).stats["elapsedTimeMillis"]
                 for _ in range(iterations)
@@ -74,5 +88,8 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             failed_queries_dict[query_id] = f"{e.error_type}: {e.error_name}"
             raw_times_dict[query_id] = None
             raise
+        finally:
+            if profile:
+                stop_profiler(profile_script_path, profile_output_file_path)
 
     return benchmark_query_function

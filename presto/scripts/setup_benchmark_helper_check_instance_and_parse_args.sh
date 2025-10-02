@@ -34,7 +34,7 @@ Usage: $0 [OPTIONS]
 $SCRIPT_DESCRIPTION
 
 NOTE: The PRESTO_DATA_DIR environment variable must be set before running this script. This environment variable 
-must also be set before starting the Presto instance/running the `start_*_presto.sh` script.
+must also be set before starting the Presto instance/running the start_*_presto.sh script.
 
 OPTIONS:
     -h, --help                          Show this help message.
