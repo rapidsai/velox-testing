@@ -18,5 +18,7 @@ services:
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - LIBCUDF_NVCOMP_POLICY=OFF
+      - COMPUTE_SANITIZER_PREFIX=compute-sanitizer --track-stream-ordered-races=all
     depends_on:
       - presto-coordinator

@@ -6,6 +6,9 @@ services:
     environment:
       - USER_ID=${USER_ID}
       - GROUP_ID=${GROUP_ID}
+      - COMPUTE_SANITIZER_PREFIX=${COMPUTE_SANITIZER_PREFIX:-}
+      - LIBCUDF_NVCOMP_POLICY=${LIBCUDF_NVCOMP_POLICY:-}
+      - NV_COMPUTE_SANITIZER_MAX_RACECHECK_HAZARDS=${NV_COMPUTE_SANITIZER_MAX_RACECHECK_HAZARDS:-}
     volumes:
       - ../../../velox:/workspace/velox
       - ${BENCHMARK_DATA_HOST_PATH}:/workspace/velox/velox-benchmark-data:ro

@@ -238,8 +238,20 @@ run_tpch_single_benchmark() {
   $run_in_container_func 'bash -c "
       set -exuo pipefail
       BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
-      '"${PROFILE_CMD}"' \
-        '"${BENCHMARK_EXECUTABLE}"' \
+      SANITIZER_LOG=\"\${BASE_FILENAME}.sanitizer\"
+      
+      # Use compute-sanitizer if specified, add --log-file only if not already present
+      if [ -n \"${COMPUTE_SANITIZER_PREFIX:-}\" ]; then
+        if echo \"${COMPUTE_SANITIZER_PREFIX}\" | grep -q -- \"--log-file\"; then
+          COMPUTE_SANITIZER_CMD=\"${COMPUTE_SANITIZER_PREFIX}\"
+        else
+          COMPUTE_SANITIZER_CMD=\"${COMPUTE_SANITIZER_PREFIX} --log-file \${SANITIZER_LOG}\"
+        fi
+      else
+        COMPUTE_SANITIZER_CMD=\"\"
+      fi
+      
+      '"${PROFILE_CMD}"' \${COMPUTE_SANITIZER_CMD:-} '"${BENCHMARK_EXECUTABLE}"' \
         --data_path=/workspace/velox/velox-benchmark-data \
         --data_format=parquet \
         --run_query_verbose='"${query_number_padded}"' \
@@ -251,6 +263,12 @@ run_tpch_single_benchmark() {
         '"${CUDF_FLAGS}"' 2>&1 | \
         tee \"\$BASE_FILENAME\"
       chown \"${USER_ID}:${GROUP_ID}\" \"\$BASE_FILENAME\"
+      
+      # Fix ownership of sanitizer log if it exists
+      if [ -f \"\$SANITIZER_LOG\" ]; then
+        chown \"${USER_ID}:${GROUP_ID}\" \"\$SANITIZER_LOG\"
+      fi
+      
       NSYS_REP_FILE=\"\${BASE_FILENAME}.nsys-rep\"
       if [ -f \"\$NSYS_REP_FILE\" ]; then
         chown \"${USER_ID}:${GROUP_ID}\" \"\$NSYS_REP_FILE\"

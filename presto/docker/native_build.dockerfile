@@ -25,4 +25,4 @@ RUN mkdir /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
     echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
 
-CMD bash -c "ldconfig && presto_server --etc-dir=/opt/presto-server/etc"
+CMD bash -c "ldconfig && ${COMPUTE_SANITIZER_PREFIX:-} presto_server --etc-dir=/opt/presto-server/etc"

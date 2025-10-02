@@ -81,6 +81,17 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
     fi
 
+# Install NVIDIA Compute Sanitizer for debugging GPU applications
+RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
+      set -euxo pipefail && \
+      # Install compute-sanitizer from CUDA toolkit
+      dnf install -y cuda-sanitizer-${CUDA_VERSION/./-} && \
+      # Verify compute-sanitizer installation
+      which compute-sanitizer && compute-sanitizer --version; \
+    else \
+      echo "Skipping compute-sanitizer installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
+    fi
+
 # Copy sccache setup script (if sccache enabled)
 COPY velox-testing/velox/docker/sccache/sccache_setup.sh /sccache_setup.sh
 RUN if [ "$ENABLE_SCCACHE" = "ON" ]; then chmod +x /sccache_setup.sh; fi
