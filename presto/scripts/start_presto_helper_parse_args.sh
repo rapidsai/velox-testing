@@ -88,7 +88,7 @@ parse_args() {
         fi
         ;;
       -r|--rebuild-deps)
-        REBUILD_DEPS=1
+        REBUILD_DEPS=true
         shift
         ;;
       *)
