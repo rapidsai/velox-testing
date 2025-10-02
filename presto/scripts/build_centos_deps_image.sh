@@ -29,14 +29,14 @@ echo "Applying required local patches to Presto repo and contained Velox sub-mod
 
 # in Presto, disable re-build of arrow
 pushd ../../../presto
-if [ ${REBUILD_DEPS} == "1" ]; then
+if [ "${REBUILD_DEPS}" == "1" ]; then
 	git checkout .
 fi
 git apply ../velox-testing/presto/patches/patch_arrow_092525.diff
 popd
 # in Velox sub-module, change the Hadoop version and mirror, and add libnvjitlink install
 pushd ../../../presto/presto-native-execution/velox
-if [ ${REBUILD_DEPS} == "1" ]; then
+if [ "${REBUILD_DEPS}" == "1" ]; then
 	git checkout .
 fi
 git apply ../../../velox-testing/presto/patches/patch_hadoop_and_nvjitlink_092225.diff
