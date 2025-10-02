@@ -55,10 +55,8 @@ def analyze_tables(presto_cursor, schema_name, verbose=False):
                 print(f"Warning: Failed to analyze table '{table_name}': {e}")
                 failure_count += 1
         
-        if verbose:
+        if verbose or failure_count > 0:
             print(f"\nAnalysis complete: {success_count} succeeded, {failure_count} failed")
-        elif failure_count > 0:
-            print(f"Analysis complete: {success_count} succeeded, {failure_count} failed")
         
     except Exception as e:
         print(f"Error: Could not list tables in schema '{schema_name}': {e}")
@@ -87,4 +85,5 @@ if __name__ == "__main__":
         analyze_tables(cursor, args.schema_name, verbose=args.verbose)
     finally:
         cursor.close()
-        conn.close() 
+        conn.close()
+ 

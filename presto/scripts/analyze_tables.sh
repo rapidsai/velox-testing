@@ -36,13 +36,13 @@ OPTIONS:
     -h, --help              Show this help message.
     -s, --schema-name       Name of the schema containing the tables to analyze (required).
     -v, --verbose           Enable verbose output.
-    --host                  Presto coordinator hostname (default: localhost).
-    --port                  Presto coordinator port (default: 8080).
-    --user                  Presto user (default: test_user).
+    -H, --hostname          Hostname of the Presto coordinator (default: localhost).
+    -p, --port              Port number of the Presto coordinator (default: 8080).
+    -u, --user              User who queries will be executed as (default: test_user).
 
 EXAMPLES:
     $0 -s my_tpch_sf100
-    $0 --schema-name my_tpcds_sf1 --host localhost --port 8080
+    $0 --schema-name my_tpcds_sf1 -H localhost -p 8080
     $0 -s my_schema -v
     $0 -h
 
@@ -72,16 +72,16 @@ parse_args() {
         SCRIPT_ARGS+=(--verbose)
         shift
         ;;
-      --host)
+      -H|--hostname)
         if [[ -n $2 ]]; then
           SCRIPT_ARGS+=(--host "$2")
           shift 2
         else
-          echo "Error: --host requires a value"
+          echo "Error: --hostname requires a value"
           exit 1
         fi
         ;;
-      --port)
+      -p|--port)
         if [[ -n $2 ]]; then
           SCRIPT_ARGS+=(--port "$2")
           shift 2
@@ -90,7 +90,7 @@ parse_args() {
           exit 1
         fi
         ;;
-      --user)
+      -u|--user)
         if [[ -n $2 ]]; then
           SCRIPT_ARGS+=(--user "$2")
           shift 2
@@ -119,4 +119,4 @@ fi
 ANALYZE_TABLES_SCRIPT_PATH=../testing/integration_tests/analyze_tables.py
 REQUIREMENTS_PATH=../testing/requirements.txt
 
-../../scripts/run_py_script.sh -p "$ANALYZE_TABLES_SCRIPT_PATH" -r "$REQUIREMENTS_PATH" "${SCRIPT_ARGS[@]}" 
+../../scripts/run_py_script.sh -p "$ANALYZE_TABLES_SCRIPT_PATH" -r "$REQUIREMENTS_PATH" "${SCRIPT_ARGS[@]}"
