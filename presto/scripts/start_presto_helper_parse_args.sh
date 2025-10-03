@@ -34,12 +34,16 @@ OPTIONS:
     --build-type         Build type for native CPU and GPU image builds. Possible values are "release",
                          "relwithdebinfo", or "debug". Values are case insensitive. The default value
                          is "release".
+    -p, --profile        Launch the Presto server with profiling enabled.
+    --profile-args       Arguments to pass to the profiler when it launches the Presto server.
+                         This will override the default arguments.
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
     $SCRIPT_NAME -b worker
     $SCRIPT_NAME --build c
     $SCRIPT_NAME -j 8
+    $SCRIPT_NAME --profile
     $SCRIPT_NAME -h
 
 EOF
@@ -47,6 +51,7 @@ EOF
 
 NUM_THREADS=$(($(nproc) / 2))
 BUILD_TYPE=release
+export PROFILE=OFF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -83,6 +88,19 @@ parse_args() {
           shift 2
         else
           echo "Error: --build-type requires a value"
+          exit 1
+        fi
+        ;;
+      -p|--profile)
+        PROFILE=ON
+        shift
+        ;;
+      --profile-args)
+        if [[ -n $2 ]]; then
+          export PROFILE_ARGS=$2
+          shift 2
+        else
+          echo "Error: --profile-args requires a value"
           exit 1
         fi
         ;;
