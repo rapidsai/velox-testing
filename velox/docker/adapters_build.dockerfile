@@ -87,13 +87,7 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
 RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       set -euxo pipefail && \
       # Add NVIDIA kitpick repository for CUDA 13.1
-      cat > /etc/yum.repos.d/cuda-sanitizer-kitpick.repo << 'EOF'
-[cuda-sanitizer-kitpick]
-name=CUDA Sanitizer 13.1 Kitpick Repository
-baseurl=https://kitmaker-web.nvidia.com/kitpicks/cuda-r13-1/13.1.0/014/repos/rhel9/x86_64/
-enabled=1
-gpgcheck=0
-EOF
+      printf '[cuda-sanitizer-kitpick]\nname=CUDA Sanitizer 13.1 Kitpick Repository\nbaseurl=https://kitmaker-web.nvidia.com/kitpicks/cuda-r13-1/13.1.0/014/repos/rhel9/x86_64/\nenabled=1\ngpgcheck=0\n' > /etc/yum.repos.d/cuda-sanitizer-kitpick.repo && \
       # Install compute-sanitizer from kitpick repo (13.1)
       dnf install -y cuda-sanitizer-13-1 && \
       # Verify compute-sanitizer installation
