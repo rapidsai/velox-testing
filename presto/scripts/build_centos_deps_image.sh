@@ -89,8 +89,7 @@ popd
 echo "Building Presto dependencies/run-time image..."
 
 pushd ../../../presto/presto-native-execution
-docker compose up centos-native-dependency # Build dependencies image if there is none present.
-docker compose down centos-native-dependency
+docker compose --progress plain build centos-native-dependency
 popd
 
 echo "Presto dependencies/run-time container image built!"
