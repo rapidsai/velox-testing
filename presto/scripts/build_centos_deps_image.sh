@@ -72,8 +72,8 @@ git apply ../velox-testing/presto/patches/patch_arrow_092525.diff
 # move to Velox submodule
 cd presto-native-execution/velox
 
-# apply Hadoop patch (remove if/when this is applied to rapidsai/velox)
-git apply ../../../velox-testing/presto/patches/patch_hadoop_100225.diff
+# apply Hadoop and numactl patches (remove if/when this is applied to rapidsai/velox)
+git apply ../../../velox-testing/presto/patches/patch_hadoop_and_numactl_100625.diff
 
 #########################################
 # to here
