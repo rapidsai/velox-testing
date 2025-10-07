@@ -100,7 +100,7 @@ test_preamble='if [ -f "/opt/miniforge/etc/profile.d/conda.sh" ]; then
     source "/opt/miniforge/etc/profile.d/conda.sh"
     conda activate adapters
   fi
-  export CLASSPATH=\`/usr/local/hadoop/bin/hdfs classpath --glob\`'
+  export CLASSPATH=$(/usr/local/hadoop/bin/hdfs classpath --glob)'
 if [[ "$DEVICE_TYPE" == "cpu" ]]; then
   test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error"
 else
