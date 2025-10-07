@@ -16,9 +16,27 @@ if [ "${REBUILD_DEPS}" == "true" ]; then
 elif [ ! -z $(docker images -q ${DEPS_IMAGE}) ]; then
 	echo "Found existing Presto dependencies/run-time container image, using..."
 	exit 0
-else
-	echo "Presto dependencies/run-time container image not found, attempting to re-build..."
 fi
+
+echo "Presto dependencies/run-time container image not found, attempting to re-build..."
+
+#
+# try to pull container image from our GitLab repo
+# assumes already logged in
+#
+
+DEPS_IMAGE_IN_REPO="gitlab-master.nvidia.com:5005/hercules/veloxtesting/${DEPS_IMAGE}"
+
+docker rmi -f ${DEPS_IMAGE_IN_REPO} || true
+docker pull ${DEPS_IMAGE_IN_REPO} || true
+docker tag ${DEPS_IMAGE_IN_REPO} ${DEPS_IMAGE} || true
+
+if [ !-z $(docker images -q ${DEPS_IMAGE}) ]; then
+	echo "Pulled Presto dependencies/run-time container image from repo"
+	exit 0
+fi
+
+echo "Failed to pull Presto dependencies/run-time container image from repo, rebuilding..."
 
 #
 # apply current patches for Presto deps container build success
