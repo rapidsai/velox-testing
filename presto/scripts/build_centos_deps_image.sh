@@ -18,7 +18,7 @@ elif [ ! -z $(docker images -q ${DEPS_IMAGE}) ]; then
 	exit 0
 fi
 
-echo "Presto dependencies/run-time container image not found, attempting to re-build..."
+echo "Presto dependencies/run-time container image not found, attempting to pull from repo..."
 
 #
 # try to pull container image from our GitLab repo
@@ -27,16 +27,18 @@ echo "Presto dependencies/run-time container image not found, attempting to re-b
 
 DEPS_IMAGE_IN_REPO="gitlab-master.nvidia.com:5005/hercules/veloxtesting/${DEPS_IMAGE}"
 
-docker rmi -f ${DEPS_IMAGE_IN_REPO} || true
+if [ ! -z $(docker images -q ${DEPS_IMAGE_IN_REPO}) ]; then
+	docker rmi -f ${DEPS_IMAGE_IN_REPO}
+fi
 docker pull ${DEPS_IMAGE_IN_REPO} || true
 docker tag ${DEPS_IMAGE_IN_REPO} ${DEPS_IMAGE} || true
 
-if [ !-z $(docker images -q ${DEPS_IMAGE}) ]; then
+if [[ ! -z $(docker images -q ${DEPS_IMAGE_FROM_REPO}) && ! -z $(docker images -q ${DEPS_IMAGE}) ]]; then
 	echo "Pulled Presto dependencies/run-time container image from repo"
 	exit 0
 fi
 
-echo "Failed to pull Presto dependencies/run-time container image from repo, rebuilding..."
+echo "Failed to pull Presto dependencies/run-time container image from repo, building locally..."
 
 #
 # apply current patches for Presto deps container build success
