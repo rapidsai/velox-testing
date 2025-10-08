@@ -15,22 +15,9 @@
 import pytest
 
 from . import test_utils
-from .common_fixtures import presto_cursor, setup_and_teardown, get_scale_factor
+from .common_fixtures import presto_cursor, setup_and_teardown
 
 BENCHMARK_TYPE = "tpch"
-
-
-@pytest.fixture(scope="module")
-def tpch_queries(get_scale_factor):
-    scale_factor = get_scale_factor
-    queries = test_utils.get_queries(BENCHMARK_TYPE)
-    # The "fraction" portion of Q11 is a value that depends on scale factor
-    # (it should be 0.0001 / scale_factor), whereas our query is currently hard-coded as 0.0001.
-    value_ratio = 0.0001 / float(scale_factor)
-    queries["Q11"] = queries["Q11"].format(SF_FRACTION=f"{value_ratio:f}")
-    # Referencing the CTE defined "supplier_no" alias in the parent query causes issues on presto.
-    queries["Q15"] = queries["Q15"].replace(" AS supplier_no", "").replace("supplier_no", "l_suppkey")
-    return queries
 
 
 @pytest.mark.usefixtures("setup_and_teardown")

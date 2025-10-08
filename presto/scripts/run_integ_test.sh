@@ -96,7 +96,7 @@ parse_args() {
         ;;
       -u|--user)
         if [[ -n $2 ]]; then
-          USER=$2
+          USER_NAME=$2
           shift 2
         else
           echo "Error: --user requires a value"
@@ -129,8 +129,6 @@ if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   exit 1
 fi
 
-INTEGRATION_TEST_DIR=$(readlink -f ../testing/integration_tests)
-
 PYTEST_ARGS=()
 
 if [[ "${KEEP_TABLES}" == "true" ]]; then
@@ -149,8 +147,8 @@ if [[ -n ${PORT} ]]; then
   PYTEST_ARGS+=("--port ${PORT}")
 fi
 
-if [[ -n ${USER} ]]; then
-  PYTEST_ARGS+=("--user ${USER}")
+if [[ -n ${USER_NAME} ]]; then
+  PYTEST_ARGS+=("--user ${USER_NAME}")
 fi
 
 if [[ -n ${SCHEMA_NAME} ]]; then
@@ -163,10 +161,12 @@ trap delete_python_virtual_env EXIT
 
 init_python_virtual_env
 
-pip install -q -r ${INTEGRATION_TEST_DIR}/requirements.txt
+TEST_DIR=$(readlink -f ../testing)
+pip install -q -r ${TEST_DIR}/requirements.txt
 
 source ./common_functions.sh
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
+INTEGRATION_TEST_DIR=${TEST_DIR}/integration_tests
 pytest -v ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}

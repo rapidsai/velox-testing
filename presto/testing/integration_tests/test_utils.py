@@ -29,11 +29,6 @@ import sqlglot
 from duckdb_utils import create_table
 
 
-def get_queries(benchmark_type):
-    with open(get_abs_file_path(f"queries/{benchmark_type}/queries.json"), "r") as file:
-        return json.load(file)
-
-
 def execute_query_and_compare_results(presto_cursor, queries, query_id):
     query = queries[query_id]
 
