@@ -40,8 +40,8 @@ fi
 echo "Requesting temporary S3 credentials..."
 TEMP_CREDS_JSON=$(aws sts assume-role \
 	--role-arn ${AWS_ARN_STRING} \
-	--role-session-name "GetPrestoContainerImage" \
-	--query 'Credentials' \
+	--role-session-name "Get Presto Container Image" \
+	--query "Credentials" \
 	--output json)
 
 # override environment with full temporary credentials
