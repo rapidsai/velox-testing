@@ -163,6 +163,7 @@ echo "=================================="
 docker run --rm \
   -v "$OUTPUT_DIR:/output" \
   -e AWS_CREDENTIALS_TIMEOUT="$AWS_CREDENTIALS_TIMEOUT" \
+  -e GH_TOKEN="$(cat "$OUTPUT_DIR/github_token")" \
   sccache-auth \
   bash -c '
     # Create debug log file immediately and ensure it is always created
@@ -225,16 +226,22 @@ docker run --rm \
     echo "Checking if gh can see the plugin:"
     gh extension list || echo "No extensions found or gh extension list failed"
     
-    # Authenticate with the saved token
-    echo "=== Authenticating with GitHub using token ===" | tee -a $DEBUG_LOG
-    if ! cat /output/github_token | gh auth login --with-token 2>&1 | tee -a $DEBUG_LOG; then
-      log_and_exit "GitHub authentication failed"
+    # Verify GitHub token is available as environment variable
+    echo "=== Verifying GitHub token environment variable ==="
+    if [[ -n "$GH_TOKEN" ]]; then
+      echo "✓ GH_TOKEN environment variable is set (length: ${#GH_TOKEN})"
+      echo "Token prefix: ${GH_TOKEN:0:10}..."
+    else
+      log_and_exit "GH_TOKEN environment variable is not set"
     fi
     
-    # Show auth status
-    echo "=== GitHub Auth Status ===" | tee -a $DEBUG_LOG
-    if ! gh auth status 2>&1 | tee -a $DEBUG_LOG; then
-      echo "WARNING: Auth status check failed, but continuing..." | tee -a $DEBUG_LOG
+    # Test if gh can use the token via environment variable
+    echo "=== Testing GitHub CLI with GH_TOKEN ==="
+    if gh auth status 2>&1; then
+      echo "✓ GitHub CLI can use GH_TOKEN environment variable"
+    else
+      echo "WARNING: GitHub CLI auth status check failed, but continuing with GH_TOKEN..."
+      echo "This may be expected if the token has limited scopes"
     fi
     
     # Generate AWS credentials
@@ -250,6 +257,10 @@ docker run --rm \
     # Test if we can run the command at all
     echo "Testing basic gh nv-gha-aws command:"
     gh nv-gha-aws --version || echo "gh nv-gha-aws --version failed"
+    
+    # Test if gh nv-gha-aws can access GitHub with our token
+    echo "Testing gh nv-gha-aws with current token:"
+    gh nv-gha-aws org --help || echo "gh nv-gha-aws org --help failed"
     
     set +e  # Temporarily disable exit on error to capture the output
     
