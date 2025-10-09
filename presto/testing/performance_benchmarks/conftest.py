@@ -18,6 +18,7 @@ import statistics
 from pathlib import Path
 from .benchmark_keys import BenchmarkKeys
 from ..common.conftest import *
+from .system_info import get_system_specs, get_version_info
 
 
 def pytest_addoption(parser):
@@ -56,11 +57,19 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             terminalreporter.write_line(line)
         terminalreporter.write_line("")
 
-
 def pytest_sessionfinish(session, exitstatus):
     bench_output_dir = session.config.getoption("--output-dir")
     tag = session.config.getoption("--tag")
     json_result = {}
+    try:
+        specs = get_system_specs()
+        versions = get_version_info()
+        json_result = {
+            'hardware': specs,
+            'versions': versions
+        }
+    except Exception as e:
+        print(f"Error getting system specs: {e}")
 
     if tag:
         bench_output_dir = f"{bench_output_dir}/{tag}"
