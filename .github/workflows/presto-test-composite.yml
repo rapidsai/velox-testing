@@ -60,15 +60,12 @@ jobs:
           repository: rapidsai/velox-testing
           ref: ${{ inputs.velox_testing_commit }}
           path: velox-testing
-      - name: Configure S3 Credentials for Presto Dependencies Container Image download
-        if: ${{ inputs.presto_worker_type != 'java' }}
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-1
       - name: Ensure Presto Dependencies Container Image is downloaded or built
         if: ${{ inputs.presto_worker_type != 'java' }}
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           pushd velox-testing/presto/scripts
           ./build_centos_deps_image.sh
