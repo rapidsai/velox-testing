@@ -36,10 +36,6 @@ aws s3 cp ${DEPS_IMAGE_PATH} /tmp/${DEPS_IMAGE_FILE}
 echo "Loading image file..."
 docker load < /tmp/${DEPS_IMAGE_FILE}
 
-# re-tag the resulting image
-# @TODO remove this after generating new images with the correct tag!
-docker tag $(docker images --quiet) ${DEPS_IMAGE}
-
 # clean up
 rm -f /tmp/${DEPS_IMAGE_FILE}
 
