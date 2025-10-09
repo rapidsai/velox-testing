@@ -162,71 +162,151 @@ echo "=================================="
 
 docker run --rm \
   -v "$OUTPUT_DIR:/output" \
+  -e AWS_CREDENTIALS_TIMEOUT="$AWS_CREDENTIALS_TIMEOUT" \
   sccache-auth \
-  bash <<EOF
-    # Create debug log file
+  bash -c '
+    # Create debug log file immediately and ensure it is always created
     DEBUG_LOG="/output/debug.log"
-    echo "=== Docker Container Debug Started ===" > \$DEBUG_LOG
     
-    if [[ ! -f /output/github_token ]]; then
-      echo "Error: GitHub token not found" | tee -a \$DEBUG_LOG
+    # Ensure the debug log is created even if the script fails early
+    exec 2> >(tee -a "$DEBUG_LOG")
+    exec 1> >(tee -a "$DEBUG_LOG")
+    
+    echo "=== Docker Container Debug Started ===" 
+    echo "Container started at: $(date)"
+    echo "Working directory: $(pwd)"
+    echo "User: $(whoami)"
+    echo "Environment variables:"
+    env | grep -E "(HOME|PATH|USER|GH_)" || true
+    
+    # Ensure proper environment for gh command
+    export HOME=/root
+    export XDG_CONFIG_HOME=/root/.config
+    export XDG_DATA_HOME=/root/.local/share
+    
+    echo "Set environment variables:"
+    echo "HOME=$HOME"
+    echo "XDG_CONFIG_HOME=$XDG_CONFIG_HOME" 
+    echo "XDG_DATA_HOME=$XDG_DATA_HOME"
+    
+    # Function to log and exit on error
+    log_and_exit() {
+      echo "FATAL ERROR: $1"
+      echo "=== Docker Container Debug Finished with ERROR ==="
       exit 1
+    }
+    
+    # Check if GitHub token exists
+    if [[ ! -f /output/github_token ]]; then
+      log_and_exit "GitHub token not found at /output/github_token"
     fi
     
-    echo "=== Docker Container Debug ===" | tee -a \$DEBUG_LOG
-    echo "Token file exists: \$(ls -la /output/github_token)" | tee -a \$DEBUG_LOG
-    echo "Token length: \$(wc -c < /output/github_token)" | tee -a \$DEBUG_LOG
-    echo "Token prefix: \$(head -c 10 /output/github_token)..." | tee -a \$DEBUG_LOG
+    echo "=== Docker Container Debug ===" | tee -a $DEBUG_LOG
+    echo "Token file exists: $(ls -la /output/github_token)" | tee -a $DEBUG_LOG
+    echo "Token length: $(wc -c < /output/github_token)" | tee -a $DEBUG_LOG
+    echo "Token prefix: $(head -c 10 /output/github_token)..." | tee -a $DEBUG_LOG
+    
+    # Check if gh command exists
+    echo "=== Checking gh command ===" | tee -a $DEBUG_LOG
+    which gh | tee -a $DEBUG_LOG || log_and_exit "gh command not found"
+    gh --version | tee -a $DEBUG_LOG || log_and_exit "gh command not working"
+    
+    # Check if gh nv-gha-aws plugin exists
+    echo "=== Checking gh nv-gha-aws plugin ==="
+    echo "Plugin directory listing:"
+    ls -la /root/.local/share/gh/extensions/gh-nv-gha-aws/ || log_and_exit "gh-nv-gha-aws plugin directory not found"
+    
+    echo "Plugin executable permissions:"
+    ls -la /root/.local/share/gh/extensions/gh-nv-gha-aws/gh-nv-gha-aws || log_and_exit "gh-nv-gha-aws plugin executable not found"
+    
+    echo "Testing plugin execution:"
+    /root/.local/share/gh/extensions/gh-nv-gha-aws/gh-nv-gha-aws --help || log_and_exit "gh-nv-gha-aws plugin not executable"
+    
+    echo "Checking if gh can see the plugin:"
+    gh extension list || echo "No extensions found or gh extension list failed"
     
     # Authenticate with the saved token
-    echo "Authenticating with GitHub using token..." | tee -a \$DEBUG_LOG
-    cat /output/github_token | gh auth login --with-token 2>&1 | tee -a \$DEBUG_LOG
+    echo "=== Authenticating with GitHub using token ===" | tee -a $DEBUG_LOG
+    if ! cat /output/github_token | gh auth login --with-token 2>&1 | tee -a $DEBUG_LOG; then
+      log_and_exit "GitHub authentication failed"
+    fi
     
     # Show auth status
-    echo "=== GitHub Auth Status ===" | tee -a \$DEBUG_LOG
-    gh auth status 2>&1 | tee -a \$DEBUG_LOG || echo "Auth status failed" | tee -a \$DEBUG_LOG
+    echo "=== GitHub Auth Status ===" | tee -a $DEBUG_LOG
+    if ! gh auth status 2>&1 | tee -a $DEBUG_LOG; then
+      echo "WARNING: Auth status check failed, but continuing..." | tee -a $DEBUG_LOG
+    fi
     
     # Generate AWS credentials
     mkdir -p /root/.aws
     
-    echo "Attempting to generate AWS credentials..." | tee -a \$DEBUG_LOG
-    echo "Command: gh nv-gha-aws org rapidsai --profile default --output creds-file --duration $AWS_CREDENTIALS_TIMEOUT --aud sts.amazonaws.com --idp-url https://token.gha-runners.nvidia.com --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs" | tee -a \$DEBUG_LOG
+    echo "=== Attempting to generate AWS credentials ===" | tee -a $DEBUG_LOG
+    echo "Command: gh nv-gha-aws org rapidsai --profile default --output creds-file --duration '"$AWS_CREDENTIALS_TIMEOUT"' --aud sts.amazonaws.com --idp-url https://token.gha-runners.nvidia.com --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs" | tee -a $DEBUG_LOG
     
     # Run the command and capture everything
-    echo "=== Running gh nv-gha-aws command ===" | tee -a \$DEBUG_LOG
+    echo "=== Running gh nv-gha-aws command ==="
+    echo "Full command: gh nv-gha-aws org rapidsai --profile default --output creds-file --duration $AWS_CREDENTIALS_TIMEOUT --aud sts.amazonaws.com --idp-url https://token.gha-runners.nvidia.com --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs"
+    
+    # Test if we can run the command at all
+    echo "Testing basic gh nv-gha-aws command:"
+    gh nv-gha-aws --version || echo "gh nv-gha-aws --version failed"
+    
+    set +e  # Temporarily disable exit on error to capture the output
+    
+    # Create a temporary file to capture stderr separately
+    TEMP_STDERR=$(mktemp)
+    
+    echo "Executing AWS credential generation..."
     gh nv-gha-aws org rapidsai \
       --profile default \
       --output creds-file \
-      --duration $AWS_CREDENTIALS_TIMEOUT \
+      --duration "$AWS_CREDENTIALS_TIMEOUT" \
       --aud sts.amazonaws.com \
       --idp-url https://token.gha-runners.nvidia.com \
       --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs \
-      > /root/.aws/credentials 2>&1
+      > /root/.aws/credentials 2> "$TEMP_STDERR"
     
-    AWS_EXIT_CODE=\$?
-    echo "gh nv-gha-aws exit code: \$AWS_EXIT_CODE" | tee -a \$DEBUG_LOG
+    AWS_EXIT_CODE=$?
     
-    echo "=== AWS credentials file content ===" | tee -a \$DEBUG_LOG
+    echo "Command stderr output:"
+    cat "$TEMP_STDERR" || echo "No stderr output"
+    rm -f "$TEMP_STDERR"
+    
+    set -e  # Re-enable exit on error
+    
+    echo "gh nv-gha-aws exit code: $AWS_EXIT_CODE" | tee -a $DEBUG_LOG
+    
+    echo "=== AWS credentials file content ===" | tee -a $DEBUG_LOG
     if [[ -f /root/.aws/credentials ]]; then
-      echo "File exists, size: \$(wc -c < /root/.aws/credentials)" | tee -a \$DEBUG_LOG
-      echo "Content:" | tee -a \$DEBUG_LOG
-      cat /root/.aws/credentials | tee -a \$DEBUG_LOG
+      echo "File exists, size: $(wc -c < /root/.aws/credentials)" | tee -a $DEBUG_LOG
+      echo "Content:" | tee -a $DEBUG_LOG
+      cat /root/.aws/credentials | tee -a $DEBUG_LOG
     else
-      echo "File does not exist" | tee -a \$DEBUG_LOG
+      echo "File does not exist" | tee -a $DEBUG_LOG
     fi
-    echo "=== End credentials content ===" | tee -a \$DEBUG_LOG
+    echo "=== End credentials content ===" | tee -a $DEBUG_LOG
     
     # Check if valid credentials
     if [[ -f /root/.aws/credentials ]] && [[ -s /root/.aws/credentials ]] && grep -q "aws_access_key_id" /root/.aws/credentials; then
       cp /root/.aws/credentials /output/aws_credentials
-      echo "SUCCESS: AWS credentials generated and copied" | tee -a \$DEBUG_LOG
+      echo "SUCCESS: AWS credentials generated and copied" | tee -a $DEBUG_LOG
     else
-      echo "FAILED: AWS credentials not valid" | tee -a \$DEBUG_LOG
-      exit 1
+      log_and_exit "AWS credentials not valid or not generated"
     fi
     
-    echo "=== Docker Container Debug Finished ===" >> \$DEBUG_LOG
-EOF
+    echo "=== Docker Container Debug Finished Successfully ===" >> $DEBUG_LOG
+  '
+
+# Test if Docker container can run at all
+echo "=== Testing Docker Container Basic Functionality ==="
+docker run --rm -v "$OUTPUT_DIR:/output" sccache-auth bash -c 'echo "Docker container test successful" > /output/test.log'
+if [[ -f "$OUTPUT_DIR/test.log" ]]; then
+  echo "Docker container basic test: $(cat "$OUTPUT_DIR/test.log")"
+  rm -f "$OUTPUT_DIR/test.log"
+else
+  echo "ERROR: Docker container basic test failed"
+fi
+echo "=================================================="
 
 # After Docker finishes, show the debug log
 echo "=== Docker Debug Log ==="

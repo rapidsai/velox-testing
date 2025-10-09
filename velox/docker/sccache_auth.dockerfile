@@ -29,10 +29,21 @@ RUN <<EOF
 NV_GHA_AWS_VERSION="0.1.1"
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "amd64" ]; then ARCH="amd64"; elif [ "$ARCH" = "arm64" ]; then ARCH="arm64"; fi
+
+echo "Installing gh-nv-gha-aws plugin for architecture: $ARCH"
 mkdir -p /root/.local/share/gh/extensions/gh-nv-gha-aws
+
+# Download the plugin
+echo "Downloading from: https://github.com/nv-gha-runners/gh-nv-gha-aws/releases/download/v${NV_GHA_AWS_VERSION}/gh-nv-gha-aws_v${NV_GHA_AWS_VERSION}_linux-${ARCH}"
 wget --no-hsts -q -O /root/.local/share/gh/extensions/gh-nv-gha-aws/gh-nv-gha-aws \
     "https://github.com/nv-gha-runners/gh-nv-gha-aws/releases/download/v${NV_GHA_AWS_VERSION}/gh-nv-gha-aws_v${NV_GHA_AWS_VERSION}_linux-${ARCH}"
+
+# Verify download and set permissions
+ls -la /root/.local/share/gh/extensions/gh-nv-gha-aws/gh-nv-gha-aws
 chmod 0755 /root/.local/share/gh/extensions/gh-nv-gha-aws/gh-nv-gha-aws
+
+# Test that the binary is executable
+/root/.local/share/gh/extensions/gh-nv-gha-aws/gh-nv-gha-aws --version || echo "Plugin version check failed"
 EOF
 
 # Create plugin manifest
