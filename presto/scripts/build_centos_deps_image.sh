@@ -43,7 +43,7 @@ export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
 
 # pull the repo image
 echo "Fetching image file..."
-aws s3 cp ${DEPS_IMAGE_PATH} /tmp/${DEPS_IMAGE_FILE}
+aws s3 cp --no-progress ${DEPS_IMAGE_PATH} /tmp/${DEPS_IMAGE_FILE}
 
 # load the image into docker
 echo "Loading image file..."
