@@ -16,7 +16,7 @@ if [ ! -z $(docker images -q ${DEPS_IMAGE}) ]; then
 	exit 0
 fi
 
-echo "Presto dependencies/run-time container image not found, attempting to fetch image file..."
+echo "Presto dependencies/run-time container image not found, attempting to fetch pre-built image file..."
 
 #
 # try to pull container image from our S3 bucket
@@ -28,8 +28,16 @@ BUCKET_URL="s3://rapidsai-velox-testing/presto-docker-images"
 DEPS_IMAGE_FILE="presto_deps_container_image_centos9_${ARCH}.tar.gz"
 DEPS_IMAGE_PATH="${BUCKET_URL}/${DEPS_IMAGE_FILE}"
 
+# check that the required stuff is in the environment
+echo "Validating incoming environment for temporary S3 credentials request..."
+if [ ! -v AWS_ARN_STRING ] || [ ! -v AWS_ACCESS_KEY_ID ] || [ ! -v AWS_SECRET_ACCESS_KEY ]; then
+	echo "ERROR: AWS_ARN_STRING, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set in the environment"
+	exit 1
+fi
+
 # ask for temporary credentials for file access
 # expects AWS_ARN_STRING, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to be in the environment
+echo "Requesting temporary S3 credentials..."
 TEMP_CREDS_JSON=$(aws sts assume-role \
 	--role-arn ${AWS_ARN_STRING} \
 	--role-session-name "GetPrestoContainerImage" \
@@ -42,24 +50,24 @@ export AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey
 export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
 
 # pull the repo image
-echo "Fetching image file..."
+echo "Fetching image file from S3..."
 aws s3 cp --no-progress ${DEPS_IMAGE_PATH} /tmp/${DEPS_IMAGE_FILE}
 
 # load the image into docker
-echo "Loading image file..."
+echo "Loading image file into Docker..."
 docker load < /tmp/${DEPS_IMAGE_FILE}
 
 # clean up
 rm -f /tmp/${DEPS_IMAGE_FILE}
 
 # validate that the image was loaded correctly
-echo "Validating image..."
+echo "Validating Docker image..."
 if [[ ! -z $(docker images -q ${DEPS_IMAGE}) ]]; then
-	echo "Pulled Presto dependencies/run-time container image from repo"
+	echo "Fetched pre-built Presto dependencies/run-time container image successfully"
 	exit 0
 fi
 
-echo "Failed to pull Presto dependencies/run-time container image from repo, building locally..."
+echo "Failed to fetch pre-built Presto dependencies/run-time container image, building locally..."
 
 # for this simpler version, report this but continue
 echo "WARNING: Build patches will not be applied, local build will likely fail"
