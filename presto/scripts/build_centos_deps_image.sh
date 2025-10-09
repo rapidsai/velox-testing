@@ -24,7 +24,7 @@ echo "Presto dependencies/run-time container image not found, attempting to fetc
 
 # the image file name on S3
 ARCH=$(uname -m)
-BUCKET_URL="s3://rapidsai-velox-testing-artifacts"
+BUCKET_URL="s3://rapidsai-velox-testing-artifacts/presto-deps-container-images"
 DEPS_IMAGE_FILE="presto_deps_container_image_centos9_${ARCH}.tar.gz"
 DEPS_IMAGE_PATH="${BUCKET_URL}/${DEPS_IMAGE_FILE}"
 
