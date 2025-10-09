@@ -12,6 +12,8 @@ ARG VELOX_ENABLE_BENCHMARKS=ON
 ARG BUILD_BASE_DIR=/opt/velox-build
 ARG BUILD_TYPE=release
 ARG ENABLE_SCCACHE=OFF
+ARG EXPORT_COMPILE_COMMANDS=OFF
+ARG SKIP_BUILD=OFF
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -45,7 +47,9 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rmm-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rapids_logger-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
-    ENABLE_SCCACHE=${ENABLE_SCCACHE}
+    ENABLE_SCCACHE=${ENABLE_SCCACHE} \
+    EXPORT_COMPILE_COMMANDS=${EXPORT_COMPILE_COMMANDS} \
+    SKIP_BUILD=${SKIP_BUILD}
 
 WORKDIR /workspace/velox
 
@@ -102,8 +106,28 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
       echo "Pre-build sccache (zeroed out) statistics:" && \
       sccache --show-stats; \
     fi && \
+    # Configure compile commands export if enabled
+    if [ "$EXPORT_COMPILE_COMMANDS" = "ON" ]; then \
+      EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON" && \
+      echo "Compile commands export enabled"; \
+    fi && \
     make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
-    make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
+    # Only run build if not skipping
+    if [ "$SKIP_BUILD" != "ON" ]; then \
+      make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"; \
+    else \
+      echo "Skipping build step - only generating compile commands"; \
+    fi && \
+    # Copy compile_commands.json to accessible location if export is enabled
+    if [ "$EXPORT_COMPILE_COMMANDS" = "ON" ]; then \
+      mkdir -p /opt/compile_output && \
+      if [ -f "${BUILD_BASE_DIR}/${BUILD_TYPE}/compile_commands.json" ]; then \
+        cp "${BUILD_BASE_DIR}/${BUILD_TYPE}/compile_commands.json" /opt/compile_output/ && \
+        echo "Copied compile_commands.json to /opt/compile_output/"; \
+      else \
+        echo "WARNING: compile_commands.json not found at ${BUILD_BASE_DIR}/${BUILD_TYPE}/compile_commands.json"; \
+      fi; \
+    fi && \
     # Show final sccache stats if enabled
     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
       echo "Post-build sccache statistics:" && \

@@ -29,6 +29,9 @@ TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR=""
+EXPORT_COMPILE_COMMANDS=false
+COMPILE_COMMANDS_OUTPUT_DIR=""
+SKIP_BUILD=false
 
 # Cleanup function to remove copied sccache auth files
 cleanup_sccache_auth() {
@@ -56,6 +59,9 @@ Options:
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
   --sccache                   Enable sccache distributed compilation caching.
   --sccache-auth-dir DIR      Directory containing sccache authentication files (github_token, aws_credentials).
+  --export-compile-commands   Export compile commands database (compile_commands.json).
+  --compile-commands-dir DIR  Directory to output compile_commands.json (required with --export-compile-commands).
+  --skip-build                Skip the actual build, only generate compile commands (requires --export-compile-commands).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
   -h, --help                  Show this help message and exit.
 
@@ -71,6 +77,8 @@ Examples:
   $(basename "$0") -j 8 --gpu
   $(basename "$0") --num-threads 16 --no-cache
   $(basename "$0") --sccache --sccache-auth-dir /auth_dir/      # Build with sccache and use auth files in /auth_dir/
+  $(basename "$0") --export-compile-commands --compile-commands-dir ./compile_db/  # Export compile database
+  $(basename "$0") --export-compile-commands --compile-commands-dir ./compile_db/ --skip-build  # Only generate compile database
   $(basename "$0") --build-type Debug
   $(basename "$0") --build-type debug --gpu
   $(basename "$0") --build-type RELWITHDEBINFO --gpu
@@ -153,6 +161,22 @@ parse_args() {
         SCCACHE_AUTH_DIR="$2"
         shift 2
         ;;
+      --export-compile-commands)
+        EXPORT_COMPILE_COMMANDS=true
+        shift
+        ;;
+      --compile-commands-dir)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --compile-commands-dir requires a directory path"
+          exit 1
+        fi
+        COMPILE_COMMANDS_OUTPUT_DIR="$2"
+        shift 2
+        ;;
+      --skip-build)
+        SKIP_BUILD=true
+        shift
+        ;;
       --build-type)
         if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
           # Convert to lowercase first, then validate
@@ -210,6 +234,31 @@ validate_sccache_auth() {
   fi
 }
 
+# Validate compile commands options
+validate_compile_commands() {
+  if [[ "$EXPORT_COMPILE_COMMANDS" == true ]]; then
+    if [[ -z "$COMPILE_COMMANDS_OUTPUT_DIR" ]]; then
+      echo "ERROR: --export-compile-commands requires --compile-commands-dir to be specified"
+      exit 1
+    fi
+    # Create output directory if it doesn't exist
+    mkdir -p "$COMPILE_COMMANDS_OUTPUT_DIR"
+    if [[ ! -d "$COMPILE_COMMANDS_OUTPUT_DIR" ]]; then
+      echo "ERROR: Failed to create compile commands output directory: $COMPILE_COMMANDS_OUTPUT_DIR"
+      exit 1
+    fi
+    echo "Compile commands will be exported to: $COMPILE_COMMANDS_OUTPUT_DIR"
+  fi
+  
+  if [[ "$SKIP_BUILD" == true ]]; then
+    if [[ "$EXPORT_COMPILE_COMMANDS" != true ]]; then
+      echo "ERROR: --skip-build requires --export-compile-commands to be enabled"
+      exit 1
+    fi
+    echo "Skip build enabled - will only generate compile commands database"
+  fi
+}
+
 # Detect CUDA architecture since native architecture detection doesn't work
 # inside Docker containers
 detect_cuda_architecture() {
@@ -231,6 +280,9 @@ parse_args "$@"
 
 # Validate sccache authentication if sccache is enabled
 validate_sccache_auth
+
+# Validate compile commands options
+validate_compile_commands
 
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"
@@ -266,6 +318,21 @@ else
   DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="OFF")
 fi
 
+# Add compile commands build arguments
+if [[ "$EXPORT_COMPILE_COMMANDS" == true ]]; then
+  DOCKER_BUILD_OPTS+=(--build-arg EXPORT_COMPILE_COMMANDS="ON")
+else
+  DOCKER_BUILD_OPTS+=(--build-arg EXPORT_COMPILE_COMMANDS="OFF")
+fi
+
+# Add skip build argument
+if [[ "$SKIP_BUILD" == true ]]; then
+  DOCKER_BUILD_OPTS+=(--build-arg SKIP_BUILD="ON")
+else
+  DOCKER_BUILD_OPTS+=(--build-arg SKIP_BUILD="OFF")
+fi
+
+# Build the Docker image
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
   docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
@@ -273,6 +340,32 @@ if [[ "$LOG_ENABLED" == true ]]; then
 else
   docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
   BUILD_EXIT_CODE=$?
+fi
+
+# Copy compile commands if enabled and build succeeded
+if [[ "$BUILD_EXIT_CODE" == "0" && "$EXPORT_COMPILE_COMMANDS" == true ]]; then
+  echo "Extracting compile_commands.json from container..."
+  # Convert relative path to absolute path
+  COMPILE_COMMANDS_OUTPUT_DIR=$(realpath "$COMPILE_COMMANDS_OUTPUT_DIR")
+  
+  # Create a temporary container to copy from
+  TEMP_CONTAINER_ID=$(docker create "${CONTAINER_NAME}:latest")
+  
+  # Copy compile_commands.json from the container to the host using docker cp
+  if docker cp "${TEMP_CONTAINER_ID}:/opt/compile_output/compile_commands.json" "${COMPILE_COMMANDS_OUTPUT_DIR}/compile_commands.json" 2>/dev/null; then
+    echo "Successfully exported compile_commands.json to: ${COMPILE_COMMANDS_OUTPUT_DIR}/compile_commands.json"
+  else
+    echo "WARNING: Failed to extract compile_commands.json from container"
+    echo "Checking if compile_commands.json exists in build directory..."
+    if docker run --rm "${CONTAINER_NAME}:latest" test -f "/opt/velox-build/${BUILD_TYPE}/compile_commands.json"; then
+      echo "compile_commands.json found in build directory, but not in output directory"
+    else
+      echo "compile_commands.json not found in build directory"
+    fi
+  fi
+  
+  # Clean up temporary container
+  docker rm "${TEMP_CONTAINER_ID}" >/dev/null 2>&1
 fi
 
 
@@ -304,6 +397,9 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
         echo "  To check sccache stats, run:"
         echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} sccache --show-stats"
       fi
+    fi
+    if [[ "$EXPORT_COMPILE_COMMANDS" == true ]]; then
+      echo "  Compile commands database was exported to: ${COMPILE_COMMANDS_OUTPUT_DIR}/compile_commands.json"
     fi
     echo ""
   else
