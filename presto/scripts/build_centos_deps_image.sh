@@ -24,9 +24,22 @@ echo "Presto dependencies/run-time container image not found, attempting to fetc
 
 # the image file name on S3
 ARCH=$(uname -m)
-BUCKET_URL="s3://rapidsai-velox-testing-artifacts/presto-deps-container-images"
+BUCKET_URL="s3://rapidsai-velox-testing/presto-docker-images"
 DEPS_IMAGE_FILE="presto_deps_container_image_centos9_${ARCH}.tar.gz"
 DEPS_IMAGE_PATH="${BUCKET_URL}/${DEPS_IMAGE_FILE}"
+
+# ask for temporary credentials for file access
+# expects AWS_ARN_STRING, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to be in the environment
+TEMP_CREDS_JSON=$(aws sts assume-role \
+	--role-arn ${AWS_ARN_STRING} \
+	--role-session-name "GetPrestoContainerImage" \
+	--query 'Credentials' \
+	--output json)
+
+# override environment with full temporary credentials
+export AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
+export AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
+export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
 
 # pull the repo image
 echo "Fetching image file..."
