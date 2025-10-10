@@ -116,14 +116,6 @@ fi
 
 echo "Generating required test files for ${BENCHMARK_TYPES_TO_GENERATE[@]} benchmark(s)..."
 for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
-  SCHEMAS_DIR=../../common/schemas/$BENCHMARK_TYPE
-  SCHEMA_NAME=${BENCHMARK_TYPE}_test
-  rm -rf $SCHEMAS_DIR
-  echo "Generating table schema files for $BENCHMARK_TYPE..."
-  python $BENCHMARK_DATA_TOOLS_DIR/generate_table_schemas.py --benchmark-type $BENCHMARK_TYPE \
-         --schema-name $SCHEMA_NAME --schemas-dir-path $SCHEMAS_DIR $CONVERT_DECIMALS_TO_FLOATS_ARG
-  echo "Table schema files generated for $BENCHMARK_TYPE"
-
   QUERIES_DIR=../../common/queries/$BENCHMARK_TYPE
   rm -rf $QUERIES_DIR
   echo "Generating benchmark queries file for $BENCHMARK_TYPE..."
@@ -137,4 +129,15 @@ for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
   python $BENCHMARK_DATA_TOOLS_DIR/generate_data_files.py --benchmark-type $BENCHMARK_TYPE \
          --data-dir-path $DATA_DIR --scale-factor $SCALE_FACTOR $CONVERT_DECIMALS_TO_FLOATS_ARG $VERBOSE
   echo "Benchmark data files generated for $BENCHMARK_TYPE"
+
+  SCHEMAS_DIR=../../common/schemas/$BENCHMARK_TYPE
+  SCHEMA_NAME=${BENCHMARK_TYPE}_test
+  rm -rf $SCHEMAS_DIR
+  echo "Generating table schema files for $BENCHMARK_TYPE..."
+  python $BENCHMARK_DATA_TOOLS_DIR/generate_table_schemas.py \
+         --benchmark-type $BENCHMARK_TYPE \
+         --schemas-dir-path $SCHEMAS_DIR \
+         --data-dir-name $DATA_DIR
+  echo "Table schema files generated for $BENCHMARK_TYPE"
+
 done

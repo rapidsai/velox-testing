@@ -15,11 +15,12 @@
 import pytest
 
 from . import test_utils
-from .common_fixtures import presto_cursor, setup_and_teardown
+from .common_fixtures import presto_cursor, setup_and_teardown, get_scale_factor
+from ..common.fixtures import tpch_queries
 
 BENCHMARK_TYPE = "tpch"
 
 
-@pytest.mark.usefixtures("setup_and_teardown")
+@pytest.mark.usefixtures("setup_and_teardown", "get_scale_factor")
 def test_query(presto_cursor, tpch_queries, tpch_query_id):
     test_utils.execute_query_and_compare_results(presto_cursor, tpch_queries, tpch_query_id)

@@ -20,21 +20,22 @@ import argparse
 import duckdb
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from duckdb_utils import map_table_schemas
 
 # Multi-thread file processing
-def process_dir(input_dir, output_dir, num_threads, verbose, table_to_schema_map):
+def process_dir(input_dir, output_dir, num_threads, verbose, convert_decimal_to_float):
     with ThreadPoolExecutor(num_threads) as executor:
         futures = []
         for root, _, files in os.walk(input_dir):
             for file in files:
                 if file.endswith('.parquet'):
                     input_file_path = os.path.join(root, file)
-                    futures.append(executor.submit(process_file, input_file_path, output_dir, input_dir, verbose, table_to_schema_map))
+                    futures.append(executor.submit(process_file, input_file_path,
+                                                   output_dir, input_dir, verbose,
+                                                   convert_decimal_to_float))
         for future in futures:
             future.result()
 
-def process_file(input_file_path, output_dir, input_dir, verbose, table_to_schema_map):
+def process_file(input_file_path, output_dir, input_dir, verbose, convert_decimal_to_float):
     relative_path = os.path.relpath(os.path.dirname(input_file_path), input_dir)
     output_file_path = os.path.join(output_dir, relative_path, os.path.basename(input_file_path))
 
@@ -45,27 +46,15 @@ def process_file(input_file_path, output_dir, input_dir, verbose, table_to_schem
     parquet_file = pq.ParquetFile(input_file_path)
     original_schema = parquet_file.schema_arrow
 
-    if verbose:
-        print(f"Converting {input_file_path} to {output_file_path}")
+    if verbose: print(f"Converting {input_file_path} to {output_file_path}")
 
-    # Determine expected types from DuckDB schema for this table
-    table_name = os.path.basename(input_file_path).split('-')[0]
-    assert table_name in table_to_schema_map, f"Expected table {table_name} not found in schema"
-    table_schema = table_to_schema_map.get(table_name)
-    expected_types = {row[0]: row[1] for row in table_schema}
-
-    # Build output schema (cast DECIMAL->FLOAT64, optionally INT64->INT32 when DuckDB says INTEGER)
+    # Build output schema (cast DECIMAL->FLOAT64)
     new_fields = []
     for field in original_schema:
         new_type = field.type
-        if pa.types.is_decimal(new_type):
-            if verbose:
-                print(f"type mismatch on col: {field.name} (decimal) casting to (float)")
+        if convert_decimal_to_float and pa.types.is_decimal(new_type):
+            if verbose: print(f"type mismatch on col: {field.name} (decimal) casting to (float)")
             new_type = pa.float64()
-        elif pa.types.is_int64(new_type) and expected_types.get(field.name) == "INTEGER":
-            if verbose:
-                print(f"type mismatch on col: {field.name} (int64) casting to (int32)")
-            new_type = pa.int32()
         new_fields.append(pa.field(field.name, new_type))
     new_schema = pa.schema(new_fields)
 
@@ -77,12 +66,11 @@ def process_file(input_file_path, output_dir, input_dir, verbose, table_to_schem
             casted_arrays = []
             for i, name in enumerate(names):
                 arr = batch.column(i)
-                if pa.types.is_decimal(arr.type):
-                    arr = pc.cast(arr, pa.float64())
-                elif pa.types.is_int64(arr.type) and expected_types.get(name) == "INTEGER":
-                    arr = pc.cast(arr, pa.int32())
+                if convert_decimal_to_float and pa.types.is_decimal(arr.type):
+                    new_type = pa.field(name, pa.float64()).type
+                    arr = pc.cast(arr, new_type)
                 casted_arrays.append(arr)
-            casted_batch = pa.RecordBatch.from_arrays(casted_arrays, names)
+            casted_batch = pa.RecordBatch.from_arrays(casted_arrays, schema=new_schema)
             writer.write_table(pa.Table.from_batches([casted_batch]))
     finally:
         writer.close()
@@ -93,11 +81,14 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
-    parser.add_argument('--input-dir', '-i', help='Path to input Parquet files' )
-    parser.add_argument('--output-dir', '-o', help='Path to output Parquet files')
-    parser.add_argument('--num-threads', '-n', help='Number of threads')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose')
+    parser.add_argument('-i', '--input-dir', type=Path, required=True,
+                        help='Path to input Parquet files')
+    parser.add_argument('-o', '--output-dir', type=Path, required=True,
+                        help='Path to output Parquet files')
+    parser.add_argument('-j', '--jobs', type=int, help='Number of threads')
+    parser.add_argument('-v', '--verbose', type=bool, action='store_true', help='Verbose')
+    parser.add_argument("-c", "--convert-decimals-to-floats", action="store_true",
+                        help="Convert all decimal columns to float column type.")
 
     args = parser.parse_args()
-    table_to_schema_map = map_table_schemas(bool(args.verbose))
-    process_dir(Path(args.input_dir), Path(args.output_dir), int(args.num_threads), bool(args.verbose), table_to_schema_map)
+    process_dir(args.input_dir, args.output_dir, args.jobs, args.verbose, args.convert_decimals_to_floats)

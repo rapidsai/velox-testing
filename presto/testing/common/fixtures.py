@@ -15,7 +15,7 @@
 import pytest
 
 from . import test_utils
-from ..common_fixtures import get_scale_factor
+from ..integration_tests.common_fixtures import get_scale_factor
 
 @pytest.fixture(scope="module")
 def tpch_queries(request, get_scale_factor):
