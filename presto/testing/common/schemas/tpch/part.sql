@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpch_test.part (
+CREATE TABLE hive.{schema}.part (
     p_partkey BIGINT NOT NULL,
     p_name VARCHAR NOT NULL,
     p_mfgr VARCHAR NOT NULL,

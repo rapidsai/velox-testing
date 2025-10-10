@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.household_demographics (
+CREATE TABLE hive.{schema}.household_demographics (
     hd_demo_sk INTEGER,
     hd_income_band_sk INTEGER,
     hd_buy_potential VARCHAR,

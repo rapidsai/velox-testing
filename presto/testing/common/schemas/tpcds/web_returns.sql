@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.web_returns (
+CREATE TABLE hive.{schema}.web_returns (
     wr_returned_date_sk INTEGER,
     wr_returned_time_sk INTEGER,
     wr_item_sk INTEGER,

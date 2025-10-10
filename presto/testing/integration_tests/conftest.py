@@ -15,7 +15,7 @@
 from ..common.conftest import *
 
 def pytest_addoption(parser):
-    parser.addoption("--queries")
+    parser.addoption("--queries") # default is all queries for the benchmark type
     parser.addoption("--keep-tables", action="store_true", default=False)
     parser.addoption("--hostname", default="localhost")
     parser.addoption("--port", default=8080, type=int)

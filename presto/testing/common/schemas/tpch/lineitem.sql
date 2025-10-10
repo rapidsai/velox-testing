@@ -1,8 +1,8 @@
-CREATE TABLE hive.tpch_test.lineitem (
+CREATE TABLE hive.{schema}.lineitem (
     l_orderkey BIGINT NOT NULL,
     l_partkey BIGINT NOT NULL,
     l_suppkey BIGINT NOT NULL,
-    l_linenumber BIGINT NOT NULL,
+    l_linenumber INTEGER NOT NULL,
     l_quantity DOUBLE NOT NULL,
     l_extendedprice DOUBLE NOT NULL,
     l_discount DOUBLE NOT NULL,
