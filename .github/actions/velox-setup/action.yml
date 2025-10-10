@@ -44,17 +44,3 @@ runs:
           echo "VELOX_COMMIT_SHA=$VELOX_REF" >> $GITHUB_ENV
           echo "velox_sha=$VELOX_REF" >> $GITHUB_OUTPUT
         fi
-
-    - name: Apply invalid-identifier patch to Velox
-      shell: bash
-      working-directory: ${{ github.workspace }}/velox
-      run: |
-        set -euo pipefail
-        PATCH_FILE="../velox-testing/velox/patches/patch_invalid_identifier.diff"
-        if [[ -f "$PATCH_FILE" ]]; then
-          echo "Applying patch: $PATCH_FILE"
-          git apply --3way "$PATCH_FILE" || git apply "$PATCH_FILE"
-          echo "Patch applied successfully."
-        else
-          echo "No patch file found at $PATCH_FILE; skipping."
-        fi

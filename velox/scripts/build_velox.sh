@@ -27,6 +27,7 @@ BUILD_TYPE="release"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
+BUILD_DEPS=false
 
 print_help() {
   cat <<EOF
@@ -44,6 +45,7 @@ Options:
   -j|--num-threads            NUM Number of threads to use for building (default: 3/4 of CPU cores).
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
+  --build-deps                Build adapters dependency image first (default: false).
   -h, --help                  Show this help message and exit.
 
 Examples:
@@ -96,6 +98,10 @@ parse_args() {
         ;;
       --gpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
+        shift
+        ;;
+      --build-deps)
+        BUILD_DEPS=true
         shift
         ;;
       -j|--num-threads)
@@ -183,6 +189,13 @@ parse_args "$@"
 
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"
+
+if [[ "$BUILD_DEPS" == true ]]; then
+  # Ensure dependency image is built before building Velox adapters image
+  echo "Ensuring adapters dependency image is available..."
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  "${SCRIPT_DIR}/build_centos_deps_image.sh"
+fi
 
 # Compose docker build command options
 DOCKER_BUILD_OPTS=(--pull)
