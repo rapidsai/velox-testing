@@ -35,6 +35,9 @@ if [ ! -v AWS_ARN_STRING ] || [ ! -v AWS_ACCESS_KEY_ID ] || [ ! -v AWS_SECRET_AC
 	exit 1
 fi
 
+# ensure region is set prior to all this
+export AWS_REGION='us-west-1'
+
 # ask for temporary credentials for file access
 # expects AWS_ARN_STRING, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to be in the environment
 echo "Requesting temporary S3 credentials..."
