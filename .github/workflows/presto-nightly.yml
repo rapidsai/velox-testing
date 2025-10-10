@@ -1,22 +1,21 @@
 name: Presto Nightly Test
 
 on:
-  # schedule:
-  #   - cron: '0 4 * * *'  # daily at 04:00 UTC
+  schedule:
+    - cron: '0 4 * * *'  # daily at 04:00 UTC
   workflow_dispatch:
 
 jobs:
   nightly:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch latest Velox SHA
-        id: get_sha
-        run: |
-          LATEST=$(curl -s https://api.github.com/repos/facebookincubator/velox/commits/main \
-            | jq -r .sha)
-          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
-
-      - name: Invoke Presto Test
+      - name: Invoke Presto Test on known good Presto and Velox
         uses: ./.github/workflows/presto-test.yml
         with:
-          velox_commit: ${{ steps.get_sha.outputs.latest }}
+          presto_repository: devavret/presto
+          presto_commit: cudf-scans
+          velox_repository: rapidsai/velox
+          velox_commit: merged-prs
+          run_java_tests: true
+          run_cpu_tests: true
+          run_gpu_tests: true
