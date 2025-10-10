@@ -73,21 +73,23 @@ CONTAINER_NAME="velox-adapters-deps"
 COMPOSE_FILE="../docker/docker-compose.adapters.build.yml"
 
 # apply patches to the velox if there's any
-PATCHES_DIR="$(dirname "$0")/../patches"
-VELOX_DIR="$(dirname "$0")/../../../velox"
+PATCHES_DIR="$(realpath "$(dirname "$0")/../patches")"
+VELOX_DIR="$(realpath "$(dirname "$0")/../../../velox")"
+
+echo "PATCHES_DIR: $PATCHES_DIR"
+echo "VELOX_DIR: $VELOX_DIR"
 
 if [ -d "$PATCHES_DIR" ] && [ -d "$VELOX_DIR" ]; then
     # check if any .patch or .diff files exist in the patches directory
     shopt -s nullglob
     patch_files=("$PATCHES_DIR"/*.patch "$PATCHES_DIR"/*.diff)
-    shopt -u nullglob
 
     if [ ${#patch_files[@]} -gt 0 ]; then
         echo "Applying patches from $PATCHES_DIR to $VELOX_DIR ..."
         for patch_file in "${patch_files[@]}"; do
             patch_name=$(basename "$patch_file")
             echo "Applying $patch_name ..."
-            if ! git -C "$VELOX_DIR" apply --index --whitespace=nowarn "$patch_file"; then
+            if ! git -C "$VELOX_DIR" apply --whitespace=nowarn "$patch_file"; then
                 echo "git apply failed for $patch_name, attempting with --reject ..."
                 git -C "$VELOX_DIR" apply --reject --whitespace=fix "$patch_file"
             fi
