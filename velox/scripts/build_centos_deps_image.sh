@@ -97,6 +97,6 @@ if [ -d "$PATCHES_DIR" ] && [ -d "$VELOX_DIR" ]; then
     fi
 fi
 
-docker compose --progress plain build ${CONTAINER_NAME} -f ${COMPOSE_FILE}
+docker compose -f "${COMPOSE_FILE}" --progress plain build "${CONTAINER_NAME}"
 
 echo "Velox dependencies/run-time container image built!"
