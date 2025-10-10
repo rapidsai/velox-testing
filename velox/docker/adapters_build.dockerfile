@@ -95,8 +95,8 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     set -euxo pipefail && \
     # Configure sccache if enabled
     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
-      # Run sccache setup script (`source` sets AWS env vars)
-      source /sccache_setup.sh && \
+      # Run sccache setup script
+      /sccache_setup.sh && \
       # Add sccache CMake flags
       EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache" && \
       echo "sccache distributed status:" && \

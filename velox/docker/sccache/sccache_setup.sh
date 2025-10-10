@@ -13,17 +13,10 @@ if [[ ! -f /sccache_auth/aws_credentials ]]; then
 fi
 
 # Set up directories
-mkdir -p ~/.config/sccache
+mkdir -p ~/.config/sccache ~/.aws
 
-# Set AWS credentials via environment variables
-if [[ -f /sccache_auth/aws_credentials ]]; then
-    # Parse AWS credentials file and export as environment variables
-    export AWS_ACCESS_KEY_ID=$(grep -E '^aws_access_key_id' /sccache_auth/aws_credentials | cut -d'=' -f2 | tr -d ' ')
-    export AWS_SECRET_ACCESS_KEY=$(grep -E '^aws_secret_access_key' /sccache_auth/aws_credentials | cut -d'=' -f2 | tr -d ' ')
-    export AWS_DEFAULT_REGION=$(grep -E '^region' /sccache_auth/aws_credentials | cut -d'=' -f2 | tr -d ' ' || echo "us-east-2")
-else
-    echo "WARNING: AWS credentials file not found, S3 caching may not work"
-fi
+# Install AWS credentials (safe in Docker container environment)
+cp /sccache_auth/aws_credentials ~/.aws/credentials
 
 # Read GitHub token
 GITHUB_TOKEN=$(cat /sccache_auth/github_token | tr -d '\n\r ')
@@ -81,10 +74,10 @@ sccache --show-stats
 
 # Testing distributed compilation status (only if enabled)
 if [[ "${SCCACHE_DISABLE_DIST:-ON}" == "ON" ]]; then
-	echo "Distributed compilation is DISABLED (default)"
+    echo "Distributed compilation is DISABLED by default - using local compilation with remote S3 caching"
 else
     if sccache --dist-status; then
-        echo "Distributed compilation is ENABLED"
+        echo "Distributed compilation is available"
     else
         echo "Error: Distributed compilation not available, check connectivity"
         exit 1
