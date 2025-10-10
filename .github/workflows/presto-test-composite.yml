@@ -48,7 +48,6 @@ jobs:
           ref: ${{ inputs.presto_commit }}
           path: presto
       - name: Checkout Velox
-        if: ${{ inputs.presto_worker_type != 'java' }}
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.velox_repository }}
