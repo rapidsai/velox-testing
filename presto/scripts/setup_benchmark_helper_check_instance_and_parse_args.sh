@@ -41,7 +41,6 @@ OPTIONS:
     -b, --benchmark-type                Type of benchmark to create tables for. Only "tpch" and "tpcds" are currently supported.
     -s, --schema-name                   Name of the schema that will contain the created tables.
     -d, --data-dir-name                 Name of the directory inside the PRESTO_DATA_DIR path for the benchmark data.
-    -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
     $SCRIPT_EXTRA_OPTIONS_DESCRIPTION
 
 EXAMPLES:
@@ -94,10 +93,6 @@ parse_args() {
           echo "Error: --data-dir-name requires a value"
           exit 1
         fi
-        ;;
-      -c|--convert-decimals-to-floats)
-        CONVERT_DECIMALS_TO_FLOATS_ARG="--convert-decimals-to-floats"
-        shift
         ;;
       *)
         SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=true
