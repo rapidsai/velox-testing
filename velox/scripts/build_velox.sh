@@ -29,6 +29,7 @@ TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR=""
+SCCACHE_DISABLE_DIST=false
 EXPORT_COMPILE_COMMANDS=false
 COMPILE_COMMANDS_OUTPUT_DIR=""
 SKIP_BUILD=false
@@ -59,6 +60,7 @@ Options:
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
   --sccache                   Enable sccache distributed compilation caching.
   --sccache-auth-dir DIR      Directory containing sccache authentication files (github_token, aws_credentials).
+  --sccache-disable-dist      Disable distributed compilation, use only remote S3 caching (avoids remote compiler differences).
   --export-compile-commands   Export compile commands database (compile_commands.json).
   --compile-commands-dir DIR  Directory to output compile_commands.json (required with --export-compile-commands).
   --skip-build                Skip the actual build, only generate compile commands (requires --export-compile-commands).
@@ -77,6 +79,7 @@ Examples:
   $(basename "$0") -j 8 --gpu
   $(basename "$0") --num-threads 16 --no-cache
   $(basename "$0") --sccache --sccache-auth-dir /auth_dir/      # Build with sccache and use auth files in /auth_dir/
+  $(basename "$0") --sccache --sccache-auth-dir /auth_dir/ --sccache-disable-dist  # sccache with S3 cache but no distributed compilation
   $(basename "$0") --export-compile-commands --compile-commands-dir ./compile_db/  # Export compile database
   $(basename "$0") --export-compile-commands --compile-commands-dir ./compile_db/ --skip-build  # Only generate compile database
   $(basename "$0") --build-type Debug
@@ -160,6 +163,10 @@ parse_args() {
         fi
         SCCACHE_AUTH_DIR="$2"
         shift 2
+        ;;
+      --sccache-disable-dist)
+        SCCACHE_DISABLE_DIST=true
+        shift
         ;;
       --export-compile-commands)
         EXPORT_COMPILE_COMMANDS=true
@@ -314,8 +321,18 @@ if [[ "$ENABLE_SCCACHE" == true ]]; then
   mkdir -p ../docker/sccache/sccache_auth/
   cp "$SCCACHE_AUTH_DIR/github_token" ../docker/sccache/sccache_auth/
   cp "$SCCACHE_AUTH_DIR/aws_credentials" ../docker/sccache/sccache_auth/
+  
+  # Add distributed compilation control
+  if [[ "$SCCACHE_DISABLE_DIST" == true ]]; then
+    DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="ON")
+    echo "sccache will use remote S3 caching but LOCAL compilation (no distributed compilation)"
+  else
+    DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="OFF")
+    echo "sccache will use remote S3 caching AND distributed compilation"
+  fi
 else
   DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="OFF")
+  DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="OFF")
 fi
 
 # Add compile commands build arguments

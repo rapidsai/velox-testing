@@ -12,6 +12,7 @@ ARG VELOX_ENABLE_BENCHMARKS=ON
 ARG BUILD_BASE_DIR=/opt/velox-build
 ARG BUILD_TYPE=release
 ARG ENABLE_SCCACHE=OFF
+ARG SCCACHE_DISABLE_DIST=OFF
 ARG EXPORT_COMPILE_COMMANDS=OFF
 ARG SKIP_BUILD=OFF
 
@@ -48,6 +49,7 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rapids_logger-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     ENABLE_SCCACHE=${ENABLE_SCCACHE} \
+    SCCACHE_DISABLE_DIST=${SCCACHE_DISABLE_DIST} \
     EXPORT_COMPILE_COMMANDS=${EXPORT_COMPILE_COMMANDS} \
     SKIP_BUILD=${SKIP_BUILD}
 
@@ -104,7 +106,21 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
       echo "sccache distributed status:" && \
       sccache --dist-status && \
       echo "Pre-build sccache (zeroed out) statistics:" && \
-      sccache --show-stats; \
+      sccache --show-stats && \
+      echo "=== DEBUGGING COMPILER DIFFERENCES ===" && \
+      echo "Direct g++ version and default warnings:" && \
+      /opt/rh/gcc-toolset-12/root/bin/g++ --version && \
+      /opt/rh/gcc-toolset-12/root/bin/g++ -Q --help=warning | grep -E "(range-loop|Wrange)" || echo "No range-loop warnings found" && \
+      echo "sccache + g++ version and default warnings:" && \
+      sccache /opt/rh/gcc-toolset-12/root/bin/g++ --version && \
+      sccache /opt/rh/gcc-toolset-12/root/bin/g++ -Q --help=warning | grep -E "(range-loop|Wrange)" || echo "No range-loop warnings found" && \
+      echo "Testing simple compilation with both approaches:" && \
+      echo 'int main(){for(auto [a,b] : std::vector<std::pair<int,int>>{{1,2}}){} return 0;}' > /tmp/test_range.cpp && \
+      echo "Direct g++:" && \
+      /opt/rh/gcc-toolset-12/root/bin/g++ -std=c++17 -Werror=range-loop-construct /tmp/test_range.cpp -o /tmp/test_direct 2>&1 || echo "Direct g++ failed with range-loop-construct error" && \
+      echo "sccache g++:" && \
+      sccache /opt/rh/gcc-toolset-12/root/bin/g++ -std=c++17 -Werror=range-loop-construct /tmp/test_range.cpp -o /tmp/test_sccache 2>&1 || echo "sccache g++ failed with range-loop-construct error" && \
+      echo "=== END DEBUGGING ===" ; \
     fi && \
     # Configure compile commands export if enabled
     if [ "$EXPORT_COMPILE_COMMANDS" = "ON" ]; then \

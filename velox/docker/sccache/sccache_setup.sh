@@ -24,7 +24,26 @@ GITHUB_TOKEN=$(cat /sccache_auth/github_token | tr -d '\n\r ')
 # Create sccache config
 SCCACHE_ARCH=$(uname -m | sed 's/x86_64/amd64/')
 
-cat > ~/.config/sccache/config << SCCACHE_EOF
+# Check if we should disable distributed compilation
+if [[ "${SCCACHE_DISABLE_DIST:-}" == "ON" ]]; then
+    echo "Creating sccache config with remote S3 caching but NO distributed compilation"
+    cat > ~/.config/sccache/config << SCCACHE_EOF
+[cache.disk]
+size = 107374182400
+
+[cache.disk.preprocessor_cache_mode]
+use_preprocessor_cache_mode = true
+
+[cache.s3]
+bucket = "rapids-sccache-devs"
+region = "us-east-2"
+no_credentials = false
+
+# No [dist] section - this disables distributed compilation
+SCCACHE_EOF
+else
+    echo "Creating sccache config with remote S3 caching AND distributed compilation"
+    cat > ~/.config/sccache/config << SCCACHE_EOF
 [cache.disk]
 size = 107374182400
 
@@ -43,6 +62,7 @@ scheduler_url = "https://${SCCACHE_ARCH}.linux.sccache.rapids.nvidia.com"
 type = "token"
 token = "${GITHUB_TOKEN}"
 SCCACHE_EOF
+fi
 
 # Configure sccache for high parallelism
 # Increase file descriptor limit for high parallelism (if possible)
@@ -54,10 +74,14 @@ sccache --start-server
 # Test sccache 
 sccache --show-stats
 
-# Testing distributed compilation status
-if sccache --dist-status; then
-    echo "Distributed compilation is available"
+# Testing distributed compilation status (only if enabled)
+if [[ "${SCCACHE_DISABLE_DIST:-}" == "ON" ]]; then
+    echo "Distributed compilation is DISABLED - using local compilation with remote S3 caching"
 else
-    echo "Error: Distributed compilation not available, check connectivity"
-    exit 1
+    if sccache --dist-status; then
+        echo "Distributed compilation is available"
+    else
+        echo "Error: Distributed compilation not available, check connectivity"
+        exit 1
+    fi
 fi 
