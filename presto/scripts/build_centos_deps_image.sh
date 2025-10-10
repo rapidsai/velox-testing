@@ -43,7 +43,7 @@ export AWS_REGION='us-west-1'
 echo "Requesting temporary S3 credentials..."
 TEMP_CREDS_JSON=$(aws sts assume-role \
 	--role-arn ${AWS_ARN_STRING} \
-	--role-session-name "Get Presto Container Image" \
+	--role-session-name "GetPrestoContainerImage" \
 	--query "Credentials" \
 	--output json)
 
