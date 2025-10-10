@@ -28,75 +28,117 @@ BUCKET_URL="s3://rapidsai-velox-testing/velox-docker-images"
 DEPS_IMAGE_FILE="velox_adapters_build_image_centos9_${ARCH}.tar.gz"
 DEPS_IMAGE_PATH="${BUCKET_URL}/${DEPS_IMAGE_FILE}"
 
-# ask for temporary credentials for file access
-# expects AWS_ARN_STRING, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to be in the environment
-TEMP_CREDS_JSON=$(aws sts assume-role \
-	--role-arn ${AWS_ARN_STRING} \
-	--role-session-name "GetPrestoContainerImage" \
-	--query 'Credentials' \
-	--output json)
+# ----- helper functions -----
 
-# override environment with full temporary credentials
-export AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
-export AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
-export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
+image_exists() {
+	# returns 0 if image exists locally
+	[ -n "$(docker images -q ${DEPS_IMAGE})" ]
+}
 
-# pull the repo image
-echo "Fetching image file..."
-aws s3 cp --no-progress ${DEPS_IMAGE_PATH} /tmp/${DEPS_IMAGE_FILE}
+ensure_aws_cli() {
+	if ! command -v aws >/dev/null 2>&1; then
+		echo "aws CLI not found; skipping S3 fetch and building locally..."
+		return 1
+	fi
+	return 0
+}
 
-# load the image into docker
-echo "Loading image file..."
-docker load < /tmp/${DEPS_IMAGE_FILE}
+assume_role() {
+	if [ -z "${AWS_ARN_STRING:-}" ]; then
+		echo "AWS_ARN_STRING is not set."
+		return 1
+	fi
+	local creds
+	if ! creds=$(aws sts assume-role \
+		--role-arn ${AWS_ARN_STRING} \
+		--role-session-name "GetPrestoContainerImage" \
+		--query 'Credentials' \
+		--output json); then
+		echo "aws sts assume-role failed."
+		return 1
+	fi
+	AWS_ACCESS_KEY_ID=$(echo "$creds" | jq -r '.AccessKeyId') || return 1
+	AWS_SECRET_ACCESS_KEY=$(echo "$creds" | jq -r '.SecretAccessKey') || return 1
+	AWS_SESSION_TOKEN=$(echo "$creds" | jq -r '.SessionToken') || return 1
+	if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_SESSION_TOKEN" ]; then
+		echo "Failed to parse STS credentials."
+		return 1
+	fi
+	export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+	return 0
+}
 
-# clean up
-rm -f /tmp/${DEPS_IMAGE_FILE}
+s3_copy_image() {
+	echo "Fetching image file from S3..."
+	aws s3 cp --no-progress ${DEPS_IMAGE_PATH} /tmp/${DEPS_IMAGE_FILE}
+}
 
-# validate that the image was loaded correctly
-echo "Validating image..."
-if [[ ! -z $(docker images -q ${DEPS_IMAGE}) ]]; then
+docker_load_image() {
+	echo "Loading image file into Docker..."
+	docker load < /tmp/${DEPS_IMAGE_FILE} || return 1
+	rm -f /tmp/${DEPS_IMAGE_FILE} || true
+	return 0
+}
+
+validate_loaded_image() {
+	echo "Validating image..."
+	image_exists
+}
+
+fetch_image_from_s3() {
+	ensure_aws_cli || return 1
+	assume_role || return 1
+	s3_copy_image || return 1
+	docker_load_image || return 1
+	validate_loaded_image || return 1
+	return 0
+}
+
+apply_patches_if_any() {
+	# apply patches to the velox repo if present
+	local patches_dir
+	local velox_dir
+	patches_dir="$(realpath "$(dirname "$0")/../patches")"
+	velox_dir="$(realpath "$(dirname "$0")/../../../velox")"
+
+	echo "PATCHES_DIR: $patches_dir"
+	echo "VELOX_DIR: $velox_dir"
+
+	if [ -d "$patches_dir" ] && [ -d "$velox_dir" ]; then
+		shopt -s nullglob
+		local patch_files=("$patches_dir"/*.patch "$patches_dir"/*.diff)
+		if [ ${#patch_files[@]} -gt 0 ]; then
+			echo "Applying patches from $patches_dir to $velox_dir ..."
+			for patch_file in "${patch_files[@]}"; do
+				local patch_name
+				patch_name=$(basename "$patch_file")
+				echo "Applying $patch_name ..."
+				if ! git -C "$velox_dir" apply --whitespace=nowarn "$patch_file"; then
+					echo "git apply failed for $patch_name; skipping without writing rejects."
+					return 1
+				fi
+			done
+		fi
+	fi
+}
+
+build_image_locally() {
+	echo "Proceeding with local build; will apply patches if present"
+	local compose_file
+	local container_name
+	container_name="velox-adapters-deps"
+	compose_file="../docker/docker-compose.adapters.build.yml"
+	apply_patches_if_any
+	docker compose -f "${compose_file}" --progress plain build "${container_name}"
+	echo "Velox dependencies/run-time container image built!"
+}
+
+echo "Attempting to fetch dependency image from S3 and load into Docker..."
+if fetch_image_from_s3; then
 	echo "Pulled Velox dependencies/run-time container image from repo"
 	exit 0
 fi
 
 echo "Failed to pull Velox dependencies/run-time container image from repo, building locally..."
 
-# continue with local build; attempt to apply patches if present
-echo "Proceeding with local build; will apply patches if present"
-
-#
-# build deps container image
-#
-
-echo "Building Velox dependencies/run-time image..."
-CONTAINER_NAME="velox-adapters-deps"
-COMPOSE_FILE="../docker/docker-compose.adapters.build.yml"
-
-# apply patches to the velox if there's any
-PATCHES_DIR="$(realpath "$(dirname "$0")/../patches")"
-VELOX_DIR="$(realpath "$(dirname "$0")/../../../velox")"
-
-echo "PATCHES_DIR: $PATCHES_DIR"
-echo "VELOX_DIR: $VELOX_DIR"
-
-if [ -d "$PATCHES_DIR" ] && [ -d "$VELOX_DIR" ]; then
-    # check if any .patch or .diff files exist in the patches directory
-    shopt -s nullglob
-    patch_files=("$PATCHES_DIR"/*.patch "$PATCHES_DIR"/*.diff)
-
-    if [ ${#patch_files[@]} -gt 0 ]; then
-        echo "Applying patches from $PATCHES_DIR to $VELOX_DIR ..."
-        for patch_file in "${patch_files[@]}"; do
-            patch_name=$(basename "$patch_file")
-            echo "Applying $patch_name ..."
-            if ! git -C "$VELOX_DIR" apply --whitespace=nowarn "$patch_file"; then
-                echo "git apply failed for $patch_name, attempting with --reject ..."
-                git -C "$VELOX_DIR" apply --reject --whitespace=fix "$patch_file"
-            fi
-        done
-    fi
-fi
-
-docker compose -f "${COMPOSE_FILE}" --progress plain build "${CONTAINER_NAME}"
-
-echo "Velox dependencies/run-time container image built!"
+build_image_locally
