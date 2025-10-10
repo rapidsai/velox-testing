@@ -197,8 +197,8 @@ if [[ "$BUILD_DEPS" == true ]]; then
   "${SCRIPT_DIR}/build_centos_deps_image.sh"
 fi
 
-# Compose docker build command options
-DOCKER_BUILD_OPTS=(--pull)
+# Compose docker build command options (default: do not force pull; use local images if present)
+DOCKER_BUILD_OPTS=()
 if [[ "$NO_CACHE" == true ]]; then
   DOCKER_BUILD_OPTS+=(--no-cache)
 fi
