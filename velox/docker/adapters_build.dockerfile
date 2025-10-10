@@ -12,6 +12,7 @@ ARG VELOX_ENABLE_BENCHMARKS=ON
 ARG BUILD_BASE_DIR=/opt/velox-build
 ARG BUILD_TYPE=release
 ARG ENABLE_SCCACHE=OFF
+ARG SCCACHE_DISABLE_DIST=ON
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -45,7 +46,8 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rmm-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rapids_logger-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
-    ENABLE_SCCACHE=${ENABLE_SCCACHE}
+    ENABLE_SCCACHE=${ENABLE_SCCACHE} \
+    SCCACHE_DISABLE_DIST=${SCCACHE_DISABLE_DIST}
 
 WORKDIR /workspace/velox
 
@@ -93,8 +95,8 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     set -euxo pipefail && \
     # Configure sccache if enabled
     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
-      # Run sccache setup script
-      /sccache_setup.sh && \
+      # Run sccache setup script (`source` sets AWS env vars)
+      source /sccache_setup.sh && \
       # Add sccache CMake flags
       EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache" && \
       echo "sccache distributed status:" && \

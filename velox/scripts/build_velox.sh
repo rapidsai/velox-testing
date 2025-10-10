@@ -28,7 +28,8 @@ LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
-SCCACHE_AUTH_DIR=""
+SCCACHE_AUTH_DIR="$HOME/.config/sccache"
+SCCACHE_ENABLE_DIST=false
 
 # Cleanup function to remove copied sccache auth files
 cleanup_sccache_auth() {
@@ -54,8 +55,8 @@ Options:
   --gpu                       Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
   -j|--num-threads            NUM Number of threads to use for building (default: 3/4 of CPU cores).
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
-  --sccache                   Enable sccache distributed compilation caching.
-  --sccache-auth-dir DIR      Directory containing sccache authentication files (github_token, aws_credentials).
+  --sccache                   Enable sccache distributed compilation caching (requires auth files in ~/.config/sccache/).
+  --sccache-enable-dist       Enable distributed compilation (WARNING: may cause compilation differences like additional warnings that could lead to build failures).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
   -h, --help                  Show this help message and exit.
 
@@ -70,7 +71,8 @@ Examples:
   $(basename "$0") --log mybuild.log --all-cuda-archs
   $(basename "$0") -j 8 --gpu
   $(basename "$0") --num-threads 16 --no-cache
-  $(basename "$0") --sccache --sccache-auth-dir /auth_dir/      # Build with sccache and use auth files in /auth_dir/
+  $(basename "$0") --sccache                                   # Build with sccache (remote S3 cache, local compilation)
+  $(basename "$0") --sccache --sccache-enable-dist         # Build with sccache including distributed compilation (may cause build differences)
   $(basename "$0") --build-type Debug
   $(basename "$0") --build-type debug --gpu
   $(basename "$0") --build-type RELWITHDEBINFO --gpu
@@ -145,13 +147,9 @@ parse_args() {
         ENABLE_SCCACHE=true
         shift
         ;;
-      --sccache-auth-dir)
-        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
-          echo "Error: --sccache-auth-dir requires a directory path"
-          exit 1
-        fi
-        SCCACHE_AUTH_DIR="$2"
-        shift 2
+      --sccache-enable-dist)
+        SCCACHE_ENABLE_DIST=true
+        shift
         ;;
       --build-type)
         if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
@@ -188,23 +186,23 @@ parse_args() {
 # Validate sccache authentication
 validate_sccache_auth() {
   if [[ "$ENABLE_SCCACHE" == true ]]; then
+    echo "Checking for sccache authentication files in: $SCCACHE_AUTH_DIR"
     
-    if [[ -n "$SCCACHE_AUTH_DIR" ]]; then
-      if [[ ! -d "$SCCACHE_AUTH_DIR" ]]; then
-        echo "ERROR: sccache auth directory not found: $SCCACHE_AUTH_DIR"
-        exit 1
-      fi
-      if [[ ! -f "$SCCACHE_AUTH_DIR/github_token" ]]; then
-        echo "ERROR: GitHub token not found: $SCCACHE_AUTH_DIR/github_token"
-        exit 1
-      fi
-      if [[ ! -f "$SCCACHE_AUTH_DIR/aws_credentials" ]]; then
-        echo "ERROR: AWS credentials not found: $SCCACHE_AUTH_DIR/aws_credentials"
-        exit 1
-      fi
-      echo "sccache authentication files found in: $SCCACHE_AUTH_DIR"
-    else
-      echo "ERROR: No sccache auth directory provided but sccache is enabled. Run setup_sccache_auth.sh first."
+    if [[ ! -d "$SCCACHE_AUTH_DIR" ]]; then
+      echo "ERROR: sccache auth directory not found: $SCCACHE_AUTH_DIR" >&2
+      echo "Run setup_sccache_auth.sh to set up authentication." >&2
+      exit 1
+    fi
+    
+    if [[ ! -f "$SCCACHE_AUTH_DIR/github_token" ]]; then
+      echo "ERROR: GitHub token not found: $SCCACHE_AUTH_DIR/github_token" >&2
+      echo "Run setup_sccache_auth.sh to set up authentication." >&2
+      exit 1
+    fi
+    
+    if [[ ! -f "$SCCACHE_AUTH_DIR/aws_credentials" ]]; then
+      echo "ERROR: AWS credentials not found: $SCCACHE_AUTH_DIR/aws_credentials" >&2
+      echo "Run setup_sccache_auth.sh to set up authentication." >&2
       exit 1
     fi
   fi
@@ -262,8 +260,17 @@ if [[ "$ENABLE_SCCACHE" == true ]]; then
   mkdir -p ../docker/sccache/sccache_auth/
   cp "$SCCACHE_AUTH_DIR/github_token" ../docker/sccache/sccache_auth/
   cp "$SCCACHE_AUTH_DIR/aws_credentials" ../docker/sccache/sccache_auth/
+  
+  # Add distributed compilation control (disabled by default)
+  if [[ "$SCCACHE_ENABLE_DIST" == true ]]; then
+    DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="OFF")
+    echo "WARNING: sccache distributed compilation enabled - may cause compilation differences"
+  else
+    DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="ON")
+  fi
 else
   DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="OFF")
+  DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="ON")
 fi
 
 if [[ "$LOG_ENABLED" == true ]]; then

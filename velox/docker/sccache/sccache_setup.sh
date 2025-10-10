@@ -13,10 +13,17 @@ if [[ ! -f /sccache_auth/aws_credentials ]]; then
 fi
 
 # Set up directories
-mkdir -p ~/.config/sccache ~/.aws
+mkdir -p ~/.config/sccache
 
-# Install AWS credentials
-cp /sccache_auth/aws_credentials ~/.aws/credentials
+# Set AWS credentials via environment variables
+if [[ -f /sccache_auth/aws_credentials ]]; then
+    # Parse AWS credentials file and export as environment variables
+    export AWS_ACCESS_KEY_ID=$(grep -E '^aws_access_key_id' /sccache_auth/aws_credentials | cut -d'=' -f2 | tr -d ' ')
+    export AWS_SECRET_ACCESS_KEY=$(grep -E '^aws_secret_access_key' /sccache_auth/aws_credentials | cut -d'=' -f2 | tr -d ' ')
+    export AWS_DEFAULT_REGION=$(grep -E '^region' /sccache_auth/aws_credentials | cut -d'=' -f2 | tr -d ' ' || echo "us-east-2")
+else
+    echo "WARNING: AWS credentials file not found, S3 caching may not work"
+fi
 
 # Read GitHub token
 GITHUB_TOKEN=$(cat /sccache_auth/github_token | tr -d '\n\r ')
@@ -24,7 +31,24 @@ GITHUB_TOKEN=$(cat /sccache_auth/github_token | tr -d '\n\r ')
 # Create sccache config
 SCCACHE_ARCH=$(uname -m | sed 's/x86_64/amd64/')
 
-cat > ~/.config/sccache/config << SCCACHE_EOF
+# Check if we should disable distributed compilation (disabled by default)
+if [[ "${SCCACHE_DISABLE_DIST:-ON}" == "ON" ]]; then
+    cat > ~/.config/sccache/config << SCCACHE_EOF
+[cache.disk]
+size = 107374182400
+
+[cache.disk.preprocessor_cache_mode]
+use_preprocessor_cache_mode = true
+
+[cache.s3]
+bucket = "rapids-sccache-devs"
+region = "us-east-2"
+no_credentials = false
+
+# No [dist] section -> disables distributed compilation
+SCCACHE_EOF
+else
+    cat > ~/.config/sccache/config << SCCACHE_EOF
 [cache.disk]
 size = 107374182400
 
@@ -43,6 +67,7 @@ scheduler_url = "https://${SCCACHE_ARCH}.linux.sccache.rapids.nvidia.com"
 type = "token"
 token = "${GITHUB_TOKEN}"
 SCCACHE_EOF
+fi
 
 # Configure sccache for high parallelism
 # Increase file descriptor limit for high parallelism (if possible)
@@ -54,10 +79,14 @@ sccache --start-server
 # Test sccache 
 sccache --show-stats
 
-# Testing distributed compilation status
-if sccache --dist-status; then
-    echo "Distributed compilation is available"
+# Testing distributed compilation status (only if enabled)
+if [[ "${SCCACHE_DISABLE_DIST:-ON}" == "ON" ]]; then
+	echo "Distributed compilation is DISABLED (default)"
 else
-    echo "Error: Distributed compilation not available, check connectivity"
-    exit 1
+    if sccache --dist-status; then
+        echo "Distributed compilation is ENABLED"
+    else
+        echo "Error: Distributed compilation not available, check connectivity"
+        exit 1
+    fi
 fi 
