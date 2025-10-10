@@ -26,8 +26,12 @@ if [[ -z ${SCRIPT_NAME} ]]; then
   exit 1
 fi
 
-# Validate repo layout using shared script
-../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
+# Validate sibling repos
+if [[ "$VARIANT_TYPE" == "java" ]]; then
+  ../../scripts/validate_directories_exist.sh "../../../presto"
+else
+  ../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
+fi
 
 source ./start_presto_helper_parse_args.sh
 
