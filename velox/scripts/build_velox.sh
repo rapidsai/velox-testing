@@ -28,13 +28,13 @@ LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
-SCCACHE_AUTH_DIR="$HOME/.config/sccache"
+SCCACHE_AUTH_DIR="$HOME/.sccache-auth"
 SCCACHE_ENABLE_DIST=false
 
 # Cleanup function to remove copied sccache auth files
 cleanup_sccache_auth() {
     if [[ "$ENABLE_SCCACHE" == true && -d "../docker/sccache/sccache_auth/" ]]; then
-        rm -f ../docker/sccache/sccache_auth/github_token ../docker/sccache/sccache_auth/aws_credentials
+        rm -fr ../docker/sccache/sccache_auth/
     fi
 }
 
@@ -55,7 +55,7 @@ Options:
   --gpu                       Build with GPU support (enables CUDF; sets BUILD_WITH_VELOX_ENABLE_CUDF=ON) [default].
   -j|--num-threads            NUM Number of threads to use for building (default: 3/4 of CPU cores).
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
-  --sccache                   Enable sccache distributed compilation caching (requires auth files in ~/.config/sccache/).
+  --sccache                   Enable sccache distributed compilation caching (requires auth files in ~/.sccache-auth/).
   --sccache-enable-dist       Enable distributed compilation (WARNING: may cause compilation differences like additional warnings that could lead to build failures).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
   -h, --help                  Show this help message and exit.

@@ -38,11 +38,11 @@ Then build Velox with sccache enabled:
 # Default: Remote S3 cache + local compilation (recommended)
 ./build_velox.sh --sccache
 
-# Optional: Enable distributed compilation (may cause build differences)
+# Optional: Enable distributed compilation (may cause build differences such as additional warnings)
 ./build_velox.sh --sccache --sccache-enable-dist
 ```
 
-Authentication files are stored in `~/.config/sccache/` and credentials are valid for 12 hours. By default, distributed compilation is disabled to avoid compiler version differences that can cause build failures.
+Authentication files are stored in `~/.sccache-auth/` by default and credentials are valid for 12 hours. By default, distributed compilation is disabled to avoid compiler version differences that can cause build failures.
 
 ## Velox Benchmarking
 A Docker-based benchmarking infrastructure has been added to facilitate running Velox benchmarks with support for CPU/GPU execution engines and profiling capabilities. The infrastructure uses a dedicated `velox-benchmark` Docker service with pre-configured volume mounts that automatically sync benchmark data and results. The data follows Hive directory structure, making it compatible with Presto. Currently, only TPC-H is implemented, but the infrastructure is designed to be easily extended to support additional benchmarks in the future.
