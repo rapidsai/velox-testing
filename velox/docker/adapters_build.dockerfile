@@ -1,4 +1,4 @@
-FROM ghcr.io/facebookincubator/velox-dev:adapters
+FROM velox-adapters-deps:centos9
 
 # Build-time configuration, these may be overridden in the docker compose yaml,
 # environment variables, or via the docker build command

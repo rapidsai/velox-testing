@@ -1,4 +1,5 @@
 name: Velox Test
+run-name: ${{ github.event.head_commit.message }}
 
 on:
   workflow_dispatch:
@@ -50,31 +51,20 @@ jobs:
           path: velox-testing
 
       - &checkout-velox
-        name: Checkout Velox
-        uses: actions/checkout@v4
+        name: Setup Velox
+        uses: ./velox-testing/.github/actions/velox-setup
         with:
-          repository: ${{ inputs.repository || github.event.inputs.repository }}
-          ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
-          path: velox
+          repository: ${{ inputs.repository }}
+          velox_commit: ${{ inputs.velox_commit }}
 
-      - &get-velox-sha
-        name: Get Velox commit SHA
-        id: velox-sha
-        run: |
-          VELOX_REF="${{ inputs.velox_commit || github.event.inputs.velox_commit }}"
-          echo "Input ref: $VELOX_REF"
-          
-          if [[ "$VELOX_REF" == "main" || "$VELOX_REF" == "master" ]]; then
-            cd velox
-            ACTUAL_SHA=$(git rev-parse HEAD)
-            echo "Resolved SHA for branch '$VELOX_REF': $ACTUAL_SHA"
-            echo "VELOX_COMMIT_SHA=$ACTUAL_SHA" >> $GITHUB_ENV
-            echo "velox_sha=$ACTUAL_SHA" >> $GITHUB_OUTPUT
-          else
-            echo "Using provided ref: $VELOX_REF"
-            echo "VELOX_COMMIT_SHA=$VELOX_REF" >> $GITHUB_ENV
-            echo "velox_sha=$VELOX_REF" >> $GITHUB_OUTPUT
-          fi
+      - &build-deps
+        name: Ensure Velox Dependencies Container Image is downloaded or built
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: ./build_centos_deps_image.sh
 
       - name: Building Velox for CPU
         run: |
@@ -109,7 +99,7 @@ jobs:
 
       - *checkout-velox
 
-      - *get-velox-sha
+      - *build-deps
 
       - name: Building Velox for GPU
         run: |
