@@ -20,9 +20,14 @@ set -e
 # the generic image name
 DEPS_IMAGE="velox-adapters-deps:centos9"
 
+image_exists() {
+	# returns 0 if image exists locally
+	[ -n "$(docker images -q ${DEPS_IMAGE})" ]
+}
+
 # if that image already exists, we assume it's valid and we're done
 echo "Checking for existing image..."
-if [ ! -z $(docker images -q ${DEPS_IMAGE}) ]; then
+if image_exists; then
 	echo "Found existing Velox dependencies/run-time container image, using..."
 	exit 0
 fi
@@ -42,11 +47,6 @@ DEPS_IMAGE_PATH="${BUCKET_URL}/${DEPS_IMAGE_FILE}"
 export AWS_REGION='us-west-1'
 
 # ----- helper functions -----
-
-image_exists() {
-	# returns 0 if image exists locally
-	[ -n "$(docker images -q ${DEPS_IMAGE})" ]
-}
 
 ensure_aws_cli() {
 	if ! command -v aws >/dev/null 2>&1; then
@@ -70,9 +70,9 @@ assume_role() {
 		echo "aws sts assume-role failed."
 		return 1
 	fi
-	AWS_ACCESS_KEY_ID=$(echo "$creds" | jq -r '.AccessKeyId') || return 1
-	AWS_SECRET_ACCESS_KEY=$(echo "$creds" | jq -r '.SecretAccessKey') || return 1
-	AWS_SESSION_TOKEN=$(echo "$creds" | jq -r '.SessionToken') || return 1
+	AWS_ACCESS_KEY_ID=$(echo "$creds" | jq -r '.AccessKeyId') || { echo "Failed to parse AccessKeyId from STS credentials."; return 1; }
+	AWS_SECRET_ACCESS_KEY=$(echo "$creds" | jq -r '.SecretAccessKey') || { echo "Failed to parse SecretAccessKey from STS credentials."; return 1; }
+	AWS_SESSION_TOKEN=$(echo "$creds" | jq -r '.SessionToken') || { echo "Failed to parse SessionToken from STS credentials."; return 1; }
 	if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_SESSION_TOKEN" ]; then
 		echo "Failed to parse STS credentials."
 		return 1
@@ -83,19 +83,25 @@ assume_role() {
 
 s3_copy_image() {
 	echo "Fetching image file from S3..."
-	aws s3 cp --no-progress ${DEPS_IMAGE_PATH} /tmp/${DEPS_IMAGE_FILE}
+	aws s3 cp --no-progress ${DEPS_IMAGE_PATH} /tmp/${DEPS_IMAGE_FILE} || { echo "Failed to copy ${DEPS_IMAGE_PATH} from S3."; return 1; }
 }
 
 docker_load_image() {
 	echo "Loading image file into Docker..."
-	docker load < /tmp/${DEPS_IMAGE_FILE} || return 1
+	docker load < /tmp/${DEPS_IMAGE_FILE} || { echo "docker load failed for /tmp/${DEPS_IMAGE_FILE}."; return 1; }
 	rm -f /tmp/${DEPS_IMAGE_FILE} || true
 	return 0
 }
 
 validate_loaded_image() {
 	echo "Validating image..."
-	image_exists
+	if image_exists; then
+		echo "Image ${DEPS_IMAGE} loaded successfully and present locally."
+		return 0
+	else
+		echo "Loaded image ${DEPS_IMAGE} not present locally after load."
+		return 1
+	fi
 }
 
 fetch_image_from_s3() {
@@ -148,10 +154,10 @@ build_image_locally() {
 
 echo "Attempting to fetch dependency image from S3 and load into Docker..."
 if fetch_image_from_s3; then
-	echo "Pulled Velox dependencies/run-time container image from repo"
+	echo "Pulled Velox dependencies/run-time container image from s3 bucket, exiting..."
 	exit 0
 fi
 
-echo "Failed to pull Velox dependencies/run-time container image from repo, building locally..."
+echo "Failed to pull Velox dependencies/run-time container image from s3, building locally..."
 
 build_image_locally
