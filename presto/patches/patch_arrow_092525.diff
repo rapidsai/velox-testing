@@ -1,0 +1,13 @@
+diff --git a/presto-native-execution/scripts/setup-adapters.sh b/presto-native-execution/scripts/setup-adapters.sh
+index 42596d1c05..108ecbbc63 100755
+--- a/presto-native-execution/scripts/setup-adapters.sh
++++ b/presto-native-execution/scripts/setup-adapters.sh
+@@ -48,7 +48,7 @@ function install_arrow_flight {
+   # NOTE: benchmarks are on due to a compilation error with v15.0.0, once updated that can be removed
+   # see https://github.com/apache/arrow/issues/41617
+   EXTRA_ARROW_OPTIONS=" -DARROW_FLIGHT=ON -DARROW_BUILD_BENCHMARKS=ON -DgRPC_SOURCE=BUNDLED -DProtobuf_SOURCE=BUNDLED "
+-  install_arrow
++  #install_arrow
+ }
+ 
+ cd "${DEPENDENCY_DIR}" || exit
