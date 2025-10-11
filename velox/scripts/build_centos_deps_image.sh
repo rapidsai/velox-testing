@@ -38,6 +38,8 @@ ARCH=$(uname -m)
 BUCKET_URL="s3://rapidsai-velox-testing/velox-docker-images"
 DEPS_IMAGE_FILE="velox_adapters_build_image_centos9_${ARCH}.tar.gz"
 DEPS_IMAGE_PATH="${BUCKET_URL}/${DEPS_IMAGE_FILE}"
+# ensure region is set prior to all this
+export AWS_REGION='us-west-1'
 
 # ----- helper functions -----
 
