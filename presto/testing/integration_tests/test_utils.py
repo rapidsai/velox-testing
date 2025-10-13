@@ -50,6 +50,13 @@ def compare_results(presto_rows, duckdb_rows, types, query, column_names):
     duckdb_rows = normalize_rows(duckdb_rows, types)
     presto_rows = normalize_rows(presto_rows, types)
 
+    # We need a full sort for all non-ORDER BY columns because some ORDER BY comparsison will be equal
+    # and the resulting order of non-ORDER BY columns will be ambiguous.
+    sorted_duckdb_rows = sorted(duckdb_rows)
+    sorted_presto_rows = sorted(presto_rows)
+    approx_floats(sorted_duckdb_rows, types)
+    assert sorted_presto_rows == sorted_duckdb_rows
+
     # If we have an ORDER BY clause we want to test that the resulting order of those columns
     # is correct, in addition to overall values being correct.
     order_indices = get_orderby_indices(query, column_names)
@@ -64,28 +71,6 @@ def compare_results(presto_rows, duckdb_rows, types, query, column_names):
         presto_proj = [[row[i] for i in order_indices] for row in presto_rows]
         assert presto_proj == duckdb_proj
 
-    # We need a full sort for all non-ORDER BY columns because some ORDER BY comparsison will be equal
-    # and the resulting order will be ambiguous.
-    duckdb_rows = sorted(duckdb_rows)
-    presto_rows = sorted(presto_rows)
-    approx_floats(duckdb_rows, types)
-    assert presto_rows == duckdb_rows
-
-def compare_results(presto_rows, duckdb_rows, types, query, columns):
-    row_count = len(presto_rows)
-    assert row_count == len(duckdb_rows)
-
-    duckdb_rows = normalize_rows(duckdb_rows, types)
-    presto_rows = normalize_rows(presto_rows, types)
-
-    is_sorted_query = get_is_sorted_query(query)
-
-    duckdb_rows = sorted(duckdb_rows)
-    presto_rows = sorted(presto_rows)
-
-    approx_floats(duckdb_rows, types)
-
-    assert presto_rows == duckdb_rows
 
 def get_orderby_indices(query, column_names):
     expr = sqlglot.parse_one(query)
