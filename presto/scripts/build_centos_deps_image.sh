@@ -2,10 +2,66 @@
 
 set -e
 
-PATCH_FILE_PATH=$(readlink -f copy_arrow_patch.patch)
+IMAGE_NAME="presto/prestissimo-dependency:centos9"
 
-pushd ../../../presto/presto-native-execution
+#
+# remove any existing image?
+#
+
+if [[ ! -z $(docker images -q ${IMAGE_NAME}) ]]; then
+	echo "Removing existing Presto dependencies/run-time image..."
+	docker rmi -f ${IMAGE_NAME}
+fi
+
+#
+# try to build deps container image locally
+#
+
+echo "Building Presto dependencies/run-time image..."
+
+# move to Presto clone
+pushd ../../../presto
+
+# reset Presto clone
+echo "Resetting Presto clone files"
+git checkout .
+
+# reset Velox submodule
+echo "Resetting Velox submodule files"
+cd presto-native-execution/velox
+git checkout .
+cd ../..
+
+# reset submodule
+echo "Resetting Velox submodule version"
+cd presto-native-execution
 make submodules
-docker compose up centos-native-dependency # Build dependencies image if there is none present.
-docker compose down centos-native-dependency
+cd ..
+
+# rewrite .gitmodules file to override Velox submodule to rapidsai/velox:merged-prs (latest)
+echo "Rewriting .gitmodules file"
+cat << EOF > .gitmodules
+[submodule "presto-native-execution/velox"]
+path = presto-native-execution/velox
+url = https://github.com/rapidsai/velox.git
+branch = merged-prs
+EOF
+
+# force override submodule contents
+echo "Updating Velox submodule to fork"
+git submodule sync
+git submodule update --init --remote presto-native-execution/velox
+
+# apply patches here if needed
+echo "No patches currently required (10/14/25)"
+
+# preparation complete
 popd
+
+# now build
+pushd ../../../presto/presto-native-execution
+docker compose --progress plain build centos-native-dependency
+popd
+
+# done
+echo "Presto dependencies/run-time container image built!"
