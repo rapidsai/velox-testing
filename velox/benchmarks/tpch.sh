@@ -229,7 +229,7 @@ run_tpch_single_benchmark() {
         nsys_traces="-t nvtx,cuda,osrt,cudnn,cublas"
         nsys_options="$nsys_options --cuda-graph-trace=node --capture-range=cudaProfilerApi --capture-range-end=stop"
         # Increase sample rate for better stream timing resolution
-        nsys_options="$nsys_options --sample=cpu --cpuctxsw=true --backtrace=dwarf"
+        nsys_options="$nsys_options --sample=cpu --cpuctxsw=process-tree --backtrace=dwarf"
         # Export additional data for analysis
         nsys_options="$nsys_options --export=sqlite"
       fi
