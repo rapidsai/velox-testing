@@ -4,39 +4,54 @@ set -e
 
 source ../../scripts/fetch_docker_image_from_s3.sh
 
-#
-# check for existing container image
-#
+IMAGE_NAME="presto/prestissimo-dependency:centos9"
 
-DEPS_IMAGE="presto/prestissimo-dependency:centos9"
+if [[ -v REBUILD_DEPS ]]; then
 
-validate_docker_image ${DEPS_IMAGE}
+	#
+	# remove any existing image?
+	#
 
-echo "Presto dependencies/run-time container image not found, attempting to fetch pre-built image file..."
+	if [[ ! -z $(docker images -q ${IMAGE_NAME}) ]]; then
+		echo "Removing existing Presto dependencies/run-time image..."
+	  	docker rmi -f ${IMAGE_NAME}
+  	fi
 
-#
-# try to pull container image from our S3 bucket
-#
+	#
+	# try to build deps container image locally
+	#
 
-ARCH=$(uname -m)
-BUCKET_SUBDIR="presto-docker-images"
-IMAGE_FILE="presto_deps_container_image_centos9_${ARCH}.tar.gz"
+	echo "Building Presto dependencies/run-time image..."
 
-fetch_docker_image_from_s3 ${DEPS_IMAGE} ${BUCKET_SUBDIR} ${IMAGE_FILE}
+	# for this simpler version, report this but continue
+	echo "WARNING: Build patches will not be applied, local build will likely fail"
 
-echo "Failed to fetch pre-built Presto dependencies/run-time container image, building locally..."
+	pushd ../../../presto/presto-native-execution
+	docker compose --progress plain build centos-native-dependency
+	popd
 
-#
-# build deps container image
-#
+	echo "Presto dependencies/run-time container image built!"
 
-echo "Building Presto dependencies/run-time image..."
+else
 
-# for this simpler version, report this but continue
-echo "WARNING: Build patches will not be applied, local build will likely fail"
+	#
+	# check for existing container image
+	#
 
-pushd ../../../presto/presto-native-execution
-docker compose --progress plain build centos-native-dependency
-popd
+	validate_docker_image ${IMAGE_NAME}
 
-echo "Presto dependencies/run-time container image built!"
+	echo "Presto dependencies/run-time container image not found"
+
+	#
+	# try to pull container image from our S3 bucket
+	#
+
+	ARCH=$(uname -m)
+	BUCKET_SUBDIR="presto-docker-images"
+	IMAGE_FILE="presto_deps_container_image_centos9_${ARCH}.tar.gz"
+	
+	fetch_docker_image_from_s3 ${IMAGE_NAME} ${BUCKET_SUBDIR} ${IMAGE_FILE}
+	
+	echo "Failed to fetch pre-built Presto dependencies/run-time container image"
+
+fi
