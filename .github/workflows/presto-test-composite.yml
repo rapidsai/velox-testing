@@ -60,7 +60,7 @@ jobs:
           repository: rapidsai/velox-testing
           ref: ${{ inputs.velox_testing_commit }}
           path: velox-testing
-      - name: Ensure Presto Dependencies Container Image is downloaded or built
+      - name: Download Presto Dependencies Container Image
         if: ${{ inputs.presto_worker_type != 'java' }}
         env:
           AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
@@ -68,7 +68,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           pushd velox-testing/presto/scripts
-          ./build_centos_deps_image.sh
+          ./fetch_centos_deps_image.sh
           popd
       - name: Build Presto
         run: |
