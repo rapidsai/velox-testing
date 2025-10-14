@@ -185,6 +185,7 @@ run_tpch_single_benchmark() {
   local profile="$3"
   local run_in_container_func="$4"
   local num_repeats="$5"
+  local stream_debug="${6:-false}"
   
   printf -v query_number_padded '%02d' "$query_number"
   
@@ -213,15 +214,30 @@ run_tpch_single_benchmark() {
   
   # Set up profiling if requested
   PROFILE_CMD=""
-  if [[ "$profile" == "true" ]]; then
+  if [[ "$profile" == "true" ]] || [[ "$stream_debug" == "true" ]]; then
     # Check if nsys is available before setting up profiling
     if $run_in_container_func "which nsys" &>/dev/null; then
+      
+      # Base nsys configuration
+      local nsys_traces="-t nvtx,cuda,osrt"
+      local nsys_options="--cuda-memory-usage=true --cuda-um-cpu-page-faults=true --cuda-um-gpu-page-faults=true"
+      
+      # Enhanced stream debugging configuration
+      if [[ "$stream_debug" == "true" ]]; then
+        echo "Enabling enhanced stream debugging..."
+        # Add detailed CUDA API tracing for stream analysis
+        nsys_traces="-t nvtx,cuda,osrt,cudnn,cublas"
+        nsys_options="$nsys_options --cuda-graph-trace=node --capture-range=cudaProfilerApi --capture-range-end=stop"
+        # Increase sample rate for better stream timing resolution
+        nsys_options="$nsys_options --sample=cpu --cpuctxsw=true --backtrace=dwarf"
+        # Export additional data for analysis
+        nsys_options="$nsys_options --export=sqlite"
+      fi
+      
       PROFILE_CMD="nsys profile \
-        -t nvtx,cuda,osrt \
+        $nsys_traces \
         -f true \
-        --cuda-memory-usage=true \
-        --cuda-um-cpu-page-faults=true \
-        --cuda-um-gpu-page-faults=true \
+        $nsys_options \
         --output=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers.nsys-rep"
 
       # Configure GPU metrics collection if supported
@@ -260,6 +276,61 @@ run_tpch_single_benchmark() {
   EXIT_CODE=$?
   if [[ $EXIT_CODE -ne 0 ]]; then
     return $EXIT_CODE
+  fi
+
+  # Post-process nsys data if stream debugging is enabled
+  if [[ "$stream_debug" == "true" ]]; then
+    echo "Post-processing stream debug data..."
+    echo "Analysis files will be saved to host directory: $(realpath ${BENCHMARK_RESULTS_OUTPUT:-./benchmark-results})"
+    
+    # Generate stream analysis using nsys stats
+    $run_in_container_func 'bash -c "
+      PROFILE_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers.nsys-rep\"
+      ANALYSIS_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers_stream_analysis.txt\"
+      
+      if [ -f \"\$PROFILE_FILE\" ]; then
+        echo \"Generating stream analysis for \$PROFILE_FILE...\"
+        
+        # Create comprehensive stream analysis
+        {
+          echo \"CUDA Stream Analysis Report\"
+          echo \"===========================\"
+          echo \"Profile: \$PROFILE_FILE\"
+          echo \"Query: Q'"${query_number_padded}"'\"
+          echo \"Device: '"${device_type}"'\"
+          echo \"Drivers: '"${num_drivers}"'\"
+          echo \"Generated: \$(date)\"
+          echo \"\"
+          
+          echo \"CUDA API Summary:\"
+          echo \"=================\"
+          nsys stats --report cuda_api_sum \"\$PROFILE_FILE\" 2>/dev/null || echo \"CUDA API stats not available\"
+          echo \"\"
+          
+          echo \"CUDA Stream Operations:\"
+          echo \"======================\"
+          nsys stats --report cuda_api_trace --format csv \"\$PROFILE_FILE\" 2>/dev/null | \
+            grep -E \"(Stream|Event|Synchronize)\" | head -50 || echo \"Stream operations not available\"
+          echo \"\"
+          
+          echo \"CUDA Kernel Execution:\"
+          echo \"=====================\"
+          nsys stats --report cuda_gpu_kern_sum \"\$PROFILE_FILE\" 2>/dev/null || echo \"Kernel stats not available\"
+          echo \"\"
+          
+          echo \"Memory Operations:\"
+          echo \"=================\"
+          nsys stats --report cuda_gpu_mem_time_sum \"\$PROFILE_FILE\" 2>/dev/null || echo \"Memory stats not available\"
+          
+        } > \"\$ANALYSIS_FILE\"
+        
+        chown \"'"${USER_ID}"':'"${GROUP_ID}"'\" \"\$ANALYSIS_FILE\"
+        echo \"Stream analysis saved to: \$ANALYSIS_FILE\"
+        echo \"(Host path: \$ANALYSIS_FILE)\"
+      else
+        echo \"WARNING: Profile file not found: \$PROFILE_FILE\"
+      fi
+    "'
   fi
 
   set -e 
