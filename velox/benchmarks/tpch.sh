@@ -227,8 +227,7 @@ run_tpch_single_benchmark() {
         echo "Enabling enhanced stream debugging..."
         # Start with minimal configuration to ensure it works
         nsys_traces="-t cuda,nvtx"
-        # Remove complex options that might be causing issues
-        nsys_options="$nsys_options --cuda-memory-usage=true"
+        # Don't add --cuda-memory-usage again since it's already in base options
         echo "Using simplified nsys configuration for debugging"
       fi
       
