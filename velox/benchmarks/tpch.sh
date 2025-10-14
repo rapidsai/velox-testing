@@ -320,73 +320,18 @@ run_tpch_single_benchmark() {
   if [[ "$stream_debug" == "true" ]]; then
     echo "Post-processing stream debug data..."
     echo "Analysis files will be saved to host directory: $(realpath ${BENCHMARK_RESULTS_OUTPUT:-./benchmark-results})"
+    echo "Checking for profile file..."
     
-    # Generate stream analysis using nsys stats
-    $run_in_container_func 'bash -c "
-      USER_ID=\${USER_ID}
-      GROUP_ID=\${GROUP_ID}
-      PROFILE_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers.nsys-rep\"
-      ANALYSIS_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers_stream_analysis.txt\"
-      
-      echo \"Checking for profile file: \$PROFILE_FILE\"
-      ls -la benchmark_results/ || echo \"benchmark_results directory not found\"
-      
-      if [ -f \"\$PROFILE_FILE\" ]; then
-        echo \"Profile file found! Generating stream analysis for \$PROFILE_FILE...\"
-        echo \"Profile file size: \$(stat -c%s \"\$PROFILE_FILE\") bytes\"
-        
-        # Create comprehensive stream analysis
-        {
-          echo \"CUDA Stream Analysis Report\"
-          echo \"===========================\"
-          echo \"Profile: \$PROFILE_FILE\"
-          echo \"Query: Q'"${query_number_padded}"'\"
-          echo \"Device: '"${device_type}"'\"
-          echo \"Drivers: '"${num_drivers}"'\"
-          echo \"Generated: \$(date)\"
-          echo \"\"
-          
-          echo \"Profile File Info:\"
-          echo \"==================\"
-          echo \"File size: \$(stat -c%s \"\$PROFILE_FILE\") bytes\"
-          echo \"\"
-          
-          echo \"Raw CUDA API Trace (first 100 lines):\"
-          echo \"=====================================\"
-          nsys stats --report cuda_api_trace --format csv \"\$PROFILE_FILE\" 2>/dev/null | head -100 || echo \"No CUDA API trace available\"
-          echo \"\"
-          
-          echo \"CUDA Stream Operations:\"
-          echo \"======================\"
-          nsys stats --report cuda_api_trace --format csv \"\$PROFILE_FILE\" 2>/dev/null | \
-            grep -E \"(Stream|Event|Synchronize)\" | head -50 || echo \"No stream operations captured\"
-          echo \"\"
-          
-          echo \"CUDA Kernel Launches:\"
-          echo \"=====================\"
-          nsys stats --report cuda_api_trace --format csv \"\$PROFILE_FILE\" 2>/dev/null | \
-            grep -E \"(Launch|Kernel)\" | head -20 || echo \"No kernel launches captured\"
-          echo \"\"
-          
-          echo \"Error Analysis:\"
-          echo \"===============\"
-          nsys stats --report cuda_api_trace --format csv \"\$PROFILE_FILE\" 2>/dev/null | \
-            awk -F, '\$4 != 0 {print \"CUDA Error: \" \$0}' | head -10 || echo \"No CUDA errors in trace\"
-          echo \"\"
-          
-          echo \"Summary Statistics:\"
-          echo \"==================\"
-          nsys stats --report cuda_api_sum \"\$PROFILE_FILE\" 2>/dev/null || echo \"Summary stats not available\"
-          
-        } > \"\$ANALYSIS_FILE\"
-        
-        chown \"\${USER_ID}:\${GROUP_ID}\" \"\$ANALYSIS_FILE\"
-        echo \"Stream analysis saved to: \$ANALYSIS_FILE\"
-        echo \"(Host path: \$ANALYSIS_FILE)\"
-      else
-        echo \"WARNING: Profile file not found: \$PROFILE_FILE\"
-      fi
-    "'
+    # Simple check for profile file existence
+    profile_file="$BENCHMARK_RESULTS_OUTPUT/q${query_number_padded}_${device_type}_${num_drivers}_drivers.nsys-rep"
+    if [[ -f "$profile_file" ]]; then
+      echo "Profile file found: $profile_file"
+      echo "File size: $(stat -c%s "$profile_file") bytes"
+      echo "You can analyze it with: nsys-ui $profile_file"
+      echo "Or export data with: nsys stats --report cuda_api_trace --format csv $profile_file"
+    else
+      echo "WARNING: Profile file not found at $profile_file"
+    fi
   fi
 
   # Return the original exit code after post-processing
