@@ -225,13 +225,11 @@ run_tpch_single_benchmark() {
       # Enhanced stream debugging configuration
       if [[ "$stream_debug" == "true" ]]; then
         echo "Enabling enhanced stream debugging..."
-        # Add detailed CUDA API tracing for stream analysis
-        nsys_traces="-t nvtx,cuda,osrt,cudnn,cublas"
-        nsys_options="$nsys_options --cuda-graph-trace=node --capture-range=cudaProfilerApi --capture-range-end=stop"
-        # Increase sample rate for better stream timing resolution
-        nsys_options="$nsys_options --sample=cpu --cpuctxsw=process-tree --backtrace=dwarf"
-        # Export additional data for analysis
-        nsys_options="$nsys_options --export=sqlite"
+        # Start with minimal configuration to ensure it works
+        nsys_traces="-t cuda,nvtx"
+        # Remove complex options that might be causing issues
+        nsys_options="$nsys_options --cuda-memory-usage=true"
+        echo "Using simplified nsys configuration for debugging"
       fi
       
       PROFILE_CMD="nsys profile \
@@ -242,6 +240,8 @@ run_tpch_single_benchmark() {
 
       # Configure GPU metrics collection if supported
       setup_gpu_metrics_profiling_if_supported "$run_in_container_func" PROFILE_CMD
+      
+      echo "Final nsys command: $PROFILE_CMD"
 
     else
       echo "WARNING: nsys not found in container. Profiling disabled." >&2
@@ -287,8 +287,12 @@ run_tpch_single_benchmark() {
       PROFILE_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers.nsys-rep\"
       ANALYSIS_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers_stream_analysis.txt\"
       
+      echo \"Checking for profile file: \$PROFILE_FILE\"
+      ls -la benchmark_results/ || echo \"benchmark_results directory not found\"
+      
       if [ -f \"\$PROFILE_FILE\" ]; then
-        echo \"Generating stream analysis for \$PROFILE_FILE...\"
+        echo \"Profile file found! Generating stream analysis for \$PROFILE_FILE...\"
+        echo \"Profile file size: \$(stat -c%s \"\$PROFILE_FILE\") bytes\"
         
         # Create comprehensive stream analysis
         {
