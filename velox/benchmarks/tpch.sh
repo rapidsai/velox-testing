@@ -257,8 +257,8 @@ run_tpch_single_benchmark() {
         BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
         NSYS_REP_FILE=\"\${BASE_FILENAME}.nsys-rep\"
         
-        # Start nsys external session
-        nsys start -t cuda,nvtx,osrt --force-overwrite=true --capture-range=none --gpu-metrics-devices=all
+        # Start nsys external session (minimal args)
+        nsys start
         
         # Run benchmark (allow failure)
         set +e
@@ -322,11 +322,11 @@ run_tpch_single_benchmark() {
     echo "Analysis files will be saved to host directory: $(realpath ${BENCHMARK_RESULTS_OUTPUT:-./benchmark-results})"
     
     # Generate stream analysis using nsys stats
-    $run_in_container_func 'bash -c "
+    $run_in_container_func "bash -c '
       USER_ID=${USER_ID}
       GROUP_ID=${GROUP_ID}
-      PROFILE_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers.nsys-rep\"
-      ANALYSIS_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers_stream_analysis.txt\"
+      PROFILE_FILE=\"benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers.nsys-rep\"
+      ANALYSIS_FILE=\"benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stream_analysis.txt\"
       
       echo \"Checking for profile file: \$PROFILE_FILE\"
       ls -la benchmark_results/ || echo \"benchmark_results directory not found\"
@@ -386,7 +386,7 @@ run_tpch_single_benchmark() {
       else
         echo \"WARNING: Profile file not found: \$PROFILE_FILE\"
       fi
-    "'
+    '"
   fi
 
   # Return the original exit code after post-processing
