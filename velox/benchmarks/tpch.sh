@@ -202,7 +202,7 @@ run_tpch_single_benchmark() {
       cudf_pass_read_limit=0
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
       CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit}"
-      VELOX_CUDF_FLAGS="--velox_cudf_enabled=true --velox_cudf_memory_resource=async"
+      VELOX_CUDF_FLAGS="--velox_cudf_enabled=true --velox_cudf_memory_resource=${VELOX_CUDF_MEMORY_RESOURCE:-async}"
       ;;
   esac
   
