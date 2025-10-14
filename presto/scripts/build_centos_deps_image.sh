@@ -2,19 +2,15 @@
 
 set -e
 
+source ../../scripts/fetch_docker_image_from_s3.sh
+
 #
 # check for existing container image
 #
 
-# the generic image name
 DEPS_IMAGE="presto/prestissimo-dependency:centos9"
 
-# if that image already exists, we assume it's valid and we're done
-echo "Checking for existing image..."
-if [ ! -z $(docker images -q ${DEPS_IMAGE}) ]; then
-	echo "Found existing Presto dependencies/run-time container image, using..."
-	exit 0
-fi
+validate_docker_image ${DEPS_IMAGE}
 
 echo "Presto dependencies/run-time container image not found, attempting to fetch pre-built image file..."
 
@@ -22,64 +18,22 @@ echo "Presto dependencies/run-time container image not found, attempting to fetc
 # try to pull container image from our S3 bucket
 #
 
-# the image file name on S3
 ARCH=$(uname -m)
-BUCKET_URL="s3://rapidsai-velox-testing/presto-docker-images"
-DEPS_IMAGE_FILE="presto_deps_container_image_centos9_${ARCH}.tar.gz"
-DEPS_IMAGE_PATH="${BUCKET_URL}/${DEPS_IMAGE_FILE}"
+BUCKET_SUBDIR="presto-docker-images"
+IMAGE_FILE="presto_deps_container_image_centos9_${ARCH}.tar.gz"
 
-# check that the required stuff is in the environment
-echo "Validating incoming environment for temporary S3 credentials request..."
-if [ ! -v AWS_ARN_STRING ] || [ ! -v AWS_ACCESS_KEY_ID ] || [ ! -v AWS_SECRET_ACCESS_KEY ]; then
-	echo "ERROR: AWS_ARN_STRING, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set in the environment"
-	exit 1
-fi
-
-# ensure region is set prior to all this
-export AWS_REGION='us-west-1'
-
-# ask for temporary credentials for file access
-# expects AWS_ARN_STRING, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to be in the environment
-echo "Requesting temporary S3 credentials..."
-TEMP_CREDS_JSON=$(aws sts assume-role \
-	--role-arn ${AWS_ARN_STRING} \
-	--role-session-name "GetPrestoContainerImage" \
-	--query "Credentials" \
-	--output json)
-
-# override environment with full temporary credentials
-export AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
-export AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
-export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
-
-# pull the repo image
-echo "Fetching image file from S3..."
-aws s3 cp --no-progress ${DEPS_IMAGE_PATH} /tmp/${DEPS_IMAGE_FILE}
-
-# load the image into docker
-echo "Loading image file into Docker..."
-docker load < /tmp/${DEPS_IMAGE_FILE}
-
-# clean up
-rm -f /tmp/${DEPS_IMAGE_FILE}
-
-# validate that the image was loaded correctly
-echo "Validating Docker image..."
-if [[ ! -z $(docker images -q ${DEPS_IMAGE}) ]]; then
-	echo "Fetched pre-built Presto dependencies/run-time container image successfully"
-	exit 0
-fi
+fetch_docker_image_from_s3 ${DEPS_IMAGE} ${BUCKET_SUBDIR} ${IMAGE_FILE}
 
 echo "Failed to fetch pre-built Presto dependencies/run-time container image, building locally..."
-
-# for this simpler version, report this but continue
-echo "WARNING: Build patches will not be applied, local build will likely fail"
 
 #
 # build deps container image
 #
 
 echo "Building Presto dependencies/run-time image..."
+
+# for this simpler version, report this but continue
+echo "WARNING: Build patches will not be applied, local build will likely fail"
 
 pushd ../../../presto/presto-native-execution
 docker compose --progress plain build centos-native-dependency
