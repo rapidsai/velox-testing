@@ -285,6 +285,8 @@ run_tpch_single_benchmark() {
     
     # Generate stream analysis using nsys stats
     $run_in_container_func 'bash -c "
+      USER_ID=${USER_ID}
+      GROUP_ID=${GROUP_ID}
       PROFILE_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers.nsys-rep\"
       ANALYSIS_FILE=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers_stream_analysis.txt\"
       
@@ -324,7 +326,7 @@ run_tpch_single_benchmark() {
           
         } > \"\$ANALYSIS_FILE\"
         
-        chown \"'"${USER_ID}"':'"${GROUP_ID}"'\" \"\$ANALYSIS_FILE\"
+        chown \"\${USER_ID}:\${GROUP_ID}\" \"\$ANALYSIS_FILE\"
         echo \"Stream analysis saved to: \$ANALYSIS_FILE\"
         echo \"(Host path: \$ANALYSIS_FILE)\"
       else
