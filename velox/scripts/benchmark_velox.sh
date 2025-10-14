@@ -25,6 +25,7 @@ QUERIES=""  # Will be set to benchmark-specific defaults if not provided
 DEVICE_TYPE="cpu gpu"
 BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
 PROFILE="false"
+STREAM_DEBUG="false"  # Enhanced stream debugging with detailed CUDA trace
 DATA_DIR="../../../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
 NUM_REPEATS=2
 
@@ -46,6 +47,7 @@ Benchmark Options:
   -q, --queries "1 2 ..."                 Query numbers to run, specified as a space-separated list of query numbers (default: all queries for benchmark type)
   -d, --device-type "cpu gpu"             Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")  
   -p, --profile BOOL                      Enable profiling: true or false (default: false)
+  --stream-debug BOOL                     Enable enhanced stream debugging: true or false (default: false)
   --data-dir DIR                          Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
 
@@ -60,6 +62,7 @@ Examples:
   $(basename "$0") --queries 6 --device-type cpu        # Run Q6 on CPU only
   $(basename "$0") --queries "1 6" --device-type "cpu gpu"  # Run Q1 and Q6 on both CPU and GPU
   $(basename "$0") --queries 6 --device-type gpu --profile true  # Run Q6 on GPU with profiling
+  $(basename "$0") --queries 6 --device-type gpu --stream-debug true  # Run Q6 with enhanced stream debugging
   $(basename "$0") --queries 6 --device-type gpu -o /tmp/results  # Custom output directory
   $(basename "$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
   $(basename "$0") --queries 6 --device-type cpu --num-repeats 5  # Run Q6 with 5 repetitions
@@ -72,6 +75,12 @@ Prerequisites:
 
 Output:
   Benchmark results (text output and nsys profiles) are automatically saved to the specified output directory via Docker volume mounts.
+  
+Stream Debugging:
+  When --stream-debug true is used, additional files are generated:
+  - Enhanced nsys profiles with detailed CUDA stream information
+  - Stream analysis reports with CUDA API call summaries
+  - SQLite exports for programmatic analysis
 
 EOF
 }
@@ -114,6 +123,15 @@ parse_args() {
           shift 2
         else
           echo "ERROR: --profile requires true or false argument" >&2
+          exit 1
+        fi
+        ;;
+      --stream-debug)
+        if [[ -n "${2:-}" ]]; then
+          STREAM_DEBUG="$2"
+          shift 2
+        else
+          echo "ERROR: --stream-debug requires true or false argument" >&2
           exit 1
         fi
         ;;
@@ -256,11 +274,13 @@ run_benchmark() {
   local queries="$2"
   local device_type="$3" 
   local profile="$4"
+  local stream_debug="$5"
   
   echo "Running $benchmark_type benchmark..."
   echo "Queries: $queries"
   echo "Device types: $device_type"
   echo "Profile: $profile"
+  echo "Stream Debug: $stream_debug"
   
   # Run all query/device combinations
   for query_number in $queries; do
@@ -270,7 +290,7 @@ run_benchmark() {
 
       case "$benchmark_type" in
         "tpch")
-          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS"
+          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$stream_debug"
           local exit_code=$?
           ;;
         *)
@@ -321,7 +341,7 @@ echo "Starting benchmarks..."
 echo ""
 
 # Run benchmarks
-run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE"
+run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE" "$STREAM_DEBUG"
 
 echo ""
 echo "Benchmarks completed successfully!"
