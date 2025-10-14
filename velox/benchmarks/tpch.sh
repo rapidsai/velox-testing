@@ -274,11 +274,8 @@ run_tpch_single_benchmark() {
     "'
 
   EXIT_CODE=$?
-  if [[ $EXIT_CODE -ne 0 ]]; then
-    return $EXIT_CODE
-  fi
-
-  # Post-process nsys data if stream debugging is enabled
+  
+  # Post-process nsys data if stream debugging is enabled (regardless of benchmark success/failure)
   if [[ "$stream_debug" == "true" ]]; then
     echo "Post-processing stream debug data..."
     echo "Analysis files will be saved to host directory: $(realpath ${BENCHMARK_RESULTS_OUTPUT:-./benchmark-results})"
@@ -333,6 +330,11 @@ run_tpch_single_benchmark() {
         echo \"WARNING: Profile file not found: \$PROFILE_FILE\"
       fi
     "'
+  fi
+
+  # Return the original exit code after post-processing
+  if [[ $EXIT_CODE -ne 0 ]]; then
+    return $EXIT_CODE
   fi
 
   set -e 
