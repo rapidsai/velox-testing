@@ -250,14 +250,17 @@ run_tpch_single_benchmark() {
   
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
   set +e
-  $run_in_container_func 'bash -c "
-      set -euo pipefail
-      BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_"'"${device_type}"'"_'"${num_drivers}"'_drivers\"
-      NSYS_REP_FILE=\"\\${BASE_FILENAME}.nsys-rep\"
-      
-      if [ \"'"${stream_debug}"'\" = \"true\" ]; then
-        # External session so a report is written even if the benchmark crashes
+  if [[ "$stream_debug" == "true" ]]; then
+    # Use external nsys session for stream debugging (writes report even on crash)
+    $run_in_container_func 'bash -c "
+        set -euo pipefail
+        BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
+        NSYS_REP_FILE=\"\${BASE_FILENAME}.nsys-rep\"
+        
+        # Start nsys external session
         nsys start -t cuda,nvtx,osrt --force-overwrite=true --capture-range=none --gpu-metrics-devices=all
+        
+        # Run benchmark (allow failure)
         set +e
         '"${BENCHMARK_EXECUTABLE}"' \
           --data_path=/workspace/velox/velox-benchmark-data \
@@ -268,11 +271,27 @@ run_tpch_single_benchmark() {
           --preferred_output_batch_rows='"${output_batch_rows}"' \
           --max_output_batch_rows='"${output_batch_rows}"' \
           '"${VELOX_CUDF_FLAGS}"' \
-          '"${CUDF_FLAGS}"' 2>&1 | tee \"\\$BASE_FILENAME\"
-        EXIT_CODE=\\${PIPESTATUS[0]}
+          '"${CUDF_FLAGS}"' 2>&1 | tee \"\$BASE_FILENAME\"
+        EXIT_CODE=\${PIPESTATUS[0]}
         set -e
-        nsys stop --output=\"\\$NSYS_REP_FILE\" || true
-      else
+        
+        # Always stop nsys to write report
+        nsys stop --output=\"\$NSYS_REP_FILE\" || true
+        
+        # Fix ownership
+        chown \"${USER_ID}:${GROUP_ID}\" \"\$BASE_FILENAME\"
+        if [ -f \"\$NSYS_REP_FILE\" ]; then
+          chown \"${USER_ID}:${GROUP_ID}\" \"\$NSYS_REP_FILE\"
+        fi
+        exit \$EXIT_CODE
+      "'
+  else
+    # Use standard nsys profile wrapper
+    $run_in_container_func 'bash -c "
+        set -euo pipefail
+        BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
+        NSYS_REP_FILE=\"\${BASE_FILENAME}.nsys-rep\"
+        
         '"${PROFILE_CMD}"' \
           '"${BENCHMARK_EXECUTABLE}"' \
           --data_path=/workspace/velox/velox-benchmark-data \
@@ -283,17 +302,17 @@ run_tpch_single_benchmark() {
           --preferred_output_batch_rows='"${output_batch_rows}"' \
           --max_output_batch_rows='"${output_batch_rows}"' \
           '"${VELOX_CUDF_FLAGS}"' \
-          '"${CUDF_FLAGS}"' 2>&1 | \
-          tee \"\\$BASE_FILENAME\"
-        EXIT_CODE=\\${PIPESTATUS[0]}
-      fi
-      
-      chown \"${USER_ID}:${GROUP_ID}\" \"\\$BASE_FILENAME\"
-      if [ -f \"\\$NSYS_REP_FILE\" ]; then
-        chown \"${USER_ID}:${GROUP_ID}\" \"\\$NSYS_REP_FILE\"
-      fi
-      exit \\${EXIT_CODE}
-    "'
+          '"${CUDF_FLAGS}"' 2>&1 | tee \"\$BASE_FILENAME\"
+        EXIT_CODE=\${PIPESTATUS[0]}
+        
+        # Fix ownership
+        chown \"${USER_ID}:${GROUP_ID}\" \"\$BASE_FILENAME\"
+        if [ -f \"\$NSYS_REP_FILE\" ]; then
+          chown \"${USER_ID}:${GROUP_ID}\" \"\$NSYS_REP_FILE\"
+        fi
+        exit \$EXIT_CODE
+      "'
+  fi
 
   EXIT_CODE=$?
   
