@@ -218,17 +218,17 @@ run_tpch_single_benchmark() {
     # Check if nsys is available before setting up profiling
     if $run_in_container_func "which nsys" &>/dev/null; then
       
-      # Base nsys configuration
-      local nsys_traces="-t nvtx,cuda,osrt"
-      local nsys_options="--cuda-memory-usage=true --cuda-um-cpu-page-faults=true --cuda-um-gpu-page-faults=true"
-      
-      # Enhanced stream debugging configuration
+      # Configure nsys options based on mode
       if [[ "$stream_debug" == "true" ]]; then
         echo "Enabling enhanced stream debugging..."
-        # Start with minimal configuration to ensure it works
-        nsys_traces="-t cuda,nvtx"
-        # Don't add --cuda-memory-usage again since it's already in base options
+        # Simplified configuration for debugging
+        local nsys_traces="-t cuda,nvtx"
+        local nsys_options="--cuda-memory-usage=true"
         echo "Using simplified nsys configuration for debugging"
+      else
+        # Standard profiling configuration
+        local nsys_traces="-t nvtx,cuda,osrt"
+        local nsys_options="--cuda-memory-usage=true --cuda-um-cpu-page-faults=true --cuda-um-gpu-page-faults=true"
       fi
       
       PROFILE_CMD="nsys profile \
@@ -251,25 +251,48 @@ run_tpch_single_benchmark() {
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
   set +e
   $run_in_container_func 'bash -c "
-      set -exuo pipefail
-      BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
-      '"${PROFILE_CMD}"' \
+      set -euo pipefail
+      BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_"'"${device_type}"'"_'"${num_drivers}"'_drivers\"
+      NSYS_REP_FILE=\"\\${BASE_FILENAME}.nsys-rep\"
+      
+      if [ \"'"${stream_debug}"'\" = \"true\" ]; then
+        # External session so a report is written even if the benchmark crashes
+        nsys start -t cuda,nvtx,osrt --force-overwrite=true --capture-range=none --gpu-metrics-devices='"${CUDA_VISIBLE_DEVICES:-all}"'
+        set +e
         '"${BENCHMARK_EXECUTABLE}"' \
-        --data_path=/workspace/velox/velox-benchmark-data \
-        --data_format=parquet \
-        --run_query_verbose='"${query_number_padded}"' \
-        --num_repeats='"${num_repeats}"' \
-        --num_drivers='"${num_drivers}"' \
-        --preferred_output_batch_rows='"${output_batch_rows}"' \
-        --max_output_batch_rows='"${output_batch_rows}"' \
-        '"${VELOX_CUDF_FLAGS}"' \
-        '"${CUDF_FLAGS}"' 2>&1 | \
-        tee \"\$BASE_FILENAME\"
-      chown \"${USER_ID}:${GROUP_ID}\" \"\$BASE_FILENAME\"
-      NSYS_REP_FILE=\"\${BASE_FILENAME}.nsys-rep\"
-      if [ -f \"\$NSYS_REP_FILE\" ]; then
-        chown \"${USER_ID}:${GROUP_ID}\" \"\$NSYS_REP_FILE\"
+          --data_path=/workspace/velox/velox-benchmark-data \
+          --data_format=parquet \
+          --run_query_verbose='"${query_number_padded}"' \
+          --num_repeats='"${num_repeats}"' \
+          --num_drivers='"${num_drivers}"' \
+          --preferred_output_batch_rows='"${output_batch_rows}"' \
+          --max_output_batch_rows='"${output_batch_rows}"' \
+          '"${VELOX_CUDF_FLAGS}"' \
+          '"${CUDF_FLAGS}"' 2>&1 | tee \"\\$BASE_FILENAME\"
+        EXIT_CODE=\\${PIPESTATUS[0]}
+        set -e
+        nsys stop --output=\"\\$NSYS_REP_FILE\" || true
+      else
+        '"${PROFILE_CMD}"' \
+          '"${BENCHMARK_EXECUTABLE}"' \
+          --data_path=/workspace/velox/velox-benchmark-data \
+          --data_format=parquet \
+          --run_query_verbose='"${query_number_padded}"' \
+          --num_repeats='"${num_repeats}"' \
+          --num_drivers='"${num_drivers}"' \
+          --preferred_output_batch_rows='"${output_batch_rows}"' \
+          --max_output_batch_rows='"${output_batch_rows}"' \
+          '"${VELOX_CUDF_FLAGS}"' \
+          '"${CUDF_FLAGS}"' 2>&1 | \
+          tee \"\\$BASE_FILENAME\"
+        EXIT_CODE=\\${PIPESTATUS[0]}
       fi
+      
+      chown \"${USER_ID}:${GROUP_ID}\" \"\\$BASE_FILENAME\"
+      if [ -f \"\\$NSYS_REP_FILE\" ]; then
+        chown \"${USER_ID}:${GROUP_ID}\" \"\\$NSYS_REP_FILE\"
+      fi
+      exit \\${EXIT_CODE}
     "'
 
   EXIT_CODE=$?
@@ -304,25 +327,37 @@ run_tpch_single_benchmark() {
           echo \"Generated: \$(date)\"
           echo \"\"
           
-          echo \"CUDA API Summary:\"
-          echo \"=================\"
-          nsys stats --report cuda_api_sum \"\$PROFILE_FILE\" 2>/dev/null || echo \"CUDA API stats not available\"
+          echo \"Profile File Info:\"
+          echo \"==================\"
+          echo \"File size: \$(stat -c%s \"\$PROFILE_FILE\") bytes\"
+          echo \"\"
+          
+          echo \"Raw CUDA API Trace (first 100 lines):\"
+          echo \"=====================================\"
+          nsys stats --report cuda_api_trace --format csv \"\$PROFILE_FILE\" 2>/dev/null | head -100 || echo \"No CUDA API trace available\"
           echo \"\"
           
           echo \"CUDA Stream Operations:\"
           echo \"======================\"
           nsys stats --report cuda_api_trace --format csv \"\$PROFILE_FILE\" 2>/dev/null | \
-            grep -E \"(Stream|Event|Synchronize)\" | head -50 || echo \"Stream operations not available\"
+            grep -E \"(Stream|Event|Synchronize)\" | head -50 || echo \"No stream operations captured\"
           echo \"\"
           
-          echo \"CUDA Kernel Execution:\"
+          echo \"CUDA Kernel Launches:\"
           echo \"=====================\"
-          nsys stats --report cuda_gpu_kern_sum \"\$PROFILE_FILE\" 2>/dev/null || echo \"Kernel stats not available\"
+          nsys stats --report cuda_api_trace --format csv \"\$PROFILE_FILE\" 2>/dev/null | \
+            grep -E \"(Launch|Kernel)\" | head -20 || echo \"No kernel launches captured\"
           echo \"\"
           
-          echo \"Memory Operations:\"
-          echo \"=================\"
-          nsys stats --report cuda_gpu_mem_time_sum \"\$PROFILE_FILE\" 2>/dev/null || echo \"Memory stats not available\"
+          echo \"Error Analysis:\"
+          echo \"===============\"
+          nsys stats --report cuda_api_trace --format csv \"\$PROFILE_FILE\" 2>/dev/null | \
+            awk -F, '\$4 != 0 {print \"CUDA Error: \" \$0}' | head -10 || echo \"No CUDA errors in trace\"
+          echo \"\"
+          
+          echo \"Summary Statistics:\"
+          echo \"==================\"
+          nsys stats --report cuda_api_sum \"\$PROFILE_FILE\" 2>/dev/null || echo \"Summary stats not available\"
           
         } > \"\$ANALYSIS_FILE\"
         
