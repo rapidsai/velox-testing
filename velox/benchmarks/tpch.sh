@@ -257,7 +257,7 @@ run_tpch_single_benchmark() {
       
       if [ \"'"${stream_debug}"'\" = \"true\" ]; then
         # External session so a report is written even if the benchmark crashes
-        nsys start -t cuda,nvtx,osrt --force-overwrite=true --capture-range=none --gpu-metrics-devices='"${CUDA_VISIBLE_DEVICES:-all}"'
+        nsys start -t cuda,nvtx,osrt --force-overwrite=true --capture-range=none --gpu-metrics-devices=all
         set +e
         '"${BENCHMARK_EXECUTABLE}"' \
           --data_path=/workspace/velox/velox-benchmark-data \
