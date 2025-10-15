@@ -26,6 +26,7 @@ THREADS=8
 ITERATIONS=5
 MAX_FILES=""
 CHUNK_LIMIT=""
+MEMORY_PERCENT=""
 BENCHMARK_RESULTS_OUTPUT="./reproducer-results"
 DATA_DIR="../../../velox-benchmark-data/tpch"  # Same default as benchmark script
 
@@ -48,14 +49,15 @@ Options:
   --iterations NUM            Iterations per thread (default: 5)
   --max-files NUM             Limit number of files processed (to avoid memory exhaustion)
   --chunk-limit NUM           Chunk size in MB (default: 1024MB like benchmark, try 64MB to avoid pool limits)
+  --memory-percent NUM        Percentage of GPU memory for RMM pool (default: 80%, try 90% for more memory)
   -o, --output DIR            Output directory for results (default: ./reproducer-results)
   -h, --help                  Show this help message and exit
 
 Examples:
   $(basename "$0") --parquet-path lineitem/lineitem.parquet --memory-resource pool
   $(basename "$0") --parquet-path lineitem --memory-resource cuda --threads 4 --max-files 4
-  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource pool --max-files 2 --chunk-limit 64
-  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource async --max-files 1 --chunk-limit 32
+  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource pool --max-files 2 --chunk-limit 64 --memory-percent 90
+  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource async --max-files 1 --chunk-limit 32 --memory-percent 85
 
 Memory Resource Types:
   cuda                        Direct CUDA malloc/free (most thread-safe)
@@ -138,6 +140,15 @@ parse_args() {
           shift 2
         else
           echo "ERROR: --chunk-limit requires a value" >&2
+          exit 1
+        fi
+        ;;
+      --memory-percent)
+        if [[ -n "${2:-}" ]]; then
+          MEMORY_PERCENT="$2"
+          shift 2
+        else
+          echo "ERROR: --memory-percent requires a value" >&2
           exit 1
         fi
         ;;
@@ -253,6 +264,9 @@ run_in_container "
   fi
   if [[ -n \"$CHUNK_LIMIT\" ]]; then
     REPRODUCER_ARGS=\"\$REPRODUCER_ARGS $CHUNK_LIMIT\"
+  fi
+  if [[ -n \"$MEMORY_PERCENT\" ]]; then
+    REPRODUCER_ARGS=\"\$REPRODUCER_ARGS $MEMORY_PERCENT\"
   fi
   \"\$REPRODUCER\" \$REPRODUCER_ARGS 2>&1 | tee \"/workspace/velox/benchmark_results/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log\"
   
