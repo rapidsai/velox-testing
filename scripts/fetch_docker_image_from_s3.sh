@@ -44,25 +44,25 @@ fetch_docker_image_from_s3() {
   local BUCKET_SUBDIR=$2
   local IMAGE_FILE_NAME=$3
 
-  # the bucket
-  local BUCKET_URL="s3://rapidsai-velox-testing"
-  local BUCKET_REGION="us-west-1"
-
-  # construct full S3 path
-  local IMAGE_FILE_PATH="${BUCKET_URL}/${BUCKET_SUBDIR}/${IMAGE_FILE_NAME}"
-
-  # validate the provided environment
-  echo "Validating incoming environment for temporary S3 credentials request..."
-  if [ ! -v AWS_ARN_STRING ] || [ ! -v AWS_ACCESS_KEY_ID ] || [ ! -v AWS_SECRET_ACCESS_KEY ]; then
-    echo "ERROR: AWS_ARN_STRING, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set in the environment"
+  # validate other required values from the environment
+  echo "Validating incoming environment..."
+  if [ ! -v AWS_ARN_STRING ] || [ ! -v AWS_ACCESS_KEY_ID ] || [ ! -v AWS_SECRET_ACCESS_KEY ] || [ ! -v S3_BUCKET_NAME ] || [ ! -v S3_BUCKET_REGION ]; then
+    echo "ERROR: The following values must be set in the environment:"
+    echo "  AWS_ARN_STRING"
+    echo "  AWS_ACCESS_KEY_ID"
+    echo "  AWS_SECRET_ACCESS_KEY"
+    echo "  S3_BUCKET_NAME"
+    echo "  S3_BUCKET_REGION"
     exit 1
   fi
 
+  # construct full S3 path
+  local IMAGE_FILE_PATH="s3://${S3_BUCKET_NAME}/${BUCKET_SUBDIR}/${IMAGE_FILE_NAME}"
+
   # ensure region is set
-  export AWS_REGION=${BUCKET_REGION}
+  export AWS_REGION=${S3_BUCKET_REGION}
 
   # ask for temporary credentials for file access
-  # expects AWS_ARN_STRING, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to be in the environment
   echo "Requesting temporary S3 credentials..."
   local TEMP_CREDS_JSON=$(aws sts assume-role \
     --role-arn ${AWS_ARN_STRING} \
