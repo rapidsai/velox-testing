@@ -16,15 +16,20 @@
 
 set -euo pipefail
 
-# Source config
+# Source config (same as benchmark script)
 source ./config.sh
 
-# Default values
+# Default values (following benchmark_velox.sh pattern)
 MEMORY_RESOURCE="async"
 PARQUET_FILE=""
 THREADS=8
 ITERATIONS=5
-OUTPUT_DIR="./reproducer-results"
+BENCHMARK_RESULTS_OUTPUT="./reproducer-results"
+DATA_DIR="../../../velox-benchmark-data/tpch"  # Same default as benchmark script
+
+# Docker compose configuration (same as benchmark script)
+COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
+CONTAINER_NAME="velox-benchmark"
 
 print_help() {
   cat <<EOF
@@ -35,16 +40,17 @@ This reproducer tests for memory allocation race conditions in cuDF with multipl
 
 Options:
   --memory-resource RESOURCE  Memory resource type: cuda, pool, async, arena, managed, etc. (default: async)
-  --parquet-file FILE         Path to parquet file (relative to benchmark data directory)
+  --parquet-file FILE         Path to parquet file relative to data directory
+  --data-dir DIR              Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --threads NUM               Number of concurrent threads (default: 8)
   --iterations NUM            Iterations per thread (default: 5)
   -o, --output DIR            Output directory for results (default: ./reproducer-results)
   -h, --help                  Show this help message and exit
 
 Examples:
-  $(basename "$0") --parquet-file lineitem/part-00000.parquet --memory-resource pool
-  $(basename "$0") --parquet-file lineitem/part-00000.parquet --memory-resource cuda --threads 4
-  $(basename "$0") --parquet-file lineitem/part-00000.parquet --memory-resource async --iterations 10
+  $(basename "$0") --parquet-file lineitem/lineitem.parquet --memory-resource pool
+  $(basename "$0") --parquet-file lineitem/lineitem.parquet --memory-resource cuda --threads 4
+  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-file lineitem/lineitem-1.parquet --memory-resource async
 
 Memory Resource Types:
   cuda                        Direct CUDA malloc/free (most thread-safe)
@@ -85,6 +91,15 @@ parse_args() {
           exit 1
         fi
         ;;
+      --data-dir)
+        if [[ -n "${2:-}" ]]; then
+          DATA_DIR="$2"
+          shift 2
+        else
+          echo "ERROR: --data-dir requires a directory" >&2
+          exit 1
+        fi
+        ;;
       --threads)
         if [[ -n "${2:-}" ]]; then
           THREADS="$2"
@@ -105,7 +120,7 @@ parse_args() {
         ;;
       -o|--output)
         if [[ -n "${2:-}" ]]; then
-          OUTPUT_DIR="$2"
+          BENCHMARK_RESULTS_OUTPUT="$2"
           shift 2
         else
           echo "ERROR: --output requires a directory" >&2
@@ -125,32 +140,36 @@ parse_args() {
   done
 }
 
-# Helper function to run commands in the benchmark container
+# Create environment file for Docker Compose (same as benchmark script)
+create_docker_env_file() {
+  local env_file="./.env"
+  
+  # Same pattern as benchmark_velox.sh
+  BENCHMARK_DATA_HOST_PATH=$(realpath "$DATA_DIR")
+  BENCHMARK_RESULTS_HOST_PATH=$(realpath "$BENCHMARK_RESULTS_OUTPUT")
+  
+  cat > "$env_file" << EOF
+USER_ID=$(id -u)
+GROUP_ID=$(id -g)
+BENCHMARK_RESULTS_HOST_PATH=$BENCHMARK_RESULTS_HOST_PATH
+BENCHMARK_DATA_HOST_PATH=$BENCHMARK_DATA_HOST_PATH
+EOF
+}
+
+# Helper function to run commands in the benchmark container (same as benchmark script)
 run_in_container() {
   local cmd="$1"
   
   docker compose -f "$COMPOSE_FILE" --env-file ./.env run --rm \
     --cap-add=SYS_ADMIN \
-    velox-benchmark bash -c "$cmd"
-}
-
-# Create environment file for Docker Compose
-create_docker_env_file() {
-  local env_file="./.env"
-  
-  cat > "$env_file" << EOF
-USER_ID=$(id -u)
-GROUP_ID=$(id -g)
-BENCHMARK_RESULTS_HOST_PATH=$(realpath "$OUTPUT_DIR")
-BENCHMARK_DATA_HOST_PATH=$(realpath "../../velox-benchmark-data/tpch")
-EOF
+    "$CONTAINER_NAME" bash -c "$cmd"
 }
 
 parse_args "$@"
 
 if [[ -z "$PARQUET_FILE" ]]; then
   echo "ERROR: --parquet-file is required" >&2
-  echo "Example: --parquet-file lineitem/part-00000.parquet" >&2
+  echo "Example: --parquet-file lineitem/lineitem.parquet" >&2
   exit 1
 fi
 
@@ -159,19 +178,17 @@ echo "==========================="
 echo ""
 echo "Configuration:"
 echo "  Memory Resource: $MEMORY_RESOURCE"
+echo "  Data Directory: $DATA_DIR"
 echo "  Parquet File: $PARQUET_FILE"
 echo "  Threads: $THREADS"
 echo "  Iterations: $ITERATIONS"
-echo "  Output Directory: $OUTPUT_DIR"
+echo "  Output Directory: $BENCHMARK_RESULTS_OUTPUT"
 echo ""
 
-# Validate repo layout
-../../scripts/validate_directories_exist.sh "../../velox"
-
 # Create output directory
-mkdir -p "$OUTPUT_DIR"
+mkdir -p "$BENCHMARK_RESULTS_OUTPUT"
 
-# Create environment file
+# Create environment file (same as benchmark script)
 create_docker_env_file
 
 # Check if reproducer executable exists
@@ -184,7 +201,7 @@ fi
 echo "Running reproducer..."
 echo ""
 
-# Run the reproducer
+# Run the reproducer (same container pattern as benchmark script)
 set +e
 run_in_container "
   set -euo pipefail
@@ -197,6 +214,7 @@ run_in_container "
   fi
   
   echo \"Using reproducer: \$REPRODUCER\"
+  echo \"Data directory: /workspace/velox/velox-benchmark-data\"
   echo \"Parquet file: /workspace/velox/velox-benchmark-data/$PARQUET_FILE\"
   echo \"Memory resource: $MEMORY_RESOURCE\"
   echo \"\"
@@ -225,11 +243,11 @@ else
 fi
 echo "=========================================="
 echo ""
-echo "Results saved to: $OUTPUT_DIR/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log"
+echo "Results saved to: $BENCHMARK_RESULTS_OUTPUT/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log"
 echo ""
 echo "To test other memory resources:"
-echo "  $0 --parquet-file $PARQUET_FILE --memory-resource cuda    # Should work"
-echo "  $0 --parquet-file $PARQUET_FILE --memory-resource pool    # Should fail"
-echo "  $0 --parquet-file $PARQUET_FILE --memory-resource async   # May fail occasionally"
+echo "  $0 --data-dir $DATA_DIR --parquet-file $PARQUET_FILE --memory-resource cuda    # Should work"
+echo "  $0 --data-dir $DATA_DIR --parquet-file $PARQUET_FILE --memory-resource pool    # Should fail"
+echo "  $0 --data-dir $DATA_DIR --parquet-file $PARQUET_FILE --memory-resource async   # May fail occasionally"
 
 exit $EXIT_CODE
