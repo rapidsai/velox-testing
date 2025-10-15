@@ -24,6 +24,7 @@ MEMORY_RESOURCE="async"
 PARQUET_PATH=""
 THREADS=8
 ITERATIONS=5
+MAX_FILES=""
 BENCHMARK_RESULTS_OUTPUT="./reproducer-results"
 DATA_DIR="../../../velox-benchmark-data/tpch"  # Same default as benchmark script
 
@@ -44,13 +45,14 @@ Options:
   --data-dir DIR              Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --threads NUM               Number of concurrent threads (default: 8)
   --iterations NUM            Iterations per thread (default: 5)
+  --max-files NUM             Limit number of files processed (to avoid memory exhaustion)
   -o, --output DIR            Output directory for results (default: ./reproducer-results)
   -h, --help                  Show this help message and exit
 
 Examples:
   $(basename "$0") --parquet-path lineitem/lineitem.parquet --memory-resource pool
-  $(basename "$0") --parquet-path lineitem --memory-resource cuda --threads 4
-  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource async
+  $(basename "$0") --parquet-path lineitem --memory-resource cuda --threads 4 --max-files 4
+  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource pool --max-files 2
 
 Memory Resource Types:
   cuda                        Direct CUDA malloc/free (most thread-safe)
@@ -115,6 +117,15 @@ parse_args() {
           shift 2
         else
           echo "ERROR: --iterations requires a value" >&2
+          exit 1
+        fi
+        ;;
+      --max-files)
+        if [[ -n "${2:-}" ]]; then
+          MAX_FILES="$2"
+          shift 2
+        else
+          echo "ERROR: --max-files requires a value" >&2
           exit 1
         fi
         ;;
@@ -224,7 +235,11 @@ run_in_container "
   export VELOX_CUDF_MEMORY_RESOURCE=\"$MEMORY_RESOURCE\"
   
   # Run the reproducer
-  \"\$REPRODUCER\" \"/workspace/velox/velox-benchmark-data/$PARQUET_PATH\" $THREADS $ITERATIONS 2>&1 | tee \"/workspace/velox/benchmark_results/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log\"
+  REPRODUCER_ARGS=\"/workspace/velox/velox-benchmark-data/$PARQUET_PATH $THREADS $ITERATIONS\"
+  if [[ -n \"$MAX_FILES\" ]]; then
+    REPRODUCER_ARGS=\"\$REPRODUCER_ARGS $MAX_FILES\"
+  fi
+  \"\$REPRODUCER\" \$REPRODUCER_ARGS 2>&1 | tee \"/workspace/velox/benchmark_results/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log\"
   
   # Fix ownership
   chown \${USER_ID}:\${GROUP_ID} \"/workspace/velox/benchmark_results/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log\"
