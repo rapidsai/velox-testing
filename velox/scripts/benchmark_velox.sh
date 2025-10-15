@@ -46,7 +46,7 @@ Benchmark Options:
   -p, --profile BOOL                      Enable profiling: true or false (default: false)
   --data-dir DIR                          Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
-  --verbose-logging BOOL                  Enable verbose RMM/cuDF logging to track stream allocation/deallocation (default: false)
+  --verbose-logging BOOL                  Enable RMM memory event logging to CSV file for detailed allocation/deallocation tracking (default: false)
 
 General Options:
   -o, --output DIR                        Save benchmark results to DIR (default: ./benchmark-results)
@@ -62,7 +62,7 @@ Examples:
   $(basename "$0") --queries 6 --device-type gpu -o /tmp/results  # Custom output directory
   $(basename "$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
   $(basename "$0") --queries 6 --device-type cpu --num-repeats 5  # Run Q6 with 5 repetitions
-  $(basename "$0") --queries 15 --device-type gpu --verbose-logging true  # Run Q15 on GPU with verbose RMM/cuDF logging
+  $(basename "$0") --queries 15 --device-type gpu --verbose-logging true  # Run Q15 on GPU with RMM memory event logging
 
 Prerequisites:
   1. Velox must be built using: ./build_velox.sh

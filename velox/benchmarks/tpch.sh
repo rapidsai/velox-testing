@@ -240,13 +240,15 @@ run_tpch_single_benchmark() {
   # Set up verbose logging environment variables if requested
   VERBOSE_ENV_PREFIX=""
   if [[ "$verbose_logging" == "true" ]]; then
-    VERBOSE_ENV_PREFIX="RMM_LOG_LEVEL=DEBUG RMM_LOGGING_LEVEL=DEBUG CUDF_LOG_LEVEL=DEBUG RAPIDS_LOG_LEVEL=DEBUG CUDA_DEVICE_DEBUG=1"
-    echo "Verbose logging enabled: RMM_LOG_LEVEL=DEBUG, CUDF_LOG_LEVEL=DEBUG"
+    VERBOSE_ENV_PREFIX="RMM_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
+    echo "Verbose logging enabled: RMM memory event logging to benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
   fi
   
   $run_in_container_func 'bash -c "
       set -exuo pipefail
       BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
+      echo \"Starting benchmark with environment: '"${VERBOSE_ENV_PREFIX}"'\"
+      echo \"Benchmark executable: '"${BENCHMARK_EXECUTABLE}"'\"
       '"${VERBOSE_ENV_PREFIX}"' '"${PROFILE_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \
         --data_path=/workspace/velox/velox-benchmark-data \
@@ -263,6 +265,11 @@ run_tpch_single_benchmark() {
       NSYS_REP_FILE=\"\${BASE_FILENAME}.nsys-rep\"
       if [ -f \"\$NSYS_REP_FILE\" ]; then
         chown \"${USER_ID}:${GROUP_ID}\" \"\$NSYS_REP_FILE\"
+      fi
+      RMM_LOG_FILE=\"\${BASE_FILENAME}_rmm.csv\"
+      if [ -f \"\$RMM_LOG_FILE\" ]; then
+        chown \"${USER_ID}:${GROUP_ID}\" \"\$RMM_LOG_FILE\"
+        echo \"RMM memory event log saved to: \$RMM_LOG_FILE\"
       fi
     "'
 
