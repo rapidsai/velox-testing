@@ -20,13 +20,13 @@ set -euo pipefail
 source ./config.sh
 
 # Default values (following benchmark_velox.sh pattern)
-MEMORY_RESOURCE="cuda"
+MEMORY_RESOURCE="cuda"  # Default to cuda to avoid pool limits
 PARQUET_PATH=""
 THREADS=8
 ITERATIONS=5
 MAX_FILES=""
 CHUNK_LIMIT=""
-MEMORY_PERCENT=""
+MEMORY_POOL_GB=""
 BENCHMARK_RESULTS_OUTPUT="./reproducer-results"
 DATA_DIR="../../../velox-benchmark-data/tpch"  # Same default as benchmark script
 
@@ -49,15 +49,15 @@ Options:
   --iterations NUM            Iterations per thread (default: 5)
   --max-files NUM             Limit number of files processed (to avoid memory exhaustion)
   --chunk-limit NUM           Chunk size in MB (default: 1024MB like benchmark, try 64MB to avoid pool limits)
-  --memory-percent NUM        Percentage of GPU memory for RMM pool (default: 80%, try 90% for more memory)
+  --memory-pool-gb NUM        Maximum pool size in GB (default: 30GB, try 50GB for large datasets)
   -o, --output DIR            Output directory for results (default: ./reproducer-results)
   -h, --help                  Show this help message and exit
 
 Examples:
   $(basename "$0") --parquet-path lineitem/lineitem.parquet --memory-resource pool
   $(basename "$0") --parquet-path lineitem --memory-resource cuda --threads 4 --max-files 4
-  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource pool --max-files 2 --chunk-limit 64 --memory-percent 90
-  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource async --max-files 1 --chunk-limit 32 --memory-percent 85
+  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource pool --max-files 2 --chunk-limit 64 --memory-pool-gb 50
+  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource async --max-files 1 --chunk-limit 32 --memory-pool-gb 30
 
 Memory Resource Types:
   cuda                        Direct CUDA malloc/free (most thread-safe)
@@ -143,12 +143,12 @@ parse_args() {
           exit 1
         fi
         ;;
-      --memory-percent)
+      --memory-pool-gb)
         if [[ -n "${2:-}" ]]; then
-          MEMORY_PERCENT="$2"
+          MEMORY_POOL_GB="$2"
           shift 2
         else
-          echo "ERROR: --memory-percent requires a value" >&2
+          echo "ERROR: --memory-pool-gb requires a value" >&2
           exit 1
         fi
         ;;
@@ -265,8 +265,8 @@ run_in_container "
   if [[ -n \"$CHUNK_LIMIT\" ]]; then
     REPRODUCER_ARGS=\"\$REPRODUCER_ARGS $CHUNK_LIMIT\"
   fi
-  if [[ -n \"$MEMORY_PERCENT\" ]]; then
-    REPRODUCER_ARGS=\"\$REPRODUCER_ARGS $MEMORY_PERCENT\"
+  if [[ -n \"$MEMORY_POOL_GB\" ]]; then
+    REPRODUCER_ARGS=\"\$REPRODUCER_ARGS $MEMORY_POOL_GB\"
   fi
   \"\$REPRODUCER\" \$REPRODUCER_ARGS 2>&1 | tee \"/workspace/velox/benchmark_results/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log\"
   
