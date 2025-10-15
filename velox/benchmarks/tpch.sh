@@ -295,13 +295,15 @@ check_tpch_benchmark_executable() {
     local run_in_container_func="$1"
     local device_type="${2:-cpu gpu}"  # Default to both if not specified
     
-    # Always check the CPU benchmark executable
-    check_tpch_benchmark_executable_with_path \
-        "$(get_tpch_benchmark_executable_path "cpu")" \
-        "$run_in_container_func" \
-        "Please rebuild Velox with benchmarks enabled by running: ./build_velox.sh --benchmarks true" 
+    # Check CPU benchmark executable only if CPU is requested
+    if [[ "$device_type" == *"cpu"* ]]; then
+        check_tpch_benchmark_executable_with_path \
+            "$(get_tpch_benchmark_executable_path "cpu")" \
+            "$run_in_container_func" \
+            "Please rebuild Velox with benchmarks enabled by running: ./build_velox.sh --benchmarks true" 
+    fi
     
-    # Only check CUDF executable if GPU is requested
+    # Check CUDF executable only if GPU is requested
     if [[ "$device_type" == *"gpu"* ]]; then
         check_tpch_benchmark_executable_with_path "$(get_tpch_benchmark_executable_path "gpu")" \
          "$run_in_container_func" \
