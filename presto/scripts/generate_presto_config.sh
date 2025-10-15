@@ -23,8 +23,8 @@ fi
 
 # get host values
 NPROC=`nproc`
-RAM_GB=`lsmem | awk '/Total online/ { print $4 }'`
-RAM_GB=${RAM_GB::-1}
+# lsmem will report in SI.  Make sure we get values in GB.
+RAM_GB=$(( $(lsmem -b | grep "Total online memory" | awk '{print $4}') / (1024*1024*1024) ))
 
 echo "INFO: Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}GB RAM"
 
