@@ -21,7 +21,7 @@ source ./config.sh
 
 # Default values (following benchmark_velox.sh pattern)
 MEMORY_RESOURCE="async"
-PARQUET_FILE=""
+PARQUET_PATH=""
 THREADS=8
 ITERATIONS=5
 BENCHMARK_RESULTS_OUTPUT="./reproducer-results"
@@ -40,7 +40,7 @@ This reproducer tests for memory allocation race conditions in cuDF with multipl
 
 Options:
   --memory-resource RESOURCE  Memory resource type: cuda, pool, async, arena, managed, etc. (default: async)
-  --parquet-file FILE         Path to parquet file relative to data directory
+  --parquet-path PATH         Path to parquet file or directory relative to data directory
   --data-dir DIR              Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --threads NUM               Number of concurrent threads (default: 8)
   --iterations NUM            Iterations per thread (default: 5)
@@ -48,9 +48,9 @@ Options:
   -h, --help                  Show this help message and exit
 
 Examples:
-  $(basename "$0") --parquet-file lineitem/lineitem.parquet --memory-resource pool
-  $(basename "$0") --parquet-file lineitem/lineitem.parquet --memory-resource cuda --threads 4
-  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-file lineitem/lineitem-1.parquet --memory-resource async
+  $(basename "$0") --parquet-path lineitem/lineitem.parquet --memory-resource pool
+  $(basename "$0") --parquet-path lineitem --memory-resource cuda --threads 4
+  $(basename "$0") --data-dir /datasets/misiug/sf500 --parquet-path lineitem --memory-resource async
 
 Memory Resource Types:
   cuda                        Direct CUDA malloc/free (most thread-safe)
@@ -82,12 +82,12 @@ parse_args() {
           exit 1
         fi
         ;;
-      --parquet-file)
+      --parquet-path)
         if [[ -n "${2:-}" ]]; then
-          PARQUET_FILE="$2"
+          PARQUET_PATH="$2"
           shift 2
         else
-          echo "ERROR: --parquet-file requires a value" >&2
+          echo "ERROR: --parquet-path requires a value" >&2
           exit 1
         fi
         ;;
@@ -167,9 +167,10 @@ run_in_container() {
 
 parse_args "$@"
 
-if [[ -z "$PARQUET_FILE" ]]; then
-  echo "ERROR: --parquet-file is required" >&2
-  echo "Example: --parquet-file lineitem/lineitem.parquet" >&2
+if [[ -z "$PARQUET_PATH" ]]; then
+  echo "ERROR: --parquet-path is required" >&2
+  echo "Example: --parquet-path lineitem/lineitem.parquet" >&2
+  echo "Example: --parquet-path lineitem" >&2
   exit 1
 fi
 
@@ -179,7 +180,7 @@ echo ""
 echo "Configuration:"
 echo "  Memory Resource: $MEMORY_RESOURCE"
 echo "  Data Directory: $DATA_DIR"
-echo "  Parquet File: $PARQUET_FILE"
+echo "  Parquet Path: $PARQUET_PATH"
 echo "  Threads: $THREADS"
 echo "  Iterations: $ITERATIONS"
 echo "  Output Directory: $BENCHMARK_RESULTS_OUTPUT"
@@ -215,7 +216,7 @@ run_in_container "
   
   echo \"Using reproducer: \$REPRODUCER\"
   echo \"Data directory: /workspace/velox/velox-benchmark-data\"
-  echo \"Parquet file: /workspace/velox/velox-benchmark-data/$PARQUET_FILE\"
+  echo \"Parquet path: /workspace/velox/velox-benchmark-data/$PARQUET_PATH\"
   echo \"Memory resource: $MEMORY_RESOURCE\"
   echo \"\"
   
@@ -223,7 +224,7 @@ run_in_container "
   export VELOX_CUDF_MEMORY_RESOURCE=\"$MEMORY_RESOURCE\"
   
   # Run the reproducer
-  \"\$REPRODUCER\" \"/workspace/velox/velox-benchmark-data/$PARQUET_FILE\" $THREADS $ITERATIONS 2>&1 | tee \"/workspace/velox/benchmark_results/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log\"
+  \"\$REPRODUCER\" \"/workspace/velox/velox-benchmark-data/$PARQUET_PATH\" $THREADS $ITERATIONS 2>&1 | tee \"/workspace/velox/benchmark_results/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log\"
   
   # Fix ownership
   chown \${USER_ID}:\${GROUP_ID} \"/workspace/velox/benchmark_results/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log\"
@@ -246,8 +247,8 @@ echo ""
 echo "Results saved to: $BENCHMARK_RESULTS_OUTPUT/reproducer_${MEMORY_RESOURCE}_${THREADS}threads_${ITERATIONS}iter.log"
 echo ""
 echo "To test other memory resources:"
-echo "  $0 --data-dir $DATA_DIR --parquet-file $PARQUET_FILE --memory-resource cuda    # Should work"
-echo "  $0 --data-dir $DATA_DIR --parquet-file $PARQUET_FILE --memory-resource pool    # Should fail"
-echo "  $0 --data-dir $DATA_DIR --parquet-file $PARQUET_FILE --memory-resource async   # May fail occasionally"
+echo "  $0 --data-dir $DATA_DIR --parquet-path $PARQUET_PATH --memory-resource cuda    # Should work"
+echo "  $0 --data-dir $DATA_DIR --parquet-path $PARQUET_PATH --memory-resource pool    # Should fail"
+echo "  $0 --data-dir $DATA_DIR --parquet-path $PARQUET_PATH --memory-resource async   # May fail occasionally"
 
 exit $EXIT_CODE
