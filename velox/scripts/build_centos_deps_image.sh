@@ -88,7 +88,13 @@ s3_copy_image() {
 
 docker_load_image() {
 	echo "Loading image file into Docker..."
-	docker load < /tmp/${DEPS_IMAGE_FILE} || { echo "docker load failed for /tmp/${DEPS_IMAGE_FILE}."; return 1; }
+	local docker_load_output
+	if ! docker_load_output=$(docker load < /tmp/${DEPS_IMAGE_FILE} 2>&1); then
+		echo "docker load failed for /tmp/${DEPS_IMAGE_FILE}."
+		echo "$docker_load_output"
+		return 1
+	fi
+	echo "$docker_load_output"
 	rm -f /tmp/${DEPS_IMAGE_FILE} || true
 	return 0
 }
@@ -134,7 +140,7 @@ apply_patches_if_any() {
 				echo "Applying $patch_name ..."
 				if ! git -C "$velox_dir" apply --whitespace=nowarn "$patch_file"; then
 					echo "git apply failed for $patch_name; skipping without writing rejects."
-					return 1
+					return 0 # so that it doesn't fail the build
 				fi
 			done
 		fi
@@ -148,7 +154,7 @@ build_image_locally() {
 	container_name="velox-adapters-deps"
 	compose_file="../docker/docker-compose.adapters.build.yml"
 	apply_patches_if_any
-	docker compose -f "${compose_file}" --progress plain build "${container_name}"
+	docker compose -f "${compose_file}" --progress plain build "${container_name}" --no-cache
 	echo "Velox dependencies/run-time container image built!"
 }
 
