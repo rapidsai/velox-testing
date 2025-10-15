@@ -137,10 +137,10 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     fi && \
     # Configure CMake
     make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
-    # Build ONLY the reproducer first (fail fast)
-    echo "Building reproducer first for fast failure detection..." && \
+    # Build ONLY the benchmark first (fail fast)
+    echo "Building benchmark first for fast failure detection..." && \
     cd ${BUILD_BASE_DIR}/${BUILD_TYPE} && \
-    ninja velox_cudf_memory_race_reproducer
+    ninja velox_cudf_tpch_benchmark
 
 # Build everything else - this layer will be cached separately
 # RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \

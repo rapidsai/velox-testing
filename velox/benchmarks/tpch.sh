@@ -185,6 +185,7 @@ run_tpch_single_benchmark() {
   local profile="$3"
   local run_in_container_func="$4"
   local num_repeats="$5"
+  local verbose_logging="${6:-false}"
   
   printf -v query_number_padded '%02d' "$query_number"
   
@@ -235,8 +236,23 @@ run_tpch_single_benchmark() {
   
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
   set +e
+  
+  # Set up verbose logging environment variables if requested
+  VERBOSE_ENV_VARS=""
+  if [[ "$verbose_logging" == "true" ]]; then
+    VERBOSE_ENV_VARS="
+      export RMM_LOG_LEVEL=DEBUG
+      export RMM_LOGGING_LEVEL=DEBUG  
+      export CUDF_LOG_LEVEL=DEBUG
+      export RAPIDS_LOG_LEVEL=DEBUG
+      export CUDA_DEVICE_DEBUG=1
+      echo \"Verbose logging enabled: RMM_LOG_LEVEL=DEBUG, CUDF_LOG_LEVEL=DEBUG\"
+    "
+  fi
+  
   $run_in_container_func 'bash -c "
       set -exuo pipefail
+      '"${VERBOSE_ENV_VARS}"'
       BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
       '"${PROFILE_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \

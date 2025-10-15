@@ -24,6 +24,7 @@ BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
 PROFILE="false"
 DATA_DIR="../../../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
 NUM_REPEATS=2
+VERBOSE_LOGGING="false"
 
 # Docker compose configuration
 COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
@@ -45,6 +46,7 @@ Benchmark Options:
   -p, --profile BOOL                      Enable profiling: true or false (default: false)
   --data-dir DIR                          Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
+  --verbose-logging BOOL                  Enable verbose RMM/cuDF logging to track stream allocation/deallocation (default: false)
 
 General Options:
   -o, --output DIR                        Save benchmark results to DIR (default: ./benchmark-results)
@@ -60,6 +62,7 @@ Examples:
   $(basename "$0") --queries 6 --device-type gpu -o /tmp/results  # Custom output directory
   $(basename "$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
   $(basename "$0") --queries 6 --device-type cpu --num-repeats 5  # Run Q6 with 5 repetitions
+  $(basename "$0") --queries 15 --device-type gpu --verbose-logging true  # Run Q15 on GPU with verbose RMM/cuDF logging
 
 Prerequisites:
   1. Velox must be built using: ./build_velox.sh
@@ -138,6 +141,15 @@ parse_args() {
           shift 2
         else
           echo "ERROR: --num-repeats requires a number argument" >&2
+          exit 1
+        fi
+        ;;
+      --verbose-logging)
+        if [[ -n "${2:-}" ]]; then
+          VERBOSE_LOGGING="$2"
+          shift 2
+        else
+          echo "ERROR: --verbose-logging requires true or false" >&2
           exit 1
         fi
         ;;
@@ -253,11 +265,13 @@ run_benchmark() {
   local queries="$2"
   local device_type="$3" 
   local profile="$4"
+  local verbose_logging="$5"
   
   echo "Running $benchmark_type benchmark..."
   echo "Queries: $queries"
   echo "Device types: $device_type"
   echo "Profile: $profile"
+  echo "Verbose logging: $verbose_logging"
   
   # Run all query/device combinations
   for query_number in $queries; do
@@ -267,7 +281,7 @@ run_benchmark() {
 
       case "$benchmark_type" in
         "tpch")
-          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS"
+          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$verbose_logging"
           local exit_code=$?
           ;;
         *)
@@ -321,7 +335,7 @@ echo "Starting benchmarks..."
 echo ""
 
 # Run benchmarks
-run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE"
+run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE" "$VERBOSE_LOGGING"
 
 echo ""
 echo "Benchmarks completed successfully!"
