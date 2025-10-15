@@ -120,24 +120,44 @@ RUN if [ "$ENABLE_SCCACHE" = "ON" ]; then chmod +x /sccache_setup.sh; fi
 # Copy sccache auth files (note source of copy must be within the docker build context)
 COPY velox-testing/velox/docker/sccache/sccache_auth/ /sccache_auth/
 
-# Build in Release mode into ${BUILD_BASE_DIR}
+# Create build directory that will be cached in Docker layers
+RUN mkdir -p ${BUILD_BASE_DIR}
+
+# Build reproducer first (fail fast) - this layer will be cached
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     set -euxo pipefail && \
     # Configure sccache if enabled
     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
-      # Run sccache setup script
       /sccache_setup.sh && \
-      # Add sccache CMake flags
       EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache" && \
       echo "sccache distributed status:" && \
       sccache --dist-status && \
       echo "Pre-build sccache (zeroed out) statistics:" && \
       sccache --show-stats; \
     fi && \
+    # Configure CMake
     make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
-    make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
-    # Show final sccache stats if enabled
-    if [ "$ENABLE_SCCACHE" = "ON" ]; then \
-      echo "Post-build sccache statistics:" && \
-      sccache --show-stats; \
-    fi
+    # Build ONLY the reproducer first (fail fast)
+    echo "Building reproducer first for fast failure detection..." && \
+    cd ${BUILD_BASE_DIR}/${BUILD_TYPE} && \
+    ninja velox_cudf_memory_race_reproducer
+
+# Build everything else - this layer will be cached separately
+# RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
+#     set -euxo pipefail && \
+#     # Configure sccache if enabled
+#     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
+#       /sccache_setup.sh && \
+#       EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache" && \
+#       echo "sccache distributed status:" && \
+#       sccache --dist-status && \
+#       echo "Pre-build sccache (zeroed out) statistics:" && \
+#       sccache --show-stats; \
+#     fi && \
+#     # Build everything else
+#     make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
+#     # Show final sccache stats if enabled
+#     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
+#       echo "Post-build sccache statistics:" && \
+#       sccache --show-stats; \
+#     fi
