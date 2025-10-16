@@ -32,3 +32,4 @@ jobs:
       repository: ${{ inputs.repository || 'rapidsai/velox' }}
       velox_commit: ${{ inputs.velox_commit || 'merged-prs' }}
       build_target: ${{ inputs.build_target || 'all' }}
+    secrets: inherit

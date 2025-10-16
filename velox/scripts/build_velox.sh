@@ -28,6 +28,7 @@ LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
 
+
 print_help() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -44,6 +45,7 @@ Options:
   -j|--num-threads            NUM Number of threads to use for building (default: 3/4 of CPU cores).
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
+  --build-deps                Build adapters dependency image first (default: false).
   -h, --help                  Show this help message and exit.
 
 Examples:
@@ -96,6 +98,10 @@ parse_args() {
         ;;
       --gpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
+        shift
+        ;;
+      --build-deps)
+        BUILD_DEPS=true
         shift
         ;;
       -j|--num-threads)
@@ -184,8 +190,14 @@ parse_args "$@"
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"
 
-# Compose docker build command options
-DOCKER_BUILD_OPTS=(--pull)
+# Check if the Velox dependencies image exists locally; if not, build it.
+if ! docker image inspect "${DEPS_IMAGE_NAME}" > /dev/null 2>&1; then
+  echo "Dependencies image (${DEPS_IMAGE_NAME}) not found. Building dependencies image first..."
+  ./build_centos_deps_image.sh
+fi
+
+# Compose docker build command options (default: do not force pull; use local images if present)
+DOCKER_BUILD_OPTS=()
 if [[ "$NO_CACHE" == true ]]; then
   DOCKER_BUILD_OPTS+=(--no-cache)
 fi
@@ -203,6 +215,8 @@ DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
+export DOCKER_BUILDKIT=1 
+export COMPOSE_DOCKER_CLI_BUILD=1 
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
