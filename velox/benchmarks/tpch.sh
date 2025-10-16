@@ -240,8 +240,11 @@ run_tpch_single_benchmark() {
   # Set up verbose logging environment variables if requested
   VERBOSE_ENV_PREFIX=""
   if [[ "$verbose_logging" == "true" ]]; then
-    VERBOSE_ENV_PREFIX="RMM_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
-    echo "Verbose logging enabled: RMM memory event logging to benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
+    VERBOSE_ENV_PREFIX="RMM_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv RMM_DEBUG_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log RMM_STACK_TRACE_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    echo "Verbose logging enabled:"
+    echo "  - RMM memory event logging (CSV): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
+    echo "  - RMM debug logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log"
+    echo "  - RMM stack trace logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
   fi
   
   $run_in_container_func 'bash -c "
@@ -270,6 +273,16 @@ run_tpch_single_benchmark() {
       if [ -f \"\$RMM_LOG_FILE\" ]; then
         chown \"${USER_ID}:${GROUP_ID}\" \"\$RMM_LOG_FILE\"
         echo \"RMM memory event log saved to: \$RMM_LOG_FILE\"
+      fi
+      RMM_DEBUG_LOG_FILE=\"\${BASE_FILENAME}_debug.log\"
+      if [ -f \"\$RMM_DEBUG_LOG_FILE\" ]; then
+        chown \"${USER_ID}:${GROUP_ID}\" \"\$RMM_DEBUG_LOG_FILE\"
+        echo \"RMM debug log saved to: \$RMM_DEBUG_LOG_FILE\"
+      fi
+      RMM_STACK_TRACE_FILE=\"\${BASE_FILENAME}_stacktrace.csv\"
+      if [ -f \"\$RMM_STACK_TRACE_FILE\" ]; then
+        chown \"${USER_ID}:${GROUP_ID}\" \"\$RMM_STACK_TRACE_FILE\"
+        echo \"RMM stack trace log saved to: \$RMM_STACK_TRACE_FILE\"
       fi
     "'
 
