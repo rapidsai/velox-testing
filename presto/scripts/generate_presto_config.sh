@@ -53,4 +53,5 @@ cat > generated/config.json << EOF
 EOF
 
 # run pbench to generate the config files
-../../pbench/pbench genconfig -p params.json -t template generated &> /dev/null
+# hide default pbench logging which goes to stderr so we only see any errors
+../../pbench/pbench genconfig -p params.json -t template generated 2&>1 grep -v '\{\"level'
