@@ -27,7 +27,7 @@ BUILD_TYPE="release"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
-BUILD_DEPS=false
+
 
 print_help() {
   cat <<EOF
@@ -190,11 +190,10 @@ parse_args "$@"
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"
 
-if [[ "$BUILD_DEPS" == true ]]; then
-  # Ensure dependency image is built before building Velox adapters image
-  echo "Ensuring adapters dependency image is available..."
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  "${SCRIPT_DIR}/build_centos_deps_image.sh"
+# Check if the Velox dependencies image exists locally; if not, build it.
+if ! docker image inspect "${DEPS_IMAGE_NAME}" > /dev/null 2>&1; then
+  echo "Dependencies image (${DEPS_IMAGE_NAME}) not found. Building dependencies image first..."
+  ./build_centos_deps_image.sh
 fi
 
 # Compose docker build command options (default: do not force pull; use local images if present)
