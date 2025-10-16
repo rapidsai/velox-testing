@@ -7,15 +7,12 @@ on:
 
 jobs:
   nightly:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Invoke Presto Test on known good Presto and Velox
-        uses: ./.github/workflows/presto-test.yml
-        with:
-          presto_repository: ${{ vars.STABLE_PRESTO_REPO }}
-          presto_commit: ${{ vars.STABLE_PRESTO_COMMIT }}
-          velox_repository: ${{ vars.STABLE_VELOX_REPO }}
-          velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
-          run_java_tests: true
-          run_cpu_tests: true
-          run_gpu_tests: true
+    uses: ./.github/workflows/presto-test.yml
+    with:
+      presto_repository: ${{ vars.STABLE_PRESTO_REPO }}
+      presto_commit: ${{ vars.STABLE_PRESTO_COMMIT }}
+      velox_repository: ${{ vars.STABLE_VELOX_REPO }}
+      velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
+      run_java_tests: true
+      run_cpu_tests: true
+      run_gpu_tests: true
