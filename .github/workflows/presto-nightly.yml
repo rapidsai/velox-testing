@@ -16,3 +16,4 @@ jobs:
       run_java_tests: true
       run_cpu_tests: true
       run_gpu_tests: true
+    secrets: inherit
