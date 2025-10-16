@@ -79,15 +79,24 @@ fi
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
-if [[ "$VARIANT_TYPE" == "gpu" ]]; then
-  # check that nvidia-smi is available
-  if ! command -v nvidia-smi &> /dev/null; then
-    echo "nvidia-smi could not be found. Please ensure that the NVIDIA drivers and Docker runtime are properly installed."
+if [[ "$ALL_CUDA_ARCHS" == "true" ]]; then
+  if [[ "$VARIANT_TYPE" == "gpu" ]]; then
+    # build for all supported CUDA architectures
+    CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120"
+    echo "Building GPU with all supported CUDA architectures"
+  else
+    # invalid options combination
+    echo "ERROR: --all-cuda-archs specified but VARIANT_TYPE is not 'gpu'."
     exit 1
   fi
-  # get the native compute capability of the first GPU (assuming all GPUs are the same)
+elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
+  # check that nvidia-smi is available
+  if ! command -v nvidia-smi &> /dev/null; then
+    echo "ERROR: nvidia-smi could not be found. Please ensure that the NVIDIA drivers and Docker runtime are properly installed."
+    exit 1
+  fi
+  # build for the native compute capability of the first GPU (assuming all GPUs are the same)
   CUDA_ARCHITECTURES="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1 | sed 's/\.//g')"
-  # report
   echo "Building GPU with CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES"
 fi
 
