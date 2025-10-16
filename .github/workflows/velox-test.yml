@@ -69,11 +69,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
           S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
-        run: |
-          pushd ${{ github.workspace }}/velox-testing/velox/scripts
-          ls -l
-          bash fetch_centos_deps_image.sh
-          popd
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./fetch_centos_deps_image.sh
+
       - name: Building Velox for CPU
         run: |
           echo "   - CUDF support: DISABLED"
