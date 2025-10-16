@@ -28,7 +28,7 @@ docker run --rm \
     -w /presto \
     eclipse-temurin:17-jdk-jammy \
     bash -c "
-    ./mvnw clean install -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true &&
+    ./mvnw clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true &&
     echo 'Copying artifacts with version $PRESTO_VERSION...' &&
     cp presto-server/target/presto-server-*.tar.gz docker/presto-server-$PRESTO_VERSION.tar.gz &&
     cp presto-cli/target/presto-cli-*-executable.jar docker/presto-cli-$PRESTO_VERSION-executable.jar &&

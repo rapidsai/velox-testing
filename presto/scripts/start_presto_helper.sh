@@ -26,8 +26,12 @@ if [[ -z ${SCRIPT_NAME} ]]; then
   exit 1
 fi
 
-# Validate repo layout using shared script
-../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
+# Validate sibling repos
+if [[ "$VARIANT_TYPE" == "java" ]]; then
+  ../../scripts/validate_directories_exist.sh "../../../presto"
+else
+  ../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
+fi
 
 source ./start_presto_helper_parse_args.sh
 
@@ -75,6 +79,20 @@ fi
 
 ./generate_presto_config.sh
 
+# must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
+CUDA_ARCHITECTURES=""
+if [[ "$VARIANT_TYPE" == "gpu" ]]; then
+  # check that nvidia-smi is available
+  if ! command -v nvidia-smi &> /dev/null; then
+    echo "nvidia-smi could not be found. Please ensure that the NVIDIA drivers and Docker runtime are properly installed."
+    exit 1
+  fi
+  # get the native compute capability of the first GPU (assuming all GPUs are the same)
+  CUDA_ARCHITECTURES="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1 | sed 's/\.//g')"
+  # report
+  echo "Building GPU with CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES"
+fi
+
 DOCKER_COMPOSE_FILE_PATH=../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml
 if (( ${#BUILD_TARGET_ARG[@]} )); then
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]]; then
@@ -90,6 +108,7 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
+  --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
   ${BUILD_TARGET_ARG[@]}
 fi
 
