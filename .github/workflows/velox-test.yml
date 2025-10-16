@@ -71,7 +71,8 @@ jobs:
           S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
         run: |
           pushd ${{ github.workspace }}/velox-testing/velox/scripts
-          ./fetch_centos_deps_image.sh
+          ls -l
+          bash fetch_centos_deps_image.sh
           popd
       - name: Building Velox for CPU
         run: |
