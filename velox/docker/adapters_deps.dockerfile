@@ -8,7 +8,6 @@ COPY velox/scripts/ /scripts
 RUN set -euxo pipefail && \
     if ! dnf list installed cuda-nvcc-$(echo ${CUDA_VERSION} | tr '.' '-') 1>/dev/null || \
        ! dnf list installed libnvjitlink-devel-$(echo ${CUDA_VERSION} | tr '.' '-') 1>/dev/null; then \
-      source /scripts/setup-centos-adapters.sh && \
-      install_cuda ${CUDA_VERSION}; \
+       bash -c "source /scripts/setup-centos-adapters.sh &&  install_cuda ${CUDA_VERSION}"; \
     fi && \
     pip install cmake==3.30.4
