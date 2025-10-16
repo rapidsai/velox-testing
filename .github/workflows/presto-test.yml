@@ -3,43 +3,54 @@ description: Tests for each type of presto configuration
 on:
   workflow_dispatch:
     inputs:
-      presto_repository:
+      presto_repository: &presto_repository
         description: 'Presto Repository'
         type: string
         required: false
         default: 'prestodb/presto'
-      presto_commit:
+      presto_commit: &presto_commit
         description: 'Presto Commit SHA or Branch'
         type: string
         required: false
         default: 'master'
-      velox_repository:
+      velox_repository: &velox_repository
         description: 'Velox Repository'
         type: string
         required: false
         default: 'facebookincubator/velox'
-      velox_commit:
+      velox_commit: &velox_commit
         description: 'Velox Commit SHA or Branch'
         type: string
         required: false
         default: 'main'
-      velox_testing_commit:
+      velox_testing_commit: &velox_testing_commit
         description: 'Velox Testing Commit SHA or Branch'
         type: string
         required: false
         default: 'main'
-      run_java_tests:
+      run_java_tests: &run_java_tests
         description: 'Run tests with Java Worker'
         type: boolean
         default: false
-      run_cpu_tests:
+      run_cpu_tests: &run_cpu_tests
         description: 'Run tests with Native CPU Worker'
         type: boolean
         default: false
-      run_gpu_tests:
+      run_gpu_tests: &run_gpu_tests
         description: 'Run tests with Native GPU Worker'
         type: boolean
         default: true
+
+  workflow_call:
+    inputs:
+      presto_repository: *presto_repository
+      presto_commit: *presto_commit
+      velox_repository: *velox_repository
+      velox_commit: *velox_commit
+      velox_testing_commit: *velox_testing_commit
+      run_java_tests: *run_java_tests
+      run_cpu_tests: *run_cpu_tests
+      run_gpu_tests: *run_gpu_tests
 
 jobs:
   java:
