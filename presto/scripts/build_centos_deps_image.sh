@@ -101,33 +101,10 @@ echo "Building Presto dependencies/run-time image..."
 # move to Presto clone
 pushd ../../../presto
 
-# reset Presto clone
-echo "Resetting Presto clone files"
-git checkout .
-
-# reset Velox submodule
-echo "Resetting Velox submodule files"
-cd presto-native-execution/velox
-git checkout .
-cd ../..
-
 # reset submodule
-echo "Resetting Velox submodule version"
-cd presto-native-execution
-make submodules
-cd ..
-
-# rewrite .gitmodules file to override Velox submodule to rapidsai/velox:merged-prs (latest)
-echo "Rewriting .gitmodules file"
-cat << EOF > .gitmodules
-[submodule "presto-native-execution/velox"]
-path = presto-native-execution/velox
-url = https://github.com/${VELOX_REPO}
-branch = ${VELOX_COMMIT}
-EOF
-
-# force override submodule contents
-echo "Updating Velox submodule to given repo and commit"
+echo "Resetting Velox submodule to specified version"
+git submodule set-url presto-native-execution/velox http://github.com/${VELOX_REPO}
+git submodule set-branch --branch ${VELOX_COMMIT} presto-native-execution/velox
 git submodule sync
 git submodule update --init --remote presto-native-execution/velox
 
@@ -135,13 +112,13 @@ git submodule update --init --remote presto-native-execution/velox
 # @TODO extend this to read from a directory of files
 echo "No patches currently required"
 
-# preparation complete
-popd
-
 # now build
 echo "Building..."
-pushd ../../../presto/presto-native-execution
+pushd presto-native-execution
 docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
+popd
+
+# return
 popd
 
 # done
