@@ -32,7 +32,7 @@ OPTIONS:
     -h, --hostname          Hostname of the Presto coordinator.
     -p, --port              Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
-    -s, --schema-name       Name of the schema containing the tables that will be queried (default is {benchmark_type}_test).
+    -s, --schema-name       Name of the schema containing the tables that will be queried (if unspecified a default schema is auto-generated).
 
 
 EXAMPLES:
