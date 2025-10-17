@@ -89,7 +89,7 @@ Call Site File Format (/tmp/sync_sites.txt):
 
 Environment Variables (for advanced debugging):
   RMM_SYNC_DEBUG=1                       Enable debug output showing sync matches and events (default: disabled)
-  RMM_SYNC_DEBUG_LIMIT=N                 Limit debug output to first N sync events (default: 16)
+  RMM_STACK_TRACE_DEPTH=N                Control stack trace depth for call site uniqueness (default: 8, max: 32)
   RMM_SYNC_DISABLE=1                     Completely disable all synchronization (default: disabled)
   
   # These are automatically set when using --verbose-logging or bisection modes:
@@ -99,11 +99,11 @@ Environment Variables (for advanced debugging):
   RMM_SYNC_CALL_SITES_FILE=path          File containing call sites to synchronize
 
 Advanced Debugging Examples:
-  # Collect call sites with debug output (first 5 events):
-  RMM_SYNC_DEBUG=1 RMM_SYNC_DEBUG_LIMIT=5 $(basename "$0") --queries 6 --device-type gpu --call-site-collection
+  # Collect call sites with debug output and shallow stack traces (faster):
+  RMM_SYNC_DEBUG=1 RMM_STACK_TRACE_DEPTH=4 $(basename "$0") --queries 6 --device-type gpu --call-site-collection
   
-  # Test specific call site with unlimited debug output:
-  RMM_SYNC_DEBUG=1 RMM_SYNC_DEBUG_LIMIT=999999 $(basename "$0") --queries 6 --device-type gpu --sync-call-sites-file /tmp/sync_sites.txt
+  # Test specific call site with deep stack traces for maximum uniqueness:
+  RMM_SYNC_DEBUG=1 RMM_STACK_TRACE_DEPTH=16 $(basename "$0") --queries 6 --device-type gpu --sync-call-sites-file /tmp/sync_sites.txt
   
   # Run without any synchronization (baseline performance):
   RMM_SYNC_DISABLE=1 $(basename "$0") --queries 6 --device-type gpu --call-site-collection

@@ -258,26 +258,26 @@ run_tpch_single_benchmark() {
       echo "Bisection mode: Syncing specific call sites from: $sync_call_sites_file"
       echo "  - Only call sites listed in file will be synchronized"
       echo "  - To enable debug output, set: export RMM_SYNC_DEBUG=1"
-      echo "  - To control debug output limit, set: export RMM_SYNC_DEBUG_LIMIT=N (default: 16)"
+      echo "  - To control stack trace depth, set: export RMM_STACK_TRACE_DEPTH=N (default: 8, max: 32)"
       echo "  - To disable all sync, set: export RMM_SYNC_DISABLE=1"
     fi
     
     # Pass through debug and disable environment variables if set
     if [[ "${RMM_SYNC_DEBUG:-}" == "1" ]]; then
       VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DEBUG=1"
-      echo "  - DEBUG MODE ENABLED: Will show sync matches and events"
-      
-      # Pass through debug limit if set
-      if [[ -n "${RMM_SYNC_DEBUG_LIMIT:-}" ]]; then
-        VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DEBUG_LIMIT=${RMM_SYNC_DEBUG_LIMIT}"
-        echo "  - DEBUG LIMIT: Will show first ${RMM_SYNC_DEBUG_LIMIT} sync events"
-      else
-        echo "  - DEBUG LIMIT: Will show first 16 sync events (default)"
-      fi
+      echo "  - DEBUG MODE ENABLED: Will show all sync matches and events"
     fi
     if [[ "${RMM_SYNC_DISABLE:-}" == "1" ]]; then
       VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DISABLE=1"
       echo "  - SYNC DISABLED: No synchronization will occur"
+    fi
+    
+    # Pass through stack trace depth if set
+    if [[ -n "${RMM_STACK_TRACE_DEPTH:-}" ]]; then
+      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_STACK_TRACE_DEPTH=${RMM_STACK_TRACE_DEPTH}"
+      echo "  - STACK TRACE DEPTH: Capturing ${RMM_STACK_TRACE_DEPTH} levels"
+    else
+      echo "  - STACK TRACE DEPTH: Capturing 8 levels (default)"
     fi
     
     echo "Verbose logging enabled:"
