@@ -23,3 +23,10 @@ def get_queries(benchmark_type):
 
 def get_abs_file_path(relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
+
+
+def get_scale_factor_from_file(file):
+    with open(get_abs_file_path(file), "r") as file:
+        metadata = json.load(file)
+        return metadata["scale_factor"]
+

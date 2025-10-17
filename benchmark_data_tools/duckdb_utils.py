@@ -30,7 +30,6 @@ def init_benchmark_tables(benchmark_type, scale_factor):
 def create_table(table_name, data_path):
     duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
     duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet';")
-    ret = duckdb.sql(f"DESCRIBE TABLE {table_name}").fetchall()
 
 def create_not_null_table(table_name, data_path):
     duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")

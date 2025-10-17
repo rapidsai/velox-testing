@@ -15,8 +15,8 @@
 import pytest
 
 from . import test_utils
-from .common_fixtures import presto_cursor, setup_and_teardown, get_scale_factor
-from ..common.fixtures import tpch_queries
+from .common_fixtures import presto_cursor, setup_and_teardown
+from ..common.fixtures import tpch_queries, get_scale_factor
 
 BENCHMARK_TYPE = "tpch"
 

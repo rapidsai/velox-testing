@@ -50,26 +50,23 @@ def compare_results(presto_rows, duckdb_rows, types, query, column_names):
     duckdb_rows = normalize_rows(duckdb_rows, types)
     presto_rows = normalize_rows(presto_rows, types)
 
-    # We need a full sort for all non-ORDER BY columns because some ORDER BY comparsison will be equal
-    # and the resulting order of non-ORDER BY columns will be ambiguous.
+    # We need a full sort for all non-ORDER BY columns because some ORDER BY comparison
+    # will be equal and the resulting order of non-ORDER BY columns will be ambiguous.
     sorted_duckdb_rows = sorted(duckdb_rows)
     sorted_presto_rows = sorted(presto_rows)
     approx_floats(sorted_duckdb_rows, types)
     assert sorted_presto_rows == sorted_duckdb_rows
 
-    # If we have an ORDER BY clause we want to test that the resulting order of those columns
-    # is correct, in addition to overall values being correct.
+    # If we have an ORDER BY clause we want to test that the resulting order of those
+    # columns is correct, in addition to overall values being correct.
     order_indices = get_orderby_indices(query, column_names)
-    if order_indices:
-        # Approx only on ORDER BY columns
-        for col_index in order_indices:
-            if types[col_index].id in FLOATING_POINT_TYPES:
-                for r in range(len(duckdb_rows)):
-                    duckdb_rows[r][col_index] = pytest.approx(duckdb_rows[r][col_index], abs=0.02)
-        # Project both results to ORDER BY columns and compare in original order
-        duckdb_proj = [[row[i] for i in order_indices] for row in duckdb_rows]
-        presto_proj = [[row[i] for i in order_indices] for row in presto_rows]
-        assert presto_proj == duckdb_proj
+    # Only a sorted query should have ORDER BY indicies.
+    assert not (order_indices == get_is_sorted_query(query))
+    approx_floats(duckdb_rows, types)
+    # Project both results to ORDER BY columns and compare in original order
+    duckdb_proj = [[row[i] for i in order_indices] for row in duckdb_rows]
+    presto_proj = [[row[i] for i in order_indices] for row in presto_rows]
+    assert presto_proj == duckdb_proj
 
 
 def get_orderby_indices(query, column_names):
@@ -96,12 +93,6 @@ def create_duckdb_table(table_name, data_path):
 def execute_duckdb_query(query):
     relation = duckdb.sql(query)
     return relation.fetchall(), relation.types, relation.columns
-
-
-def get_scale_factor_from_file(file):
-    with open(get_abs_file_path(file), "r") as file:
-        metadata = json.load(file)
-        return metadata["scale_factor"]
 
 
 def normalize_rows(rows, types):
