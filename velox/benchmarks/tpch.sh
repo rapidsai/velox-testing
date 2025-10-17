@@ -186,6 +186,8 @@ run_tpch_single_benchmark() {
   local run_in_container_func="$4"
   local num_repeats="$5"
   local verbose_logging="${6:-false}"
+  local call_site_collection="${7:-false}"
+  local sync_call_sites_file="${8:-}"
   
   printf -v query_number_padded '%02d' "$query_number"
   
@@ -238,15 +240,38 @@ run_tpch_single_benchmark() {
   set +e
   
   # Set up verbose logging environment variables if requested
+  # Set up verbose logging and bisection search environment variables
   VERBOSE_ENV_PREFIX=""
-  if [[ "$verbose_logging" == "true" ]]; then
+  
+  # Enable verbose logging if requested OR if using bisection modes
+  if [[ "$verbose_logging" == "true" || "$call_site_collection" == "true" || -n "$sync_call_sites_file" ]]; then
     VERBOSE_ENV_PREFIX="RMM_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv RMM_DEBUG_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log RMM_STACK_TRACE_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    
+    # Add bisection search environment variables
+    if [[ "$call_site_collection" == "true" ]]; then
+      echo "Call site collection mode: Syncing ALL deallocation call sites"
+      echo "  - Call site IDs will be logged to: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    elif [[ -n "$sync_call_sites_file" ]]; then
+      # Copy sync file to container accessible location
+      sync_file_basename=$(basename "$sync_call_sites_file")
+      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_CALL_SITES_FILE=/workspace/velox/$sync_file_basename"
+      echo "Bisection mode: Syncing specific call sites from: $sync_call_sites_file"
+      echo "  - Only call sites listed in file will be synchronized"
+    fi
+    
     echo "Verbose logging enabled:"
     echo "  - RMM memory event logging (CSV): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
     echo "  - RMM debug logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log"
-    echo "  - RMM stack trace logging (Boost): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    echo "  - RMM call site logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
   fi
   
+  # Copy sync call sites file to container if needed
+  if [[ -n "$sync_call_sites_file" ]]; then
+    sync_file_basename=$(basename "$sync_call_sites_file")
+    echo "Copying sync call sites file to container: $sync_call_sites_file -> /workspace/velox/$sync_file_basename"
+    $run_in_container_func "cat > /workspace/velox/$sync_file_basename" < "$sync_call_sites_file"
+  fi
+
   $run_in_container_func 'bash -c "
       set -exuo pipefail
       BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"

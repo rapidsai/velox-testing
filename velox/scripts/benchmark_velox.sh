@@ -25,6 +25,8 @@ PROFILE="false"
 DATA_DIR="../../../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
 NUM_REPEATS=2
 VERBOSE_LOGGING="false"
+CALL_SITE_COLLECTION="false"
+SYNC_CALL_SITES_FILE=""
 
 # Docker compose configuration
 COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
@@ -48,6 +50,10 @@ Benchmark Options:
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
   --verbose-logging BOOL                  Enable RMM memory event logging to CSV file for detailed allocation/deallocation tracking (default: false)
 
+Bisection Search Options (for debugging stream ordering issues):
+  --call-site-collection                  Enable call site collection mode: sync ALL deallocation call sites and log unique IDs
+  --sync-call-sites-file FILE             Enable bisection mode: only sync call sites listed in FILE (one per line, format: "module+0xoffset")
+
 General Options:
   -o, --output DIR                        Save benchmark results to DIR (default: ./benchmark-results)
   -h, --help                              Show this help message and exit
@@ -63,6 +69,16 @@ Examples:
   $(basename "$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
   $(basename "$0") --queries 6 --device-type cpu --num-repeats 5  # Run Q6 with 5 repetitions
   $(basename "$0") --queries 15 --device-type gpu --verbose-logging true  # Run Q15 on GPU with RMM memory event logging
+
+Bisection Search Examples:
+  $(basename "$0") --queries 6 --device-type gpu --call-site-collection  # Collect all unique call site IDs (sync all)
+  $(basename "$0") --queries 6 --device-type gpu --sync-call-sites-file /tmp/sync_sites.txt  # Test specific call sites only
+
+Call Site File Format (/tmp/sync_sites.txt):
+  # Lines starting with # are comments
+  velox_cudf_tpch_benchmark+0x127060
+  libcudf.so+0x3c0160
+  # Each line: module_name+0xoffset (from call site analysis)
 
 Prerequisites:
   1. Velox must be built using: ./build_velox.sh
@@ -153,6 +169,19 @@ parse_args() {
           exit 1
         fi
         ;;
+      --call-site-collection)
+        CALL_SITE_COLLECTION="true"
+        shift
+        ;;
+      --sync-call-sites-file)
+        if [[ -n "${2:-}" ]]; then
+          SYNC_CALL_SITES_FILE="$2"
+          shift 2
+        else
+          echo "ERROR: --sync-call-sites-file requires a file path" >&2
+          exit 1
+        fi
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -177,6 +206,20 @@ parse_args() {
         exit 1
         ;;
     esac
+  fi
+  
+  # Validate bisection search options
+  if [[ "$CALL_SITE_COLLECTION" == "true" && -n "$SYNC_CALL_SITES_FILE" ]]; then
+    echo "ERROR: Cannot use both --call-site-collection and --sync-call-sites-file" >&2
+    echo "Use --call-site-collection for data collection mode (sync all call sites)" >&2
+    echo "Use --sync-call-sites-file for bisection mode (sync only specific call sites)" >&2
+    exit 1
+  fi
+  
+  # Validate sync call sites file exists if specified
+  if [[ -n "$SYNC_CALL_SITES_FILE" && ! -f "$SYNC_CALL_SITES_FILE" ]]; then
+    echo "ERROR: Sync call sites file not found: $SYNC_CALL_SITES_FILE" >&2
+    exit 1
   fi
   
 }
@@ -266,12 +309,21 @@ run_benchmark() {
   local device_type="$3" 
   local profile="$4"
   local verbose_logging="$5"
+  local call_site_collection="$6"
+  local sync_call_sites_file="$7"
   
   echo "Running $benchmark_type benchmark..."
   echo "Queries: $queries"
   echo "Device types: $device_type"
   echo "Profile: $profile"
   echo "Verbose logging: $verbose_logging"
+  
+  # Show bisection search mode
+  if [[ "$call_site_collection" == "true" ]]; then
+    echo "Bisection mode: Call site collection (sync ALL call sites)"
+  elif [[ -n "$sync_call_sites_file" ]]; then
+    echo "Bisection mode: Sync specific call sites from: $sync_call_sites_file"
+  fi
   
   # Run all query/device combinations
   for query_number in $queries; do
@@ -281,7 +333,7 @@ run_benchmark() {
 
       case "$benchmark_type" in
         "tpch")
-          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$verbose_logging"
+          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$verbose_logging" "$call_site_collection" "$sync_call_sites_file"
           local exit_code=$?
           ;;
         *)
@@ -335,7 +387,7 @@ echo "Starting benchmarks..."
 echo ""
 
 # Run benchmarks
-run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE" "$VERBOSE_LOGGING"
+run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE" "$VERBOSE_LOGGING" "$CALL_SITE_COLLECTION" "$SYNC_CALL_SITES_FILE"
 
 echo ""
 echo "Benchmarks completed successfully!"
