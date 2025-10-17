@@ -42,6 +42,7 @@ function init_conda() {
     fi
   fi
   unset __conda_setup
+  LOCAL_CONDA_INIT=true # keep track of whether we set up the current conda environment
   echo "Conda initialization completed"
 }
 
@@ -65,7 +66,6 @@ function init_python_virtual_env() {
     fi
 
     init_conda
-    LOCAL_CONDA_INIT=true # keep track of whether we set up the current conda environment
 
     echo "Creating virtual environment using conda"
     conda create -q -y --prefix ".venv" python=3.12 > /dev/null
