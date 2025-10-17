@@ -258,6 +258,7 @@ run_tpch_single_benchmark() {
       echo "Bisection mode: Syncing specific call sites from: $sync_call_sites_file"
       echo "  - Only call sites listed in file will be synchronized"
       echo "  - To enable debug output, set: export RMM_SYNC_DEBUG=1"
+      echo "  - To disable all sync, set: export RMM_SYNC_DISABLE=1"
     fi
     
     echo "Verbose logging enabled:"
