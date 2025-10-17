@@ -56,18 +56,25 @@ parse_args() {
 parse_args "$@"
 
 # verify sibling Presto and Velox clones
-if [[ ! -d "../../../presto" || ! -d "../../../velox" ]]; then
+if [[ ! -d "../../../presto/presto-native-execution" || ! -d "../../../velox" ]]; then
   echo "Error: Sibling Presto and/or Velox clone not found"
   exit 1
 fi
-
-exit 0
 
 # remove any existing image?
 if [[ ! -z $(docker images -q ${IMAGE_NAME}) ]]; then
 	echo "Removing existing Presto dependencies/run-time image..."
 	docker rmi -f ${IMAGE_NAME}
 fi
+
+# restore original Presto Velox on exit
+# on a clean exit, this happens before the automatic popd
+function cleanup {
+  echo "Restoring original Presto Velox..."
+  rm -rf velox
+  mv velox.bak velox
+}
+trap cleanup EXIT
 
 # move to Presto Velox
 pushd ../../../presto/presto-native-execution > /dev/null
@@ -83,13 +90,5 @@ cp -r ../../velox/CMake velox
 echo "Building..."
 docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
 
-# restore Presto Velox
-echo "Restoring original Presto Velox..."
-rm -rf velox
-mv velox.bak velox
-
-# return
-popd > /dev/null
-
-# done
+# done (will cleanup on exit)
 echo "Presto dependencies/run-time container image built!"
