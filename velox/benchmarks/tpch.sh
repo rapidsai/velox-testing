@@ -257,6 +257,7 @@ run_tpch_single_benchmark() {
       VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_CALL_SITES_FILE=/workspace/velox/$sync_file_basename"
       echo "Bisection mode: Syncing specific call sites from: $sync_call_sites_file"
       echo "  - Only call sites listed in file will be synchronized"
+      echo "  - To enable debug output, set: export RMM_SYNC_DEBUG=1"
     fi
     
     echo "Verbose logging enabled:"
