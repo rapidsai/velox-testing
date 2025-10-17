@@ -39,7 +39,8 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
                       -DVELOX_MONO_LIBRARY=ON \
                       -DVELOX_BUILD_SHARED=ON \
                       -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
-                      -DVELOX_ENABLE_FAISS=ON" \
+                      -DVELOX_ENABLE_FAISS=ON \
+                      -DCMAKE_CXX_FLAGS=-fno-omit-frame-pointer" \
     LD_LIBRARY_PATH="${BUILD_BASE_DIR}/${BUILD_TYPE}/lib:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/cudf-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rmm-build:\

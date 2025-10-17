@@ -50,9 +50,11 @@ Benchmark Options:
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
   --verbose-logging BOOL                  Enable RMM memory event logging to CSV file for detailed allocation/deallocation tracking (default: false)
 
-Bisection Search Options (for debugging stream ordering issues):
+Bisection Search Options (for debugging cuDF memory race conditions):
   --call-site-collection                  Enable call site collection mode: sync ALL deallocation call sites and log unique IDs
-  --sync-call-sites-file FILE             Enable bisection mode: only sync call sites listed in FILE (one per line, format: "module+0xoffset")
+                                          Generates CSV file with call site data for analysis
+  --sync-call-sites-file FILE             Enable bisection mode: only sync call sites listed in FILE
+                                          Supports both single-level and multi-level stack trace formats
 
 General Options:
   -o, --output DIR                        Save benchmark results to DIR (default: ./benchmark-results)
@@ -76,18 +78,47 @@ Bisection Search Examples:
 
 Call Site File Format (/tmp/sync_sites.txt):
   # Lines starting with # are comments
+  # Single-level format (basic):
   velox_cudf_tpch_benchmark+0x127060
   libcudf.so+0x3c0160
-  # Each line: module_name+0xoffset (from call site analysis)
+  
+  # Multi-level format (more precise, from backtrace):
+  velox_cudf_tpch_benchmark+0x149ee8->0x14af18->0x1273a0->0x6624->0x66f4->0x186e040->0x18d22dc->0xb9eb20
+  
+  # Each line: module_name+0xoffset[->0xoffset2->...] (from call site analysis CSV)
+
+Environment Variables (for advanced debugging):
+  RMM_SYNC_DEBUG=1                       Enable debug output showing sync matches and events (default: disabled)
+  RMM_SYNC_DEBUG_LIMIT=N                 Limit debug output to first N sync events (default: 16)
+  RMM_SYNC_DISABLE=1                     Completely disable all synchronization (default: disabled)
+  
+  # These are automatically set when using --verbose-logging or bisection modes:
+  RMM_LOG_FILE=path                      RMM memory event logging (CSV format)
+  RMM_DEBUG_LOG_FILE=path                RMM general debug logging (text format)
+  RMM_STACK_TRACE_FILE=path              Call site capture logging (CSV format)
+  RMM_SYNC_CALL_SITES_FILE=path          File containing call sites to synchronize
+
+Advanced Debugging Examples:
+  # Collect call sites with debug output (first 5 events):
+  RMM_SYNC_DEBUG=1 RMM_SYNC_DEBUG_LIMIT=5 $(basename "$0") --queries 6 --device-type gpu --call-site-collection
+  
+  # Test specific call site with unlimited debug output:
+  RMM_SYNC_DEBUG=1 RMM_SYNC_DEBUG_LIMIT=999999 $(basename "$0") --queries 6 --device-type gpu --sync-call-sites-file /tmp/sync_sites.txt
+  
+  # Run without any synchronization (baseline performance):
+  RMM_SYNC_DISABLE=1 $(basename "$0") --queries 6 --device-type gpu --call-site-collection
 
 Prerequisites:
-  1. Velox must be built using: ./build_velox.sh
+  1. Velox must be built using: ./build_velox.sh (with -fno-omit-frame-pointer for better stack traces)
   2. Benchmark data must exist and location can be specified with --data-dir option
   3. Docker and docker-compose must be available
   4. Uses velox-benchmark Docker service (pre-configured with volumes and environment)
 
-Output:
-  Benchmark results (text output and nsys profiles) are automatically saved to the specified output directory via Docker volume mounts.
+Output Files (when using bisection search or verbose logging):
+  benchmark_results/qNN_gpu_N_drivers_rmm.csv           # RMM memory event log
+  benchmark_results/qNN_gpu_N_drivers_debug.log         # RMM debug log  
+  benchmark_results/qNN_gpu_N_drivers_stacktrace.csv    # Call site capture log (for analysis)
+  benchmark_results/qNN_gpu_N_drivers.nsys-rep          # NVIDIA Nsight Systems profile (if --profile true)
 
 EOF
 }

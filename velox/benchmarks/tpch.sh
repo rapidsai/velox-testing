@@ -258,6 +258,7 @@ run_tpch_single_benchmark() {
       echo "Bisection mode: Syncing specific call sites from: $sync_call_sites_file"
       echo "  - Only call sites listed in file will be synchronized"
       echo "  - To enable debug output, set: export RMM_SYNC_DEBUG=1"
+      echo "  - To control debug output limit, set: export RMM_SYNC_DEBUG_LIMIT=N (default: 16)"
       echo "  - To disable all sync, set: export RMM_SYNC_DISABLE=1"
     fi
     
@@ -265,6 +266,14 @@ run_tpch_single_benchmark() {
     if [[ "${RMM_SYNC_DEBUG:-}" == "1" ]]; then
       VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DEBUG=1"
       echo "  - DEBUG MODE ENABLED: Will show sync matches and events"
+      
+      # Pass through debug limit if set
+      if [[ -n "${RMM_SYNC_DEBUG_LIMIT:-}" ]]; then
+        VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DEBUG_LIMIT=${RMM_SYNC_DEBUG_LIMIT}"
+        echo "  - DEBUG LIMIT: Will show first ${RMM_SYNC_DEBUG_LIMIT} sync events"
+      else
+        echo "  - DEBUG LIMIT: Will show first 16 sync events (default)"
+      fi
     fi
     if [[ "${RMM_SYNC_DISABLE:-}" == "1" ]]; then
       VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DISABLE=1"
