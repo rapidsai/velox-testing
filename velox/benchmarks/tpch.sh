@@ -269,7 +269,27 @@ run_tpch_single_benchmark() {
   if [[ -n "$sync_call_sites_file" ]]; then
     sync_file_basename=$(basename "$sync_call_sites_file")
     echo "Copying sync call sites file to container: $sync_call_sites_file -> /workspace/velox/$sync_file_basename"
-    $run_in_container_func "cat > /workspace/velox/$sync_file_basename" < "$sync_call_sites_file"
+    echo "Local file contents:"
+    cat "$sync_call_sites_file"
+    echo "---"
+    
+    # Use here-document approach to copy file contents
+    sync_file_content=$(cat "$sync_call_sites_file")
+    $run_in_container_func "cat > /workspace/velox/$sync_file_basename << 'EOF'
+$sync_file_content
+EOF"
+    
+    # Verify the file was created successfully
+    if $run_in_container_func "test -f /workspace/velox/$sync_file_basename"; then
+      echo "Successfully copied sync call sites file to container"
+      echo "Container file contents:"
+      $run_in_container_func "cat /workspace/velox/$sync_file_basename"
+      echo "Container file permissions:"
+      $run_in_container_func "ls -la /workspace/velox/$sync_file_basename"
+    else
+      echo "ERROR: Failed to copy sync call sites file to container" >&2
+      return 1
+    fi
   fi
 
   $run_in_container_func 'bash -c "
