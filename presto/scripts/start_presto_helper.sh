@@ -44,6 +44,8 @@ CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:latest
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
 GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:latest
 
+DEPS_IMAGE="presto/prestissimo-dependency:centos9"
+
 BUILD_TARGET_ARG=()
 
 function is_image_missing() {
@@ -100,8 +102,11 @@ fi
 
 DOCKER_COMPOSE_FILE_PATH=../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml
 if (( ${#BUILD_TARGET_ARG[@]} )); then
-  if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]]; then
-    ./build_centos_deps_image.sh
+  if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
+    echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
+    echo "Either build a local image using build_centos9_deps_image.sh or fetch a pre-built"
+    echo "image using fetch_centos9_deps_image.sh (credentials may be required)."
+    exit 1
   fi
 
   PRESTO_VERSION=testing
