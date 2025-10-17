@@ -85,10 +85,10 @@ if __name__ == "__main__":
                         help='Path to input Parquet files')
     parser.add_argument('-o', '--output-dir', type=Path, required=True,
                         help='Path to output Parquet files')
-    parser.add_argument('-j', '--jobs', type=int, help='Number of threads')
+    parser.add_argument('-j', '--num-threads', type=int, help='Number of threads')
     parser.add_argument('-v', '--verbose', type=bool, action='store_true', help='Verbose')
     parser.add_argument("-c", "--convert-decimals-to-floats", action="store_true",
                         help="Convert all decimal columns to float column type.")
 
     args = parser.parse_args()
-    process_dir(args.input_dir, args.output_dir, args.jobs, args.verbose, args.convert_decimals_to_floats)
+    process_dir(args.input_dir, args.output_dir, args.num_threads, args.verbose, args.convert_decimals_to_floats)

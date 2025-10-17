@@ -66,7 +66,7 @@ def generate_data_files_with_tpchgen(args):
         raw_data_path = args.data_dir_path
 
     max_partitions = 1
-    with ThreadPoolExecutor(args.jobs) as executor:
+    with ThreadPoolExecutor(args.num_threads) as executor:
         futures = []
 
         for table, num_partitions in tables_sf_ratio.items():
@@ -85,7 +85,7 @@ def generate_data_files_with_tpchgen(args):
     if args.verbose: print(f"Raw data created at: {raw_data_path}")
 
     if args.convert_decimals_to_floats:
-        process_dir(raw_data_path, args.data_dir_path, args.jobs, args.verbose,
+        process_dir(raw_data_path, args.data_dir_path, args.num_threads, args.verbose,
                     args.convert_decimals_to_floats)
         shutil.rmtree(raw_data_path)
 
@@ -179,7 +179,7 @@ if __name__ == "__main__":
                         default=False, help="Convert all decimal columns to float column type.")
     parser.add_argument("--use-duckdb", action="store_true", required=False,
                         default=False, help="Use duckdb instead of tpchgen")
-    parser.add_argument("-j", "--jobs", type=int, required=False,
+    parser.add_argument("-j", "--num-threads", type=int, required=False,
                         default=4, help="Number of threads to generate data with tpchgen")
     parser.add_argument("-v", "--verbose", action="store_true", required=False,
                         default=False, help="Extra verbose logging")
