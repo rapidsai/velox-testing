@@ -261,6 +261,16 @@ run_tpch_single_benchmark() {
       echo "  - To disable all sync, set: export RMM_SYNC_DISABLE=1"
     fi
     
+    # Pass through debug and disable environment variables if set
+    if [[ "${RMM_SYNC_DEBUG:-}" == "1" ]]; then
+      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DEBUG=1"
+      echo "  - DEBUG MODE ENABLED: Will show sync matches and events"
+    fi
+    if [[ "${RMM_SYNC_DISABLE:-}" == "1" ]]; then
+      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DISABLE=1"
+      echo "  - SYNC DISABLED: No synchronization will occur"
+    fi
+    
     echo "Verbose logging enabled:"
     echo "  - RMM memory event logging (CSV): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
     echo "  - RMM debug logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log"
