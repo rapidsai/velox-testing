@@ -61,7 +61,7 @@ def compare_results(presto_rows, duckdb_rows, types, query, column_names):
     # columns is correct, in addition to overall values being correct.
     order_indices = get_orderby_indices(query, column_names)
     # Only a sorted query should have ORDER BY indicies.
-    assert not (order_indices == get_is_sorted_query(query))
+    assert bool(order_indices) == get_is_sorted_query(query)
     approx_floats(duckdb_rows, types)
     # Project both results to ORDER BY columns and compare in original order
     duckdb_proj = [[row[i] for i in order_indices] for row in duckdb_rows]
