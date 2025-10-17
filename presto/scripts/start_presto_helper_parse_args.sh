@@ -34,6 +34,7 @@ OPTIONS:
     --build-type         Build type for native CPU and GPU image builds. Possible values are "release",
                          "relwithdebinfo", or "debug". Values are case insensitive. The default value
                          is "release".
+    --all-cuda-archs     Build for all supported CUDA architectures (GPU only) (default: false).
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -47,6 +48,7 @@ EOF
 
 NUM_THREADS=$(($(nproc) / 2))
 BUILD_TYPE=release
+ALL_CUDA_ARCHS=false
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -85,6 +87,10 @@ parse_args() {
           echo "Error: --build-type requires a value"
           exit 1
         fi
+        ;;
+      --all-cuda-archs)
+        ALL_CUDA_ARCHS=true
+        shift
         ;;
       *)
         echo "Error: Unknown argument $1"
