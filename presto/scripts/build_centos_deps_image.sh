@@ -55,6 +55,14 @@ parse_args() {
 
 parse_args "$@"
 
+# verify sibling Presto and Velox clones
+if [[ ! -d "../../../presto" || ! -d "../../../velox" ]]; then
+  echo "Error: Sibling Presto and/or Velox clone not found"
+  exit 1
+fi
+
+exit 0
+
 # remove any existing image?
 if [[ ! -z $(docker images -q ${IMAGE_NAME}) ]]; then
 	echo "Removing existing Presto dependencies/run-time image..."
