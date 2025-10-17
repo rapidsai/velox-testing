@@ -244,7 +244,7 @@ run_tpch_single_benchmark() {
     echo "Verbose logging enabled:"
     echo "  - RMM memory event logging (CSV): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
     echo "  - RMM debug logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log"
-    echo "  - RMM stack trace logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    echo "  - RMM stack trace logging (Boost): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
   fi
   
   $run_in_container_func 'bash -c "
