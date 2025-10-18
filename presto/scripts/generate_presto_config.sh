@@ -24,9 +24,9 @@ fi
 # get host values
 NPROC=`nproc`
 # lsmem will report in SI.  Make sure we get values in GB.
-RAM_GB=$(( $(lsmem -b | grep "Total online memory" | awk '{print $4}') / (1024*1024*1024) ))
+RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print $4 / (1024*1024*1024)}')
 
-echo "INFO: Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}GB RAM"
+echo "Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}GB RAM"
 
 # move to config directory
 pushd ../docker/config > /dev/null
@@ -54,4 +54,4 @@ EOF
 
 # run pbench to generate the config files
 # hide default pbench logging which goes to stderr so we only see any errors
-../../pbench/pbench genconfig -p params.json -t template generated 2&>1 grep -v '\{\"level'
+../../pbench/pbench genconfig -p params.json -t template generated 2>&1 | grep -v '\{\"level'
