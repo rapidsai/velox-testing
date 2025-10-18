@@ -246,7 +246,7 @@ run_tpch_single_benchmark() {
   VERBOSE_ENV_PREFIX=""
   
   # Enable verbose logging if requested OR if using bisection modes
-  if [[ "$verbose_logging" == "true" || "$call_site_collection" == "true" || -n "$sync_call_sites_file" ]]; then
+  if [[ "$verbose_logging" == "true" || "$call_site_collection" == "true" || -n "$sync_call_sites_file" || (-n "$bisection_midpoint" && -n "$bisection_total_rows") ]]; then
     VERBOSE_ENV_PREFIX="RMM_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv RMM_DEBUG_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log RMM_STACK_TRACE_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
     
     # Add bisection search environment variables
