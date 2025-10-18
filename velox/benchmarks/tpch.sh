@@ -301,6 +301,14 @@ run_tpch_single_benchmark() {
       fi
     fi
     
+    # Pass through UAF detection parameters if set
+    if [[ "${RMM_UAF_DETECT:-}" == "1" ]]; then
+      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_UAF_DETECT=1"
+      echo "  - UAF DETECTION ENABLED: Will monitor managed memory migration for use-after-free access"
+      echo "    - Requires VELOX_CUDF_MEMORY_RESOURCE=managed or managed_pool"
+      echo "    - Memory will be forced to CPU, GPU access will trigger immediate crash"
+    fi
+    
     echo "Verbose logging enabled:"
     echo "  - RMM memory event logging (CSV): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
     echo "  - RMM debug logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log"
