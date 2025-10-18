@@ -27,6 +27,8 @@ NUM_REPEATS=2
 VERBOSE_LOGGING="false"
 CALL_SITE_COLLECTION="false"
 SYNC_CALL_SITES_FILE=""
+BISECTION_MIDPOINT=""
+BISECTION_TOTAL_ROWS=""
 
 # Docker compose configuration
 COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
@@ -55,6 +57,8 @@ Bisection Search Options (for debugging cuDF memory race conditions):
                                           Generates CSV file with call site data for analysis
   --sync-call-sites-file FILE             Enable bisection mode: only sync call sites listed in FILE
                                           Supports both single-level and multi-level stack trace formats
+  --bisection-midpoint FLOAT              Row-based bisection midpoint (0.0 to 1.0): sync deallocations up to this fraction
+  --bisection-total-rows NUM              Total number of deallocation rows expected (for calculating sync threshold)
 
 General Options:
   -o, --output DIR                        Save benchmark results to DIR (default: ./benchmark-results)
@@ -75,6 +79,8 @@ Examples:
 Bisection Search Examples:
   $(basename "$0") --queries 6 --device-type gpu --call-site-collection  # Collect all unique call site IDs (sync all)
   $(basename "$0") --queries 6 --device-type gpu --sync-call-sites-file /tmp/sync_sites.txt  # Test specific call sites only
+  $(basename "$0") --queries 6 --device-type gpu --bisection-midpoint 0.5 --bisection-total-rows 117502  # Sync first half of deallocations
+  $(basename "$0") --queries 6 --device-type gpu --bisection-midpoint 0.25 --bisection-total-rows 117502  # Sync first quarter
 
 Call Site File Format (/tmp/sync_sites.txt):
   # Lines starting with # are comments
@@ -213,6 +219,24 @@ parse_args() {
           exit 1
         fi
         ;;
+      --bisection-midpoint)
+        if [[ -n "${2:-}" ]]; then
+          BISECTION_MIDPOINT="$2"
+          shift 2
+        else
+          echo "ERROR: --bisection-midpoint requires a float argument (0.0 to 1.0)" >&2
+          exit 1
+        fi
+        ;;
+      --bisection-total-rows)
+        if [[ -n "${2:-}" ]]; then
+          BISECTION_TOTAL_ROWS="$2"
+          shift 2
+        else
+          echo "ERROR: --bisection-total-rows requires a number argument" >&2
+          exit 1
+        fi
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -251,6 +275,24 @@ parse_args() {
   if [[ -n "$SYNC_CALL_SITES_FILE" && ! -f "$SYNC_CALL_SITES_FILE" ]]; then
     echo "ERROR: Sync call sites file not found: $SYNC_CALL_SITES_FILE" >&2
     exit 1
+  fi
+  
+  # Validation: Row-based bisection parameters must be used together
+  if [[ -n "$BISECTION_MIDPOINT" && -z "$BISECTION_TOTAL_ROWS" ]]; then
+    echo "ERROR: --bisection-midpoint requires --bisection-total-rows" >&2
+    exit 1
+  fi
+  if [[ -z "$BISECTION_MIDPOINT" && -n "$BISECTION_TOTAL_ROWS" ]]; then
+    echo "ERROR: --bisection-total-rows requires --bisection-midpoint" >&2
+    exit 1
+  fi
+  
+  # Validation: Midpoint must be between 0.0 and 1.0
+  if [[ -n "$BISECTION_MIDPOINT" ]]; then
+    if ! awk "BEGIN {exit !($BISECTION_MIDPOINT >= 0.0 && $BISECTION_MIDPOINT <= 1.0)}"; then
+      echo "ERROR: --bisection-midpoint must be between 0.0 and 1.0" >&2
+      exit 1
+    fi
   fi
   
 }
@@ -342,6 +384,8 @@ run_benchmark() {
   local verbose_logging="$5"
   local call_site_collection="$6"
   local sync_call_sites_file="$7"
+  local bisection_midpoint="$8"
+  local bisection_total_rows="$9"
   
   echo "Running $benchmark_type benchmark..."
   echo "Queries: $queries"
@@ -354,6 +398,10 @@ run_benchmark() {
     echo "Bisection mode: Call site collection (sync ALL call sites)"
   elif [[ -n "$sync_call_sites_file" ]]; then
     echo "Bisection mode: Sync specific call sites from: $sync_call_sites_file"
+  elif [[ -n "$bisection_midpoint" ]]; then
+    echo "Bisection mode: Row-based bisection (midpoint=$bisection_midpoint, total_rows=$bisection_total_rows)"
+  else
+    echo "Bisection mode: Disabled"
   fi
   
   # Run all query/device combinations
@@ -364,7 +412,7 @@ run_benchmark() {
 
       case "$benchmark_type" in
         "tpch")
-          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$verbose_logging" "$call_site_collection" "$sync_call_sites_file"
+          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$verbose_logging" "$call_site_collection" "$sync_call_sites_file" "$bisection_midpoint" "$bisection_total_rows"
           local exit_code=$?
           ;;
         *)
@@ -418,7 +466,7 @@ echo "Starting benchmarks..."
 echo ""
 
 # Run benchmarks
-run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE" "$VERBOSE_LOGGING" "$CALL_SITE_COLLECTION" "$SYNC_CALL_SITES_FILE"
+run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE" "$VERBOSE_LOGGING" "$CALL_SITE_COLLECTION" "$SYNC_CALL_SITES_FILE" "$BISECTION_MIDPOINT" "$BISECTION_TOTAL_ROWS"
 
 echo ""
 echo "Benchmarks completed successfully!"

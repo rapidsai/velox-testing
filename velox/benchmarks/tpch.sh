@@ -188,6 +188,8 @@ run_tpch_single_benchmark() {
   local verbose_logging="${6:-false}"
   local call_site_collection="${7:-false}"
   local sync_call_sites_file="${8:-}"
+  local bisection_midpoint="${9:-}"
+  local bisection_total_rows="${10:-}"
   
   printf -v query_number_padded '%02d' "$query_number"
   
@@ -278,6 +280,12 @@ run_tpch_single_benchmark() {
       echo "  - STACK TRACE DEPTH: Capturing ${RMM_STACK_TRACE_DEPTH} levels"
     else
       echo "  - STACK TRACE DEPTH: Capturing 8 levels (default)"
+    fi
+    
+    # Pass through row-based bisection parameters if set
+    if [[ -n "$bisection_midpoint" && -n "$bisection_total_rows" ]]; then
+      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_BISECTION_MIDPOINT=${bisection_midpoint} RMM_BISECTION_TOTAL_ROWS=${bisection_total_rows}"
+      echo "  - ROW BISECTION: midpoint=${bisection_midpoint}, total_rows=${bisection_total_rows}"
     fi
     
     echo "Verbose logging enabled:"
