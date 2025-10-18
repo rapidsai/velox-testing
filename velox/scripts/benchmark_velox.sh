@@ -29,6 +29,7 @@ CALL_SITE_COLLECTION="false"
 SYNC_CALL_SITES_FILE=""
 BISECTION_MIDPOINT=""
 BISECTION_TOTAL_ROWS=""
+CUDA_SANITIZER=""
 
 # Docker compose configuration
 COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
@@ -51,6 +52,7 @@ Benchmark Options:
   --data-dir DIR                          Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
   --verbose-logging BOOL                  Enable RMM memory event logging to CSV file for detailed allocation/deallocation tracking (default: false)
+  --cuda-sanitizer TOOL                  Run under CUDA sanitizer (memcheck, racecheck, synccheck, initcheck)
 
 Bisection Search Options (for debugging cuDF memory race conditions):
   --call-site-collection                  Enable call site collection mode: sync ALL deallocation call sites and log unique IDs
@@ -125,6 +127,12 @@ Advanced Debugging Examples:
   
   # Smart UAF detection using managed memory migration (will crash when GPU accesses freed memory):
   RMM_UAF_DETECT=1 VELOX_CUDF_MEMORY_RESOURCE=managed_pool $(basename "$0") --queries 6 --device-type gpu --bisection-midpoint 0.125 --bisection-total-rows 117502
+  
+  # Professional UAF detection using CUDA sanitizer (slow but comprehensive):
+  $(basename "$0") --queries 6 --device-type gpu --cuda-sanitizer memcheck
+  
+  # Race condition detection using CUDA sanitizer:
+  $(basename "$0") --queries 6 --device-type gpu --cuda-sanitizer racecheck
 
 Prerequisites:
   1. Velox must be built using: ./build_velox.sh (with -fno-omit-frame-pointer for better stack traces)
@@ -137,6 +145,7 @@ Output Files (when using bisection search or verbose logging):
   benchmark_results/qNN_gpu_N_drivers_debug.log         # RMM debug log  
   benchmark_results/qNN_gpu_N_drivers_stacktrace.csv    # Call site capture log (for analysis)
   benchmark_results/qNN_gpu_N_drivers.nsys-rep          # NVIDIA Nsight Systems profile (if --profile true)
+  benchmark_results/qNN_gpu_N_drivers_sanitizer.log     # CUDA Sanitizer log (if --cuda-sanitizer specified)
 
 EOF
 }
@@ -249,6 +258,15 @@ parse_args() {
           exit 1
         fi
         ;;
+      --cuda-sanitizer)
+        if [[ -n "${2:-}" ]]; then
+          CUDA_SANITIZER="$2"
+          shift 2
+        else
+          echo "ERROR: --cuda-sanitizer requires a tool argument (memcheck, racecheck, synccheck, initcheck)" >&2
+          exit 1
+        fi
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -305,6 +323,20 @@ parse_args() {
       echo "ERROR: --bisection-midpoint must be between 0.0 and 1.0" >&2
       exit 1
     fi
+  fi
+  
+  # Validation: CUDA sanitizer tool
+  if [[ -n "$CUDA_SANITIZER" ]]; then
+    case "$CUDA_SANITIZER" in
+      "memcheck"|"racecheck"|"synccheck"|"initcheck")
+        # Valid tools
+        ;;
+      *)
+        echo "ERROR: Invalid CUDA sanitizer tool: $CUDA_SANITIZER" >&2
+        echo "Valid tools: memcheck, racecheck, synccheck, initcheck" >&2
+        exit 1
+        ;;
+    esac
   fi
   
 }
@@ -424,7 +456,7 @@ run_benchmark() {
 
       case "$benchmark_type" in
         "tpch")
-          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$verbose_logging" "$call_site_collection" "$sync_call_sites_file" "$bisection_midpoint" "$bisection_total_rows"
+          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$verbose_logging" "$call_site_collection" "$sync_call_sites_file" "$bisection_midpoint" "$bisection_total_rows" "$CUDA_SANITIZER"
           local exit_code=$?
           ;;
         *)

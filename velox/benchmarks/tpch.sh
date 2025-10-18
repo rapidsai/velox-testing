@@ -190,6 +190,7 @@ run_tpch_single_benchmark() {
   local sync_call_sites_file="${8:-}"
   local bisection_midpoint="${9:-}"
   local bisection_total_rows="${10:-}"
+  local cuda_sanitizer="${11:-}"
   
   printf -v query_number_padded '%02d' "$query_number"
   
@@ -342,12 +343,24 @@ EOF"
     fi
   fi
 
+  # Set up CUDA sanitizer command if specified
+  SANITIZER_CMD=""
+  if [[ -n "$cuda_sanitizer" ]]; then
+    SANITIZER_CMD="compute-sanitizer --tool $cuda_sanitizer --log-file benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_sanitizer.log"
+    echo "CUDA Sanitizer enabled: $cuda_sanitizer"
+    echo "  - Sanitizer log: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_sanitizer.log"
+    echo "  - WARNING: Sanitizer will significantly slow down execution (10-100x slower)"
+  fi
+
   $run_in_container_func 'bash -c "
       set -exuo pipefail
       BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
       echo \"Starting benchmark with environment: '"${VERBOSE_ENV_PREFIX}"'\"
       echo \"Benchmark executable: '"${BENCHMARK_EXECUTABLE}"'\"
-      '"${VERBOSE_ENV_PREFIX}"' '"${PROFILE_CMD}"' \
+      if [[ -n \"'"${SANITIZER_CMD}"'\" ]]; then
+        echo \"CUDA Sanitizer: '"${SANITIZER_CMD}"'\"
+      fi
+      '"${VERBOSE_ENV_PREFIX}"' '"${PROFILE_CMD}"' '"${SANITIZER_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \
         --data_path=/workspace/velox/velox-benchmark-data \
         --data_format=parquet \
@@ -378,6 +391,11 @@ EOF"
       if [ -f \"\$RMM_STACK_TRACE_FILE\" ]; then
         chown \"${USER_ID}:${GROUP_ID}\" \"\$RMM_STACK_TRACE_FILE\"
         echo \"RMM stack trace log saved to: \$RMM_STACK_TRACE_FILE\"
+      fi
+      SANITIZER_LOG_FILE=\"\${BASE_FILENAME}_sanitizer.log\"
+      if [ -f \"\$SANITIZER_LOG_FILE\" ]; then
+        chown \"${USER_ID}:${GROUP_ID}\" \"\$SANITIZER_LOG_FILE\"
+        echo \"CUDA Sanitizer log saved to: \$SANITIZER_LOG_FILE\"
       fi
     "'
 
