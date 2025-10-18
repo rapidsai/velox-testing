@@ -97,6 +97,8 @@ Environment Variables (for advanced debugging):
   RMM_SYNC_DEBUG=1                       Enable debug output showing sync matches and events (default: disabled)
   RMM_STACK_TRACE_DEPTH=N                Control stack trace depth for call site uniqueness (default: 8, max: 32)
   RMM_SYNC_DISABLE=1                     Completely disable all synchronization (default: disabled)
+  RMM_POISON_MEMORY=1                    Poison memory before deallocation to catch use-after-free (default: disabled)
+  RMM_POISON_PATTERN=HH                  Hex byte pattern for poisoning (default: DE for 0xDEADBEEF pattern)
   
   # These are automatically set when using --verbose-logging or bisection modes:
   RMM_LOG_FILE=path                      RMM memory event logging (CSV format)
@@ -113,6 +115,12 @@ Advanced Debugging Examples:
   
   # Run without any synchronization (baseline performance):
   RMM_SYNC_DISABLE=1 $(basename "$0") --queries 6 --device-type gpu --call-site-collection
+  
+  # Aggressive memory poisoning to catch use-after-free (will cause immediate crashes):
+  RMM_POISON_MEMORY=1 RMM_SYNC_DEBUG=1 $(basename "$0") --queries 6 --device-type gpu --bisection-midpoint 0.125 --bisection-total-rows 117502
+  
+  # Custom poison pattern (0xFF fills memory with 255):
+  RMM_POISON_MEMORY=1 RMM_POISON_PATTERN=FF $(basename "$0") --queries 6 --device-type gpu --bisection-midpoint 0.125 --bisection-total-rows 117502
 
 Prerequisites:
   1. Velox must be built using: ./build_velox.sh (with -fno-omit-frame-pointer for better stack traces)

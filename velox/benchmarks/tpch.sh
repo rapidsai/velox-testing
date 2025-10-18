@@ -288,6 +288,19 @@ run_tpch_single_benchmark() {
       echo "  - ROW BISECTION: midpoint=${bisection_midpoint}, total_rows=${bisection_total_rows}"
     fi
     
+    # Pass through memory poisoning parameters if set
+    if [[ "${RMM_POISON_MEMORY:-}" == "1" ]]; then
+      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_POISON_MEMORY=1"
+      echo "  - MEMORY POISONING ENABLED: Will poison memory before deallocation to catch use-after-free"
+      
+      if [[ -n "${RMM_POISON_PATTERN:-}" ]]; then
+        VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_POISON_PATTERN=${RMM_POISON_PATTERN}"
+        echo "    - Poison pattern: 0x${RMM_POISON_PATTERN}"
+      else
+        echo "    - Poison pattern: 0xDE (default)"
+      fi
+    fi
+    
     echo "Verbose logging enabled:"
     echo "  - RMM memory event logging (CSV): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
     echo "  - RMM debug logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log"
