@@ -101,7 +101,6 @@ Environment Variables (for advanced debugging):
   RMM_SYNC_DISABLE=1                     Completely disable all synchronization (default: disabled)
   RMM_POISON_MEMORY=1                    Poison memory before deallocation to catch use-after-free (default: disabled)
   RMM_POISON_PATTERN=HH                  Hex byte pattern for poisoning (default: DE for 0xDEADBEEF pattern)
-  RMM_UAF_DETECT=1                       Monitor managed memory migration for use-after-free (requires managed/managed_pool)
   
   # These are automatically set when using --verbose-logging or bisection modes:
   RMM_LOG_FILE=path                      RMM memory event logging (CSV format)
@@ -125,8 +124,6 @@ Advanced Debugging Examples:
   # Custom poison pattern (0xFF fills memory with 255):
   RMM_POISON_MEMORY=1 RMM_POISON_PATTERN=FF $(basename "$0") --queries 6 --device-type gpu --bisection-midpoint 0.125 --bisection-total-rows 117502
   
-  # Smart UAF detection using managed memory migration (will crash when GPU accesses freed memory):
-  RMM_UAF_DETECT=1 VELOX_CUDF_MEMORY_RESOURCE=managed_pool $(basename "$0") --queries 6 --device-type gpu --bisection-midpoint 0.125 --bisection-total-rows 117502
   
   # Professional UAF detection using CUDA sanitizer (slow but comprehensive):
   $(basename "$0") --queries 6 --device-type gpu --cuda-sanitizer memcheck

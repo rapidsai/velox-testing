@@ -54,6 +54,12 @@ WORKDIR /workspace/velox
 
 RUN dnf install -y libnvjitlink-devel-$(echo ${CUDA_VERSION} | tr '.' '-')
 
+# Install CUDA Sanitizer (compute-sanitizer) for memory debugging
+RUN dnf install -y cuda-sanitizer-$(echo ${CUDA_VERSION} | tr '.' '-') || \
+    echo "WARNING: CUDA Sanitizer not available for CUDA ${CUDA_VERSION}, trying alternative installation" && \
+    dnf install -y cuda-sanitizer-12-* || \
+    echo "WARNING: CUDA Sanitizer installation failed - --cuda-sanitizer option will not work"
+
 
 # Build and install newer curl to replace system version
 RUN set -euxo pipefail && \

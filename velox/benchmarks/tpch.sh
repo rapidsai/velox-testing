@@ -302,13 +302,11 @@ run_tpch_single_benchmark() {
       fi
     fi
     
-    # Pass through UAF detection parameters if set
-    if [[ "${RMM_UAF_DETECT:-}" == "1" ]]; then
-      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_UAF_DETECT=1"
-      echo "  - UAF DETECTION ENABLED: Will monitor managed memory migration for use-after-free access"
-      echo "    - Requires VELOX_CUDF_MEMORY_RESOURCE=managed or managed_pool"
-      echo "    - Memory will be forced to CPU, GPU access will trigger immediate crash"
-    fi
+    # UAF detection disabled due to illegal memory access errors with managed_pool
+    # if [[ "${RMM_UAF_DETECT:-}" == "1" ]]; then
+    #   VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_UAF_DETECT=1"
+    #   echo "  - UAF DETECTION ENABLED: Will monitor managed memory migration for use-after-free access"
+    # fi
     
     echo "Verbose logging enabled:"
     echo "  - RMM memory event logging (CSV): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
@@ -346,6 +344,14 @@ EOF"
   # Set up CUDA sanitizer command if specified
   SANITIZER_CMD=""
   if [[ -n "$cuda_sanitizer" ]]; then
+    # Check if compute-sanitizer is available in container
+    if ! $run_in_container_func "which compute-sanitizer" &>/dev/null; then
+      echo "ERROR: compute-sanitizer not found in container" >&2
+      echo "       Please rebuild the container with: ./build_velox.sh --build-type RelWithDebInfo" >&2
+      echo "       The Dockerfile will install CUDA Sanitizer during the build process" >&2
+      return 1
+    fi
+    
     SANITIZER_CMD="compute-sanitizer --tool $cuda_sanitizer --log-file benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_sanitizer.log"
     echo "CUDA Sanitizer enabled: $cuda_sanitizer"
     echo "  - Sanitizer log: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_sanitizer.log"
