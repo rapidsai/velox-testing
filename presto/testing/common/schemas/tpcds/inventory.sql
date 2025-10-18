@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.inventory (
+CREATE TABLE hive.{schema}.inventory (
     inv_date_sk INTEGER,
     inv_item_sk INTEGER,
     inv_warehouse_sk INTEGER,
