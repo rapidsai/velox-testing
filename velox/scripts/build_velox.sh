@@ -45,7 +45,6 @@ Options:
   -j|--num-threads            NUM Number of threads to use for building (default: 3/4 of CPU cores).
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
-  --build-deps                Build adapters dependency image first (default: false).
   -h, --help                  Show this help message and exit.
 
 Examples:
@@ -98,10 +97,6 @@ parse_args() {
         ;;
       --gpu)
         BUILD_WITH_VELOX_ENABLE_CUDF="ON"
-        shift
-        ;;
-      --build-deps)
-        BUILD_DEPS=true
         shift
         ;;
       -j|--num-threads)
@@ -189,12 +184,6 @@ parse_args "$@"
 
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"
-
-# Check if the Velox dependencies image exists locally; if not, build it.
-if ! docker image inspect "${DEPS_IMAGE_NAME}" > /dev/null 2>&1; then
-  echo "Dependencies image (${DEPS_IMAGE_NAME}) not found. Building dependencies image first..."
-  ./build_centos_deps_image.sh
-fi
 
 # Compose docker build command options (default: do not force pull; use local images if present)
 DOCKER_BUILD_OPTS=()
