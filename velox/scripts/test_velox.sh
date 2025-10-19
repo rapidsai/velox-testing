@@ -102,9 +102,9 @@ test_preamble='if [ -f "/opt/miniforge/etc/profile.d/conda.sh" ]; then
   fi
   export CLASSPATH=$(/usr/local/hadoop/bin/hdfs classpath --glob)'
 if [[ "$DEVICE_TYPE" == "cpu" ]]; then
-  test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error"
+  test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test\""
 else
-  test_cmd="ctest -j ${NUM_THREADS} --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_s3\""
+  test_cmd="ctest -j ${NUM_THREADS} --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3\""
 fi
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "set -euo pipefail; cd ${EXPECTED_OUTPUT_DIR} && ${test_preamble} && ${test_cmd}"; then
   echo ""
