@@ -138,3 +138,8 @@ if [[ ! ${BUILD_TYPE} =~ ^(release|relwithdebinfo|debug)$ ]]; then
   print_help
   exit 1
 fi
+
+if [[ -n $PROFILE_ARGS && "$PROFILE" == "OFF" ]]; then
+  echo "Error: the --profile-args argument should only be set when --profile is enabled"
+  exit 1
+fi
