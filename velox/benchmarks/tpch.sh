@@ -19,6 +19,102 @@
 # TPC-H specific constants
 TPCH_REQUIRED_TABLES=("customer" "lineitem" "nation" "orders" "part" "partsupp" "region" "supplier")
 
+generate_debug_script() {
+  local query_number_padded="$1"
+  local device_type="$2"
+  local num_drivers="$3"
+  local benchmark_executable="$4"
+  local verbose_env_prefix="$5"
+  local profile_cmd="$6"
+  local sanitizer_cmd="$7"
+  local num_repeats="$8"
+  local output_batch_rows="$9"
+  local velox_cudf_flags="${10}"
+  local cudf_flags="${11}"
+  
+  local debug_script="debug_commands.sh"
+  
+  echo ""
+  echo "=== INTERACTIVE MODE: Generating Debug Commands ==="
+  echo ""
+  
+  # Generate the debug script
+  cat > "$debug_script" << 'EOF'
+#!/bin/bash
+# Generated debug script for manual GDB debugging
+# Run this script to get the Docker shell command and benchmark command
+
+set -euo pipefail
+
+echo "=== Docker Shell Command ==="
+echo "Run this command to start an interactive Docker shell:"
+echo ""
+EOF
+
+  # Add the Docker shell command
+  echo "echo 'docker compose -f ../docker/docker-compose.adapters.benchmark.yml run --rm velox-benchmark bash'" >> "$debug_script"
+  
+  cat >> "$debug_script" << 'EOF'
+echo ""
+echo "=== Benchmark Command (to run inside Docker shell) ==="
+echo "Once inside the Docker shell, you can run:"
+echo ""
+EOF
+
+  # Add the benchmark command
+  cat >> "$debug_script" << EOF
+echo "# Set up environment and run benchmark:"
+echo "cd /workspace/velox"
+echo "ulimit -c unlimited  # Enable core dumps"
+echo ""
+echo "# Normal run:"
+echo "${verbose_env_prefix} ${profile_cmd} ${sanitizer_cmd} \\"
+echo "  ${benchmark_executable} \\"
+echo "  --data_path=/workspace/velox/velox-benchmark-data \\"
+echo "  --data_format=parquet \\"
+echo "  --run_query_verbose=${query_number_padded} \\"
+echo "  --num_repeats=${num_repeats} \\"
+echo "  --num_drivers=${num_drivers} \\"
+echo "  --preferred_output_batch_rows=${output_batch_rows} \\"
+echo "  --max_output_batch_rows=${output_batch_rows} \\"
+echo "  ${velox_cudf_flags} \\"
+echo "  ${cudf_flags}"
+echo ""
+echo "# GDB run (prefix the above command with gdb):"
+echo "gdb --args \\"
+echo "${verbose_env_prefix} ${profile_cmd} ${sanitizer_cmd} \\"
+echo "  ${benchmark_executable} \\"
+echo "  --data_path=/workspace/velox/velox-benchmark-data \\"
+echo "  --data_format=parquet \\"
+echo "  --run_query_verbose=${query_number_padded} \\"
+echo "  --num_repeats=${num_repeats} \\"
+echo "  --num_drivers=${num_drivers} \\"
+echo "  --preferred_output_batch_rows=${output_batch_rows} \\"
+echo "  --max_output_batch_rows=${output_batch_rows} \\"
+echo "  ${velox_cudf_flags} \\"
+echo "  ${cudf_flags}"
+echo ""
+echo "# In GDB, use these commands:"
+echo "#   run     - start the program"
+echo "#   bt      - show backtrace when it crashes"
+echo "#   info registers - show register values"
+echo "#   quit    - exit gdb"
+EOF
+
+  chmod +x "$debug_script"
+  
+  echo "Generated debug script: $debug_script"
+  echo ""
+  echo "To use:"
+  echo "1. Run: ./$debug_script"
+  echo "2. Copy and run the Docker shell command"
+  echo "3. Inside Docker, copy and run the benchmark command (with or without gdb)"
+  echo ""
+  
+  # Also run the script to show the commands immediately
+  ./"$debug_script"
+}
+
 get_tpch_help() {
   cat <<EOF
 
@@ -191,6 +287,7 @@ run_tpch_single_benchmark() {
   local bisection_midpoint="${9:-}"
   local bisection_total_rows="${10:-}"
   local cuda_sanitizer="${11:-}"
+  local interactive_mode="${12:-false}"
   
   printf -v query_number_padded '%02d' "$query_number"
   
@@ -356,6 +453,12 @@ EOF"
     echo "CUDA Sanitizer enabled: $cuda_sanitizer"
     echo "  - Sanitizer log: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_sanitizer.log"
     echo "  - WARNING: Sanitizer will significantly slow down execution (10-100x slower)"
+  fi
+
+  # Handle interactive mode
+  if [[ "$interactive_mode" == "true" ]]; then
+    generate_debug_script "$query_number_padded" "$device_type" "$num_drivers" "$BENCHMARK_EXECUTABLE" "$VERBOSE_ENV_PREFIX" "$PROFILE_CMD" "$SANITIZER_CMD" "$num_repeats" "$output_batch_rows" "$VELOX_CUDF_FLAGS" "$CUDF_FLAGS"
+    return 0
   fi
 
   $run_in_container_func 'bash -c "

@@ -30,6 +30,7 @@ SYNC_CALL_SITES_FILE=""
 BISECTION_MIDPOINT=""
 BISECTION_TOTAL_ROWS=""
 CUDA_SANITIZER=""
+INTERACTIVE_MODE="false"
 
 # Docker compose configuration
 COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
@@ -53,6 +54,7 @@ Benchmark Options:
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
   --verbose-logging BOOL                  Enable RMM memory event logging to CSV file for detailed allocation/deallocation tracking (default: false)
   --cuda-sanitizer TOOL                  Run under CUDA sanitizer (memcheck, racecheck, synccheck, initcheck)
+  --interactive                           Interactive mode: print Docker shell commands and generate debug script instead of running
 
 Bisection Search Options (for debugging cuDF memory race conditions):
   --call-site-collection                  Enable call site collection mode: sync ALL deallocation call sites and log unique IDs
@@ -130,6 +132,9 @@ Advanced Debugging Examples:
   
   # Race condition detection using CUDA sanitizer:
   $(basename "$0") --queries 6 --device-type gpu --cuda-sanitizer racecheck
+  
+  # Interactive mode - generate Docker shell commands and debug script:
+  $(basename "$0") --queries 6 --device-type gpu --interactive
 
 Prerequisites:
   1. Velox must be built using: ./build_velox.sh (with -fno-omit-frame-pointer for better stack traces)
@@ -143,6 +148,7 @@ Output Files (when using bisection search or verbose logging):
   benchmark_results/qNN_gpu_N_drivers_stacktrace.csv    # Call site capture log (for analysis)
   benchmark_results/qNN_gpu_N_drivers.nsys-rep          # NVIDIA Nsight Systems profile (if --profile true)
   benchmark_results/qNN_gpu_N_drivers_sanitizer.log     # CUDA Sanitizer log (if --cuda-sanitizer specified)
+  debug_commands.sh                                      # Generated debug script (if --interactive)
 
 EOF
 }
@@ -263,6 +269,10 @@ parse_args() {
           echo "ERROR: --cuda-sanitizer requires a tool argument (memcheck, racecheck, synccheck, initcheck)" >&2
           exit 1
         fi
+        ;;
+      --interactive)
+        INTERACTIVE_MODE="true"
+        shift
         ;;
       -h|--help)
         print_help
@@ -427,6 +437,8 @@ run_benchmark() {
   local sync_call_sites_file="$7"
   local bisection_midpoint="$8"
   local bisection_total_rows="$9"
+  local cuda_sanitizer="${10}"
+  local interactive_mode="${11}"
   
   echo "Running $benchmark_type benchmark..."
   echo "Queries: $queries"
@@ -453,7 +465,7 @@ run_benchmark() {
 
       case "$benchmark_type" in
         "tpch")
-          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$verbose_logging" "$call_site_collection" "$sync_call_sites_file" "$bisection_midpoint" "$bisection_total_rows" "$CUDA_SANITIZER"
+          run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS" "$verbose_logging" "$call_site_collection" "$sync_call_sites_file" "$bisection_midpoint" "$bisection_total_rows" "$cuda_sanitizer" "$interactive_mode"
           local exit_code=$?
           ;;
         *)
@@ -472,6 +484,14 @@ run_benchmark() {
 
 # Parse arguments
 parse_args "$@"
+
+# Handle interactive mode
+if [[ "$INTERACTIVE_MODE" == "true" ]]; then
+  echo ""
+  echo "=== INTERACTIVE MODE ==="
+  echo "Generating Docker shell commands and debug script instead of running benchmark..."
+  echo ""
+fi
 
 echo ""
 echo "Velox Benchmark Runner"
@@ -507,7 +527,7 @@ echo "Starting benchmarks..."
 echo ""
 
 # Run benchmarks
-run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE" "$VERBOSE_LOGGING" "$CALL_SITE_COLLECTION" "$SYNC_CALL_SITES_FILE" "$BISECTION_MIDPOINT" "$BISECTION_TOTAL_ROWS"
+run_benchmark "$BENCHMARK_TYPE" "$QUERIES" "$DEVICE_TYPE" "$PROFILE" "$VERBOSE_LOGGING" "$CALL_SITE_COLLECTION" "$SYNC_CALL_SITES_FILE" "$BISECTION_MIDPOINT" "$BISECTION_TOTAL_ROWS" "$CUDA_SANITIZER" "$INTERACTIVE_MODE"
 
 echo ""
 echo "Benchmarks completed successfully!"

@@ -60,6 +60,9 @@ RUN dnf install -y cuda-sanitizer-$(echo ${CUDA_VERSION} | tr '.' '-') || \
     dnf install -y cuda-sanitizer-12-* || \
     echo "WARNING: CUDA Sanitizer installation failed - --cuda-sanitizer option will not work"
 
+# Install GDB for manual debugging (used in interactive mode)
+RUN dnf install -y gdb
+
 
 # Build and install newer curl to replace system version
 RUN set -euxo pipefail && \
