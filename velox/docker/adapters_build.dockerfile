@@ -13,12 +13,14 @@ ARG BUILD_BASE_DIR=/opt/velox-build
 ARG BUILD_TYPE=release
 ARG ENABLE_SCCACHE=OFF
 ARG SCCACHE_DISABLE_DIST=ON
+ARG ENABLE_ASAN=OFF
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     GTest_SOURCE=BUNDLED \
     cudf_SOURCE=BUNDLED \
     faiss_SOURCE=BUNDLED \
+    fmt_SOURCE=BUNDLED \
     CUDA_VERSION=${CUDA_VERSION} \
     TREAT_WARNINGS_AS_ERRORS=${TREAT_WARNINGS_AS_ERRORS} \
     MAKEFLAGS="NUM_THREADS=${NUM_THREADS} MAX_HIGH_MEM_JOBS=4 MAX_LINK_JOBS=4" \
@@ -39,8 +41,7 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
                       -DVELOX_MONO_LIBRARY=ON \
                       -DVELOX_BUILD_SHARED=ON \
                       -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
-                      -DVELOX_ENABLE_FAISS=ON \
-                      -DCMAKE_CXX_FLAGS=-fno-omit-frame-pointer" \
+                      -DVELOX_ENABLE_FAISS=ON" \
     LD_LIBRARY_PATH="${BUILD_BASE_DIR}/${BUILD_TYPE}/lib:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/cudf-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rmm-build:\
@@ -49,6 +50,13 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     ENABLE_SCCACHE=${ENABLE_SCCACHE} \
     SCCACHE_DISABLE_DIST=${SCCACHE_DISABLE_DIST}
+
+# Set CMAKE flags conditionally based on ENABLE_ASAN
+RUN if [ "$ENABLE_ASAN" = "ON" ]; then \
+      echo "EXTRA_CMAKE_FLAGS=\"${EXTRA_CMAKE_FLAGS} -DCMAKE_CXX_FLAGS='-fno-omit-frame-pointer -fsanitize=address -fno-optimize-sibling-calls' -DCMAKE_C_FLAGS='-fsanitize=address -fno-optimize-sibling-calls'\"" >> /etc/environment; \
+    else \
+      echo "EXTRA_CMAKE_FLAGS=\"${EXTRA_CMAKE_FLAGS} -DCMAKE_CXX_FLAGS='-fno-omit-frame-pointer' -DCMAKE_C_FLAGS=''\"" >> /etc/environment; \
+    fi
 
 WORKDIR /workspace/velox
 
@@ -60,7 +68,7 @@ RUN dnf install -y cuda-sanitizer-$(echo ${CUDA_VERSION} | tr '.' '-') || \
     dnf install -y cuda-sanitizer-12-* || \
     echo "WARNING: CUDA Sanitizer installation failed - --cuda-sanitizer option will not work"
 
-# Install GDB for manual debugging (used in interactive mode)
+# Install GDB for debugging
 RUN dnf install -y gdb
 
 

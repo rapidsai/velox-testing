@@ -52,7 +52,7 @@ echo ""
 EOF
 
   # Add the Docker shell command
-  echo "echo 'docker compose -f ../docker/docker-compose.adapters.benchmark.yml run --rm velox-benchmark bash'" >> "$debug_script"
+  echo "echo 'docker compose -f ../docker/docker-compose.adapters.benchmark.yml --env-file .env run --rm velox-benchmark bash'" >> "$debug_script"
   
   cat >> "$debug_script" << 'EOF'
 echo ""
@@ -61,45 +61,63 @@ echo "Once inside the Docker shell, you can run:"
 echo ""
 EOF
 
-  # Add the benchmark command
-  cat >> "$debug_script" << EOF
+  # Add the benchmark command (using printf to avoid quote issues)
+  cat >> "$debug_script" << 'SCRIPT_EOF'
 echo "# Set up environment and run benchmark:"
 echo "cd /workspace/velox"
 echo "ulimit -c unlimited  # Enable core dumps"
 echo ""
 echo "# Normal run:"
-echo "${verbose_env_prefix} ${profile_cmd} ${sanitizer_cmd} \\"
-echo "  ${benchmark_executable} \\"
-echo "  --data_path=/workspace/velox/velox-benchmark-data \\"
-echo "  --data_format=parquet \\"
-echo "  --run_query_verbose=${query_number_padded} \\"
-echo "  --num_repeats=${num_repeats} \\"
-echo "  --num_drivers=${num_drivers} \\"
-echo "  --preferred_output_batch_rows=${output_batch_rows} \\"
-echo "  --max_output_batch_rows=${output_batch_rows} \\"
-echo "  ${velox_cudf_flags} \\"
-echo "  ${cudf_flags}"
+SCRIPT_EOF
+
+  # Add the actual commands with proper escaping
+  printf 'echo "%s %s %s \\\\\n' "$verbose_env_prefix" "$profile_cmd" "$sanitizer_cmd" >> "$debug_script"
+  printf 'echo "  %s \\\\\n' "$benchmark_executable" >> "$debug_script"
+  printf 'echo "  --data_path=/workspace/velox/velox-benchmark-data \\\\\n' >> "$debug_script"
+  printf 'echo "  --data_format=parquet \\\\\n' >> "$debug_script"
+  printf 'echo "  --run_query_verbose=%s \\\\\n' "$query_number_padded" >> "$debug_script"
+  printf 'echo "  --num_repeats=%s \\\\\n' "$num_repeats" >> "$debug_script"
+  printf 'echo "  --num_drivers=%s \\\\\n' "$num_drivers" >> "$debug_script"
+  printf 'echo "  --preferred_output_batch_rows=%s \\\\\n' "$output_batch_rows" >> "$debug_script"
+  printf 'echo "  --max_output_batch_rows=%s \\\\\n' "$output_batch_rows" >> "$debug_script"
+  printf 'echo "  %s \\\\\n' "$velox_cudf_flags" >> "$debug_script"
+  printf 'echo "  %s"\n' "$cudf_flags" >> "$debug_script"
+  
+  cat >> "$debug_script" << 'SCRIPT_EOF'
 echo ""
-echo "# GDB run (prefix the above command with gdb):"
+echo "# GDB run:"
 echo "gdb --args \\"
-echo "${verbose_env_prefix} ${profile_cmd} ${sanitizer_cmd} \\"
-echo "  ${benchmark_executable} \\"
-echo "  --data_path=/workspace/velox/velox-benchmark-data \\"
-echo "  --data_format=parquet \\"
-echo "  --run_query_verbose=${query_number_padded} \\"
-echo "  --num_repeats=${num_repeats} \\"
-echo "  --num_drivers=${num_drivers} \\"
-echo "  --preferred_output_batch_rows=${output_batch_rows} \\"
-echo "  --max_output_batch_rows=${output_batch_rows} \\"
-echo "  ${velox_cudf_flags} \\"
-echo "  ${cudf_flags}"
+SCRIPT_EOF
+
+  # Add GDB command
+  printf 'echo "%s %s %s \\\\\n' "$verbose_env_prefix" "$profile_cmd" "$sanitizer_cmd" >> "$debug_script"
+  printf 'echo "  %s \\\\\n' "$benchmark_executable" >> "$debug_script"
+  printf 'echo "  --data_path=/workspace/velox/velox-benchmark-data \\\\\n' >> "$debug_script"
+  printf 'echo "  --data_format=parquet \\\\\n' >> "$debug_script"
+  printf 'echo "  --run_query_verbose=%s \\\\\n' "$query_number_padded" >> "$debug_script"
+  printf 'echo "  --num_repeats=%s \\\\\n' "$num_repeats" >> "$debug_script"
+  printf 'echo "  --num_drivers=%s \\\\\n' "$num_drivers" >> "$debug_script"
+  printf 'echo "  --preferred_output_batch_rows=%s \\\\\n' "$output_batch_rows" >> "$debug_script"
+  printf 'echo "  --max_output_batch_rows=%s \\\\\n' "$output_batch_rows" >> "$debug_script"
+  printf 'echo "  %s \\\\\n' "$velox_cudf_flags" >> "$debug_script"
+  printf 'echo "  %s"\n' "$cudf_flags" >> "$debug_script"
+
+  cat >> "$debug_script" << 'SCRIPT_EOF'
+echo ""
+echo "# AddressSanitizer is built-in - just run normally:"
+echo "# ASan will automatically detect memory errors and print detailed reports"
+echo "# Set these environment variables for better ASan output:"
+echo "export ASAN_OPTIONS='abort_on_error=1:halt_on_error=1:print_stacktrace=1:check_initialization_order=1:strict_init_order=1'"
 echo ""
 echo "# In GDB, use these commands:"
 echo "#   run     - start the program"
 echo "#   bt      - show backtrace when it crashes"
 echo "#   info registers - show register values"
 echo "#   quit    - exit gdb"
-EOF
+echo ""
+echo "# Note: Velox is built with AddressSanitizer (-fsanitize=address)"
+echo "#       Memory errors will be detected automatically with detailed stack traces"
+SCRIPT_EOF
 
   chmod +x "$debug_script"
   

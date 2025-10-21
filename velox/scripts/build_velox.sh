@@ -26,6 +26,7 @@ VELOX_ENABLE_BENCHMARKS="ON"
 BUILD_TYPE="release"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
+ENABLE_ASAN=false
 LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR="$HOME/.sccache-auth"
@@ -58,6 +59,7 @@ Options:
   --sccache                   Enable sccache distributed compilation caching (requires auth files in ~/.sccache-auth/).
   --sccache-enable-dist       Enable distributed compilation (WARNING: may cause compilation differences like additional warnings that could lead to build failures).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
+  --enable-asan               Enable AddressSanitizer for memory error detection (automatically sets RelWithDebInfo).
   -h, --help                  Show this help message and exit.
 
 Examples:
@@ -76,6 +78,7 @@ Examples:
   $(basename "$0") --build-type Debug
   $(basename "$0") --build-type debug --gpu
   $(basename "$0") --build-type RELWITHDEBINFO --gpu
+  $(basename "$0") --enable-asan                           # Build with AddressSanitizer for memory debugging
 
 By default, the script builds for the Native CUDA architecture (detected on host), uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
 EOF
@@ -169,6 +172,11 @@ parse_args() {
           echo "ERROR: --build-type requires a value: Release, Debug, or RelWithDebInfo (case insensitive)" >&2
           exit 1
         fi
+        ;;
+      --enable-asan)
+        ENABLE_ASAN=true
+        BUILD_TYPE="relwithdebinfo"  # ASan works best with debug info
+        shift
         ;;
       -h|--help)
         print_help
@@ -271,6 +279,14 @@ if [[ "$ENABLE_SCCACHE" == true ]]; then
 else
   DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="OFF")
   DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="ON")
+fi
+
+# Add AddressSanitizer build arg
+if [[ "$ENABLE_ASAN" == true ]]; then
+  DOCKER_BUILD_OPTS+=(--build-arg ENABLE_ASAN="ON")
+  echo "AddressSanitizer enabled - memory errors will be detected automatically"
+else
+  DOCKER_BUILD_OPTS+=(--build-arg ENABLE_ASAN="OFF")
 fi
 
 if [[ "$LOG_ENABLED" == true ]]; then
