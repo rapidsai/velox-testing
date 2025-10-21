@@ -50,6 +50,9 @@ WORKDIR /workspace/velox
 # Print environment variables for debugging
 RUN printenv | sort
 
+# Install libnvjitlink which is needed for cuDF >= 25.10
+RUN dnf install -y libnvjitlink-devel-$(echo ${CUDA_VERSION} | tr '.' '-')
+
 # Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
 RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       set -euxo pipefail && \
