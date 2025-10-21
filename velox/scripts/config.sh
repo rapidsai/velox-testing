@@ -5,4 +5,3 @@ CONTAINER_NAME="velox-adapters-build"
 COMPOSE_FILE="../docker/docker-compose.adapters.build.yml"
 
 NUM_THREADS=${NUM_THREADS:-$(( ($(nproc) > 2 ? $(nproc) - 2 : 1) ))}
-DEPS_IMAGE_NAME="velox-adapters-deps:centos9"
