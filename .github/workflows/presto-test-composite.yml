@@ -63,7 +63,7 @@ jobs:
           ref: ${{ inputs.velox_commit }}
           path: velox
       - name: Change Velox to match upstream Presto
-        if: ${{ inputs.build_upstream == 'true' }}
+        if: ${{ inputs.build_upstream }}
         run: |
           pushd velox-testing/presto/scripts
           ./checkout_velox_to_match_presto.sh
