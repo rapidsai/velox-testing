@@ -1,6 +1,8 @@
 name: Presto Nightly Test (Upstream)
 
 on:
+  schedule:
+    - cron: '0 4 * * *'  # daily at 04:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -15,4 +17,5 @@ jobs:
       run_cpu_tests: true
       run_gpu_tests: true
       set_velox_backward_compatible: false
+      build_upstream: true
     secrets: inherit

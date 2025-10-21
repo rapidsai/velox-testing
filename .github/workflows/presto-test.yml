@@ -44,6 +44,10 @@ on:
         description: 'Set VELOX_ENABLE_BACKWARD_COMPATIBLE in Velox build'
         type: boolean
         default: false
+      build_upstream: &build_upstream
+        description: 'Build Presto Upstream Default'
+        type: boolean
+        default: false
 
   workflow_call:
     inputs:
@@ -56,6 +60,7 @@ on:
       run_cpu_tests: *run_cpu_tests
       run_gpu_tests: *run_gpu_tests
       set_velox_backward_compatible: *set_velox_backward_compatible
+      build_upstream: *build_upstream
 
 jobs:
   java:
@@ -70,6 +75,7 @@ jobs:
       velox_commit: ${{ inputs.velox_commit }}
       velox_testing_commit: ${{ inputs.velox_testing_commit }}
       set_velox_backward_compatible: false
+      build_upstream: ${{ inputs.build_upstream }}
     secrets: inherit
   native-cpu:
     if: ${{ inputs.run_cpu_tests }}
@@ -83,6 +89,7 @@ jobs:
       velox_commit: ${{ inputs.velox_commit }}
       velox_testing_commit: ${{ inputs.velox_testing_commit }}
       set_velox_backward_compatible: ${{ inputs.set_velox_backward_compatible }}
+      build_upstream: ${{ inputs.build_upstream }}
     secrets: inherit
   native-gpu:
     if: ${{ inputs.run_gpu_tests }}
@@ -96,4 +103,5 @@ jobs:
       velox_commit: ${{ inputs.velox_commit }}
       velox_testing_commit: ${{ inputs.velox_testing_commit }}
       set_velox_backward_compatible: ${{ inputs.set_velox_backward_compatible }}
+      build_upstream: ${{ inputs.build_upstream }}
     secrets: inherit
