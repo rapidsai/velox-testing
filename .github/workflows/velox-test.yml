@@ -84,7 +84,7 @@ jobs:
 
       - &build-deps
         name: Build Velox Dependencies Container Image (fallback)
-        if: ${{ steps.fetch_and_load_deps.outputs.FETCH_AND_LOAD_DEPS_NEEDS_BUILD == 'true' }}
+        if: ${{ steps.fetch_and_load_deps.outputs.FETCH_DEPS_NEEDS_BUILD == 'true' }}
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
         run: ./build_centos_deps_image.sh
 
