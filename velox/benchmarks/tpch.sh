@@ -430,10 +430,15 @@ run_tpch_single_benchmark() {
     #   echo "  - UAF DETECTION ENABLED: Will monitor managed memory migration for use-after-free access"
     # fi
     
-    echo "Verbose logging enabled:"
-    echo "  - RMM memory event logging (CSV): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
-    echo "  - RMM debug logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log"
-    echo "  - RMM call site logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    if [[ "$call_site_collection" == "true" || -n "$sync_call_sites_file" ]]; then
+      echo "Call site collection logging enabled:"
+      echo "  - RMM call site logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    else
+      echo "Verbose logging enabled:"
+      echo "  - RMM memory event logging (CSV): benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv"
+      echo "  - RMM debug logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log"
+      echo "  - RMM call site logging: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    fi
   fi
   
   # Copy sync call sites file to container if needed
