@@ -40,7 +40,6 @@ cleanup_sccache_auth() {
 
 trap cleanup_sccache_auth EXIT SIGTERM SIGINT SIGQUIT
 
-
 print_help() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -253,8 +252,6 @@ DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
-export DOCKER_BUILDKIT=1 
-export COMPOSE_DOCKER_CLI_BUILD=1 
 
 # Create sccache auth directory unconditionally, it is expected by dockerfile
 mkdir -p ../docker/sccache/sccache_auth/

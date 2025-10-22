@@ -5,7 +5,7 @@ set -e
 source ./config.sh
 source ../../scripts/fetch_docker_image_from_s3.sh
 
-IMAGE_NAME="velox-adapters-deps:centos9"
+IMAGE_NAME="ghcr.io/facebookincubator/velox-dev:adapters"
 
 ARCH=$(uname -m)
 BUCKET_SUBDIR="velox-docker-images"
