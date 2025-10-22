@@ -1,4 +1,4 @@
-FROM ghcr.io/facebookincubator/velox-dev:adapters
+FROM velox-adapters-deps:centos9
 
 # Build-time configuration, these may be overridden in the docker compose yaml,
 # environment variables, or via the docker build command
@@ -16,6 +16,7 @@ ARG BUILD_TYPE=release
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     GTest_SOURCE=BUNDLED \
     cudf_SOURCE=BUNDLED \
+    simdjson_SOURCE=BUNDLED \
     faiss_SOURCE=BUNDLED \
     CUDA_VERSION=${CUDA_VERSION} \
     TREAT_WARNINGS_AS_ERRORS=${TREAT_WARNINGS_AS_ERRORS} \
@@ -39,11 +40,12 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
                       -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
                       -DVELOX_ENABLE_FAISS=ON" \
     LD_LIBRARY_PATH="${BUILD_BASE_DIR}/${BUILD_TYPE}/lib:\
-${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/cudf-build:\
-${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rmm-build:\
-${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rapids_logger-build:\
-${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
-${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64"
+      ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/cudf-build:\
+      ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rmm-build:\
+      ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rapids_logger-build:\
+      ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
+      ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
+    CCACHE_DIR=/ccache
 
 WORKDIR /workspace/velox
 
@@ -68,6 +70,7 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
 
 # Build using the specified build type and directory
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
+    --mount=type=cache,target=/ccache \
     set -euxo pipefail && \
     make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS[*]}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
     make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"
