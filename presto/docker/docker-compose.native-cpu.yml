@@ -17,5 +17,3 @@ services:
         - GPU=OFF
     depends_on:
       - presto-coordinator
-    volumes:
-      - ./config/generated/etc_worker/config_native_cpu.properties:/opt/presto-server/etc/config.properties

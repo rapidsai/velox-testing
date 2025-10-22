@@ -20,5 +20,3 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
     depends_on:
       - presto-coordinator
-    volumes:
-      - ./config/generated/etc_worker/config_native_gpu.properties:/opt/presto-server/etc/config.properties
