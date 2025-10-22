@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.promotion (
+CREATE TABLE hive.{schema}.promotion (
     p_promo_sk INTEGER,
     p_promo_id VARCHAR,
     p_start_date_sk INTEGER,

@@ -22,7 +22,8 @@ the value set for the --data-dir-name argument."
 
 SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100 -f 100 -c"
 
-SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-f, --scale-factor                  The scale factor of the generated dataset."
+SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-f, --scale-factor                  The scale factor of the generated dataset.
+    -c, --convert-decimals-to-floats    Convert all decimal columns to float column type."
 
 function extra_options_parser() {
   case $1 in
@@ -36,6 +37,13 @@ function extra_options_parser() {
         echo "Error: --scale-factor requires a value"
         return 1
       fi
+      shift 2
+      ;;
+    -c|--convert-decimals-to-floats)
+      CONVERT_DECIMALS_TO_FLOATS_ARG="--convert-decimals-to-floats"
+      SCRIPT_EXTRA_OPTIONS_SHIFTS=1
+      SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=false
+      shift
       ;;
     *)
       return 0
@@ -52,4 +60,4 @@ DATA_GEN_SCRIPT_PATH=$(readlink -f ../../benchmark_data_tools/generate_data_file
 --data-dir-path ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} --scale-factor $SCALE_FACTOR \
 $CONVERT_DECIMALS_TO_FLOATS_ARG
 
-./setup_benchmark_tables.sh -b $BENCHMARK_TYPE -s $SCHEMA_NAME -d $DATA_DIR_NAME $CONVERT_DECIMALS_TO_FLOATS_ARG
+./setup_benchmark_tables.sh -b $BENCHMARK_TYPE -s $SCHEMA_NAME -d $DATA_DIR_NAME

@@ -19,7 +19,6 @@ import sys
 def get_abs_file_path(relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
 
-
 sys.path.append(get_abs_file_path("../../../benchmark_data_tools"))
 
 import duckdb
@@ -27,7 +26,7 @@ import json
 import pytest
 import sqlglot
 
-from duckdb_utils import init_benchmark_tables
+from duckdb_utils import create_table
 
 
 def execute_query_and_compare_results(presto_cursor, queries, query_id):
@@ -35,44 +34,65 @@ def execute_query_and_compare_results(presto_cursor, queries, query_id):
 
     presto_cursor.execute(query)
     presto_rows = presto_cursor.fetchall()
-    duckdb_rows, types = execute_duckdb_query(query)
+    duckdb_rows, types, columns = execute_duckdb_query(query)
 
-    compare_results(presto_rows, duckdb_rows, types, get_is_sorted_query(query))
+    compare_results(presto_rows, duckdb_rows, types, query, columns)
 
 
 def get_is_sorted_query(query):
     return any(isinstance(expr, sqlglot.exp.Order) for expr in sqlglot.parse_one(query).iter_expressions())
 
 
-def compare_results(presto_rows, duckdb_rows, types, is_sorted_query):
+def compare_results(presto_rows, duckdb_rows, types, query, column_names):
     row_count = len(presto_rows)
     assert row_count == len(duckdb_rows)
 
     duckdb_rows = normalize_rows(duckdb_rows, types)
     presto_rows = normalize_rows(presto_rows, types)
 
-    if not is_sorted_query:
-        duckdb_rows = sorted(duckdb_rows)
-        presto_rows = sorted(presto_rows)
+    # We need a full sort for all non-ORDER BY columns because some ORDER BY comparison
+    # will be equal and the resulting order of non-ORDER BY columns will be ambiguous.
+    sorted_duckdb_rows = sorted(duckdb_rows)
+    sorted_presto_rows = sorted(presto_rows)
+    approx_floats(sorted_duckdb_rows, types)
+    assert sorted_presto_rows == sorted_duckdb_rows
 
+    # If we have an ORDER BY clause we want to test that the resulting order of those
+    # columns is correct, in addition to overall values being correct.
+    order_indices = get_orderby_indices(query, column_names)
+    # Only a sorted query should have ORDER BY indicies.
+    assert bool(order_indices) == get_is_sorted_query(query)
     approx_floats(duckdb_rows, types)
+    # Project both results to ORDER BY columns and compare in original order
+    duckdb_proj = [[row[i] for i in order_indices] for row in duckdb_rows]
+    presto_proj = [[row[i] for i in order_indices] for row in presto_rows]
+    assert presto_proj == duckdb_proj
 
-    assert presto_rows == duckdb_rows
 
+def get_orderby_indices(query, column_names):
+    expr = sqlglot.parse_one(query)
+    order = next((e for e in expr.find_all(sqlglot.exp.Order)), None)
+    if not order:
+        return []
 
-def init_duckdb_tables(benchmark_type, scale_factor):
-    init_benchmark_tables(benchmark_type, scale_factor)
+    indices = []
+    for ordered in order.expressions:
+        key = ordered.this
+        if isinstance(key, sqlglot.exp.Column):
+            name = key.name
+            if name in column_names:
+                indices.append(column_names.index(name))
+                continue
+        raise AssertionError(f"ORDER BY expression does not match any column names: {key}")
+    return indices
+
+def create_duckdb_table(table_name, data_path):
+    create_table(table_name, get_abs_file_path(data_path))
 
 
 def execute_duckdb_query(query):
     relation = duckdb.sql(query)
-    return relation.fetchall(), relation.types
-
-
-def get_scale_factor(benchmark_type):
-    with open(get_abs_file_path(f"data/{benchmark_type}/metadata.json"), "r") as file:
-        metadata = json.load(file)
-        return metadata["scale_factor"]
+    return relation.fetchall(), relation.types, relation.columns
 
 
 def normalize_rows(rows, types):

@@ -18,5 +18,7 @@ services:
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - PROFILE=${PROFILE}
+      - PROFILE_ARGS=${PROFILE_ARGS}
     depends_on:
       - presto-coordinator
