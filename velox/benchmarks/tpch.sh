@@ -365,14 +365,8 @@ run_tpch_single_benchmark() {
   if [[ "$verbose_logging" == "true" || "$call_site_collection" == "true" || -n "$sync_call_sites_file" || (-n "$bisection_midpoint" && -n "$bisection_total_rows") ]]; then
     # For call site collection, use simple environment variable
     if [[ "$call_site_collection" == "true" || -n "$sync_call_sites_file" ]]; then
-      # Set both RMM_LOG_FILE and RMM_STACK_TRACE_FILE to trigger LoggingWrapper creation
-      # Use /dev/null for RMM_LOG_FILE to avoid slow RMM logging but still create the wrapper
-      VERBOSE_ENV_PREFIX="RMM_LOG_FILE=/dev/null RMM_STACK_TRACE_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
-      
-      # Pass through stack trace depth if set
-      if [[ -n "${RMM_STACK_TRACE_DEPTH:-}" ]]; then
-        VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_STACK_TRACE_DEPTH=${RMM_STACK_TRACE_DEPTH}"
-      fi
+      # Use VELOX_ENABLE_CALL_SITE_COLLECTION to trigger efficient in-memory collection
+      VERBOSE_ENV_PREFIX="VELOX_ENABLE_CALL_SITE_COLLECTION=1 RMM_STACK_TRACE_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
     else
       # Full verbose logging for other cases
       VERBOSE_ENV_PREFIX="RMM_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv RMM_DEBUG_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log RMM_STACK_TRACE_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
