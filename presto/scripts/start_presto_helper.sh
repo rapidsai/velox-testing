@@ -85,6 +85,8 @@ fi
 
 ./stop_presto.sh
 
+./generate_presto_config.sh
+
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
 if [[ "$VARIANT_TYPE" == "gpu" && "$ALL_CUDA_ARCHS" == "true" ]]; then
