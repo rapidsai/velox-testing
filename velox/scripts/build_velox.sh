@@ -253,11 +253,13 @@ DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMAR
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
 
+# Create sccache auth directory unconditionally, it is expected by dockerfile
+mkdir -p ../docker/sccache/sccache_auth/
+
 # Add sccache build arguments
 if [[ "$ENABLE_SCCACHE" == true ]]; then
   DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="ON")
   # Copy auth files to build context
-  mkdir -p ../docker/sccache/sccache_auth/
   cp "$SCCACHE_AUTH_DIR/github_token" ../docker/sccache/sccache_auth/
   cp "$SCCACHE_AUTH_DIR/aws_credentials" ../docker/sccache/sccache_auth/
   
