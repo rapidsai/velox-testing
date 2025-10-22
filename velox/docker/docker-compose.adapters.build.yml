@@ -1,4 +1,10 @@
 services:
+  velox-adapters-deps:
+    container_name: velox-adapters-deps
+    image: velox-adapters-deps:centos9
+    build:
+      context: ../../..
+      dockerfile: velox-testing/velox/docker/adapters_deps.dockerfile
   velox-adapters-build:
     container_name: velox-adapters-build
     image: velox-adapters-build:latest

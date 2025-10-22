@@ -35,6 +35,12 @@ fi
 
 source ./start_presto_helper_parse_args.sh
 
+
+if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
+  echo "Error: the --profile argument is only supported for Presto GPU"
+  exit 1
+fi
+
 COORDINATOR_SERVICE="presto-coordinator"
 COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:latest
 JAVA_WORKER_SERVICE="presto-java-worker"
