@@ -51,13 +51,6 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     ENABLE_SCCACHE=${ENABLE_SCCACHE} \
     SCCACHE_DISABLE_DIST=${SCCACHE_DISABLE_DIST}
 
-# Set CMAKE flags conditionally based on ENABLE_ASAN
-RUN if [ "$ENABLE_ASAN" = "ON" ]; then \
-      echo "EXTRA_CMAKE_FLAGS=\"${EXTRA_CMAKE_FLAGS} -DCMAKE_CXX_FLAGS='-fno-omit-frame-pointer -fsanitize=address -fno-optimize-sibling-calls' -DCMAKE_C_FLAGS='-fsanitize=address -fno-optimize-sibling-calls'\"" >> /etc/environment; \
-    else \
-      echo "EXTRA_CMAKE_FLAGS=\"${EXTRA_CMAKE_FLAGS} -DCMAKE_CXX_FLAGS='-fno-omit-frame-pointer' -DCMAKE_C_FLAGS=''\"" >> /etc/environment; \
-    fi
-
 WORKDIR /workspace/velox
 
 RUN dnf install -y libnvjitlink-devel-$(echo ${CUDA_VERSION} | tr '.' '-')
@@ -131,6 +124,15 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
     fi
 
+# Install AddressSanitizer libraries if ASan is enabled
+RUN if [ "$ENABLE_ASAN" = "ON" ]; then \
+      echo "Installing AddressSanitizer libraries for gcc-toolset-12..."; \
+      dnf install -y gcc-toolset-12-libasan-devel && \
+      echo "AddressSanitizer libraries installed successfully"; \
+    else \
+      echo "Skipping AddressSanitizer library installation (ENABLE_ASAN=OFF)"; \
+    fi
+
 # Copy sccache setup script (if sccache enabled)
 COPY velox-testing/velox/docker/sccache/sccache_setup.sh /sccache_setup.sh
 RUN if [ "$ENABLE_SCCACHE" = "ON" ]; then chmod +x /sccache_setup.sh; fi
@@ -144,7 +146,11 @@ RUN mkdir -p ${BUILD_BASE_DIR}
 # Build reproducer first (fail fast) - this layer will be cached
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     set -euxo pipefail && \
-    # Configure sccache if enabled
+    if [ "$ENABLE_ASAN" = "ON" ]; then \
+      EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_CXX_FLAGS='-fno-omit-frame-pointer -fsanitize=address -fno-optimize-sibling-calls' -DCMAKE_C_FLAGS='-fsanitize=address -fno-optimize-sibling-calls'" && \
+      echo "AddressSanitizer flags added to build"; \
+    fi && \
+    # Configure sccache if enabled 
     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
       /sccache_setup.sh && \
       EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache" && \
@@ -158,7 +164,8 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     # Build ONLY the benchmark first (fail fast)
     echo "Building benchmark first for fast failure detection..." && \
     cd ${BUILD_BASE_DIR}/${BUILD_TYPE} && \
-    ninja velox_cudf_tpch_benchmark
+    ASAN_OPTIONS="detect_leaks=0:abort_on_error=0:halt_on_error=0" ninja velox_cudf_tpch_benchmark
+    #ninja velox_cudf_tpch_benchmark
 
 # Build everything else - this layer will be cached separately
 # RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
