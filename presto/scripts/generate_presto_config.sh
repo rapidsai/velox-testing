@@ -29,6 +29,7 @@ RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print $4 / (1024*1024*102
 echo "Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}GB RAM"
 
 # variant-specific behavior
+# for GPU you must set vcpu_per_worker to a small number, not the CPU count
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo "Error: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
   exit 1
