@@ -28,6 +28,17 @@ RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print $4 / (1024*1024*102
 
 echo "Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}GB RAM"
 
+# variant-specific behavior
+if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
+  echo "Error: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
+  exit 1
+fi
+if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
+  VCPU_PER_WORKER=2
+else
+  VCPU_PER_WORKER=${NPROC}
+fi
+
 # move to config directory
 pushd ../docker/config > /dev/null
 
@@ -46,7 +57,7 @@ cat > generated/config.json << EOF
     "worker_instance_ebs_size": 50,
     "number_of_workers": 1,
     "memory_per_node_gb": ${RAM_GB},
-    "vcpu_per_worker": ${NPROC},
+    "vcpu_per_worker": ${VCPU_PER_WORKER},
     "fragment_result_cache_enabled": true,
     "data_cache_enabled": true
 }
