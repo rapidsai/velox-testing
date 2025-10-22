@@ -28,7 +28,7 @@ LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
 LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
-SCCACHE_AUTH_DIR="$HOME/.sccache-auth"
+SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
 
 # Cleanup function to remove copied sccache auth files
