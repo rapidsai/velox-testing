@@ -92,9 +92,9 @@ jobs:
         name: Setup sccache authentication
         env:
           GH_TOKEN: ${{ github.token }}
-          SCCACHE_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          SCCACHE_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          SCCACHE_AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          SCCACHE_AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          SCCACHE_AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+          SCCACHE_AWS_SESSION_TOKEN: ${{ secrets.SCCACHE_AWS_SESSION_TOKEN }}
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
         run: |
           # Check if AWS credentials are available
