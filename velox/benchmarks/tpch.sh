@@ -363,12 +363,19 @@ run_tpch_single_benchmark() {
   
   # Enable verbose logging if requested OR if using bisection modes
   if [[ "$verbose_logging" == "true" || "$call_site_collection" == "true" || -n "$sync_call_sites_file" || (-n "$bisection_midpoint" && -n "$bisection_total_rows") ]]; then
-    VERBOSE_ENV_PREFIX="RMM_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv RMM_DEBUG_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log RMM_STACK_TRACE_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    # For call site collection, only enable stack trace logging (RMM logging is too slow)
+    if [[ "$call_site_collection" == "true" || -n "$sync_call_sites_file" ]]; then
+      VERBOSE_ENV_PREFIX="RMM_STACK_TRACE_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    else
+      # Full verbose logging for other cases
+      VERBOSE_ENV_PREFIX="RMM_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_rmm.csv RMM_DEBUG_LOG_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_debug.log RMM_STACK_TRACE_FILE=benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+    fi
     
     # Add bisection search environment variables
     if [[ "$call_site_collection" == "true" ]]; then
       echo "Call site collection mode: Syncing ALL deallocation call sites"
       echo "  - Call site IDs will be logged to: benchmark_results/q${query_number_padded}_${device_type}_${num_drivers}_drivers_stacktrace.csv"
+      echo "  - RMM allocation logging DISABLED (too slow for call site collection)"
     elif [[ -n "$sync_call_sites_file" ]]; then
       # Copy sync file to container accessible location
       sync_file_basename=$(basename "$sync_call_sites_file")
