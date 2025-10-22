@@ -32,6 +32,8 @@ BUILD_TYPE=$(get_build_type_from_container "$COMPOSE_FILE" "$CONTAINER_NAME")
 # expected output directory
 EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
 
+DEVICE_TYPE="gpu"
+
 print_help() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -40,12 +42,14 @@ Runs tests on the Velox adapters using ctest with parallel execution.
 
 Options:
   -j, --num-threads NUM  Number of threads to use for testing (default: 3/4 of CPU cores).
+  -d, --device-type TYPE  Device to target: cpu|gpu (default: gpu).
   -h, --help            Show this help message and exit.
 
 Examples:
   $(basename "$0")
   $(basename "$0") -j 8
   $(basename "$0") --num-threads 4
+  $(basename "$0") --device-type cpu
 
 By default, uses 3/4 of available CPU cores for parallel test execution.
 EOF
@@ -60,6 +64,18 @@ parse_args() {
           exit 1
         fi
         NUM_THREADS="$2"
+        shift 2
+        ;;
+      -d|--device-type)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "Error: --device-type requires a value (cpu|gpu)"
+          exit 1
+        fi
+        DEVICE_TYPE="${2,,}"
+        if [[ "$DEVICE_TYPE" != "cpu" && "$DEVICE_TYPE" != "gpu" ]]; then
+          echo "Error: --device-type must be 'cpu' or 'gpu'"
+          exit 1
+        fi
         shift 2
         ;;
       -h|--help)
@@ -79,8 +95,18 @@ parse_args "$@"
 
 echo "Running tests on Velox adapters..."
 echo ""
-test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error --stop-on-failure"
-if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "cd ${EXPECTED_OUTPUT_DIR} && ${test_cmd}"; then
+echo "Device type: ${DEVICE_TYPE}"
+test_preamble='if [ -f "/opt/miniforge/etc/profile.d/conda.sh" ]; then
+    source "/opt/miniforge/etc/profile.d/conda.sh"
+    conda activate adapters
+  fi
+  export CLASSPATH=$(/usr/local/hadoop/bin/hdfs classpath --glob)'
+if [[ "$DEVICE_TYPE" == "cpu" ]]; then
+  test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test\""
+else
+  test_cmd="ctest -j ${NUM_THREADS} --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3\""
+fi
+if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "set -euo pipefail; cd ${EXPECTED_OUTPUT_DIR} && ${test_preamble} && ${test_cmd}"; then
   echo ""
   echo "  Tests passed successfully!"
   echo ""

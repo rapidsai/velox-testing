@@ -40,6 +40,7 @@ cleanup_sccache_auth() {
 
 trap cleanup_sccache_auth EXIT SIGTERM SIGINT SIGQUIT
 
+
 print_help() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -233,8 +234,8 @@ validate_sccache_auth
 # Validate repo layout using shared script
 ../../scripts/validate_directories_exist.sh "../../../velox"
 
-# Compose docker build command options
-DOCKER_BUILD_OPTS=(--pull)
+# Compose docker build command options (default: do not force pull; use local images if present)
+DOCKER_BUILD_OPTS=()
 if [[ "$NO_CACHE" == true ]]; then
   DOCKER_BUILD_OPTS+=(--no-cache)
 fi
@@ -252,6 +253,8 @@ DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
+export DOCKER_BUILDKIT=1 
+export COMPOSE_DOCKER_CLI_BUILD=1 
 
 # Add sccache build arguments
 if [[ "$ENABLE_SCCACHE" == true ]]; then

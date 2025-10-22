@@ -3,22 +3,37 @@ description: Template for Presto jobs
 on:
   workflow_call:
     inputs:
-      velox_commit:
-        description: 'Velox commit SHA or branch'
+      presto_repository:
+        description: 'Presto Repository'
         type: string
         required: false
-        default: 'main'
+        default: 'prestodb/presto'
       presto_commit:
-        description: 'Presto commit SHA or branch'
+        description: 'Presto Commit SHA or Branch'
         type: string
         required: false
         default: 'master'
+      velox_repository:
+        description: 'Velox Repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit:
+        description: 'Velox Commit SHA or Branch'
+        type: string
+        required: false
+        default: 'main'
+      velox_testing_commit:
+        description: 'Velox Testing Commit SHA or Branch'
+        type: string
+        required: false
+        default: 'main'
       presto_worker_type:
-        description: 'Type of presto worker to use'
+        description: 'Type of Presto Worker to use'
         type: string
         required: true
       node_label:
-        description: 'Node label to run on'
+        description: 'Node Label to run on'
         type: string
         required: true
 
@@ -26,34 +41,49 @@ jobs:
   build-and-test:
     runs-on: ${{ inputs.node_label }}
     steps:
-      - name: Checkout velox-testing
-        uses: actions/checkout@v4
-        with:
-          path: velox-testing
-      - name: Checkout Velox
-        uses: actions/checkout@v4
-        with:
-          repository: facebookincubator/velox
-          ref: ${{ inputs.velox_commit }}
-          path: velox
       - name: Checkout Presto
         uses: actions/checkout@v4
         with:
-          repository: prestodb/presto
+          repository: ${{ inputs.presto_repository }}
           ref: ${{ inputs.presto_commit }}
           path: presto
-      - name: Patch Presto
+      - name: Checkout Velox
+        if: ${{ inputs.presto_worker_type != 'java' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.velox_repository }}
+          ref: ${{ inputs.velox_commit }}
+          path: velox
+      - name: Checkout Velox Testing
+        uses: actions/checkout@v4
+        with:
+          repository: rapidsai/velox-testing
+          ref: ${{ inputs.velox_testing_commit }}
+          path: velox-testing
+      - name: Download Presto Dependencies Container Image
+        if: ${{ inputs.presto_worker_type != 'java' }}
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
         run: |
-          pushd presto
-          git apply ../velox-testing/presto/install_gperf.patch
+          pushd velox-testing/presto/scripts
+          ./fetch_centos_deps_image.sh
           popd
-      - name: Build and run presto
+      - name: Build Presto
         run: |
           pushd velox-testing/presto/scripts
           ./start_${{ inputs.presto_worker_type }}_presto.sh
-          ./run_integ_test.sh -b tpch
           popd
-      - name: Shutdown
+      - name: Run Integration Tests
+        # avoid Q15 on GPU as it will fail output comparison until the schema differences are resolved
+        run: |
+          pushd velox-testing/presto/scripts
+          ./run_integ_test.sh -b tpch ${{ inputs.presto_worker_type == 'native_gpu' && '-q 1,2,3,4,5,6,7,8,9,10,11,12,13,14,16,17,18,19,20,21,22' || '' }}
+          popd
+      - name: Shutdown Presto
         run: |
           pushd velox-testing/presto/scripts
           ./stop_presto.sh

@@ -125,6 +125,8 @@ A number of docker image build and container services infrastructure (using dock
 ``` 
 Specifically, the `velox-testing`, `presto`, and `velox` repositories have to be checked out as sibling directories under the same parent directory. Once that is done, navigate (`cd`) into the `velox-testing/presto/scripts` directory and execute the start up script for the needed presto deployment variant. The following scripts: `start_java_presto.sh`, `start_native_cpu_presto.sh`, and `start_native_gpu_presto.sh` can be used to build/deploy "Presto Java Coordinator + Presto Java Worker", "Presto Java Coordinator + Presto Native CPU Worker", and "Presto Java Coordinator + Presto Native GPU Worker" variants respectively. The presto server can then be accessed at http://localhost:8080.
 
+Note that CPU and GPU builds require a local dependencies/run-time base Docker image (`presto/prestissimo-dependency:centos9`). The `start` scripts will not create this automatically. It must be obtained manually. Use the `build_centos_deps_image.sh` script to build an image locally, or the `fetch_centos_deps_image.sh` script to fetch a pre-built image from an external source. Note that the latter script currently requires additional credentials not available to third-parties.
+
 ### Running Integration Tests
 The Presto integration tests are implemented using the [pytest](https://docs.pytest.org/en/stable/) framework. The integration tests can be executed directly by using the `pytest` command e.g. `pytest tpch_test.py` or more conveniently, by using the `run_integ_test.sh` script from within the `velox-testing/presto/scripts` directory (this script handles environment setup for test execution). Execute `./run_integ_test.sh --help` to get more details about script options. An instance of Presto must be deployed and running *before* running the integration tests. This can be done using one of the `start_*` scripts mentioned in the "Presto Testing" section.
 
@@ -136,5 +138,11 @@ Note that `velox-testing/presto/testing/integration_tests` and `velox-testing/be
 ### Setting Up Benchmark Tables
 A couple of utility scripts have been added to facilitate the process of setting up benchmark tables either from scratch or on top of existing benchmark data (Parquet) files. Specifically, the `setup_benchmark_tables.sh` script can be used to set up a new schema and tables on top of already generated benchmark data files. Execute `./setup_benchmark_tables.sh --help` to get more details about script options. The `setup_benchmark_data_and_tables.sh` script can be used to generate benchmark data at a specified scale factor and set up a schema and tables on top of the generated data files. Execute `./setup_benchmark_data_and_tables.sh --help` to get more details about script options. Both scripts should be executed from within the `velox-testing/presto/scripts` directory.
 
+> [!TIP]
+> Add `export PRESTO_DATA_DIR={path to directory that will contain datasets}` to your `~/.bashrc` file. This avoids having to always set the `PRESTO_DATA_DIR` environment variable when executing the `start_*` scripts and/or the schema/table setup scripts.
+
+
 ## Presto Benchmarking
-TODO: Add details when related infrastructure is added.
+The Presto benchmarks are implemented using the [pytest](https://docs.pytest.org/en/stable/) framework and builds on top of infrastructure that was implemented for general Presto testing. Specifically, the `start_*` scripts mentioned in the "Presto Testing" section can be used to start up a Presto variant (make sure the `PRESTO_DATA_DIR` environment variable is set appropriately before running the script), and the benchmark can be run by executing the `run_benchmark.sh` script from within the `velox-testing/presto/scripts` directory. Execute `./run_benchmark.sh --help` to get more details about the benchmark script options.
+> [!TIP]
+ANALYZE TABLES `velox-testing/presto/scripts/analyze_tables.sh` must be run on CPU Presto before GPU benchmarks because aggregation is not yet supported on GPU. Statistics are stored in the Hive metastore and automatically benefit GPU query execution, improving performance and reducing OOM failures.

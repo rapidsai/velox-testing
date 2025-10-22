@@ -26,10 +26,20 @@ if [[ -z ${SCRIPT_NAME} ]]; then
   exit 1
 fi
 
-# Validate repo layout using shared script
-../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
+# Validate sibling repos
+if [[ "$VARIANT_TYPE" == "java" ]]; then
+  ../../scripts/validate_directories_exist.sh "../../../presto"
+else
+  ../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
+fi
 
 source ./start_presto_helper_parse_args.sh
+
+
+if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
+  echo "Error: the --profile argument is only supported for Presto GPU"
+  exit 1
+fi
 
 COORDINATOR_SERVICE="presto-coordinator"
 COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:latest
@@ -39,6 +49,8 @@ CPU_WORKER_SERVICE="presto-native-worker-cpu"
 CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:latest
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
 GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:latest
+
+DEPS_IMAGE="presto/prestissimo-dependency:centos9"
 
 BUILD_TARGET_ARG=()
 
@@ -73,10 +85,34 @@ fi
 
 ./stop_presto.sh
 
+# must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
+CUDA_ARCHITECTURES=""
+if [[ "$VARIANT_TYPE" == "gpu" && "$ALL_CUDA_ARCHS" == "true" ]]; then
+  # build for all supported CUDA architectures
+  CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120"
+  echo "Building GPU with all supported CUDA architectures"
+elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
+  # check that nvidia-smi is available
+  if ! command -v nvidia-smi &> /dev/null; then
+    echo "ERROR: nvidia-smi could not be found. Please ensure that the NVIDIA drivers and Docker runtime are properly installed."
+    exit 1
+  fi
+  # build for the native compute capability of the first GPU (assuming all GPUs are the same)
+  CUDA_ARCHITECTURES="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1 | sed 's/\.//g')"
+  echo "Building GPU with CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES"
+elif [[ "$ALL_CUDA_ARCHS" == "true" ]]; then
+  # invalid options combination
+  echo "ERROR: --all-cuda-archs specified but VARIANT_TYPE is not 'gpu'."
+  exit 1
+fi
+
 DOCKER_COMPOSE_FILE_PATH=../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml
 if (( ${#BUILD_TARGET_ARG[@]} )); then
-  if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]]; then
-    ./build_centos_deps_image.sh
+  if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
+    echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
+    echo "Either build a local image using build_centos9_deps_image.sh or fetch a pre-built"
+    echo "image using fetch_centos9_deps_image.sh (credentials may be required)."
+    exit 1
   fi
 
   PRESTO_VERSION=testing
@@ -87,7 +123,9 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
-  --build-arg NUM_THREADS=$NUM_THREADS ${BUILD_TARGET_ARG[@]}
+  --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
+  --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
+  ${BUILD_TARGET_ARG[@]}
 fi
 
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d

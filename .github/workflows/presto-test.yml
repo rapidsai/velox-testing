@@ -3,53 +3,89 @@ description: Tests for each type of presto configuration
 on:
   workflow_dispatch:
     inputs:
-      velox_commit:
-        description: 'Velox commit SHA or branch'
+      presto_repository: &presto_repository
+        description: 'Presto Repository'
         type: string
         required: false
-        default: 'main'
-      presto_commit:
-        description: 'Presto commit SHA or branch'
+        default: 'prestodb/presto'
+      presto_commit: &presto_commit
+        description: 'Presto Commit SHA or Branch'
         type: string
         required: false
         default: 'master'
-      run_java_tests:
-        description: 'Run tests with java worker'
+      velox_repository: &velox_repository
+        description: 'Velox Repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit: &velox_commit
+        description: 'Velox Commit SHA or Branch'
+        type: string
+        required: false
+        default: 'main'
+      velox_testing_commit: &velox_testing_commit
+        description: 'Velox Testing Commit SHA or Branch'
+        type: string
+        required: false
+        default: 'main'
+      run_java_tests: &run_java_tests
+        description: 'Run tests with Java Worker'
         type: boolean
         default: false
-      run_cpu_tests:
-        description: 'Run tests with native-cpu worker'
+      run_cpu_tests: &run_cpu_tests
+        description: 'Run tests with Native CPU Worker'
         type: boolean
         default: false
-      run_gpu_tests:
-        description: 'Run tests with native-gpu worker'
+      run_gpu_tests: &run_gpu_tests
+        description: 'Run tests with Native GPU Worker'
         type: boolean
         default: true
 
-# TODO: Change the reference from the PrestoActions branch to main.
+  workflow_call:
+    inputs:
+      presto_repository: *presto_repository
+      presto_commit: *presto_commit
+      velox_repository: *velox_repository
+      velox_commit: *velox_commit
+      velox_testing_commit: *velox_testing_commit
+      run_java_tests: *run_java_tests
+      run_cpu_tests: *run_cpu_tests
+      run_gpu_tests: *run_gpu_tests
+
 jobs:
   java:
-    if: ${{ github.event.inputs.run_java_tests == 'true' }}
+    if: ${{ inputs.run_java_tests }}
     uses: ./.github/workflows/presto-test-composite.yml
     with:      
       presto_worker_type: 'java'
       node_label: 'linux-amd64-cpu4'
-      velox_commit: ${{ inputs.velox_commit }}
+      presto_repository: ${{ inputs.presto_repository }}
       presto_commit: ${{ inputs.presto_commit }}
+      velox_repository: ${{ inputs.velox_repository }}
+      velox_commit: ${{ inputs.velox_commit }}
+      velox_testing_commit: ${{ inputs.velox_testing_commit }}
+    secrets: inherit
   native-cpu:
-    if: ${{ github.event.inputs.run_cpu_tests == 'true' }}
+    if: ${{ inputs.run_cpu_tests }}
     uses: ./.github/workflows/presto-test-composite.yml
     with:
       presto_worker_type: 'native_cpu'
       node_label: 'linux-amd64-cpu16'
-      velox_commit: ${{ inputs.velox_commit }}
+      presto_repository: ${{ inputs.presto_repository }}
       presto_commit: ${{ inputs.presto_commit }}
+      velox_repository: ${{ inputs.velox_repository }}
+      velox_commit: ${{ inputs.velox_commit }}
+      velox_testing_commit: ${{ inputs.velox_testing_commit }}
+    secrets: inherit
   native-gpu:
-    if: ${{ github.event.inputs.run_gpu_tests == 'true' }}
+    if: ${{ inputs.run_gpu_tests }}
     uses: ./.github/workflows/presto-test-composite.yml
     with:
       presto_worker_type: 'native_gpu'
       node_label: 'linux-amd64-gpu-l4-latest-1'
-      velox_commit: ${{ inputs.velox_commit }}
+      presto_repository: ${{ inputs.presto_repository }}
       presto_commit: ${{ inputs.presto_commit }}
-
+      velox_repository: ${{ inputs.velox_repository }}
+      velox_commit: ${{ inputs.velox_commit }}
+      velox_testing_commit: ${{ inputs.velox_testing_commit }}
+    secrets: inherit

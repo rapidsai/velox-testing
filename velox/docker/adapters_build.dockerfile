@@ -1,4 +1,4 @@
-FROM ghcr.io/facebookincubator/velox-dev:adapters
+FROM velox-adapters-deps:centos9
 
 # Build-time configuration, these may be overridden in the docker compose yaml,
 # environment variables, or via the docker build command
@@ -18,6 +18,7 @@ ARG SCCACHE_DISABLE_DIST=ON
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     GTest_SOURCE=BUNDLED \
     cudf_SOURCE=BUNDLED \
+    simdjson_SOURCE=BUNDLED \
     faiss_SOURCE=BUNDLED \
     CUDA_VERSION=${CUDA_VERSION} \
     TREAT_WARNINGS_AS_ERRORS=${TREAT_WARNINGS_AS_ERRORS} \
@@ -47,7 +48,8 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rapids_logger-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     ENABLE_SCCACHE=${ENABLE_SCCACHE} \
-    SCCACHE_DISABLE_DIST=${SCCACHE_DISABLE_DIST}
+    SCCACHE_DISABLE_DIST=${SCCACHE_DISABLE_DIST} \
+    CCACHE_DIR=/ccache
 
 WORKDIR /workspace/velox
 
@@ -92,6 +94,7 @@ COPY velox-testing/velox/docker/sccache/sccache_auth/ /sccache_auth/
 
 # Build in Release mode into ${BUILD_BASE_DIR}
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
+    --mount=type=cache,target=/ccache \
     set -euxo pipefail && \
     # Configure sccache if enabled
     if [ "$ENABLE_SCCACHE" = "ON" ]; then \

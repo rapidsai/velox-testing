@@ -32,16 +32,14 @@ OPTIONS:
     -h, --hostname          Hostname of the Presto coordinator.
     -p, --port              Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
-    -s, --schema-name       Name of the schema containing the tables that will be queried.
-    -f, --scale-factor      Scale factor of the schema containing the tables that will be queried. This must be
-                            set when (and only when) --schema-name is specified.
+    -s, --schema-name       Name of the schema containing the tables that will be queried (if unspecified a default schema is auto-generated).
 
 
 EXAMPLES:
     $0 -b tpch
     $0 -b tpch -q "1,2" --keep-tables
-    $0 -b tpch -q "1,2" -s my_sf1_schema -f 1
-    $0 -b tpch -q "1,2" -h myhostname.com -p 8081 -s my_sf1_schema -f 1
+    $0 -b tpch -q "1,2" -s my_sf1_schema
+    $0 -b tpch -q "1,2" -h myhostname.com -p 8081 -s my_sf1_schema
     $0 -h
 
 EOF
@@ -49,7 +47,7 @@ EOF
 
 KEEP_TABLES=false
 
-parse_args() { 
+parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -h|--help)
@@ -98,7 +96,7 @@ parse_args() {
         ;;
       -u|--user)
         if [[ -n $2 ]]; then
-          USER=$2
+          USER_NAME=$2
           shift 2
         else
           echo "Error: --user requires a value"
@@ -111,15 +109,6 @@ parse_args() {
           shift 2
         else
           echo "Error: --schema-name requires a value"
-          exit 1
-        fi
-        ;;
-      -f|--scale-factor)
-        if [[ -n $2 ]]; then
-          SCALE_FACTOR=$2
-          shift 2
-        else
-          echo "Error: --scale-factor requires a value"
           exit 1
         fi
         ;;
@@ -140,8 +129,6 @@ if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   exit 1
 fi
 
-INTEGRATION_TEST_DIR=$(readlink -f ../testing/integration_tests)
-
 PYTEST_ARGS=()
 
 if [[ "${KEEP_TABLES}" == "true" ]]; then
@@ -160,26 +147,12 @@ if [[ -n ${PORT} ]]; then
   PYTEST_ARGS+=("--port ${PORT}")
 fi
 
-if [[ -n ${USER} ]]; then
-  PYTEST_ARGS+=("--user ${USER}")
+if [[ -n ${USER_NAME} ]]; then
+  PYTEST_ARGS+=("--user ${USER_NAME}")
 fi
 
 if [[ -n ${SCHEMA_NAME} ]]; then
-  if [[ -z ${SCALE_FACTOR} ]]; then
-    echo "Error: A valid scale factor is required when --schema-name is specified. Use the -f or --scale-factor argument."
-    print_help
-    exit 1
-  fi
   PYTEST_ARGS+=("--schema-name ${SCHEMA_NAME}")
-fi
-
-if [[ -n ${SCALE_FACTOR} ]]; then
-  if [[ -z ${SCHEMA_NAME} ]]; then
-    echo "Error: Scale factor should be set only when --schema-name is specified."
-    print_help
-    exit 1
-  fi
-  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
 fi
 
 source ../../scripts/py_env_functions.sh
@@ -188,10 +161,12 @@ trap delete_python_virtual_env EXIT
 
 init_python_virtual_env
 
-pip install -q -r ${INTEGRATION_TEST_DIR}/requirements.txt
+TEST_DIR=$(readlink -f ../testing)
+pip install -q -r ${TEST_DIR}/requirements.txt
 
 source ./common_functions.sh
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
+INTEGRATION_TEST_DIR=${TEST_DIR}/integration_tests
 pytest -v ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
