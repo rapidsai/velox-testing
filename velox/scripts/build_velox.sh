@@ -256,11 +256,13 @@ DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
 export DOCKER_BUILDKIT=1 
 export COMPOSE_DOCKER_CLI_BUILD=1 
 
+# Create sccache auth directory unconditionally, it is expected by dockerfile
+mkdir -p ../docker/sccache/sccache_auth/
+
 # Add sccache build arguments
 if [[ "$ENABLE_SCCACHE" == true ]]; then
   DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="ON")
   # Copy auth files to build context
-  mkdir -p ../docker/sccache/sccache_auth/
   cp "$SCCACHE_AUTH_DIR/github_token" ../docker/sccache/sccache_auth/
   cp "$SCCACHE_AUTH_DIR/aws_credentials" ../docker/sccache/sccache_auth/
   
