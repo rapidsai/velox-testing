@@ -88,12 +88,51 @@ jobs:
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
         run: ./build_centos_deps_image.sh
 
+      - &setup-sccache
+        name: Setup sccache authentication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCCACHE_AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          SCCACHE_AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+          SCCACHE_AWS_SESSION_TOKEN: ${{ secrets.SCCACHE_AWS_SESSION_TOKEN }}
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: |
+          # Check if AWS credentials are available
+          if [[ -z "$SCCACHE_AWS_ACCESS_KEY_ID" ]] || [[ -z "$SCCACHE_AWS_SECRET_ACCESS_KEY" ]]; then
+            echo "Warning: SCCACHE_AWS_ACCESS_KEY_ID or SCCACHE_AWS_SECRET_ACCESS_KEY not found in secrets"
+            echo "Skipping sccache setup"
+            exit 0
+          fi
+          
+          # Setup sccache auth directory
+          mkdir -p $HOME/.sccache-auth
+          
+          # Save GitHub token
+          echo "$GH_TOKEN" > $HOME/.sccache-auth/github_token
+          chmod 600 $HOME/.sccache-auth/github_token
+          
+          # Create AWS credentials file
+          cat > $HOME/.sccache-auth/aws_credentials << EOF
+          [default]
+          aws_access_key_id = $SCCACHE_AWS_ACCESS_KEY_ID
+          aws_secret_access_key = $SCCACHE_AWS_SECRET_ACCESS_KEY
+          EOF
+          
+          # Add session token if available (for temporary credentials)
+          if [[ -n "$SCCACHE_AWS_SESSION_TOKEN" ]]; then
+            echo "aws_session_token = $SCCACHE_AWS_SESSION_TOKEN" >> $HOME/.sccache-auth/aws_credentials
+          fi
+          
+          chmod 600 $HOME/.sccache-auth/aws_credentials
+          echo "SCCACHE_AUTH_DIR=$HOME/.sccache-auth" >> $GITHUB_ENV
+          echo "Sccache authentication setup complete"
+
       - name: Building Velox for CPU
         run: |
           echo "   - CUDF support: DISABLED"
           echo "   - Target: CPU-only build"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --cpu --log build_velox_cpu.log
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --cpu --sccache --log build_velox_cpu.log
 
       - name: Upload velox_cpu_build_log as an artifact
         uses: actions/upload-artifact@v4
@@ -123,12 +162,14 @@ jobs:
 
       - *build-deps
 
+      - *setup-sccache
+
       - name: Building Velox for GPU
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
         run: |
           echo "   - CUDF support: ENABLED"
           echo "   - Target: GPU-accelerated build"
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --gpu --log build_velox_gpu.log
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --gpu --sccache --log build_velox_gpu.log
 
       - name: Upload velox_gpu_build_log as an artifact
         uses: actions/upload-artifact@v4
