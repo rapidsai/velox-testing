@@ -16,6 +16,9 @@ echo "Presto pinned version is ${SHA}"
 
 # checkout sibling Velox to that SHA
 pushd ../../../velox
+pwd
+ls -l
+git rev-parse HEAD
 git checkout ${SHA}
 popd
 
