@@ -105,6 +105,7 @@ RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
       sccache --dist-status && \
       echo "Pre-build sccache (zeroed out) statistics:" && \
       sccache --show-stats; \
+      export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100"; \
     fi && \
     make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
     make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
