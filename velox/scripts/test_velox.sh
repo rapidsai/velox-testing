@@ -96,18 +96,18 @@ parse_args "$@"
 echo "Running tests on Velox adapters..."
 echo ""
 echo "Device type: ${DEVICE_TYPE}"
-test_preamble='if [ -f "/opt/miniforge/etc/profile.d/conda.sh" ]; then
+TEST_PREAMBLE='if [ -f "/opt/miniforge/etc/profile.d/conda.sh" ]; then
     source "/opt/miniforge/etc/profile.d/conda.sh"
     conda activate adapters
   fi
   export CLASSPATH=$(/usr/local/hadoop/bin/hdfs classpath --glob)'
 if [[ "$DEVICE_TYPE" == "cpu" ]]; then
-  test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test\""
+  TEST_CMD="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test\""
 else
   # Run cuda_driver tests with 1 thread
-  test_cmd="ctest -j 1 -L cuda_driver --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3\""
+  TEST_CMD="ctest -j 1 -L cuda_driver --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3\""
 fi
-if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "set -euo pipefail; cd ${EXPECTED_OUTPUT_DIR} && ${test_preamble} && ${test_cmd}"; then
+if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "set -euo pipefail; cd ${EXPECTED_OUTPUT_DIR} && ${TEST_PREAMBLE} && ${TEST_CMD}"; then
   echo ""
   echo "  Tests passed successfully!"
   echo ""
@@ -121,7 +121,7 @@ else
   echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} bash"
   echo "    # Then inside the container:"
   echo "    # cd ${EXPECTED_OUTPUT_DIR}"
-  echo "    # ${test_cmd}"
+  echo "    # ${TEST_CMD}"
   echo ""
   exit $TEST_EXIT_CODE
 fi
