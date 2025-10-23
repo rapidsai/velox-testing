@@ -9,5 +9,5 @@ popd
 
 # checkout sibling Velox to that SHA
 pushd ../../velox
-get checkout ${SHA}
+git checkout ${SHA}
 popd
