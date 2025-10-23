@@ -23,11 +23,6 @@ on:
         type: string
         required: false
         default: 'main'
-      velox_testing_commit:
-        description: 'Velox Testing Commit SHA or Branch'
-        type: string
-        required: false
-        default: 'main'
       presto_worker_type:
         description: 'Type of Presto Worker to use'
         type: string
@@ -62,14 +57,12 @@ jobs:
           repository: ${{ inputs.velox_repository }}
           ref: ${{ inputs.velox_commit }}
           path: velox
-      - name: Report requested Velox Testing commit
-        run: |
-          echo "Using Velox Testing commit/ref: ${{ inputs.velox_testing_commit }}"
       - name: Checkout Velox Testing
+        # checkout branch github.ref_name to automatically match the workflow branch
         uses: actions/checkout@v4
         with:
           repository: rapidsai/velox-testing
-          ref: ${{ inputs.velox_testing_commit }}
+          ref: ${{ github.ref_name }}
           path: velox-testing
       - name: Change Velox to match upstream Presto
         if: ${{ inputs.build_upstream && inputs.presto_worker_type != 'java' }}
