@@ -58,7 +58,7 @@ RUN printenv | sort
 RUN if [ "$ENABLE_SCCACHE" = "ON" ]; then \
       set -euxo pipefail && \
       # Install RAPIDS sccache fork
-      wget --no-hsts -q -O- "https://github.com/rapidsai/sccache/releases/download/v0.10.0-rapids.68/sccache-v0.10.0-rapids.68-$(uname -m)-unknown-linux-musl.tar.gz" | \
+      wget --no-hsts -q -O- "https://github.com/rapidsai/sccache/releases/download/v0.12.0-rapids.1/sccache-v0.12.0-rapids.1-$(uname -m)-unknown-linux-musl.tar.gz" | \
       tar -C /usr/bin -zf - --wildcards --strip-components=1 -x '*/sccache' 2>/dev/null && \
       chmod +x /usr/bin/sccache && \
       # Verify installation
