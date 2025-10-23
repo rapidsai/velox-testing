@@ -104,10 +104,8 @@ test_preamble='if [ -f "/opt/miniforge/etc/profile.d/conda.sh" ]; then
 if [[ "$DEVICE_TYPE" == "cpu" ]]; then
   test_cmd="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test\""
 else
-  # Run velox_cudf_hash_join_test with 1 thread, all other cuda_driver tests with 2 threads
-  # Exclude velox_cudf_hash_join_test from the first command to avoid running it twice
-  test_cmd="ctest -j 2 -L cuda_driver --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3|velox_cudf_hash_join_test\" && \
-    ctest -j 1 -R velox_cudf_hash_join_test --output-on-failure --no-tests=error"
+  # Run cuda_driver tests with 1 thread
+  test_cmd="ctest -j 1 -L cuda_driver --output-on-failure --no-tests=error -E \"velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3\""
 fi
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "set -euo pipefail; cd ${EXPECTED_OUTPUT_DIR} && ${test_preamble} && ${test_cmd}"; then
   echo ""
