@@ -93,7 +93,7 @@ jobs:
           echo "   - CUDF support: DISABLED"
           echo "   - Target: CPU-only build"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --cpu --log build_velox_cpu.log
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --cpu --log build_velox_cpu.log
 
       - name: Upload velox_cpu_build_log as an artifact
         uses: actions/upload-artifact@v4
@@ -128,7 +128,7 @@ jobs:
         run: |
           echo "   - CUDF support: ENABLED"
           echo "   - Target: GPU-accelerated build"
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --gpu --log build_velox_gpu.log
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --gpu --log build_velox_gpu.log
 
       - name: Upload velox_gpu_build_log as an artifact
         uses: actions/upload-artifact@v4
