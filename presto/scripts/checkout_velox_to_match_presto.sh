@@ -16,8 +16,11 @@ echo "Presto pinned version is ${SHA}"
 
 # checkout sibling Velox to that SHA
 pushd ../../../velox
+echo "DEBUG: running git fsck"
 git fsck
+echo "DEBUG: running git rev-parse HEAD"
 git rev-parse HEAD
+echo "DEBUG: running git checkout"
 git checkout ${SHA}
 popd
 
