@@ -22,7 +22,7 @@ cp /sccache_auth/aws_credentials ~/.aws/credentials
 GITHUB_TOKEN=$(cat /sccache_auth/github_token | tr -d '\n\r ')
 
 # Create sccache config
-SCCACHE_ARCH=$(uname -m | sed 's/x86_64/amd64/')
+SCCACHE_ARCH=$(if test "$(uname -m)" = x86_64; then echo amd64; else echo arm64; fi)
 
 # Check if we should disable distributed compilation (disabled by default)
 if [[ "${SCCACHE_DISABLE_DIST:-ON}" == "ON" ]]; then
