@@ -24,7 +24,7 @@ Specifically, the `velox-testing` and `velox` repositories must be checked out a
 ## `sccache` Usage
 `sccache` has been integrated to significantly accelerate builds using remote S3 caching and optional distributed compilation. Currently supported for Velox builds only (not Presto).
 
-The fork `rapidsai/sccache` is integrated and configured for use with the `NVIDIA` GitHub organization.
+The fork `rapidsai/sccache` is integrated and configured for use with the `rapidsai` GitHub organization.
 
 ### Setup and Usage
 First, set up authentication credentials:
