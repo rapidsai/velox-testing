@@ -397,8 +397,10 @@ run_tpch_single_benchmark() {
     
     # Pass through sync call sites configuration if set
     if [[ -n "${RMM_SYNC_CALL_SITES_FILE:-}" ]]; then
-      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_CALL_SITES_FILE=${RMM_SYNC_CALL_SITES_FILE}"
-      echo "  - SYNC INJECTION FILE: ${RMM_SYNC_CALL_SITES_FILE}"
+      # Copy the file to container and update path
+      sync_env_file_basename=$(basename "${RMM_SYNC_CALL_SITES_FILE}")
+      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_CALL_SITES_FILE=/workspace/velox/$sync_env_file_basename"
+      echo "  - SYNC INJECTION FILE: ${RMM_SYNC_CALL_SITES_FILE} -> /workspace/velox/$sync_env_file_basename"
       
       if [[ -n "${RMM_SYNC_CALL_SITE_INDEX:-}" ]]; then
         VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_CALL_SITE_INDEX=${RMM_SYNC_CALL_SITE_INDEX}"
@@ -456,7 +458,7 @@ run_tpch_single_benchmark() {
     fi
   fi
   
-  # Copy sync call sites file to container if needed
+  # Copy sync call sites file to container if needed (old parameter)
   if [[ -n "$sync_call_sites_file" ]]; then
     sync_file_basename=$(basename "$sync_call_sites_file")
     echo "Copying sync call sites file to container: $sync_call_sites_file -> /workspace/velox/$sync_file_basename"
@@ -479,6 +481,31 @@ EOF"
       $run_in_container_func "ls -la /workspace/velox/$sync_file_basename"
     else
       echo "ERROR: Failed to copy sync call sites file to container" >&2
+      return 1
+    fi
+  fi
+  
+  # Copy sync call sites file if specified via environment variable
+  if [[ -n "${RMM_SYNC_CALL_SITES_FILE:-}" ]]; then
+    sync_env_file_basename=$(basename "${RMM_SYNC_CALL_SITES_FILE}")
+    echo "Copying RMM_SYNC_CALL_SITES_FILE to container: ${RMM_SYNC_CALL_SITES_FILE} -> /workspace/velox/$sync_env_file_basename"
+    
+    if [[ ! -f "${RMM_SYNC_CALL_SITES_FILE}" ]]; then
+      echo "ERROR: RMM_SYNC_CALL_SITES_FILE not found: ${RMM_SYNC_CALL_SITES_FILE}"
+      return 1
+    fi
+    
+    # Copy file content to container
+    sync_env_file_content=$(cat "${RMM_SYNC_CALL_SITES_FILE}")
+    $run_in_container_func "cat > /workspace/velox/$sync_env_file_basename << 'EOF'
+$sync_env_file_content
+EOF"
+    
+    # Verify file was copied correctly
+    if $run_in_container_func "test -f /workspace/velox/$sync_env_file_basename"; then
+      echo "RMM_SYNC_CALL_SITES_FILE copied successfully to container"
+    else
+      echo "ERROR: Failed to copy RMM_SYNC_CALL_SITES_FILE to container"
       return 1
     fi
   fi
