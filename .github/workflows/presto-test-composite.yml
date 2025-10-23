@@ -50,26 +50,30 @@ jobs:
           repository: ${{ inputs.presto_repository }}
           ref: ${{ inputs.presto_commit }}
           path: presto
+      - name: Get Presto Pinned Velox Version
+        id: get-presto-pinned-velox-version
+        if: ${{ inputs.build_upstream && inputs.presto_worker_type != 'java' }}
+        run: |
+          pushd presto/presto-native-execution
+          make submodules
+          cd velox
+          PRESTO_PINNED_VELOX_SHA=$(git rev-parse HEAD)
+          echo "Found Presto pinned Velox SHA: ${PRESTO_PINNED_VELOX_SHA}"
+          echo "PRESTO_PINNED_VELOX_SHA=${PRESTO_PINNED_VELOX_SHA}" >> $GITHUB_OUTPUT
+          popd
       - name: Checkout Velox
         if: ${{ inputs.presto_worker_type != 'java' }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.velox_repository }}
-          ref: ${{ inputs.velox_commit }}
+          repository: ${{ inputs.build_upstream && 'facebookincubator/velox' || inputs.velox_repository }}
+          ref: ${{ inputs.build_upstream && steps.get-presto-pinned-velox-version.outputs.PRESTO_PINNED_VELOX_SHA || inputs.velox_commit }}
           path: velox
       - name: Checkout Velox Testing
-        # checkout branch github.ref_name to automatically match the workflow branch
         uses: actions/checkout@v4
         with:
           repository: rapidsai/velox-testing
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.ref_name }} # automatically match the workflow branch
           path: velox-testing
-      - name: Change Velox to match upstream Presto
-        if: ${{ inputs.build_upstream && inputs.presto_worker_type != 'java' }}
-        run: |
-          pushd velox-testing/presto/scripts
-          ./checkout_velox_to_match_presto.sh
-          popd
       - name: Download Presto Dependencies Container Image
         if: ${{ inputs.presto_worker_type != 'java' }}
         env:
