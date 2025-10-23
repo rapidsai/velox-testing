@@ -62,6 +62,9 @@ jobs:
           repository: ${{ inputs.velox_repository }}
           ref: ${{ inputs.velox_commit }}
           path: velox
+      - name: Report requested Velox Testing commit
+        run: |
+          echo "Using Velox Testing commit/ref: ${{ inputs.velox_testing_commit }}"
       - name: Checkout Velox Testing
         uses: actions/checkout@v4
         with:
