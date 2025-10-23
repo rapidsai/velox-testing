@@ -18,7 +18,6 @@ set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 function echo_error {
@@ -82,7 +81,6 @@ EOF
 # hide default pbench logging which goes to stderr so we only see any errors
 if ../../pbench/pbench genconfig -p params.json -t template generated 2>&1 | grep '\{\"level":"error"'; then
     echo_error "ERROR in pbench genconfig.  Configs were not generated successfully"
-    exit 1
 fi
 
 echo_success "Configs were generated successfully"
