@@ -77,10 +77,11 @@ jobs:
           ./fetch_centos_deps_image.sh
           popd
       - name: Set Velox Backward Compatibility Flag
+        # for Velox builds insert VELOX_ENABLE_BACKWARD_COMPATIBILITY definition?
         if: ${{ inputs.presto_worker_type != 'java' && inputs.set_velox_backward_compatible == 'true' }}
         run: |
-          pushd presto
-          echo 'add_definitions(-DVELOX_ENABLE_BACKWARD_COMPATIBILITY)' >> CMakeLists.txt
+          pushd presto/presto-native-execution
+          sed -i 's/add_subdirectory(presto_cpp)/add_definitions(-DVELOX_ENABLE_BACKWARD_COMPATIBILITY)\nadd_subdirectory(presto_cpp)/' CMakeLists.txt
           popd
       - name: Build Presto
         run: |
