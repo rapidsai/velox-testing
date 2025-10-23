@@ -1,0 +1,10 @@
+name: Presto Nightly Test (Upstream)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dummy:
+    steps:
+      - name: dummy
+        run: echo dummy
