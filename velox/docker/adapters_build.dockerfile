@@ -92,6 +92,8 @@ COPY velox-testing/velox/docker/sccache/sccache_auth/ /sccache_auth/
 
 # Build in Release mode into ${BUILD_BASE_DIR}
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
+    --mount=type=cache,target=/root/.cache/sccache/preprocessor \
+    --mount=type=cache,target=/root/.cache/sccache-dist-client \
     set -euxo pipefail && \
     # Configure sccache if enabled
     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
