@@ -55,6 +55,11 @@ no_credentials = false
 
 [dist]
 scheduler_url = "https://${SCCACHE_ARCH}.linux.sccache.rapids.nvidia.com"
+fallback_to_local_compile = true
+max_retries = 4
+
+[dist.net]
+request_timeout = 7140
 
 [dist.auth]
 type = "token"
