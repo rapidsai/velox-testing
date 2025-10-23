@@ -147,8 +147,11 @@ RUN mkdir -p ${BUILD_BASE_DIR}
 RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
     set -euxo pipefail && \
     if [ "$ENABLE_ASAN" = "ON" ]; then \
-      EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_CXX_FLAGS='-fno-omit-frame-pointer -fsanitize=address -fno-optimize-sibling-calls' -DCMAKE_C_FLAGS='-fsanitize=address -fno-optimize-sibling-calls'" && \
+      EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_CXX_FLAGS='-fno-omit-frame-pointer -fsanitize=address -fno-optimize-sibling-calls' -DCMAKE_C_FLAGS='-fno-omit-frame-pointer -fsanitize=address -fno-optimize-sibling-calls'" && \
       echo "AddressSanitizer flags added to build"; \
+    else \
+      EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_CXX_FLAGS='-fno-omit-frame-pointer' -DCMAKE_C_FLAGS='-fno-omit-frame-pointer'" && \
+      echo "Frame pointer preservation flags added to build"; \
     fi && \
     # Configure sccache if enabled 
     if [ "$ENABLE_SCCACHE" = "ON" ]; then \
