@@ -40,17 +40,40 @@ jobs:
         with:
           path: velox-testing
 
-      - name: Setup Velox Testing and Velox
+      - name: Setup Velox
         uses: ./velox-testing/.github/actions/velox-setup
         with:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
 
-      - name: "Build Velox GPU with Benchmarks (SHA: ${{ env.VELOX_COMMIT_SHA }})"
+      - name: Download and Load Velox Dependencies Container Image
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        id: fetch_and_load_deps
         run: |
-          pushd ${{ github.workspace }}/velox-testing/velox/scripts
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh -j $(nproc) --all-cuda-archs --gpu --benchmarks true --log build_velox_gpu.log
-          popd
+          set +e
+          ./fetch_centos_deps_image.sh
+          status=$?
+          if [[ $status -eq 1 ]]; then
+            echo "FETCH_DEPS_NEEDS_BUILD=true" >> $GITHUB_OUTPUT
+          elif [[ $status -ne 0 ]]; then
+            echo "fetch_centos_deps_image.sh failed with unexpected exit code $status"
+            exit $status
+          fi
+
+      - name: Build Velox Dependencies Container Image (fallback)
+        if: ${{ steps.fetch_and_load_deps.outputs.FETCH_DEPS_NEEDS_BUILD == 'true' }}
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./build_centos_deps_image.sh
+
+      - name: "Build Velox GPU with Benchmarks (SHA: ${{ env.VELOX_COMMIT_SHA }})"
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh -j $(nproc) --all-cuda-archs --gpu --benchmarks true --log build_velox_gpu.log
 
       - name: Upload velox_gpu_build_log as an artifact
         uses: actions/upload-artifact@v4
