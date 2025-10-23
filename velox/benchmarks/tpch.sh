@@ -394,6 +394,19 @@ run_tpch_single_benchmark() {
       VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DEBUG=1"
       echo "  - DEBUG MODE ENABLED: Will show all sync matches and events"
     fi
+    
+    # Pass through sync call sites configuration if set
+    if [[ -n "${RMM_SYNC_CALL_SITES_FILE:-}" ]]; then
+      VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_CALL_SITES_FILE=${RMM_SYNC_CALL_SITES_FILE}"
+      echo "  - SYNC INJECTION FILE: ${RMM_SYNC_CALL_SITES_FILE}"
+      
+      if [[ -n "${RMM_SYNC_CALL_SITE_INDEX:-}" ]]; then
+        VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_CALL_SITE_INDEX=${RMM_SYNC_CALL_SITE_INDEX}"
+        echo "  - SYNC INJECTION INDEX: ${RMM_SYNC_CALL_SITE_INDEX}"
+      else
+        echo "  - WARNING: RMM_SYNC_CALL_SITES_FILE set but RMM_SYNC_CALL_SITE_INDEX not specified"
+      fi
+    fi
     if [[ "${RMM_SYNC_DISABLE:-}" == "1" ]]; then
       VERBOSE_ENV_PREFIX="$VERBOSE_ENV_PREFIX RMM_SYNC_DISABLE=1"
       echo "  - SYNC DISABLED: No synchronization will occur"
