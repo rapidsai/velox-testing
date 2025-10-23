@@ -62,18 +62,18 @@ jobs:
           repository: ${{ inputs.velox_repository }}
           ref: ${{ inputs.velox_commit }}
           path: velox
-      - name: Change Velox to match upstream Presto
-        if: ${{ inputs.build_upstream }}
-        run: |
-          pushd velox-testing/presto/scripts
-          ./checkout_velox_to_match_presto.sh
-          popd
       - name: Checkout Velox Testing
         uses: actions/checkout@v4
         with:
           repository: rapidsai/velox-testing
           ref: ${{ inputs.velox_testing_commit }}
           path: velox-testing
+      - name: Change Velox to match upstream Presto
+        if: ${{ inputs.build_upstream }}
+        run: |
+          pushd velox-testing/presto/scripts
+          ./checkout_velox_to_match_presto.sh
+          popd
       - name: Download Presto Dependencies Container Image
         if: ${{ inputs.presto_worker_type != 'java' }}
         env:
