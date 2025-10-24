@@ -14,6 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+function print_presto_container_status_and_logs() {
+  # get all Presto containers
+  export CONTAINERS = $(docker ps -a --format '{{.Names}}')
+
+  # log their status
+  echo "Docker Container Status:"
+  echo ${CONTAINERS}
+
+  # dump each container's log
+  echo "Docker Logs:"
+  while IFS= read -r CONTAINER; do
+    echo "############ Log for Container '${CONTAINER}' ############"
+    docker logs ${CONTAINER}
+  done <<< ${CONTAINERS}
+}
+
 function wait_for_worker_node_registration() {
   trap "rm -rf node_response.json" RETURN
 
@@ -28,6 +44,7 @@ function wait_for_worker_node_registration() {
         (( $(jq length node_response.json) > 0 )); do
     if (( $retry_count >= $MAX_RETRIES )); then
       echo "Error: Worker node not registered after 60s. Exiting."
+      print_presto_container_status_and_logs
       exit 1
     fi
     sleep 5
