@@ -15,6 +15,10 @@
 # limitations under the License.
 
 set -euo pipefail
+
+# cd to the script dir
+cd "$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )";
+
 # load common variables and functions
 source ./config.sh
 
