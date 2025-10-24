@@ -122,8 +122,8 @@ echo "Authentication files created in: $OUTPUT_DIR"
 echo
 
 echo -e "${YELLOW}Next steps:${NC}"
-echo "1. Use these credentials with build_velox.sh:"
-echo "   ./build_velox.sh --sccache --sccache-auth-dir \"$OUTPUT_DIR\""
+echo "1. Use these credentials with build_velox.sh assuming defaults:"
+echo "   ./build_velox.sh --sccache"
 echo
 echo "2. Or set the environment variable:"
 echo "   export SCCACHE_AUTH_DIR=\"$OUTPUT_DIR\""
