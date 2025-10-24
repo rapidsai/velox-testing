@@ -14,6 +14,8 @@ RUN unzip -d /usr/bin -o /tmp/ninja-linux.zip
 
 FROM ghcr.io/facebookincubator/velox-dev:adapters
 
+ARG TARGETARCH
+
 # Do this separate so changing unrelated build args doesn't invalidate nsys installation layer
 ARG VELOX_ENABLE_BENCHMARKS=ON
 
@@ -44,7 +46,14 @@ ARG TREAT_WARNINGS_AS_ERRORS=1
 ARG BUILD_BASE_DIR=/opt/velox-build
 ARG BUILD_TYPE=release
 ARG ENABLE_SCCACHE=OFF
-ARG SCCACHE_DISABLE_DIST=ON
+ARG SCCACHE_SERVER_LOG="sccache=info"
+ARG SCCACHE_VERSION=latest
+# Don't read from cache, but do put/replace entries
+ARG SCCACHE_RECACHE
+# Don't read from cache and don't write new entries
+ARG SCCACHE_NO_CACHE
+# Always compile locally (even if the build cluster is configured/available)
+ARG SCCACHE_NO_DIST_COMPILE
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -78,73 +87,71 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rmm-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rapids_logger-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
-    ENABLE_SCCACHE=${ENABLE_SCCACHE} \
-    SCCACHE_DISABLE_DIST=${SCCACHE_DISABLE_DIST}
+    ENABLE_SCCACHE="${ENABLE_SCCACHE}" \
+    SCCACHE_VERSION="${SCCACHE_VERSION}" \
+    SCCACHE_SERVER_LOG="${SCCACHE_SERVER_LOG}" \
+    SCCACHE_ERROR_LOG=/tmp/sccache.log \
+    SCCACHE_CACHE_SIZE=107374182400 \
+    SCCACHE_BUCKET=rapids-sccache-devs \
+    SCCACHE_REGION=us-east-2 \
+    SCCACHE_S3_NO_CREDENTIALS=false \
+    # disable shutdown-on-idle
+    SCCACHE_IDLE_TIMEOUT=0 \
+    SCCACHE_DIST_AUTH_TYPE=token \
+    SCCACHE_DIST_REQUEST_TIMEOUT=7140 \
+    SCCACHE_DIST_SCHEDULER_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com" \
+    SCCACHE_DIST_MAX_RETRIES=4 \
+    SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true
 
 WORKDIR /workspace/velox
 
 # Print environment variables for debugging
 RUN printenv | sort
 
-# Install sccache if enabled
-RUN if [ "$ENABLE_SCCACHE" = "ON" ]; then \
-      set -euxo pipefail && \
-      # Install RAPIDS sccache fork
-      wget --no-hsts -q -O- "https://github.com/rapidsai/sccache/releases/download/v0.12.0-rapids.1/sccache-v0.12.0-rapids.1-$(uname -m)-unknown-linux-musl.tar.gz" | \
-      tar -C /usr/bin -zf - --wildcards --strip-components=1 -x '*/sccache' 2>/dev/null && \
-      chmod +x /usr/bin/sccache && \
-      # Verify installation
-      sccache --version; \
-    else \
-      echo "Skipping sccache installation (ENABLE_SCCACHE=OFF)"; \
-    fi
 # Install latest ninja
 COPY --from=ninja /usr/bin/ninja /usr/bin/
 
-# Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
-RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
-      set -euxo pipefail && \
-      # Add NVIDIA CUDA repository with proper GPG key
-      dnf install -y dnf-plugins-core && \
-      dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
-      # Import NVIDIA GPG key
-      rpm --import https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/D42D0685.pub && \
-      # Install nsys from CUDA repository
-      dnf install -y nsight-systems && \
-      # Verify nsys installation
-      which nsys && nsys --version; \
-    else \
-      echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
-    fi
-
-# Copy sccache setup script (if sccache enabled)
-COPY velox-testing/velox/docker/sccache/sccache_setup.sh /sccache_setup.sh
-RUN if [ "$ENABLE_SCCACHE" = "ON" ]; then chmod +x /sccache_setup.sh; fi
-
-# Copy sccache auth files (note source of copy must be within the docker build context)
-COPY velox-testing/velox/docker/sccache/sccache_auth/ /sccache_auth/
-
-# Build in Release mode into ${BUILD_BASE_DIR}
-RUN --mount=type=bind,source=velox,target=/workspace/velox,ro \
+# Build into ${BUILD_BASE_DIR}
+RUN \
+    # Mount velox source dir
+    --mount=type=bind,source=velox,target=/workspace/velox,ro \
+    # Mount sccache preprocessor and toolchain caches
     --mount=type=cache,target=/root/.cache/sccache/preprocessor \
     --mount=type=cache,target=/root/.cache/sccache-dist-client \
-    set -euxo pipefail && \
-    # Configure sccache if enabled
-    if [ "$ENABLE_SCCACHE" = "ON" ]; then \
-      # Run sccache setup script
-      /sccache_setup.sh && \
-      # Add sccache CMake flags
-      EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache" && \
-      echo "sccache distributed status:" && \
-      sccache --dist-status && \
-      echo "Pre-build sccache (zeroed out) statistics:" && \
-      sccache --show-stats; \
-      export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100"; \
-    fi && \
-    make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
-    make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" && \
-    # Show final sccache stats if enabled
-    if [ "$ENABLE_SCCACHE" = "ON" ]; then \
-      echo "Post-build sccache statistics:" && \
-      sccache --show-stats; \
-    fi
+    # Mount sccache auth secrets
+    --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \
+    --mount=type=secret,id=aws_credentials,target=/root/.aws/credentials \
+    # Mount sccache setup script
+    --mount=type=bind,source=velox-testing/velox/docker/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
+<<EOF
+set -euxo pipefail;
+
+# Install and configure sccache if enabled
+if [ "$ENABLE_SCCACHE" = "ON" ]; then
+  # Run sccache setup script
+  bash /sccache_setup.sh;
+  # Add sccache CMake flags
+  EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
+  export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
+  if ! test -v SCCACHE_NO_DIST_COMPILE; then
+    # Work around gcc bug when dist-compiling preprocessor output
+    export CFLAGS="${CFLAGS:+$CFLAGS }-Wno-error=range-loop-construct";
+    export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-Wno-error=range-loop-construct";
+  fi
+fi
+
+
+# Disable sccache-dist for CMake configuration's test compiles
+SCCACHE_NO_DIST_COMPILE=1 \
+make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
+
+# Run the build with timings
+time make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
+
+# Show final sccache stats if enabled
+if [ "$ENABLE_SCCACHE" = "ON" ]; then
+  echo "Post-build sccache statistics:";
+  sccache --show-stats;
+fi
+
+EOF
