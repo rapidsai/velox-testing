@@ -15,19 +15,18 @@
 # limitations under the License.
 
 function print_presto_container_status_and_logs() {
-  # get all Presto containers
-  export CONTAINERS = $(docker ps -a --format '{{.Names}}')
-
-  # log their status
-  echo "Docker Container Status:"
-  echo ${CONTAINERS}
+  # log container status (whether running or not)
+  echo "############ Docker Container Status ############"
+  docker ps -a
 
   # dump each container's log
-  echo "Docker Logs:"
+  echo "############ Docker Logs ############"
+  local CONTAINERS=$(docker ps -a --format '{{.Names}}')
   while IFS= read -r CONTAINER; do
     echo "############ Log for Container '${CONTAINER}' ############"
     docker logs ${CONTAINER}
   done <<< ${CONTAINERS}
+  echo "############ End of Docker Logs ############"
 }
 
 function wait_for_worker_node_registration() {
