@@ -52,15 +52,15 @@ docker run --rm -it \
   bash -c '
     echo "GitHub is authenticating with required scopes: gist, repo, read:org, read:enterprise"
     echo
-    
+
     echo -e "'${YELLOW}'Note: Browser opening will fail expectedly, please open the URL in your browser.'${NC}'"
     BROWSER="false" gh auth login --git-protocol ssh --skip-ssh-key --web --scopes gist --scopes repo --scopes read:org --scopes read:enterprise
-    
+
     echo
     echo "Verifying authentication"
     gh auth status
-    
-    gh auth token > /output/github_token
+
+    gh auth token | tr -d "\n\r " > /output/github_token
     echo "GitHub token saved to '$OUTPUT_DIR'/github_token"
   '
 
@@ -85,16 +85,16 @@ docker run --rm -it \
       echo "Error: GitHub token not found"
       exit 1
     fi
-    
+
     # Authenticate with the saved token
     cat /output/github_token | gh auth login --with-token
-    
+
     # Verify GitHub CLI authentication
     gh auth status
-    
+
     #Generate AWS credentials
     mkdir -p /root/.aws
-    
+
     gh nv-gha-aws org rapidsai \
       --profile default \
       --output creds-file \
@@ -103,7 +103,7 @@ docker run --rm -it \
       --idp-url https://token.gha-runners.nvidia.com \
       --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs \
       > /root/.aws/credentials
-    
+
     # Copy AWS credentials to output
     cp /root/.aws/credentials /output/aws_credentials
   '
@@ -122,12 +122,12 @@ echo "Authentication files created in: $OUTPUT_DIR"
 echo
 
 echo -e "${YELLOW}Next steps:${NC}"
-echo "1. Use these credentials with build_velox.sh:"
-echo "   ./build_velox.sh --sccache --sccache-auth-dir \"$OUTPUT_DIR\""
+echo "1. Use these credentials with build_velox.sh assuming defaults:"
+echo "   ./build_velox.sh --sccache"
 echo
 echo "2. Or set the environment variable:"
 echo "   export SCCACHE_AUTH_DIR=\"$OUTPUT_DIR\""
 echo "   ./build_velox.sh --sccache"
 echo
 
-echo -e "${GREEN}Setup complete!${NC}" 
+echo -e "${GREEN}Setup complete!${NC}"

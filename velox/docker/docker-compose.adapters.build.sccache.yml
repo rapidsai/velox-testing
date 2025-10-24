@@ -1,0 +1,16 @@
+services:
+  velox-adapters-build:
+    extends:
+      file: docker-compose.adapters.build.yml
+      service: velox-adapters-build
+    build:
+      ulimits: {nofile: {soft: 500000, hard: 500000}}
+      secrets:
+        - github_token
+        - aws_credentials
+
+secrets:
+  github_token:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/github_token"
+  aws_credentials:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/aws_credentials"
