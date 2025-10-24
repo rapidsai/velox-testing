@@ -63,6 +63,9 @@ parse_args() {
           echo "Error: --num-threads requires a value"
           exit 1
         fi
+        if [[ "$DEVICE_TYPE" == "gpu" && "$2" -gt 2 ]]; then
+          echo "Warning: Using more than 2 threads in GPU mode may cause OOM errors during testing."
+        fi
         NUM_THREADS="$2"
         shift 2
         ;;
@@ -106,9 +109,12 @@ if [[ "$DEVICE_TYPE" == "cpu" ]]; then
   SKIP_TESTS="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test"
   TEST_CMD="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error -E \"${SKIP_TESTS}\""
 else
-  # Run cuda_driver tests with 1 thread
+  if [[ "$NUM_THREADS" -gt 2 ]]; then
+    echo "Warning: For GPU mode, setting NUM_THREADS to 2 to avoid possible OOM errors."
+    NUM_THREADS=2
+  fi
   SKIP_TESTS="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3"
-  TEST_CMD="ctest -j 1 -L cuda_driver --output-on-failure --no-tests=error -E \"${SKIP_TESTS}\""
+  TEST_CMD="ctest -j ${NUM_THREADS} -L cuda_driver --output-on-failure --no-tests=error -E \"${SKIP_TESTS}\""
 fi
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "set -euo pipefail; cd ${EXPECTED_OUTPUT_DIR} && ${TEST_PREAMBLE} && ${TEST_CMD}"; then
   echo ""

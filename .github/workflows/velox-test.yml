@@ -138,4 +138,4 @@ jobs:
 
       - name: Run Velox GPU Tests
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
-        run: ./test_velox.sh --device-type gpu
+        run: ./test_velox.sh -j 1 --device-type gpu
