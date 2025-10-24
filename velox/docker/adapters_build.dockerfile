@@ -1,3 +1,17 @@
+ARG TARGETARCH
+
+# Install latest ninja
+
+FROM dockerqa/unzip:latest AS ninja-amd64
+ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux.zip /tmp
+
+FROM dockerqa/unzip:latest AS ninja-arm64
+ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux-aarch64.zip /tmp
+RUN mv /tmp/ninja-linux-aarch64.zip /tmp/ninja-linux.zip
+
+FROM ninja-${TARGETARCH} AS ninja
+RUN unzip -d /usr/bin -o /tmp/ninja-linux.zip
+
 FROM ghcr.io/facebookincubator/velox-dev:adapters
 
 # Build-time configuration, these may be overridden in the docker compose yaml,
@@ -66,6 +80,8 @@ RUN if [ "$ENABLE_SCCACHE" = "ON" ]; then \
     else \
       echo "Skipping sccache installation (ENABLE_SCCACHE=OFF)"; \
     fi
+# Install latest ninja
+COPY --from=ninja /usr/bin/ninja /usr/bin/
 
 # Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
 RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
