@@ -14,6 +14,25 @@ RUN unzip -d /usr/bin -o /tmp/ninja-linux.zip
 
 FROM ghcr.io/facebookincubator/velox-dev:adapters
 
+# Do this separate so changing unrelated build args doesn't invalidate nsys installation layer
+ARG VELOX_ENABLE_BENCHMARKS=ON
+
+# Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
+RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
+      set -euxo pipefail && \
+      # Add NVIDIA CUDA repository with proper GPG key
+      dnf install -y dnf-plugins-core && \
+      dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
+      # Import NVIDIA GPG key
+      rpm --import https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/D42D0685.pub && \
+      # Install nsys from CUDA repository
+      dnf install -y nsight-systems && \
+      # Verify nsys installation
+      which nsys && nsys --version; \
+    else \
+      echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
+    fi
+
 # Build-time configuration, these may be overridden in the docker compose yaml,
 # environment variables, or via the docker build command
 ARG NUM_THREADS=8
@@ -22,7 +41,6 @@ ARG CUDA_ARCHITECTURES=70
 ARG BUILD_WITH_VELOX_ENABLE_CUDF=ON
 ARG BUILD_WITH_VELOX_ENABLE_WAVE=OFF
 ARG TREAT_WARNINGS_AS_ERRORS=1
-ARG VELOX_ENABLE_BENCHMARKS=ON
 ARG BUILD_BASE_DIR=/opt/velox-build
 ARG BUILD_TYPE=release
 ARG ENABLE_SCCACHE=OFF
