@@ -5,6 +5,7 @@ services:
       service: presto-base-coordinator
     volumes:
       - ./config/generated/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/etc_shared/jvm_java.config:/opt/presto-server/etc/jvm.config
 
   presto-java-worker:
     extends:
@@ -15,5 +16,6 @@ services:
     volumes:
       - ./config/generated/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/generated/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/etc_shared/jvm_java.config:/opt/presto-server/etc/jvm.config
     depends_on:
       - presto-coordinator

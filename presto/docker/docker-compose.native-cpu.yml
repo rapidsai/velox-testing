@@ -5,6 +5,7 @@ services:
       service: presto-base-coordinator
     volumes:
       - ./config/generated/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/etc_shared/jvm_native.config:/opt/presto-server/etc/jvm.config
 
   presto-native-worker-cpu:
     extends:
