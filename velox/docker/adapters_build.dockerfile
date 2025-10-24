@@ -38,6 +38,8 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
 # Build-time configuration, these may be overridden in the docker compose yaml,
 # environment variables, or via the docker build command
 ARG NUM_THREADS=8
+ARG MAX_HIGH_MEM_JOBS=4
+ARG MAX_LINK_JOBS=4
 ARG CUDA_VERSION=12.8
 ARG CUDA_ARCHITECTURES=70
 ARG BUILD_WITH_VELOX_ENABLE_CUDF=ON
@@ -62,7 +64,7 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     faiss_SOURCE=BUNDLED \
     CUDA_VERSION=${CUDA_VERSION} \
     TREAT_WARNINGS_AS_ERRORS=${TREAT_WARNINGS_AS_ERRORS} \
-    MAKEFLAGS="NUM_THREADS=${NUM_THREADS} MAX_HIGH_MEM_JOBS=4 MAX_LINK_JOBS=4" \
+    MAKEFLAGS="NUM_THREADS=${NUM_THREADS}" \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     CUDA_COMPILER=/usr/local/cuda-${CUDA_VERSION}/bin/nvcc \
     CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-12/root/usr/bin" \
@@ -140,6 +142,12 @@ if [ "$ENABLE_SCCACHE" = "ON" ]; then
   fi
 fi
 
+if test -n "${MAX_HIGH_MEM_JOBS:-}"; then
+  MAKEFLAGS="${MAKEFLAGS} MAX_HIGH_MEM_JOBS=${MAX_HIGH_MEM_JOBS}";
+fi
+if test -n "${MAX_LINK_JOBS:-}"; then
+  MAKEFLAGS="${MAKEFLAGS} MAX_LINK_JOBS=${MAX_LINK_JOBS}";
+fi
 
 # Disable sccache-dist for CMake configuration's test compiles
 SCCACHE_NO_DIST_COMPILE=1 \

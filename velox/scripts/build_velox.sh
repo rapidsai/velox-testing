@@ -252,6 +252,18 @@ DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ER
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
 DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_VERSION="${SCCACHE_VERSION}")
 
+# If these are set (even to empty string), pass them through as-is
+if test -v MAX_HIGH_MEM_JOBS; then
+    DOCKER_BUILD_OPTS+=(--build-arg MAX_HIGH_MEM_JOBS="${MAX_HIGH_MEM_JOBS:-}")
+else
+    DOCKER_BUILD_OPTS+=(--build-arg MAX_HIGH_MEM_JOBS=4)
+fi
+if test -v MAX_LINK_JOBS; then
+    DOCKER_BUILD_OPTS+=(--build-arg MAX_LINK_JOBS="${MAX_LINK_JOBS:-}")
+else
+    DOCKER_BUILD_OPTS+=(--build-arg MAX_LINK_JOBS=4)
+fi
+
 # sccache checks the existence of these envvars (not their values) so only set them if they're defined
 if test -v SCCACHE_RECACHE; then
     DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_RECACHE="${SCCACHE_RECACHE:-}")
