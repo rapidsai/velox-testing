@@ -4,7 +4,7 @@ services:
       file: docker-compose.common.yml
       service: presto-base-coordinator
     volumes:
-      - ./config/generated/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/etc_coordinator/config_native_cpu.properties:/opt/presto-server/etc/config.properties
 
   presto-native-worker-cpu:
     extends:
