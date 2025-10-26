@@ -63,7 +63,7 @@ jobs:
     uses: ./.github/workflows/presto-test-composite.yml
     with:      
       presto_worker_type: 'java'
-      node_label: 'linux-amd64-cpu4m'
+      node_label: 'linux-amd64-cpu8'
       presto_repository: ${{ inputs.presto_repository }}
       presto_commit: ${{ inputs.presto_commit }}
       velox_repository: ${{ inputs.velox_repository }}
