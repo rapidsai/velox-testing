@@ -38,6 +38,7 @@ OPTIONS:
     -p, --profile        Launch the Presto server with profiling enabled.
     --profile-args       Arguments to pass to the profiler when it launches the Presto server.
                          This will override the default arguments.
+    --overwrite-config   Force config to be regenerated (will overwrite local changes).
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -53,6 +54,7 @@ EOF
 NUM_THREADS=$(($(nproc) / 2))
 BUILD_TYPE=release
 ALL_CUDA_ARCHS=false
+export OVERWRITE_CONFIG=false
 export PROFILE=OFF
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -108,6 +110,10 @@ parse_args() {
         ;;
       --all-cuda-archs)
         ALL_CUDA_ARCHS=true
+        shift
+        ;;
+      --overwrite-config)
+        OVERWRITE_CONFIG=true
         shift
         ;;
       *)

@@ -17,21 +17,25 @@
 set -euo pipefail
 
 RED='\033[0;31m'
+YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 
 function echo_error {
-    echo -e "${RED}$1${NC}"
-    exit 1
+  echo -e "${RED}$1${NC}"
+  exit 1
+}
+
+function echo_warning {
+  echo -e "${YELLOW}$1${NC}"
 }
 
 function echo_success {
-    echo -e "${GREEN}$1${NC}"
+  echo -e "${GREEN}$1${NC}"
 }
 
 if [ ! -x ../pbench/pbench ]; then
-    echo "ERROR: generate_presto_config.sh script must only be run from presto:presto/scripts"
-    exit 1
+  echo_error "ERROR: generate_presto_config.sh script must only be run from presto:presto/scripts"
 fi
 
 # get host values
@@ -39,13 +43,10 @@ NPROC=`nproc`
 # lsmem will report in SI.  Make sure we get values in GB.
 RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024*1024)); }')
 
-echo "Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}GB RAM"
-
 # variant-specific behavior
 # for GPU you must set vcpu_per_worker to a small number, not the CPU count
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
-  echo "Error: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
-  exit 1
+  echo_error "ERROR: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
 fi
 if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
   VCPU_PER_WORKER=2
@@ -59,10 +60,14 @@ pushd ../docker/config > /dev/null
 # always move back even on failure
 trap "popd > /dev/null" EXIT
 
-# (re-)generate the config.json file
-rm -rf generated
-mkdir -p generated
-cat > generated/config.json << EOF
+# generate only if no existing config or overwrite flag is set
+if [[ ! -d generated || "${OVERWRITE_CONFIG}" == "true" ]]; then
+  echo "Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}GB RAM"
+
+  # (re-)generate the config.json file
+  rm -rf generated
+  mkdir -p generated
+  cat > generated/config.json << EOF
 {
     "cluster_size": "small",
     "coordinator_instance_type": "${NPROC}-core CPU and ${RAM_GB}GB RAM",
@@ -77,10 +82,28 @@ cat > generated/config.json << EOF
 }
 EOF
 
-# run pbench to generate the config files
-# hide default pbench logging which goes to stderr so we only see any errors
-if ../../pbench/pbench genconfig -p params.json -t template generated 2>&1 | grep '\{\"level":"error"'; then
-    echo_error "ERROR in pbench genconfig.  Configs were not generated successfully"
-fi
+  # run pbench to generate the config files
+  # hide default pbench logging which goes to stderr so we only see any errors
+  if ../../pbench/pbench genconfig -p params.json -t template generated 2>&1 | grep '\{\"level":"error"'; then
+    echo_error "ERROR: Errors reported by pbench genconfig. Configs were not generated successfully."
+  fi
 
-echo_success "Configs were generated successfully"
+  # write variant to file for future checks
+  echo "${VARIANT_TYPE}" > generated/variant_type.txt
+
+  # success message
+  echo_success "Configs were generated successfully"
+else
+  # avoid reuse of wrong variant config
+  if [[ -f generated/variant_type.txt ]]; then
+    EXISTING_VARIANT_TYPE=$(cat generated/variant_type.txt)
+    if [[ "${EXISTING_VARIANT_TYPE}" != "${VARIANT_TYPE}" ]]; then
+      echo_error "ERROR: Found config for '${EXISTING_VARIANT_TYPE}'. Use --overwrite-config option regenerate config for '${VARIANT_TYPE}'."
+    fi
+  else
+    echo_warning "WARNING: Existing config found but variant type is unknown. Use --overwrite-config option to regenerate config."
+  fi
+
+  # otherwise, reuse existing config
+  echo_success "Reusing existing Presto Config files"
+fi
