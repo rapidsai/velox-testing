@@ -1,0 +1,15 @@
+name: Velox Nightly Test (Upstream)
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # daily at 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    uses: ./.github/workflows/velox-test.yml
+    with:
+      repository: facebookincubator/velox
+      velox_commit: main
+      build_target: all
+    secrets: inherit
