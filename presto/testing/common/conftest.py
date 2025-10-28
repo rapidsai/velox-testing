@@ -21,25 +21,9 @@ def pytest_generate_tests(metafunc):
     TPCDS_FIXTURE_NAME = "tpcds_query_id"
     if TPCDS_FIXTURE_NAME in metafunc.fixturenames:
         TPCDS_NUM_QUERIES = 99
-        TPCDS_DISABLED_QUERIES = [
-            16, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="line 1:224: Cannot check if date is BETWEEN varchar(10) and date", query_id=20250815_182910_01441_uy5t2)
-            32, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="line 1:162: Cannot check if date is BETWEEN varchar(10) and date", query_id=20250815_182915_01457_uy5t2)
-            58, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="line 1:251: '=' cannot be applied to date, varchar(10)", query_id=20250815_182921_01483_uy5t2)
-            70, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="Invalid reference to output of SELECT clause from grouping() expression in ORDER BY", query_id=20250815_182928_01495_uy5t2)
-            72, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="line 1:886: '+' cannot be applied to date, integer", query_id=20250815_182928_01497_uy5t2)
-            83, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="line 1:258: IN value and list items must be the same type: date", query_id=20250815_182930_01508_uy5t2)
-            86, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="Invalid reference to output of SELECT clause from grouping() expression in ORDER BY", query_id=20250815_182935_01511_uy5t2)
-            92, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="line 1:156: Cannot check if date is BETWEEN varchar(10) and date", query_id=20250815_182936_01517_uy5t2)
-            94, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="line 1:222: Cannot check if date is BETWEEN varchar(10) and date", query_id=20250815_182936_01519_uy5t2)
-            95, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="line 1:444: Cannot check if date is BETWEEN varchar(10) and date", query_id=20250815_182936_01520_uy5t2)
-
-            # The following queries fail on presto native CPU with PrestoQueryError(type=INTERNAL_ERROR, name=GENERIC_INTERNAL_ERROR, message="Internal error", query_id=...)
-            14,
-            31,
-            64,
-            74,
-            88,
-        ]
+        # Q70, Q86: Presto limitation - Invalid reference to SELECT clause from grouping() in ORDER BY
+        # Q72: Complex date arithmetic with GROUP BY - incompatible with date type casting fix
+        TPCDS_DISABLED_QUERIES = [70, 72, 86]
         set_query_id_param(metafunc, TPCDS_FIXTURE_NAME, TPCDS_NUM_QUERIES, TPCDS_DISABLED_QUERIES)
 
 
