@@ -33,9 +33,6 @@ if [[ -f "$OUTPUT_DIR/github_token" || -f "$OUTPUT_DIR/aws_credentials" ]]; then
   rm -f "$OUTPUT_DIR/github_token" "$OUTPUT_DIR/aws_credentials"
 fi
 
-# Use Docker BuildKit to ensure hereto RUN commands are available
-export DOCKER_BUILDKIT=1
-
 # Build the authentication container
 echo -e "${YELLOW}Building sccache authentication container...${NC}"
 docker build -f ../docker/sccache_auth.dockerfile -t sccache-auth .
@@ -56,6 +53,7 @@ docker run --rm -it \
     echo "GitHub is authenticating with required scopes: gist, repo, read:org, read:enterprise"
     echo
     
+    echo -e "'${YELLOW}'Note: Browser opening will fail expectedly, please open the URL in your browser.'${NC}'"
     BROWSER="false" gh auth login --git-protocol ssh --skip-ssh-key --web --scopes gist --scopes repo --scopes read:org --scopes read:enterprise
     
     echo
@@ -63,7 +61,7 @@ docker run --rm -it \
     gh auth status
     
     gh auth token > /output/github_token
-    echo "GitHub token saved to /output/github_token"
+    echo "GitHub token saved to '$OUTPUT_DIR'/github_token"
   '
 
 if [[ ! -f "$OUTPUT_DIR/github_token" ]]; then
@@ -97,7 +95,7 @@ docker run --rm -it \
     #Generate AWS credentials
     mkdir -p /root/.aws
     
-    gh nv-gha-aws org nvidia \
+    gh nv-gha-aws org rapidsai \
       --profile default \
       --output creds-file \
       --duration '$AWS_CREDENTIALS_TIMEOUT' \

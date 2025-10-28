@@ -40,6 +40,10 @@ on:
         description: 'Run tests with Native GPU Worker'
         type: boolean
         default: true
+      set_velox_backward_compatible: &set_velox_backward_compatible
+        description: 'Set VELOX_ENABLE_BACKWARD_COMPATIBLE in Velox build'
+        type: boolean
+        default: false
 
   workflow_call:
     inputs:
@@ -51,6 +55,7 @@ on:
       run_java_tests: *run_java_tests
       run_cpu_tests: *run_cpu_tests
       run_gpu_tests: *run_gpu_tests
+      set_velox_backward_compatible: *set_velox_backward_compatible
 
 jobs:
   java:
@@ -58,12 +63,13 @@ jobs:
     uses: ./.github/workflows/presto-test-composite.yml
     with:      
       presto_worker_type: 'java'
-      node_label: 'linux-amd64-cpu4'
+      node_label: 'linux-amd64-cpu8'
       presto_repository: ${{ inputs.presto_repository }}
       presto_commit: ${{ inputs.presto_commit }}
       velox_repository: ${{ inputs.velox_repository }}
       velox_commit: ${{ inputs.velox_commit }}
       velox_testing_commit: ${{ inputs.velox_testing_commit }}
+      set_velox_backward_compatible: false
     secrets: inherit
   native-cpu:
     if: ${{ inputs.run_cpu_tests }}
@@ -76,6 +82,7 @@ jobs:
       velox_repository: ${{ inputs.velox_repository }}
       velox_commit: ${{ inputs.velox_commit }}
       velox_testing_commit: ${{ inputs.velox_testing_commit }}
+      set_velox_backward_compatible: ${{ inputs.set_velox_backward_compatible }}
     secrets: inherit
   native-gpu:
     if: ${{ inputs.run_gpu_tests }}
@@ -88,4 +95,5 @@ jobs:
       velox_repository: ${{ inputs.velox_repository }}
       velox_commit: ${{ inputs.velox_commit }}
       velox_testing_commit: ${{ inputs.velox_testing_commit }}
+      set_velox_backward_compatible: ${{ inputs.set_velox_backward_compatible }}
     secrets: inherit
