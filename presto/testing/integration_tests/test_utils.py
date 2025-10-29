@@ -134,10 +134,31 @@ def get_orderby_indices(query, column_names):
             
             # Try to find a column that ends with this name
             # e.g., ORDER BY i_brand might match column 'brand'
+            # Use a scoring system to find the best match
+            candidates = []
             for i, col in enumerate(column_names):
-                if col == unqualified or col.endswith('_' + unqualified) or unqualified.endswith('_' + col):
-                    indices.append(i)
-                    break
+                score = 0
+                if col == unqualified:
+                    score = 3  # Exact match - highest priority
+                elif col.endswith('_' + unqualified):
+                    score = 2  # Prefix match (e.g., i_brand matches brand)
+                elif unqualified.endswith('_' + col):
+                    score = 1  # Suffix match (e.g., brand matches i_brand)
+                
+                if score > 0:
+                    candidates.append((score, i, col))
+            
+            if candidates:
+                # Sort by score (descending) and take the best match
+                candidates.sort(key=lambda x: x[0], reverse=True)
+                best_score, best_idx, best_col = candidates[0]
+                
+                # Warn if there are multiple matches with same score (ambiguous)
+                same_score = [c for c in candidates if c[0] == best_score]
+                if len(same_score) > 1:
+                    print(f"WARNING: Ambiguous ORDER BY column '{name}' matches multiple columns: {[c[2] for c in same_score]}, using '{best_col}'")
+                
+                indices.append(best_idx)
             else:
                 # Column not found, but don't fail - just log warning
                 print(f"WARNING: Could not match ORDER BY column '{name}' to any result column")
