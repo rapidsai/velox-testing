@@ -83,4 +83,13 @@ if ../../pbench/pbench genconfig -p params.json -t template generated 2>&1 | gre
     echo_error "ERROR in pbench genconfig.  Configs were not generated successfully"
 fi
 
+# now perform other variant-specific modifications to the generated configs
+if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
+  # for GPU variant, uncomment these optimizer settings
+  # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
+  # optimizer.default-filter-factor-enabled=true
+  COORD_CONFIG="generated/etc_coordinator/config_native.properties"
+  sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
+fi
+
 echo_success "Configs were generated successfully"
