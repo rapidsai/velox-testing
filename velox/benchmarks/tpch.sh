@@ -195,6 +195,7 @@ run_tpch_single_benchmark() {
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
       CUDF_FLAGS=""
       VELOX_CUDF_FLAGS=""
+      VELOX_CUDF_ENABLED=false
       ;;
     "gpu")
       num_drivers=${NUM_DRIVERS:-4}
@@ -203,6 +204,7 @@ run_tpch_single_benchmark() {
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
       CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit}"
       VELOX_CUDF_FLAGS=""
+      VELOX_CUDF_ENABLED=true
       ;;
   esac
   
