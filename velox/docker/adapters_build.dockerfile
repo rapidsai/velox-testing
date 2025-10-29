@@ -24,9 +24,9 @@ RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
       set -euxo pipefail && \
       # Add NVIDIA CUDA repository with proper GPG key
       dnf install -y dnf-plugins-core && \
-      dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
+      dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo && \
       # Import NVIDIA GPG key
-      rpm --import https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/D42D0685.pub && \
+      rpm --import https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/D42D0685.pub && \
       # Install nsys from CUDA repository
       dnf install -y nsight-systems && \
       # Verify nsys installation
@@ -50,6 +50,7 @@ ARG BUILD_TYPE=release
 ARG ENABLE_SCCACHE=OFF
 ARG SCCACHE_SERVER_LOG="sccache=info"
 ARG SCCACHE_VERSION=latest
+ARG UPDATE_NINJA=true
 # Don't read from cache, but do put/replace entries
 ARG SCCACHE_RECACHE
 # Don't read from cache and don't write new entries
@@ -110,8 +111,14 @@ WORKDIR /workspace/velox
 # Print environment variables for debugging
 RUN printenv | sort
 
-# Install latest ninja
-COPY --from=ninja /usr/bin/ninja /usr/bin/
+# Install latest ninja (conditionally based on UPDATE_NINJA)
+RUN --mount=from=ninja,source=/usr/bin/ninja,target=/tmp/ninja \
+    if [ "$UPDATE_NINJA" = "true" ]; then \
+      echo "Installing ninja..."; \
+      cp /tmp/ninja /usr/bin/ninja && chmod +x /usr/bin/ninja; \
+    else \
+      echo "Skipping ninja installation"; \
+    fi
 
 # Build into ${BUILD_BASE_DIR}
 RUN \
