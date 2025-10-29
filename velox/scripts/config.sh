@@ -3,5 +3,6 @@
 # container name
 CONTAINER_NAME="velox-adapters-build"
 COMPOSE_FILE="../docker/docker-compose.adapters.build.yml"
+COMPOSE_FILE_SCCACHE="../docker/docker-compose.adapters.build.sccache.yml"
 
-NUM_THREADS=${NUM_THREADS:-$(( ($(nproc) > 2 ? $(nproc) - 2 : 1) ))}
+NUM_THREADS=${NUM_THREADS:-$(($(nproc) * 3 / 4))}

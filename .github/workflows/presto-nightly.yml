@@ -16,4 +16,5 @@ jobs:
       run_java_tests: true
       run_cpu_tests: true
       run_gpu_tests: true
+      set_velox_backward_compatible: ${{ vars.SET_PRESTO_VELOX_BACKWARD_COMPATIBLE == 'true' }}
     secrets: inherit
