@@ -5,7 +5,17 @@ services:
     build:
       context: ../../..
       dockerfile: velox-testing/velox/docker/adapters_build.dockerfile
+      ulimits: {nofile: {soft: 500000, hard: 500000}}
+      secrets:
+        - github_token
+        - aws_credentials
     runtime: ${DOCKER_RUNTIME:-nvidia}
     volumes:
       - ../../../velox:/workspace/velox
     working_dir: /workspace/velox
+
+secrets:
+  github_token:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/github_token"
+  aws_credentials:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/aws_credentials"
