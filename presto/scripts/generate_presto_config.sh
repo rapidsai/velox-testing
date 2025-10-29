@@ -88,6 +88,15 @@ EOF
     echo_error "ERROR: Errors reported by pbench genconfig. Configs were not generated successfully."
   fi
 
+  # now perform other variant-specific modifications to the generated configs
+  if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
+    # for GPU variant, uncomment these optimizer settings
+    # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
+    # optimizer.default-filter-factor-enabled=true
+    COORD_CONFIG="generated/etc_coordinator/config_native.properties"
+    sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
+  fi
+
   # write variant to file for future checks
   echo "${VARIANT_TYPE}" > generated/variant_type.txt
 
