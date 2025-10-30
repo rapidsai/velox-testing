@@ -97,6 +97,11 @@ EOF
     # optimizer.default-filter-factor-enabled=true
     COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
+  elif [[ "${VARIANT_TYPE}" == "java" ]]; then
+    # for Java variant, hard-wire the JVM heap sizes to 24GB
+    JVM_CONFIG="${CONFIG_DIR}/etc_common/jvm.config"
+    sed -i 's/Xmx.*G/Xmx24G/' ${JVM_CONFIG}
+    sed -i 's/Xms.*G/Xms24G/' ${JVM_CONFIG}
   fi
 
   # success message
