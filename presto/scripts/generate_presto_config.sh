@@ -60,14 +60,16 @@ pushd ../docker/config > /dev/null
 # always move back even on failure
 trap "popd > /dev/null" EXIT
 
+CONFIG_DIR=generated/${VARIANT_TYPE}
+
 # generate only if no existing config or overwrite flag is set
-if [[ ! -d generated || "${OVERWRITE_CONFIG}" == "true" ]]; then
-  echo "Generating Presto Config files for ${NPROC} CPU cores and ${RAM_GB}GB RAM"
+if [[ ! -d ${CONFIG_DIR} || "${OVERWRITE_CONFIG}" == "true" ]]; then
+  echo "Generating Presto Config files for '${VARIANT_TYPE}' for host with ${NPROC} CPU cores and ${RAM_GB}GB RAM"
 
   # (re-)generate the config.json file
-  rm -rf generated
-  mkdir -p generated
-  cat > generated/config.json << EOF
+  rm -rf ${CONFIG_DIR}
+  mkdir -p ${CONFIG_DIR}
+  cat > ${CONFIG_DIR}/config.json << EOF
 {
     "cluster_size": "small",
     "coordinator_instance_type": "${NPROC}-core CPU and ${RAM_GB}GB RAM",
@@ -84,7 +86,7 @@ EOF
 
   # run pbench to generate the config files
   # hide default pbench logging which goes to stderr so we only see any errors
-  if ../../pbench/pbench genconfig -p params.json -t template generated 2>&1 | grep '\{\"level":"error"'; then
+  if ../../pbench/pbench genconfig -p params.json -t template ${CONFIG_DIR} 2>&1 | grep '\{\"level":"error"'; then
     echo_error "ERROR: Errors reported by pbench genconfig. Configs were not generated successfully."
   fi
 
@@ -93,26 +95,13 @@ EOF
     # for GPU variant, uncomment these optimizer settings
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
-    COORD_CONFIG="generated/etc_coordinator/config_native.properties"
+    COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
   fi
-
-  # write variant to file for future checks
-  echo "${VARIANT_TYPE}" > generated/variant_type.txt
 
   # success message
   echo_success "Configs were generated successfully"
 else
-  # avoid reuse of wrong variant config
-  if [[ -f generated/variant_type.txt ]]; then
-    EXISTING_VARIANT_TYPE=$(cat generated/variant_type.txt)
-    if [[ "${EXISTING_VARIANT_TYPE}" != "${VARIANT_TYPE}" ]]; then
-      echo_error "ERROR: Found config for '${EXISTING_VARIANT_TYPE}'. Use --overwrite-config option regenerate config for '${VARIANT_TYPE}'."
-    fi
-  else
-    echo_warning "WARNING: Existing config found but variant type is unknown. Use --overwrite-config option to regenerate config."
-  fi
-
   # otherwise, reuse existing config
-  echo_success "Reusing existing Presto Config files"
+  echo_success "Reusing existing Presto Config files for '${VARIANT_TYPE}'"
 fi
