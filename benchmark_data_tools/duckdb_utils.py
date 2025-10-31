@@ -31,12 +31,19 @@ def create_table(table_name, data_path):
     duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
     duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet';")
 
-def create_not_null_table(table_name, data_path):
+# Generates a sample table with a small limit.
+# This is mainly used to extract the schema from the parquet files.
+def create_not_null_table_from_sample(table_name, data_path):
     duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
-    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet';")
+    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
     ret = duckdb.sql(f"DESCRIBE TABLE {table_name}").fetchall()
     for row in ret:
         duckdb.sql(f"ALTER TABLE {table_name} ALTER COLUMN {row[0]} SET NOT NULL;")
+
+
+def create_table_from_sample(table_name, data_path):
+    duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
+    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
 
 
 def is_decimal_column(column_type):

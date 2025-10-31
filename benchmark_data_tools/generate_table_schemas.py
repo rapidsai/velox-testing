@@ -28,9 +28,9 @@ def generate_table_schemas(benchmark_type, schemas_dir_path, data_dir_name, verb
         if os.path.isdir(sub_dir):
             if benchmark_type == "tpch":
                 # For tpch we use the optional NOT NULL qualifier on all columns.
-                duck.create_not_null_table(os.path.basename(file), sub_dir)
+                duck.create_not_null_table_from_sample(os.path.basename(file), sub_dir)
             else:
-                duck.create_table(os.path.basename(file), sub_dir)
+                duck.create_table_from_sample(os.path.basename(file), sub_dir)
 
     Path(schemas_dir_path).mkdir(parents=True, exist_ok=True)
 
