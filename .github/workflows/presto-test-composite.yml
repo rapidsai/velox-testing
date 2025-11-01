@@ -35,10 +35,6 @@ on:
         description: 'Set VELOX_ENABLE_BACKWARD_COMPATIBLE in Velox build'
         type: string
         required: false
-      build_upstream:
-        description: 'Build Presto Upstream Default'
-        type: boolean
-        default: false
 
 jobs:
   build-and-test:
@@ -50,23 +46,12 @@ jobs:
           repository: ${{ inputs.presto_repository }}
           ref: ${{ inputs.presto_commit }}
           path: presto
-      - name: Get Presto Pinned Velox Version
-        id: get-presto-pinned-velox-version
-        if: ${{ inputs.build_upstream && inputs.presto_worker_type != 'java' }}
-        run: |
-          pushd presto/presto-native-execution
-          make submodules
-          cd velox
-          PRESTO_PINNED_VELOX_SHA=$(git rev-parse HEAD)
-          echo "Found Presto pinned Velox SHA: ${PRESTO_PINNED_VELOX_SHA}"
-          echo "PRESTO_PINNED_VELOX_SHA=${PRESTO_PINNED_VELOX_SHA}" >> $GITHUB_OUTPUT
-          popd
       - name: Checkout Velox
         if: ${{ inputs.presto_worker_type != 'java' }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.build_upstream && 'facebookincubator/velox' || inputs.velox_repository }}
-          ref: ${{ inputs.build_upstream && steps.get-presto-pinned-velox-version.outputs.PRESTO_PINNED_VELOX_SHA || inputs.velox_commit }}
+          repository: ${{ inputs.velox_repository }}
+          ref: ${{ inputs.velox_commit }}
           path: velox
       - name: Checkout Velox Testing
         uses: actions/checkout@v4
