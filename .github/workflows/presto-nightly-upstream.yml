@@ -6,8 +6,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-test-upstream:
+  get-presto-pinned-velox:
     runs-on: linux-amd64-cpu8 # wasteful but no reliable smaller runner available
+    outputs:
+      presto_pinned_velox_sha: ${{ steps.set_variable_step.outputs.PRESTO_PINNED_VELOX_SHA }}
     steps:
       - name: Checkout Presto
         uses: actions/checkout@v4
@@ -25,15 +27,43 @@ jobs:
           echo "Found Presto pinned Velox SHA: ${PRESTO_PINNED_VELOX_SHA}"
           echo "PRESTO_PINNED_VELOX_SHA=${PRESTO_PINNED_VELOX_SHA}" >> $GITHUB_OUTPUT
           popd
-      - name: Build Presto Nightly Upstream
-        uses: ./.github/workflows/presto-test.yml
-        with:
-          presto_repository: prestodb/presto
-          presto_commit: master
-          velox_repository: facebookincubator/velox
-          velox_commit: ${{ steps.get-presto-pinned-velox-version.outputs.PRESTO_PINNED_VELOX_SHA }}
-          run_java_tests: true
-          run_cpu_tests: true
-          run_gpu_tests: true
-          set_velox_backward_compatible: false
-      secrets: inherit
+      - name: Set Variable Step
+        id: set_variable_step
+        run: |
+          echo "PRESTO_PINNED_VELOX_SHA=${{ steps.get-presto-pinned-velox-version.outputs.PRESTO_PINNED_VELOX_SHA }}" >> $GITHUB_OUTPUT
+  java:
+    needs: get-presto-pinned-velox
+    uses: ./.github/workflows/presto-test-composite.yml
+    with:      
+      presto_worker_type: 'java'
+      node_label: 'linux-amd64-cpu8'
+      presto_repository: prestodb/presto
+      presto_commit: master
+      velox_repository: facebookincubator/velox
+      velox_commit: ${{ needs.get-presto-pinned-velox.outputs.PRESTO_PINNED_VELOX_SHA }}
+      set_velox_backward_compatible: false
+    secrets: inherit
+  native-cpu:
+    needs: get-presto-pinned-velox
+    uses: ./.github/workflows/presto-test-composite.yml
+    with:
+      presto_worker_type: 'native_cpu'
+      node_label: 'linux-amd64-cpu16'
+      presto_repository: prestodb/presto
+      presto_commit: master
+      velox_repository: facebookincubator/velox
+      velox_commit: ${{ needs.get-presto-pinned-velox.outputs.PRESTO_PINNED_VELOX_SHA }}
+      set_velox_backward_compatible: false
+    secrets: inherit
+  native-gpu:
+    needs: get-presto-pinned-velox
+    uses: ./.github/workflows/presto-test-composite.yml
+    with:
+      presto_worker_type: 'native_gpu'
+      node_label: 'linux-amd64-gpu-l4-latest-1'
+      presto_repository: prestodb/presto
+      presto_commit: master
+      velox_repository: facebookincubator/velox
+      velox_commit: ${{ needs.get-presto-pinned-velox.outputs.PRESTO_PINNED_VELOX_SHA }}
+      set_velox_backward_compatible: false
+    secrets: inherit
