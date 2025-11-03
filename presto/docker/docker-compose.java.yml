@@ -7,6 +7,7 @@ services:
       - ./config/generated/java/etc_common:/opt/presto-server/etc
       - ./config/generated/java/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/generated/java/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/java/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
   presto-java-worker:
     extends:
@@ -18,5 +19,6 @@ services:
       - ./config/generated/java/etc_common:/opt/presto-server/etc
       - ./config/generated/java/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/generated/java/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/java/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
     depends_on:
       - presto-coordinator
