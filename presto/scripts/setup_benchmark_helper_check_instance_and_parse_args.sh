@@ -47,6 +47,13 @@ EXAMPLES:
     $0 $SCRIPT_EXAMPLE_ARGS
     $0 -h
 
+SCALE FACTORS:
+    SF1-SF100:    Small to medium datasets, typical testing
+    SF1000:       ~1TB, requires 64GB+ RAM, 2-6 hours generation
+    SF3000:       ~3TB, requires 256GB+ RAM, 8-24 hours generation
+    
+    For SF3000+ datasets, see ../../SF3000_SUPPORT.md for detailed guidance.
+
 EOF
 }
 
