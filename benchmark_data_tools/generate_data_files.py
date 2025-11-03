@@ -42,7 +42,35 @@ def generate_partition(table, partition, raw_data_path, scale_factor, num_partit
     except subprocess.CalledProcessError as e:
         print(f"Error generating TPC-H data: {e}")
 
+def check_large_scale_factor(scale_factor):
+    """Check if scale factor is very large and warn about resource requirements."""
+    if scale_factor >= 3000:
+        print("=" * 80)
+        print(f"  WARNING: Large Scale Factor Detected (SF{int(scale_factor)})")
+        print("=" * 80)
+        print()
+        print(f"Generating SF{int(scale_factor)} data requires:")
+        print(f"  - Disk Space: ~{int(scale_factor)}GB (~{scale_factor/1000:.1f}TB)")
+        print("  - Memory: 256GB+ RAM recommended")
+        print("  - Time: 8-24+ hours depending on hardware")
+        print("  - CPU: 32+ cores recommended for faster generation")
+        print()
+        print("For detailed guidance, see: ../SF3000_SUPPORT.md")
+        print()
+        response = input(f"Continue with SF{int(scale_factor)} generation? (yes/no): ")
+        if response.lower() != "yes":
+            print("Aborted by user")
+            exit(0)
+        print()
+    elif scale_factor >= 1000:
+        print(f"INFO: Generating large dataset (SF{int(scale_factor)})")
+        print("      This may take several hours and require significant disk space")
+        print()
+
 def generate_data_files(args):
+    # Check for large scale factors and warn about requirements
+    check_large_scale_factor(args.scale_factor)
+    
     if os.path.exists(args.data_dir_path):
         shutil.rmtree(args.data_dir_path)
     Path(f"{args.data_dir_path}").mkdir(parents=True, exist_ok=True)
