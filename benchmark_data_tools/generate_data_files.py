@@ -44,6 +44,8 @@ def generate_partition(table, partition, raw_data_path, scale_factor, num_partit
 
 def check_large_scale_factor(scale_factor):
     """Check if scale factor is very large and warn about resource requirements."""
+    import sys
+    
     if scale_factor >= 3000:
         print("=" * 80)
         print(f"  WARNING: Large Scale Factor Detected (SF{int(scale_factor)})")
@@ -57,10 +59,15 @@ def check_large_scale_factor(scale_factor):
         print()
         print("For detailed guidance, see: ../SF3000_SUPPORT.md")
         print()
-        response = input(f"Continue with SF{int(scale_factor)} generation? (yes/no): ")
-        if response.lower() != "yes":
-            print("Aborted by user")
-            exit(0)
+        
+        # Only prompt if running interactively (stdin is a terminal)
+        if sys.stdin.isatty():
+            response = input(f"Continue with SF{int(scale_factor)} generation? (yes/no): ")
+            if response.lower() != "yes":
+                print("Aborted by user")
+                exit(0)
+        else:
+            print(f"Non-interactive mode detected, proceeding with SF{int(scale_factor)} generation...")
         print()
     elif scale_factor >= 1000:
         print(f"INFO: Generating large dataset (SF{int(scale_factor)})")
