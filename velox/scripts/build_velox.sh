@@ -273,7 +273,7 @@ if [[ "$PLAIN_OUTPUT" == true ]]; then
   DOCKER_BUILD_OPTS+=(--progress=plain)
 fi
 if [[ "$ALL_CUDA_ARCHS" == true ]]; then
-  DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="75;80;86;89;90;100;120")
+  DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="75;80;86;90;100;120")
 else
   # Only detect native architecture if not building for all architectures
   detect_cuda_architecture
