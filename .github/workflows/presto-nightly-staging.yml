@@ -1,4 +1,4 @@
-name: Presto Nightly Test
+name: Presto Nightly Test (Staging)
 
 on:
   schedule:
