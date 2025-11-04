@@ -159,25 +159,6 @@ cd velox-testing/presto/testing/integration_tests/scripts
 
 Then run tests normally using the integration test scripts.
 
-### Large Scale Factors (SF1000+, SF3000)
-
-The data generation scripts support arbitrarily large scale factors, including SF3000 (~3TB). To generate large-scale data:
-
-```bash
-cd velox-testing/presto/scripts
-
-# Generate SF3000 data (requires 4TB+ disk, 256GB+ RAM, 8-24 hours)
-./setup_benchmark_data_and_tables.sh -b tpch -s tpch_sf3000 -d sf3000 -f 3000 -c
-```
-
-The script will automatically:
-- Check available disk space and memory
-- Display resource requirements
-- Provide time estimates
-- Ask for confirmation before starting
-
-For detailed guidance on large-scale data generation, see `../SF3000_SUPPORT.md`.
-
 ## Configuration
 
 Configuration files for Presto are managed through a template system located in:

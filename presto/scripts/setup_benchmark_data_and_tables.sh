@@ -20,8 +20,7 @@ SCRIPT_DESCRIPTION="This script generates benchmark data and sets up related tab
 Generated data will reside under the PRESTO_DATA_DIR path in a directory with name that matches 
 the value set for the --data-dir-name argument."
 
-SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100 -f 100 -c
-    $0 -b tpch -s my_tpch_sf3000 -d sf3000 -f 3000 -c  # Large scale (requires 4TB+ disk, 256GB+ RAM)"
+SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100 -f 100 -c"
 
 SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-f, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type."
@@ -54,39 +53,6 @@ function extra_options_parser() {
 SCRIPT_EXTRA_OPTIONS_PARSER=extra_options_parser
 
 source ./setup_benchmark_helper_check_instance_and_parse_args.sh
-
-# Check for large scale factors and warn about resource requirements
-if [ -n "$SCALE_FACTOR" ]; then
-  SF_INT=$(echo "$SCALE_FACTOR" | cut -d. -f1)
-  
-  if [ "$SF_INT" -ge 3000 ]; then
-    echo "================================================================================"
-    echo "  WARNING: Large Scale Factor Detected (SF${SF_INT})"
-    echo "================================================================================"
-    echo ""
-    echo "Generating SF${SF_INT} data requires:"
-    echo "  - Disk Space: ~$((SF_INT * 1))GB (~$((SF_INT / 1000))TB) for data"
-    echo "  - Memory: 256GB+ RAM recommended"
-    echo "  - Time: 8-24+ hours depending on hardware"
-    echo "  - CPU: 32+ cores recommended for faster generation"
-    echo ""
-    echo "Available disk space: $(df -h ${PRESTO_DATA_DIR} | awk 'NR==2 {print $4}')"
-    echo "Available memory: $(free -h | awk 'NR==2 {print $7}')"
-    echo ""
-    echo "For detailed SF3000 guidance, see: ../../SF3000_SUPPORT.md"
-    echo ""
-    read -p "Continue with SF${SF_INT} generation? (yes/no): " confirm
-    if [ "$confirm" != "yes" ]; then
-      echo "Aborted by user"
-      exit 0
-    fi
-    echo ""
-  elif [ "$SF_INT" -ge 1000 ]; then
-    echo "INFO: Generating large dataset (SF${SF_INT})"
-    echo "      This may take several hours and require significant disk space"
-    echo ""
-  fi
-fi
 
 DATA_GEN_SCRIPT_PATH=$(readlink -f ../../benchmark_data_tools/generate_data_files.py)
 

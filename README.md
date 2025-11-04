@@ -138,23 +138,6 @@ Note that `velox-testing/presto/testing/integration_tests` and `velox-testing/be
 ### Setting Up Benchmark Tables
 A couple of utility scripts have been added to facilitate the process of setting up benchmark tables either from scratch or on top of existing benchmark data (Parquet) files. Specifically, the `setup_benchmark_tables.sh` script can be used to set up a new schema and tables on top of already generated benchmark data files. Execute `./setup_benchmark_tables.sh --help` to get more details about script options. The `setup_benchmark_data_and_tables.sh` script can be used to generate benchmark data at a specified scale factor and set up a schema and tables on top of the generated data files. Execute `./setup_benchmark_data_and_tables.sh --help` to get more details about script options. Both scripts should be executed from within the `velox-testing/presto/scripts` directory.
 
-#### Large Scale Factor Support (SF1000+, SF3000)
-The benchmark data generation scripts support arbitrary scale factors, including very large ones like SF3000 (~3TB). When generating data at SF3000 or higher:
-
-- **Automatic Warnings**: The `setup_benchmark_data_and_tables.sh` script will display resource requirements and ask for confirmation
-- **System Requirements**: 
-  - **SF1000**: ~1TB disk space, 64GB+ RAM, 2-6 hours generation time
-  - **SF3000**: ~3TB disk space, 256GB+ RAM, 8-24 hours generation time
-- **Documentation**: See `SF3000_SUPPORT.md` for detailed guidance on large-scale data generation
-
-**Example - Generate SF3000 data:**
-```bash
-cd presto/scripts
-./setup_benchmark_data_and_tables.sh -b tpch -s tpch_sf3000 -d sf3000 -f 3000 -c
-```
-
-The script will automatically check system resources and provide warnings if requirements are not met.
-
 > [!TIP]
 > Add `export PRESTO_DATA_DIR={path to directory that will contain datasets}` to your `~/.bashrc` file. This avoids having to always set the `PRESTO_DATA_DIR` environment variable when executing the `start_*` scripts and/or the schema/table setup scripts.
 
