@@ -6,7 +6,20 @@ Welcome to the Presto GPU testing and benchmarking infrastructure! This director
 
 This infrastructure enables running Presto with GPU-accelerated query execution, leveraging the GPU-native Velox execution engine powered by NVIDIA cuDF. For more details about the technology behind GPU acceleration, see the [NVIDIA Developer Blog: Accelerating Large-Scale Data Analytics with GPU-Native Velox and NVIDIA cuDF](https://developer.nvidia.com/blog/accelerating-large-scale-data-analytics-with-gpu-native-velox-and-nvidia-cudf/).
 
-For general information about the velox-testing repository, please see the [main README](https://github.com/rapidsai/velox-testing/blob/main/README.md).
+For general information about this repository, see the [main README](https://github.com/rapidsai/velox-testing/blob/main/README.md).
+
+## Repository Structure and Version Compatibility
+
+Ensure you have the following directory structure:
+
+```
+├─ base_directory/
+  ├─ velox-testing           # https://github.com/rapidsai/velox-testing
+  ├─ presto                  # https://github.com/prestodb/presto
+  ├─ velox                   # https://github.com/facebookincubator/velox
+```
+
+All three repositories must be checked out as sibling directories. **Important:** Please use compatible commit hashes/branches across these repositories. There is no formal public matrix yet—refer to release notes, this README, and instructions in the dependent repositories for guidance.
 
 ## Current Testing Status
 
@@ -16,22 +29,15 @@ For general information about the velox-testing repository, please see the [main
 - CPU vs GPU comparison
 - Integration testing with Hive metastore
 
-TPC-DS support is also available in the testing infrastructure and is under active development.
+**TPC-DS** support is also available and under active development.
 
 ## Quick Start
 
 ### Prerequisites
 
-Ensure you have the following directory structure:
-
-```
-├─ base_directory/
-  ├─ velox-testing
-  ├─ presto
-  ├─ velox
-```
-
-All three repositories must be checked out as sibling directories.
+- Sibling repo checkout (see structure above)
+- Docker and docker-compose installed
+- NVIDIA GPU, drivers, and compatible CUDA toolkit
 
 ### Building and Starting Presto GPU
 
@@ -44,35 +50,31 @@ All three repositories must be checked out as sibling directories.
    ```bash
    export PRESTO_DATA_DIR=/path/to/your/benchmark/data
    ```
-   
    > **Tip:** Add this export to your `~/.bashrc` to avoid setting it each time.
 
 3. Build dependencies (first time only):
    ```bash
    ./build_centos_deps_image.sh
-   # OR fetch a pre-built image (requires credentials)
-   ./fetch_centos_deps_image.sh
    ```
+   > **Note:** Only internal team members with credentials can fetch a pre-built image (`./fetch_centos_deps_image.sh`). For most users, building locally is required.
 
 4. Start Presto with GPU workers:
    ```bash
    ./start_native_gpu_presto.sh
    ```
 
-5. Access Presto at http://localhost:8080
+5. Access the Presto web UI at http://localhost:8080
 
 ### Running Tests
 
-Execute integration tests using the provided script:
-
+Run integration test suite:
 ```bash
 cd velox-testing/presto/scripts
-./run_integ_test.sh --help  # See all options
-./run_integ_test.sh --test-suite tpch
+./run_integ_test.sh --help              # See all options
+./run_integ_test.sh --benchmark-type tpch
 ```
 
-Or run tests directly with pytest:
-
+Or directly via pytest:
 ```bash
 cd velox-testing/presto/testing/integration_tests
 pytest tpch_test.py
@@ -80,9 +82,9 @@ pytest tpch_test.py
 
 ### Running Benchmarks
 
-1. Start a Presto instance with GPU workers (see above)
+1. Ensure the Presto GPU instance is running.
 
-2. Set up benchmark tables (if needed):
+2. Set up benchmark tables if needed:
    ```bash
    cd velox-testing/presto/scripts
    ./setup_benchmark_data_and_tables.sh --help  # See all options
@@ -92,13 +94,14 @@ pytest tpch_test.py
    ```bash
    ./analyze_tables.sh
    ```
-   This step is required because aggregation for statistics collection is not yet supported on GPU. The statistics benefit GPU execution by improving performance and reducing OOM failures.
+   > This step is necessary because aggregation for statistics collection is not yet supported on GPU. Collecting statistics improves performance and reduces OOM errors for GPU execution.
 
 4. Run benchmarks:
    ```bash
-   ./run_benchmark.sh --help  # See all options
-   ./run_benchmark.sh --benchmark tpch
+   ./run_benchmark.sh --help
+   ./run_benchmark.sh --benchmark tpch --schema-name <your_schema>
    ```
+   > **Note:** The `--schema-name` flag is required to specify your target DB schema for the benchmark.
 
 ## Directory Structure
 
@@ -112,18 +115,14 @@ pytest tpch_test.py
 
 ## Available Presto Variants
 
-The infrastructure supports three deployment variants:
-
 1. **Java Presto** - Pure Java coordinator and workers
    ```bash
    ./start_java_presto.sh
    ```
-
 2. **Native CPU Presto** - Java coordinator with native CPU workers
    ```bash
    ./start_native_cpu_presto.sh
    ```
-
 3. **Native GPU Presto** - Java coordinator with GPU-accelerated native workers
    ```bash
    ./start_native_gpu_presto.sh
@@ -146,30 +145,38 @@ benchmark_data/
    └─ supplier/
 ```
 
-Use the provided scripts to generate data at various scale factors or set up tables on existing data.
+Generate new data or set up tables on existing data using the provided scripts.
 
 ## Testing Different Scale Factors
 
-Generate test files for different scale factors:
+There are two common approaches:
 
-```bash
-cd velox-testing/presto/testing/integration_tests/scripts
-./generate_test_files.sh --scale-factor 100
-```
+1. **Generate new data for your preferred scale factor:**
+   ```bash
+   cd velox-testing/presto/testing/integration_tests/scripts
+   ./generate_test_files.sh --scale-factor 100
+   ```
+   Then run the tests as shown above.
 
-Then run tests normally using the integration test scripts.
+2. **Switch between pre-generated scale factors with schemas:**
+   Register tables for any generated data at any scale factor as a new schema:
+   ```bash
+   cd velox-testing/presto/scripts
+   ./setup_benchmark_data_and_tables.sh --scale-factor 100 --schema-name tpch_sf100
+   ./run_integ_test.sh --benchmark-type tpch --schema-name tpch_sf100
+   ```
+   This allows you to run benchmarks and tests without regenerating data for each scale factor—simply specify the schema name.
 
 ## Configuration
 
-Configuration files for Presto are managed through a template system located in:
+Configuration files for Presto are managed through a template system in:
 - `docker/config/template/` - Configuration templates
-- `docker/config/params.json` - Parameters for configuration generation
+- `docker/config/params.json` - Parameters for template filling
 
-To modify Presto settings, edit the templates and regenerate configurations using:
-
+Configuration is generated automatically when starting Presto or running tests. Manual execution of `generate_presto_config.sh` is rarely needed:
 ```bash
 cd velox-testing/presto/scripts
-./generate_presto_config.sh
+./generate_presto_config.sh   # Only if making custom template changes
 ```
 
 ## Resources
@@ -181,9 +188,8 @@ cd velox-testing/presto/scripts
 
 ## Contributing
 
-Please see the [CONTRIBUTING.md](https://github.com/rapidsai/velox-testing/blob/main/CONTRIBUTING.md) guide in the main repository for information on how to contribute to this project.
+See the [CONTRIBUTING.md](https://github.com/rapidsai/velox-testing/blob/main/CONTRIBUTING.md) in the main repository for contribution guidelines.
 
 ## License
 
 See [LICENSE](https://github.com/rapidsai/velox-testing/blob/main/LICENSE) in the main repository.
-
