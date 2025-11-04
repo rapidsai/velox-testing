@@ -23,11 +23,6 @@ on:
         type: string
         required: false
         default: 'main'
-      velox_testing_commit:
-        description: 'Velox Testing Commit SHA or Branch'
-        type: string
-        required: false
-        default: 'main'
       presto_worker_type:
         description: 'Type of Presto Worker to use'
         type: string
@@ -62,7 +57,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rapidsai/velox-testing
-          ref: ${{ inputs.velox_testing_commit }}
+          ref: ${{ github.ref_name }} # automatically match the workflow branch
           path: velox-testing
       - name: Download Presto Dependencies Container Image
         if: ${{ inputs.presto_worker_type != 'java' }}

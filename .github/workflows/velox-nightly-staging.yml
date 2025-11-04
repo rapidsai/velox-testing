@@ -1,4 +1,4 @@
-name: Velox Nightly Test
+name: Velox Nightly Test (Staging)
 
 on:
   schedule:
