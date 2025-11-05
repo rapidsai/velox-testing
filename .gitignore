@@ -18,3 +18,5 @@ benchmark_output
 
 # Generated Presto Config
 presto/docker/config/generated/
+velox/asv_benchmarks/results/
+velox/asv_benchmarks/.asv/

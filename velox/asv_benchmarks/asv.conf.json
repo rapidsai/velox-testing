@@ -1,0 +1,16 @@
+{
+    "version": 1,
+    "project": "velox-cudf-tpch",
+    "project_url": "https://github.com/facebookincubator/velox",
+    "repo": "/workspace/velox",
+    "branches": ["python-bindings-for-velox-cudf-tpch-benchmarks"],
+    "show_commit_url": "https://github.com/facebookincubator/velox/commit/",
+    "environment_type": "existing",
+    "build_command": [],
+    "install_command": [],
+    "uninstall_command": [],
+    "results_dir": "/asv_results",
+    "html_dir": "/asv_results/html",
+    "benchmark_dir": "benchmarks",
+    "dvcs": "git"
+}
