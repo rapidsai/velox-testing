@@ -119,7 +119,9 @@ for i in $(seq 1 $COUNT); do
     echo -e "${GREEN}=============================================${NC}"
     echo ""
     
-    # All runs disable preview (we'll start it after final publish)
+    # All runs use --record-samples since each has a unique machine name
+    # (--append-samples is only for re-running on the SAME machine)
+    echo "Run $i: Recording samples for machine $(date +%s)"
     ASV_RECORD_SAMPLES=true \
     ASV_SKIP_EXISTING=false \
     ./run_asv_benchmarks.sh \
@@ -128,6 +130,7 @@ for i in $(seq 1 $COUNT); do
         --port "$PORT" \
         --no-publish \
         --no-preview
+    
     echo ""
     echo -e "${GREEN}✓ Run $i completed${NC}"
     
@@ -168,10 +171,10 @@ echo -e "${YELLOW}Press Ctrl+C to stop the server${NC}"
 echo ""
 
 # Trap Ctrl+C to clean up
-trap "echo ''; echo 'Stopping container...'; docker compose -f docker-compose.adapters.benchmark.yml down; exit 0" INT
+trap "echo ''; echo 'Stopping container...'; docker compose -f docker-compose.adapters.benchmark.yml down --remove-orphans; exit 0" INT
 
 # Run container with preview enabled and port mapping
-docker compose -f docker-compose.adapters.benchmark.yml run --rm --service-ports velox-asv-benchmark
+docker compose -f docker-compose.adapters.benchmark.yml run --rm --service-ports --remove-orphans velox-asv-benchmark
 
 echo ""
 echo -e "${GREEN}Preview server stopped${NC}"

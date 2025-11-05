@@ -282,8 +282,11 @@ fi
 ASV_RUN_CMD="asv run ${SKIP_EXISTING_FLAG} --show-stderr --machine ${MACHINE_NAME}"
 
 
-# Add --record-samples flag if requested (captures variance within each run)
-if [ "${ASV_RECORD_SAMPLES:-false}" = "true" ]; then
+# Add --record-samples or --append-samples flag if requested
+if [ "${ASV_APPEND_SAMPLES:-false}" = "true" ]; then
+    ASV_RUN_CMD="${ASV_RUN_CMD} --append-samples"
+    echo "Appending samples (combining with previous measurements)"
+elif [ "${ASV_RECORD_SAMPLES:-false}" = "true" ]; then
     ASV_RUN_CMD="${ASV_RUN_CMD} --record-samples"
     echo "Recording samples (captures variance for statistical analysis)"
 fi

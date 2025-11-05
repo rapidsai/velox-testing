@@ -222,7 +222,8 @@ mkdir -p "$RESULTS_PATH"
 if [ "$INTERACTIVE" = true ]; then
     echo -e "${YELLOW}Starting container in interactive mode...${NC}"
     echo ""
-    docker compose -f docker-compose.adapters.benchmark.yml run --rm --entrypoint /bin/bash velox-asv-benchmark
+    echo "Benchmark data path inside the container: /workspace/velox/velox-benchmark-data"
+    docker compose -f docker-compose.adapters.benchmark.yml run --rm --remove-orphans --entrypoint /bin/bash velox-asv-benchmark
 else
     echo -e "${YELLOW}Starting benchmark container...${NC}"
     echo ""
@@ -234,9 +235,9 @@ else
     echo ""
     
     # Trap Ctrl+C to clean up
-    trap "echo ''; echo 'Stopping container...'; docker compose -f docker-compose.adapters.benchmark.yml down; exit 0" INT
+    trap "echo ''; echo 'Stopping container...'; docker compose -f docker-compose.adapters.benchmark.yml down --remove-orphans; exit 0" INT
     
-    docker compose -f docker-compose.adapters.benchmark.yml up velox-asv-benchmark
+    docker compose -f docker-compose.adapters.benchmark.yml up --remove-orphans velox-asv-benchmark
 fi
 
 echo ""
