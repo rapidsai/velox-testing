@@ -54,7 +54,6 @@ function init_python_virtual_env() {
 
     echo "Activating venv environment"
     source .venv/bin/activate
-    pip install --upgrade pip
   else
     if [[ -z $MINIFORGE_HOME ]]; then
         echo "Error: MINIFORGE_HOME must be set when attempting to create a virtual environment with conda"

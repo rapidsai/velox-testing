@@ -17,6 +17,7 @@
 # --- Print error messages in red ---
 function echo_error() {
     echo -e "\033[0;31m$*\033[0m" >&2
+    exit 1
 }
 
 # --- Print warning messages in yellow ---

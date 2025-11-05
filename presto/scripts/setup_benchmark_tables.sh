@@ -22,11 +22,11 @@ that matches the value set for the --data-dir-name argument."
 
 SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100"
 
+source ../../scripts/helper_function.sh
 source ./setup_benchmark_helper_check_instance_and_parse_args.sh
 
 if [[ ! -d ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} ]]; then
-  echo "Error: Benchmark data must already exist inside: ${PRESTO_DATA_DIR}/${DATA_DIR_NAME}"
-  exit 1
+  echo_error "Error: Benchmark data must already exist inside: ${PRESTO_DATA_DIR}/${DATA_DIR_NAME}"
 fi
 
 SCHEMA_GEN_SCRIPT_PATH=$(readlink -f ../../benchmark_data_tools/generate_table_schemas.py)
