@@ -20,6 +20,7 @@ DATA_PATH="../../presto/testing/integration_tests/data/tpch/"
 RESULTS_PATH="../asv_benchmarks/results/"
 PORT=8081
 BENCH=""
+COMMIT_RANGE=""
 INTERACTIVE=false
 NO_PREVIEW=false
 NO_PUBLISH=false
@@ -38,6 +39,8 @@ Options:
   --results-path PATH       Path to save ASV results (default: ./asv_results)
   --port PORT               HTTP server port (default: 8081)
   --bench PATTERN           Run specific benchmark pattern (e.g., "TimeQuery06")
+  --commits RANGE           Commit range to benchmark (e.g., "HEAD~5..HEAD", "v1.0..v2.0")
+                            Default: HEAD^! (single current commit)
   --no-preview              Run benchmarks and generate HTML without starting preview server
   --interactive, -i         Run in interactive mode (bash shell)
   --no-publish              Run benchmarks and skip HTML reports generation
@@ -65,6 +68,12 @@ Examples:
 
   # Run multiple queries (regex pattern)
   $0 --data-path /data/tpch --bench "tpch_benchmarks.TimeQuery0[1-5]"
+
+  # Benchmark last 5 commits
+  $0 --data-path /data/tpch --commits "HEAD~5..HEAD"
+
+  # Benchmark commits between two tags/versions
+  $0 --data-path /data/tpch --commits "v1.0..v2.0"
 
   # Interactive mode for debugging
   $0 --data-path /data/tpch --interactive
@@ -128,6 +137,10 @@ while [[ $# -gt 0 ]]; do
             BENCH="$2"
             shift 2
             ;;
+        --commits|--range)
+            COMMIT_RANGE="$2"
+            shift 2
+            ;;
         --no-preview)
             NO_PREVIEW=true
             shift
@@ -188,6 +201,7 @@ echo "  Data path:    $DATA_PATH"
 echo "  Results path: $RESULTS_PATH"
 echo "  Port:         $PORT"
 echo "  Benchmark:    ${BENCH:-all}"
+echo "  Commits:      ${COMMIT_RANGE:-HEAD^! (single current commit)}"
 echo "  Interactive:  $INTERACTIVE"
 echo "  Preview:      $([ "$NO_PREVIEW" = true ] && echo "disabled" || echo "enabled")"
 echo "  Publish:      $([ "$NO_PUBLISH" = true ] && echo "disabled" || echo "enabled")"
@@ -198,6 +212,7 @@ export BENCHMARK_DATA_HOST_PATH="$DATA_PATH"
 export ASV_RESULTS_HOST_PATH="$RESULTS_PATH"
 export ASV_PORT="$PORT"
 export ASV_BENCH="$BENCH"
+export ASV_COMMIT_RANGE="$COMMIT_RANGE"
 # Export user/group IDs for proper file ownership
 export USER_ID=$(id -u)
 export GROUP_ID=$(id -g)

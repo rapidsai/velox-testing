@@ -9,6 +9,12 @@ echo "Build directory: ${VELOX_BUILD_DIR}"
 echo "TPC-H data path: ${TPCH_DATA_PATH}"
 echo "=============================================="
 
+# Configure Git to trust the mounted repository directories
+# This is needed when the repository is owned by a different user (host vs container)
+git config --global --add safe.directory /workspace/velox/.git
+git config --global --add safe.directory /workspace/velox-testing/.git
+echo "✓ Git safe.directory configured for mounted repositories"
+
 # Publish existing benchmark results if available, and start preview server if requested
 
 RESULTS_DIR="/asv_results"
@@ -57,20 +63,27 @@ if [ "${ASV_PREVIEW_EXISTING:-false}" = "true" ]; then
     exit 0
 fi
 
-# Verify Python bindings are installed
-echo ""
-echo "=== Verifying Python bindings ==="
-python3 -c "import cudf_tpch_benchmark; print('✓ cudf_tpch_benchmark module loaded successfully')" || {
-    echo "ERROR: Failed to import cudf_tpch_benchmark module"
+# Verify Python bindings are installed (skip for virtualenv - ASV will handle it)
+if [ "${ASV_ENV_TYPE:-existing}" = "existing" ]; then
     echo ""
-    echo "The package should have been installed during image build."
-    echo "Try rebuilding the image: ./build_asv_image.sh --rebuild"
+    echo "=== Verifying Python bindings ==="
+    python3 -c "import cudf_tpch_benchmark; print('✓ cudf_tpch_benchmark module loaded successfully')" || {
+        echo "ERROR: Failed to import cudf_tpch_benchmark module"
+        echo ""
+        echo "The package should have been installed during image build."
+        echo "Try rebuilding the image: ./build_asv_image.sh --rebuild"
+        echo ""
+        echo "Debugging information:"
+        echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-<not set>}"
+        python3 -c "import sys; print('Python path:', sys.path)"
+        exit 1
+    }
+else
     echo ""
-    echo "Debugging information:"
-    echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-<not set>}"
-    python3 -c "import sys; print('Python path:', sys.path)"
-    exit 1
-}
+    echo "=== Virtualenv Mode Detected ==="
+    echo "Python bindings will be built and installed by ASV in each virtualenv"
+    echo "Skipping host-level verification..."
+fi
 
 # Run smoke test if data is available (can be disabled with ASV_SKIP_SMOKE_TEST=true)
 if [ "${ASV_SKIP_SMOKE_TEST:-false}" = "false" ] && [ -d "${TPCH_DATA_PATH}" ] && [ "$(ls -A ${TPCH_DATA_PATH} 2>/dev/null)" ]; then
@@ -278,8 +291,27 @@ else
     echo "Force re-running benchmarks (will show run-to-run variability)"
 fi
 
+# Determine commit range to benchmark
+# Default behavior depends on environment type:
+# - virtualenv: can benchmark commit ranges (HEAD, HEAD~5..HEAD, v1.0..v2.0, etc.)
+# - existing: only benchmarks current state (no commit checkout)
+COMMIT_RANGE="${ASV_COMMIT_RANGE:-}"
+if [ -z "$COMMIT_RANGE" ]; then
+    if [ "${ASV_ENV_TYPE:-existing}" = "existing" ]; then
+        # For existing environment, we can't checkout commits, so we benchmark current state
+        # Use HEAD^! to specify single commit (current state)
+        COMMIT_RANGE="HEAD^!"
+        echo "Environment type: existing (benchmarking current state only)"
+    else
+        # For virtualenv, default to HEAD (single most recent commit)
+        COMMIT_RANGE="${ASV_COMMIT_RANGE:-HEAD^!}"
+        echo "Environment type: virtualenv (can benchmark commit ranges)"
+    fi
+fi
 
-ASV_RUN_CMD="asv run ${SKIP_EXISTING_FLAG} --show-stderr --machine ${MACHINE_NAME}"
+echo "Commit range: ${COMMIT_RANGE}"
+
+ASV_RUN_CMD="asv run ${SKIP_EXISTING_FLAG} --show-stderr --machine ${MACHINE_NAME} ${COMMIT_RANGE}"
 
 
 # Add --record-samples or --append-samples flag if requested

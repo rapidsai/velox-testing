@@ -44,6 +44,8 @@ services:
       - ASV_PREVIEW_EXISTING=${ASV_PREVIEW_EXISTING:-false}
       - ASV_PUBLISH_PREVIEW_EXISTING=${ASV_PUBLISH_PREVIEW_EXISTING:-false}
       - ASV_PORT=${ASV_PORT:-8080}
+      - ASV_COMMIT_RANGE=${ASV_COMMIT_RANGE:-}
+      - ASV_ENV_TYPE=${ASV_ENV_TYPE:-virtualenv}
     volumes:
       - ../../../velox:/workspace/velox
       - ../../../velox-testing/velox/asv_benchmarks:/workspace/velox-testing/velox/asv_benchmarks

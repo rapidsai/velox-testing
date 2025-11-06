@@ -18,6 +18,7 @@ COUNT=3
 DATA_PATH="../../presto/testing/integration_tests/data/tpch/"
 RESULTS_PATH="../asv_benchmarks/results/"
 PORT=8001
+COMMIT_RANGE=""
 SKIP_PREVIEW=false
 CLEAR_RESULTS=true
 
@@ -40,6 +41,10 @@ while [[ $# -gt 0 ]]; do
             COUNT="$2"
             shift 2
             ;;
+        --commits|--range)
+            COMMIT_RANGE="$2"
+            shift 2
+            ;;
         --skip-preview)
             SKIP_PREVIEW=true
             shift
@@ -57,6 +62,8 @@ Options:
   --results-path PATH       Path to save results (default: ./asv_results)
   --port PORT               HTTP server port (default: 8080)
   --count N                 Number of benchmark runs (default: 3)
+  --commits RANGE           Commit range to benchmark (e.g., "HEAD~5..HEAD")
+                            Note: For multi-run, typically use single commit (default)
   --skip-preview            Don't start preview server after last run
   --clear-results           Clear existing results before starting (fresh run)
   --help, -h                Show this help
@@ -95,6 +102,7 @@ echo "  Data path:    $DATA_PATH"
 echo "  Results path: $RESULTS_PATH"
 echo "  Port:         $PORT"
 echo "  Run count:    $COUNT"
+echo "  Commits:      ${COMMIT_RANGE:-HEAD^! (single current commit)}"
 echo "  Clear results: $CLEAR_RESULTS"
 echo ""
 
@@ -122,14 +130,16 @@ for i in $(seq 1 $COUNT); do
     # All runs use --record-samples since each has a unique machine name
     # (--append-samples is only for re-running on the SAME machine)
     echo "Run $i: Recording samples for machine $(date +%s)"
+    
+    # Build command with optional commit range
+    CMD="./run_asv_benchmarks.sh --data-path \"$DATA_PATH\" --results-path \"$RESULTS_PATH\" --port \"$PORT\" --no-publish --no-preview"
+    if [ -n "$COMMIT_RANGE" ]; then
+        CMD="$CMD --commits \"$COMMIT_RANGE\""
+    fi
+    
     ASV_RECORD_SAMPLES=true \
     ASV_SKIP_EXISTING=false \
-    ./run_asv_benchmarks.sh \
-        --data-path "$DATA_PATH" \
-        --results-path "$RESULTS_PATH" \
-        --port "$PORT" \
-        --no-publish \
-        --no-preview
+    eval $CMD
     
     echo ""
     echo -e "${GREEN}✓ Run $i completed${NC}"
@@ -157,6 +167,7 @@ export BENCHMARK_DATA_HOST_PATH="$DATA_PATH"
 export ASV_RESULTS_HOST_PATH="$RESULTS_PATH"
 export ASV_PORT="$PORT"
 export ASV_BENCH=""
+export ASV_COMMIT_RANGE="$COMMIT_RANGE"
 export USER_ID=$(id -u)
 export GROUP_ID=$(id -g)
 export ASV_SKIP_AUTORUN=true
