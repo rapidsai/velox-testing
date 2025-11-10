@@ -26,6 +26,7 @@ NO_PREVIEW=false
 NO_PUBLISH=false
 NO_CACHE=false
 INTERLEAVE_ROUNDS=false
+PUBLISH_EXISTING=false
 
 # Print usage
 usage() {
@@ -45,6 +46,8 @@ Options:
                             Default: HEAD^! (single current commit)
   --interleave-rounds       Run benchmarks in interleaved rounds for better long-term averaging
                             Requires 'rounds' > 1 in tpch_benchmarks.py
+  --publish-existing        Only publish HTML and preview existing results (skip running benchmarks)
+                            Useful for regenerating reports from already collected data
   --no-cache                Rebuild Docker image from scratch before running (--no-cache)
   --no-preview              Run benchmarks and generate HTML without starting preview server
   --interactive, -i         Run in interactive mode (bash shell)
@@ -94,6 +97,9 @@ Examples:
 
   # Run benchmarks without starting preview server (for CI/CD)
   $0 --data-path /data/tpch --no-preview
+
+  # Publish and preview existing results without running benchmarks
+  $0 --data-path /data/tpch --publish-existing
 
 Viewing Results:
   After running, access the web interface at http://localhost:<PORT>
@@ -177,6 +183,10 @@ while [[ $# -gt 0 ]]; do
             NO_PUBLISH=true
             shift
             ;;
+        --publish-existing)
+            PUBLISH_EXISTING=true
+            shift
+            ;;
         --help|-h)
             usage
             ;;
@@ -236,6 +246,7 @@ echo "  Port:            $PORT"
 echo "  Benchmark:       ${BENCH:-all}"
 echo "  Commits:         ${COMMIT_RANGE:-HEAD^! (single current commit)}"
 echo "  Interleave:      $([ "$INTERLEAVE_ROUNDS" = true ] && echo "enabled" || echo "disabled")"
+echo "  Publish existing:$([ "$PUBLISH_EXISTING" = true ] && echo "yes (skip benchmarks)" || echo "no")"
 echo "  Interactive:     $INTERACTIVE"
 echo "  Preview:         $([ "$NO_PREVIEW" = true ] && echo "disabled" || echo "enabled")"
 echo "  Publish:         $([ "$NO_PUBLISH" = true ] && echo "disabled" || echo "enabled")"
@@ -263,6 +274,11 @@ if [ "$NO_PUBLISH" = true ]; then
     export ASV_PUBLISH=false
 else
     export ASV_PUBLISH=true
+fi
+
+# Export ASV_PUBLISH_PREVIEW_EXISTING if requested (for publishing/previewing existing results only)
+if [ "$PUBLISH_EXISTING" = true ] || [ -n "${ASV_PUBLISH_PREVIEW_EXISTING:-}" ]; then
+    export ASV_PUBLISH_PREVIEW_EXISTING=true
 fi
 
 # Create results directory if it doesn't exist
