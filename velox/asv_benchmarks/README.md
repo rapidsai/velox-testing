@@ -8,21 +8,21 @@ This directory contains [ASV (Airspeed Velocity)](https://asv.readthedocs.io/) b
 
 1. **Docker** and Docker Compose installed
 2. **TPC-H data** generated in Hive-style Parquet format
-3. **sccache authentication** (optional, for faster builds)
+3. **sccache authentication** (for faster builds)
 
 ### Single Benchmark Run
 
 Run benchmarks for the current code state:
 
 ```bash
-cd /raid/avinash/projects/velox-testing/velox
+cd velox-testing/velox/scripts
 
 # Quick benchmark with default settings
-./scripts/run_asv_benchmarks.sh \
+./run_asv_benchmarks.sh \
     --data-path /path/to/tpch_data
 
 # Custom configuration
-./scripts/run_asv_benchmarks.sh \
+./run_asv_benchmarks.sh \
     --data-path /path/to/tpch_data \
     --results-path ./custom_results \
     --port 9090
@@ -78,7 +78,7 @@ Use `run_asv_benchmarks.sh` to benchmark the current state of the code (single c
 ### Basic Usage
 
 ```bash
-cd /raid/avinash/projects/velox-testing/velox/scripts
+cd velox/scripts
 
 # Run all benchmarks with default settings
 ./run_asv_benchmarks.sh --data-path /path/to/tpch_data
@@ -188,12 +188,23 @@ ASV_SKIP_SMOKE_TEST=true \
 
 #### Example 6: Rebuild After Code Changes
 
+After modifying C++ files in Velox or the TPC-H wrapper library:
+
 ```bash
-# Force rebuild of Docker image
+# Step 1: Rebuild Velox and TPC-H wrapper library
+cd velox/scripts
+./build_velox.sh \
+    --build-type release \
+    --sccache \
+    --no-cache
+
+# Step 2: Rebuild ASV image and run benchmarks
 ./run_asv_benchmarks.sh \
     --data-path /data/tpch \
     --no-cache
 ```
+
+**Note**: The `--no-cache` flag ensures a fresh build without Docker layer caching.
 
 #### Example 7: Interactive Debugging
 
@@ -209,15 +220,22 @@ ASV_SKIP_SMOKE_TEST=true \
 #### Development Workflow
 
 ```bash
-# 1. Make code changes to Velox
+# 1. Make code changes to Velox or TPC-H wrapper
 vim velox/exec/MyFile.cpp
 
-# 2. Run benchmarks with rebuild
+# 2. Rebuild Velox and TPC-H wrapper library
+cd velox/scripts
+./build_velox.sh \
+    --build-type release \
+    --sccache \
+    --no-cache
+
+# 3. Rebuild ASV image and run benchmarks
 ./run_asv_benchmarks.sh \
     --data-path /data/tpch \
     --no-cache
 
-# 3. View results at http://localhost:8080
+# 4. View results at http://localhost:8080
 ```
 
 #### Before/After Comparison
@@ -230,11 +248,82 @@ ASV_MACHINE="before" ASV_RECORD_SAMPLES=true \
 # 2. Make optimization changes
 vim velox/exec/Optimizer.cpp
 
-# 3. After measurement
+# 3. Rebuild Velox and TPC-H wrapper
+cd velox/scripts
+./build_velox.sh \
+    --build-type release \
+    --sccache \
+    --no-cache
+
+# 4. After measurement
 ASV_MACHINE="after" ASV_RECORD_SAMPLES=true \
 ./run_asv_benchmarks.sh --data-path /data/tpch --no-cache
 
-# 4. Compare in web UI at http://localhost:8080
+# 5. Compare in web UI at http://localhost:8080
+```
+
+### Understanding What Needs to be Rebuilt
+
+The benchmarking system has several layers. Understanding what needs rebuilding helps optimize your workflow:
+
+#### When You Change Python Code Only
+
+**Files**: `benchmarks/tpch_benchmarks.py` or other Python benchmark files
+
+**Rebuild Required**: ASV image only
+
+```bash
+./run_asv_benchmarks.sh --data-path /data/tpch --no-cache
+```
+
+**Why**: Python changes only affect the benchmark harness, not the C++ implementation.
+
+#### When You Change C++ Code
+
+**Files**: 
+- Velox C++ source (`velox/exec/*.cpp`, `velox/core/*.cpp`, etc.)
+- TPC-H wrapper library (`velox/experimental/cudf/benchmarks/python/src/*.cpp`)
+
+**Rebuild Required**: Both Velox and ASV image
+
+```bash
+# Step 1: Rebuild Velox + TPC-H wrapper (C++ compilation)
+cd velox/scripts
+./build_velox.sh --build-type release --sccache --no-cache
+
+# Step 2: Rebuild ASV image (Python bindings installation)
+./run_asv_benchmarks.sh --data-path /data/tpch --no-cache
+```
+
+**Why**: C++ changes require recompiling Velox and the wrapper library, then reinstalling Python bindings.
+
+#### When You Change Cython Bindings
+
+**Files**: `velox/experimental/cudf/benchmarks/python/src/*.pyx`
+
+**Rebuild Required**: Both Velox and ASV image
+
+```bash
+cd velox/scripts
+./build_velox.sh --build-type release --sccache --no-cache
+
+./run_asv_benchmarks.sh --data-path /data/tpch --no-cache
+```
+
+**Why**: Cython files are compiled to C++ and then to binary extensions.
+
+#### Using sccache for Faster Rebuilds
+
+The `--sccache` flag enables distributed compilation caching:
+
+- **First build**: Full compilation (~30 minutes)
+- **Subsequent builds**: Only changed files recompiled (~5-15 minutes)
+- **Requirement**: sccache authentication files in `~/.sccache-auth/`
+
+Without sccache:
+```bash
+cd velox/scripts
+./build_velox.sh --build-type release --no-cache
 ```
 
 ---
@@ -263,20 +352,19 @@ The script automates the process of benchmarking multiple commits:
 ### Commit Range Usage
 
 ```bash
-cd /raid/avinash/projects/velox-testing/velox
+cd velox/scripts
 
 # Basic usage
-./scripts/run_asv_commit_range.sh --commits HEAD~5..HEAD
+./run_asv_commit_range.sh --commits HEAD~5..HEAD
 
 # With all options
-./scripts/run_asv_commit_range.sh \
+./run_asv_commit_range.sh \
     --velox-repo /path/to/velox \
     --data-path /path/to/tpch_data \
     --results-path /path/to/asv_results \
     --sccache-auth-dir /path/to/.sccache-auth \
     --port 8080 \
-    --commits HEAD~5..HEAD \
-    --clear-results
+    --commits HEAD~5..HEAD
 ```
 
 ### Command-Line Options (Commit Range)
@@ -386,9 +474,10 @@ Compare performance between two release tags:
 Benchmark commits from a feature branch:
 
 ```bash
-cd /raid/avinash/projects/velox-testing/velox
+cd ../velox
 git checkout feature-branch
-./scripts/run_asv_commit_range.sh --commits main..feature-branch
+cd ../velox-tetsing/velox/scripts
+./run_asv_commit_range.sh --commits main..feature-branch
 ```
 
 #### Example 4: Full Custom Configuration
@@ -701,8 +790,8 @@ class TpcDsBenchmarks:
 **Solution**: Ensure you're running from the correct directory:
 
 ```bash
-cd /raid/avinash/projects/velox-testing/velox
-./scripts/run_asv_benchmarks.sh --data-path /data/tpch
+cd velox/scripts
+./run_asv_benchmarks.sh --data-path /data/tpch
 ```
 
 #### Error: "sccache authentication failed"
@@ -720,9 +809,23 @@ Or disable sccache by not passing auth directory.
 
 #### Error: "No module named 'cudf_tpch_benchmark'"
 
-**Solution**: Rebuild the Docker image to ensure Python bindings are installed:
+**Cause**: Python bindings not installed or outdated
 
+**Solution**: 
+
+If you only changed Python code:
 ```bash
+./scripts/run_asv_benchmarks.sh --data-path /data/tpch --no-cache
+```
+
+If you changed C++ code in Velox or TPC-H wrapper:
+```bash
+# Step 1: Rebuild Velox + TPC-H wrapper
+cd velox/scripts
+./build_velox.sh --build-type release --sccache --no-cache
+
+# Step 2: Rebuild ASV image
+cd ../scripts
 ./scripts/run_asv_benchmarks.sh --data-path /data/tpch --no-cache
 ```
 
@@ -744,9 +847,13 @@ ls -la /data/tpch/lineitem/
 
 **Causes and Solutions**:
 
-1. Python bindings not built:
+1. Python bindings not built - rebuild required:
    ```bash
-   ./scripts/run_asv_benchmarks.sh --no-cache --data-path /data/tpch
+   # If you changed C++ code
+   cd velox/scripts
+   ./build_velox.sh --build-type release --sccache --no-cache
+
+   ./run_asv_benchmarks.sh --no-cache --data-path /data/tpch
    ```
 
 2. Data path not set:
