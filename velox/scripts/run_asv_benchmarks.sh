@@ -108,18 +108,13 @@ Viewing Results:
 Generating Graphs:
   ASV graphs require multiple data points. Use one of these approaches:
   
-  1. Automated multi-run (recommended):
-     ./run_asv_multi_benchmarks.sh --data-path /data/tpch --count 3
-  
-  2. Manual runs with unique machine names:
+  1. Manual runs with unique machine names:
      ASV_MACHINE="run1" ASV_RECORD_SAMPLES=true ./run_asv_benchmarks.sh --data-path /data/tpch --no-preview
      ASV_MACHINE="run2" ASV_RECORD_SAMPLES=true ./run_asv_benchmarks.sh --data-path /data/tpch --no-preview
      ASV_MACHINE="run3" ASV_RECORD_SAMPLES=true ./run_asv_benchmarks.sh --data-path /data/tpch
   
-  3. Auto-generated unique names:
+  2. Auto-generated unique names:
      ASV_AUTO_MACHINE=true ASV_RECORD_SAMPLES=true ./run_asv_benchmarks.sh --data-path /data/tpch
-  
-  See GRAPH_GENERATION.md for detailed guide.
 
 Smoke Test:
   On startup, a quick smoke test runs Query 6 to verify:
