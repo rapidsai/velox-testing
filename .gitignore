@@ -20,3 +20,4 @@ benchmark_output
 presto/docker/config/generated/
 velox/asv_benchmarks/results/
 velox/asv_benchmarks/.asv/
+**/.sccache-auth/
