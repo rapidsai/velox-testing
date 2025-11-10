@@ -385,6 +385,7 @@ while IFS= read -r commit; do
     ./run_asv_benchmarks.sh \
         --data-path "$DATA_PATH" \
         --results-path "$RESULTS_PATH" \
+        --interleave-rounds \
         --no-publish \
         --no-preview \
         --no-cache || {
