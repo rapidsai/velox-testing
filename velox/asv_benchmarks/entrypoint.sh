@@ -311,6 +311,23 @@ fi
 
 echo "Commit range: ${COMMIT_RANGE}"
 
+# Performance tuning: Control library threading for consistent benchmark results
+# See: https://asv.readthedocs.io/en/latest/tuning.html#library-settings
+# Force single-threaded operation for libraries to reduce timing variability
+# Note: These exports are set here (not at script start) to avoid affecting
+# the Python bindings build process, which may benefit from parallel compilation
+export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
+export MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+export NUMEXPR_NUM_THREADS=${NUMEXPR_NUM_THREADS:-1}
+echo ""
+echo "Benchmark Threading Control:"
+echo "  OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS}"
+echo "  MKL_NUM_THREADS:      ${MKL_NUM_THREADS}"
+echo "  OMP_NUM_THREADS:      ${OMP_NUM_THREADS}"
+echo "  NUMEXPR_NUM_THREADS:  ${NUMEXPR_NUM_THREADS}"
+echo ""
+
 ASV_RUN_CMD="asv run ${SKIP_EXISTING_FLAG} --show-stderr --machine ${MACHINE_NAME} ${COMMIT_RANGE}"
 
 
@@ -321,6 +338,13 @@ if [ "${ASV_APPEND_SAMPLES:-false}" = "true" ]; then
 elif [ "${ASV_RECORD_SAMPLES:-false}" = "true" ]; then
     ASV_RUN_CMD="${ASV_RUN_CMD} --record-samples"
     echo "Recording samples (captures variance for statistical analysis)"
+fi
+
+# Add --interleave-rounds flag if requested
+if [ "${ASV_INTERLEAVE_ROUNDS:-false}" = "true" ]; then
+    ASV_RUN_CMD="${ASV_RUN_CMD} --interleave-rounds"
+    echo "Using interleaved rounds (for long-time variation averaging)"
+    echo "Note: Requires 'rounds' > 1 in benchmark class definitions"
 fi
 
 if [ -n "${ASV_BENCH:-}" ]; then

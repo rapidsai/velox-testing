@@ -81,20 +81,29 @@ class TpchBenchmarkBase:
     # Timeout for each benchmark (in seconds)
     timeout = 600
     
-    # Number of warmup runs
-    warmup_time = 0
+    # ASV Timing Parameters (see: https://asv.readthedocs.io/en/latest/tuning.html)
     
-    # Number of times to run the benchmark
+    # number: How many times to run the benchmark function in each measurement
+    # For queries taking ~100ms+, 1 is sufficient
     number = 1
     
-    # Minimum time to run the benchmark  
-    min_run_count = 1
-    
-    # Number of times to repeat the entire benchmark (set to 1 to avoid timeout issues)
+    # repeat: Number of statistical samples to collect
+    # Each repeat runs 'number' times and records one measurement
+    # More repeats = better statistics but longer runtime
+    # don't add more repeats since it might take more than 5 seconds(default timeout set on Velox) to run 
     repeat = 1
     
-    # Sample time - run for at least this many seconds (0 = single run)
+    # rounds: Run the entire benchmark suite this many times
+    # Used with --interleave-rounds to average over long-time variations
+    # (system load, CPU thermal throttling, etc.)
+    rounds = 3  # Increase to 3-5 for production benchmarking
+    
+    # sample_time: Minimum time to run adaptively (seconds)
+    # Set to 0 for explicit control via number/repeat
     sample_time = 0
+    
+    # warmup_time: Time to warmup before measurements (seconds)
+    warmup_time = 0
     
     def setup(self, data_format):
         """

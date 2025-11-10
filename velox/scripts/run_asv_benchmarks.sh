@@ -24,6 +24,8 @@ COMMIT_RANGE=""
 INTERACTIVE=false
 NO_PREVIEW=false
 NO_PUBLISH=false
+NO_CACHE=false
+INTERLEAVE_ROUNDS=false
 
 # Print usage
 usage() {
@@ -41,6 +43,9 @@ Options:
   --bench PATTERN           Run specific benchmark pattern (e.g., "TimeQuery06")
   --commits RANGE           Commit range to benchmark (e.g., "HEAD~5..HEAD", "v1.0..v2.0")
                             Default: HEAD^! (single current commit)
+  --interleave-rounds       Run benchmarks in interleaved rounds for better long-term averaging
+                            Requires 'rounds' > 1 in tpch_benchmarks.py
+  --no-cache                Rebuild Docker image from scratch before running (--no-cache)
   --no-preview              Run benchmarks and generate HTML without starting preview server
   --interactive, -i         Run in interactive mode (bash shell)
   --no-publish              Run benchmarks and skip HTML reports generation
@@ -74,6 +79,9 @@ Examples:
 
   # Benchmark commits between two tags/versions
   $0 --data-path /data/tpch --commits "v1.0..v2.0"
+
+  # Run with interleaved rounds for production benchmarking
+  $0 --data-path /data/tpch --interleave-rounds
 
   # Interactive mode for debugging
   $0 --data-path /data/tpch --interactive
@@ -114,6 +122,14 @@ Smoke Test:
   - GPU/CUDA is functioning
   Set ASV_SKIP_SMOKE_TEST=true to skip this test.
 
+Performance Tuning:
+  For more accurate and reliable benchmark results:
+  - See ../asv_benchmarks/TUNING.md for detailed tuning guide
+  - Library threading is automatically controlled (OPENBLAS_NUM_THREADS=1, etc.)
+  - Adjust repeat/rounds in tpch_benchmarks.py for different accuracy levels
+  - Use --interleave-rounds for averaging over long-time variations
+  - Consider system tuning: sudo python -m pyperf system tune
+
 EOF
     exit 0
 }
@@ -140,6 +156,14 @@ while [[ $# -gt 0 ]]; do
         --commits|--range)
             COMMIT_RANGE="$2"
             shift 2
+            ;;
+        --interleave-rounds)
+            INTERLEAVE_ROUNDS=true
+            shift
+            ;;
+        --no-cache)
+            NO_CACHE=true
+            shift
             ;;
         --no-preview)
             NO_PREVIEW=true
@@ -181,8 +205,17 @@ DOCKER_DIR="$SCRIPT_DIR/../docker"
 
 cd "$DOCKER_DIR"
 
-# Check if ASV benchmark image exists
-if ! docker images velox-asv-benchmark:latest --format "{{.Repository}}" | grep -q "velox-asv-benchmark"; then
+# Check if ASV benchmark image exists or rebuild if requested
+if [ "$NO_CACHE" = true ]; then
+    echo -e "${YELLOW}Rebuilding Docker image from scratch (--no-cache)...${NC}"
+    echo ""
+    cd "$SCRIPT_DIR"
+    ./build_asv_image.sh --rebuild
+    cd "$DOCKER_DIR"
+    echo ""
+    echo -e "${GREEN}✓ Image rebuilt successfully${NC}"
+    echo ""
+elif ! docker images velox-asv-benchmark:latest --format "{{.Repository}}" | grep -q "velox-asv-benchmark"; then
     echo -e "${RED}Error: Docker image 'velox-asv-benchmark:latest' not found${NC}"
     echo ""
     echo "You need to build the ASV benchmark image first:"
@@ -197,14 +230,15 @@ echo -e "${BLUE}  Velox ASV Benchmarks - Docker Runner${NC}"
 echo -e "${BLUE}=============================================${NC}"
 echo ""
 echo -e "${YELLOW}Configuration:${NC}"
-echo "  Data path:    $DATA_PATH"
-echo "  Results path: $RESULTS_PATH"
-echo "  Port:         $PORT"
-echo "  Benchmark:    ${BENCH:-all}"
-echo "  Commits:      ${COMMIT_RANGE:-HEAD^! (single current commit)}"
-echo "  Interactive:  $INTERACTIVE"
-echo "  Preview:      $([ "$NO_PREVIEW" = true ] && echo "disabled" || echo "enabled")"
-echo "  Publish:      $([ "$NO_PUBLISH" = true ] && echo "disabled" || echo "enabled")"
+echo "  Data path:       $DATA_PATH"
+echo "  Results path:    $RESULTS_PATH"
+echo "  Port:            $PORT"
+echo "  Benchmark:       ${BENCH:-all}"
+echo "  Commits:         ${COMMIT_RANGE:-HEAD^! (single current commit)}"
+echo "  Interleave:      $([ "$INTERLEAVE_ROUNDS" = true ] && echo "enabled" || echo "disabled")"
+echo "  Interactive:     $INTERACTIVE"
+echo "  Preview:         $([ "$NO_PREVIEW" = true ] && echo "disabled" || echo "enabled")"
+echo "  Publish:         $([ "$NO_PUBLISH" = true ] && echo "disabled" || echo "enabled")"
 echo ""
 
 # Export environment variables
@@ -213,6 +247,7 @@ export ASV_RESULTS_HOST_PATH="$RESULTS_PATH"
 export ASV_PORT="$PORT"
 export ASV_BENCH="$BENCH"
 export ASV_COMMIT_RANGE="$COMMIT_RANGE"
+export ASV_INTERLEAVE_ROUNDS="$INTERLEAVE_ROUNDS"
 # Export user/group IDs for proper file ownership
 export USER_ID=$(id -u)
 export GROUP_ID=$(id -g)

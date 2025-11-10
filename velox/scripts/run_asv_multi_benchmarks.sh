@@ -21,6 +21,7 @@ PORT=8001
 COMMIT_RANGE=""
 SKIP_PREVIEW=false
 CLEAR_RESULTS=true
+INTERLEAVE_ROUNDS=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -45,6 +46,10 @@ while [[ $# -gt 0 ]]; do
             COMMIT_RANGE="$2"
             shift 2
             ;;
+        --interleave-rounds)
+            INTERLEAVE_ROUNDS=true
+            shift
+            ;;
         --skip-preview)
             SKIP_PREVIEW=true
             shift
@@ -64,6 +69,7 @@ Options:
   --count N                 Number of benchmark runs (default: 3)
   --commits RANGE           Commit range to benchmark (e.g., "HEAD~5..HEAD")
                             Note: For multi-run, typically use single commit (default)
+  --interleave-rounds       Run benchmarks with interleaved rounds (requires rounds > 1)
   --skip-preview            Don't start preview server after last run
   --clear-results           Clear existing results before starting (fresh run)
   --help, -h                Show this help
@@ -109,11 +115,8 @@ echo ""
 # Clear results if requested
 if [ "$CLEAR_RESULTS" = true ]; then
     echo -e "${YELLOW}Clearing existing results...${NC}"
-    if [ -d "$RESULTS_PATH" ]; then
-        # Remove all machine directories and HTML, but keep the results directory
-        rm -rf "${RESULTS_PATH}"/docker-run-* "${RESULTS_PATH}"/docker-container "${RESULTS_PATH}"/html 2>/dev/null || true
-        echo "✓ Cleared old benchmark results"
-    fi
+    # Use the dedicated clearing script to handle permissions and thorough cleanup
+    "$SCRIPT_DIR/clear_asv_results.sh" "$RESULTS_PATH"
     echo ""
 fi
 
@@ -131,10 +134,13 @@ for i in $(seq 1 $COUNT); do
     # (--append-samples is only for re-running on the SAME machine)
     echo "Run $i: Recording samples for machine $(date +%s)"
     
-    # Build command with optional commit range
+    # Build command with optional commit range and interleave-rounds
     CMD="./run_asv_benchmarks.sh --data-path \"$DATA_PATH\" --results-path \"$RESULTS_PATH\" --port \"$PORT\" --no-publish --no-preview"
     if [ -n "$COMMIT_RANGE" ]; then
         CMD="$CMD --commits \"$COMMIT_RANGE\""
+    fi
+    if [ "$INTERLEAVE_ROUNDS" = true ]; then
+        CMD="$CMD --interleave-rounds"
     fi
     
     ASV_RECORD_SAMPLES=true \

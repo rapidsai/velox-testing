@@ -45,6 +45,7 @@ services:
       - ASV_PUBLISH_PREVIEW_EXISTING=${ASV_PUBLISH_PREVIEW_EXISTING:-false}
       - ASV_PORT=${ASV_PORT:-8080}
       - ASV_COMMIT_RANGE=${ASV_COMMIT_RANGE:-}
+      - ASV_INTERLEAVE_ROUNDS=${ASV_INTERLEAVE_ROUNDS:-false}
       - ASV_ENV_TYPE=${ASV_ENV_TYPE:-virtualenv}
     volumes:
       - ../../../velox:/workspace/velox
