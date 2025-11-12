@@ -16,6 +16,9 @@
 
 set -e
 
+SCRIPT_PATH=$(dirname -- "${BASH_SOURCE[0]}")
+source "${SCRIPT_PATH}/../../scripts/helper_function.sh"
+
 SCRIPT_DESCRIPTION="This script generates benchmark data and sets up related tables under the given schema name.
 Generated data will reside under the PRESTO_DATA_DIR path in a directory with name that matches 
 the value set for the --data-dir-name argument."
@@ -34,7 +37,7 @@ function extra_options_parser() {
         SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=false
         return 0
       else
-        echo "Error: --scale-factor requires a value"
+        echo_error "Error: --scale-factor requires a value"
         return 1
       fi
       shift 2
