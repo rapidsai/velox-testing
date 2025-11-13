@@ -82,6 +82,22 @@ Track performance changes across commits:
     --commits HEAD~10..HEAD
 ```
 
+### Quick Regression Detection (Efficient)
+
+Detect performance regressions without benchmarking every commit:
+
+```bash
+# Quick check: compare first vs last commit only (2 builds)
+./scripts/run_asv_commit_range.sh --commits HEAD~20..HEAD --mode endpoints
+
+# Full range: benchmark all commits (comprehensive)
+./scripts/run_asv_commit_range.sh --commits HEAD~5..HEAD --mode range
+```
+
+**Performance Comparison:**
+- **Range mode**: 20 commits = 20 builds (~10 hours)
+- **Endpoints mode**: 20 commits = 2 builds (~1 hour) ⚡ **10x faster**
+
 ---
 
 ## Table of Contents
@@ -97,6 +113,11 @@ Track performance changes across commits:
   - [Commit Range Syntax](#commit-range-syntax)
   - [What Happens During Execution](#what-happens-during-execution)
   - [Examples](#commit-range-examples)
+- [Benchmark Modes](#benchmark-modes)
+  - [Range Mode vs Endpoints Mode](#range-mode-vs-endpoints-mode)
+  - [When to Use Each Mode](#when-to-use-each-mode)
+  - [Performance Comparison](#mode-performance-comparison)
+  - [Examples](#mode-examples)
 - [Directory Structure](#directory-structure)
 - [Configuration](#configuration)
 - [Viewing Results](#viewing-results)
@@ -643,6 +664,215 @@ After benchmarking:
 2. Export data for further analysis
 3. Note any anomalies or unexpected results
 4. Archive results for future reference
+
+---
+
+## Benchmark Modes
+
+### Range Mode vs Endpoints Mode
+
+The `run_asv_commit_range.sh` script supports two modes for different use cases:
+
+**The Problem:**
+- Benchmarking 100 commits takes ~50 hours (30 min/commit)
+- You often just need to know: "Did performance regress?" rather than complete history
+
+**The Solution:**
+- **Range mode** (default): Benchmark ALL commits - comprehensive but slow
+- **Endpoints mode**: Benchmark ONLY first & last commit - fast regression detection
+
+### Mode Descriptions
+
+#### 1. Range Mode (Comprehensive)
+
+Benchmarks every single commit in the range.
+
+```bash
+# Benchmark all commits (default behavior)
+./run_asv_commit_range.sh --commits HEAD~5..HEAD
+
+# Explicit range mode
+./run_asv_commit_range.sh --commits HEAD~5..HEAD --mode range
+```
+
+**Use Cases:**
+- Creating complete performance history graphs
+- Analyzing trends over time
+- Building a performance database
+- Research and documentation
+
+**Characteristics:**
+- Benchmarks: N commits = N builds
+- Time: ~30 min per commit
+- Output: Complete history with graphs
+
+#### 2. Endpoints Mode (Fast)
+
+Benchmarks only the first and last commit in a range.
+
+```bash
+# Quick regression check (only 2 builds)
+./run_asv_commit_range.sh --commits HEAD~20..HEAD --mode endpoints
+```
+
+**Use Cases:**
+- Quick regression check before merging
+- CI/CD integration (fast feedback)
+- Regular monitoring (daily/weekly)
+- Time-sensitive performance checks
+
+**Characteristics:**
+- Benchmarks: Always 2 builds (first & last)
+- Time savings: 10x-50x faster than range mode
+- Output: Direct comparison between endpoints
+
+### Mode Performance Comparison
+
+| Mode | Commits | Builds Needed | Time (est.) | Speedup |
+|------|---------|---------------|-------------|---------|
+| **Range** | 20 | 20 | ~10 hours | 1x (baseline) |
+| **Endpoints** | 20 | 2 | ~1 hour | **10x** ⚡ |
+| | | | | |
+| **Range** | 100 | 100 | ~50 hours | 1x (baseline) |
+| **Endpoints** | 100 | 2 | ~1 hour | **50x** ⚡ |
+
+**Note:** Times assume ~30 min per build (including Velox build + benchmarks)
+
+### Mode Examples
+
+#### Example 1: Quick Regression Check (Endpoints Mode)
+
+```bash
+cd velox/scripts
+
+# Did last 20 commits introduce any regression? (Only 2 builds!)
+./run_asv_commit_range.sh --commits HEAD~20..HEAD --mode endpoints
+
+# View results at http://localhost:8081
+# Compare first commit (HEAD~20) vs last commit (HEAD)
+```
+
+**Workflow:**
+1. Script benchmarks 2 commits (first & last)
+2. Generates comparison report
+3. You review at http://localhost:8081
+4. Total time: ~1 hour vs ~10 hours for full range
+
+#### Example 2: Complete Performance History (Range Mode)
+
+```bash
+# Track performance across all commits for detailed analysis
+./run_asv_commit_range.sh --commits HEAD~10..HEAD --mode range
+
+# View results at http://localhost:8081
+# See performance trends across all 10 commits
+```
+
+**Workflow:**
+1. Script benchmarks all 10 commits
+2. Generates complete performance graphs
+3. You can see exactly when/where performance changed
+4. Total time: ~5 hours
+
+#### Example 3: CI/CD Integration (Endpoints Mode)
+
+```bash
+# In your CI pipeline - fast feedback for PR checks
+./run_asv_commit_range.sh \
+    --commits origin/main..HEAD \
+    --mode endpoints
+
+# Review results to approve/reject merge
+# Takes only ~1 hour instead of hours per commit
+```
+
+### When to Use Each Mode
+
+#### Use **Endpoints Mode** When:
+
+✅ You want to quickly check if performance regressed  
+✅ You're integrating into CI/CD for fast feedback  
+✅ You're monitoring regularly (daily/weekly checks)  
+✅ Time is critical and you need results quickly  
+✅ You only care about "did it regress?" not "when exactly?"
+
+#### Use **Range Mode** When:
+
+✅ You want complete performance history graphs  
+✅ You're analyzing trends over time  
+✅ You need data for every commit for research/documentation  
+✅ You're building a performance database  
+✅ You need to identify the exact commit that caused regression  
+✅ Time is not a constraint
+
+### Decision Flow
+
+```
+┌─────────────────────────────────────┐
+│ Need to check performance?          │
+└────────────┬────────────────────────┘
+             │
+             ▼
+     ┌───────────────────┐
+     │ Many commits?     │
+     │ (>10 commits)     │
+     └───┬───────────┬───┘
+         │ No        │ Yes
+         │           │
+         ▼           ▼
+┌────────────────┐  ┌─────────────────────┐
+│ range mode     │  │ Quick check needed? │
+│ (fast enough)  │  └───┬─────────────┬───┘
+└────────────────┘      │ Yes         │ No
+                        │             │
+                        ▼             ▼
+                ┌────────────┐  ┌──────────────┐
+                │ endpoints  │  │ range mode   │
+                │ mode       │  │ (complete)   │
+                └────────────┘  └──────────────┘
+                        │
+                 Regression?
+                        │
+                        ▼
+                ┌────────────────────┐
+                │ Use range mode to  │
+                │ find exact commit  │
+                └────────────────────┘
+```
+
+### Workflow Example
+
+**Scenario**: You've made 30 commits and want to check for regressions before release.
+
+**Option A: Quick Check (Endpoints Mode - 2 builds, ~1 hour)**
+
+```bash
+./run_asv_commit_range.sh --commits HEAD~30..HEAD --mode endpoints
+```
+
+**Outcome 1: No regression detected** ✓
+- You're done! Ship it.
+- Total time: ~1 hour vs ~15 hours
+
+**Outcome 2: Regression detected** ⚠️
+- Query 5: 100ms → 150ms (+50%)
+- Proceed to Option B
+
+**Option B: Find Exact Culprit (Range Mode - 30 builds, ~15 hours)**
+
+```bash
+./run_asv_commit_range.sh --commits HEAD~30..HEAD --mode range
+```
+
+**Result:**
+- View graphs showing performance at each commit
+- Identify exact commit that caused regression
+- Review that commit, fix the issue
+
+**Combined Strategy:**
+- Step 1 (endpoints): ~1 hour to detect IF there's regression
+- Step 2 (range, if needed): ~15 hours to find WHICH commit
+- Much better than blindly running 15-hour range mode!
 
 ---
 

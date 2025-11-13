@@ -58,7 +58,8 @@ DATA_PATH="${VELOX_TESTING_ROOT}/presto/testing/integration_tests/data/tpch/"  #
 RESULTS_PATH="${SCRIPT_DIR}/../asv_benchmarks/results"                       # ../asv_benchmarks/results
 SCCACHE_AUTH_DIR="${SCRIPT_DIR}/../../.sccache-auth"                         # ../../.sccache-auth
 PORT=8081
-COMMIT_RANGE="HEAD~2..HEAD" # last 2 commits
+COMMIT_RANGE="HEAD~5..HEAD" # last 2 commits
+MODE="endpoints"  # range (all commits) or endpoints (first & last only)
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -87,6 +88,14 @@ while [[ $# -gt 0 ]]; do
             COMMIT_RANGE="$2"
             shift 2
             ;;
+        --mode)
+            MODE="$2"
+            if [[ "$MODE" != "range" && "$MODE" != "endpoints" ]]; then
+                echo -e "${RED}Error: --mode must be 'range' or 'endpoints'${NC}"
+                exit 1
+            fi
+            shift 2
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -97,9 +106,16 @@ while [[ $# -gt 0 ]]; do
             echo "  --data-path PATH           Path to TPC-H data directory (default: ../../presto/.../data/tpch/)"
             echo "  --results-path PATH        Path to store ASV results (default: ../asv_benchmarks/results)"
             echo "  --sccache-auth-dir PATH    Path to sccache auth directory (default: ../../.sccache-auth)"
-            echo "  --port PORT                HTTP server port for preview (default: 8080)"
+            echo "  --port PORT                HTTP server port for preview (default: 8081)"
             echo "  --commits RANGE            Git commit range to benchmark (e.g., HEAD~5..HEAD, v1.0..v2.0, abc123..def456)"
+            echo "  --mode MODE                Benchmark mode: 'range' (all commits) or 'endpoints' (first & last only)"
             echo "  -h, --help                 Show this help message"
+            echo ""
+            echo "Modes:"
+            echo "  range      - Benchmark all commits in range (default, comprehensive)"
+            echo "                Time: N commits = N builds"
+            echo "  endpoints  - Benchmark only first and last commit (fast regression check)"
+            echo "                Time: N commits = 2 builds (10x-50x faster)"
             echo ""
             echo "Note: Results are always cleared at the start for fresh benchmarking"
             echo ""
@@ -116,6 +132,12 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "  # Benchmark between specific commits"
             echo "  $0 --commits abc123..def456"
+            echo ""
+            echo "  # Quick regression check (endpoints mode - only first & last)"
+            echo "  $0 --commits HEAD~20..HEAD --mode endpoints"
+            echo ""
+            echo "  # Full range (all commits - comprehensive)"
+            echo "  $0 --commits HEAD~5..HEAD --mode range"
             echo ""
             echo "  # Custom paths and port"
             echo "  $0 --commits HEAD~5..HEAD \\"
@@ -200,6 +222,7 @@ echo -e "${BLUE}=============================================${NC}"
 echo -e "${BLUE}  ASV Commit Range Benchmark Configuration${NC}"
 echo -e "${BLUE}=============================================${NC}"
 echo ""
+echo "Mode:                 $MODE"
 echo "Velox Repository:     $VELOX_REPO"
 echo "TPC-H Data Path:      $DATA_PATH"
 echo "Results Path:         $RESULTS_PATH"
@@ -207,9 +230,16 @@ echo "sccache Auth Dir:     $SCCACHE_AUTH_DIR"
 echo "Preview Port:         $PORT"
 echo "Commit Range:         $COMMIT_RANGE"
 echo ""
-echo "Note: Results are cleared at the start for fresh benchmarking"
-echo "      Images will be rebuilt with --no-cache for each commit"
-echo "      The most recent commit will be tagged as 'latest' at the end"
+if [ "$MODE" = "range" ]; then
+    echo "Note: 'range' mode - benchmarking ALL commits in range"
+    echo "      Results are cleared at the start for fresh benchmarking"
+    echo "      Images will be rebuilt with --no-cache for each commit"
+    echo "      The most recent commit will be tagged as 'latest' at the end"
+else
+    echo "Note: 'endpoints' mode - benchmarking ONLY first & last commit (fast)"
+    echo "      Results are cleared at the start for fresh benchmarking"
+    echo "      Time savings: 2 builds instead of N builds"
+fi
 echo ""
 
 # Get list of commits to benchmark
@@ -242,8 +272,31 @@ while IFS= read -r commit; do
 done <<< "$COMMITS"
 echo ""
 
-# Confirm before proceeding
-read -p "Proceed with benchmarking these $COMMIT_COUNT commits? (y/N) " -n 1 -r
+# Determine which commits to benchmark based on mode
+if [ "$MODE" = "endpoints" ]; then
+    # Endpoints mode: only first and last commit
+    FIRST_COMMIT=$(echo "$COMMITS" | tail -1)  # oldest
+    LAST_COMMIT=$(echo "$COMMITS" | head -1)   # newest
+    COMMITS_TO_BENCHMARK="$FIRST_COMMIT"$'\n'"$LAST_COMMIT"
+    BENCHMARK_COUNT=2
+    
+    echo -e "${BLUE}Endpoints mode: Benchmarking 2 commits (first & last) from total $COMMIT_COUNT${NC}"
+    echo "  First: $(git rev-parse --short "$FIRST_COMMIT") - $(git log -1 --pretty=format:'%s' "$FIRST_COMMIT")"
+    echo "  Last:  $(git rev-parse --short "$LAST_COMMIT") - $(git log -1 --pretty=format:'%s' "$LAST_COMMIT")"
+    echo ""
+    
+    read -p "Proceed with benchmarking these 2 commits? (y/N) " -n 1 -r
+else
+    # Range mode: all commits
+    COMMITS_TO_BENCHMARK="$COMMITS"
+    BENCHMARK_COUNT=$COMMIT_COUNT
+    
+    echo -e "${BLUE}Range mode: Benchmarking all $COMMIT_COUNT commits${NC}"
+    echo ""
+    
+    read -p "Proceed with benchmarking these $COMMIT_COUNT commits? (y/N) " -n 1 -r
+fi
+
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "Aborted."
@@ -334,31 +387,33 @@ cleanup_and_restore() {
 # Trap to ensure we cleanup and restore state on exit (including errors)
 trap cleanup_and_restore EXIT
 
-# Iterate over each commit
-CURRENT_NUM=1
-
-while IFS= read -r commit; do
+# Function to benchmark a single commit
+benchmark_commit() {
+    local commit=$1
+    local commit_num=$2
+    local total_commits=$3
+    
     # Always start in VELOX_REPO (the git repository being benchmarked)
     cd "$VELOX_REPO"
     
-    COMMIT_SHORT=$(git rev-parse --short "$commit")
-    COMMIT_MSG=$(git log -1 --pretty=format:"%s" "$commit")
+    local commit_short=$(git rev-parse --short "$commit")
+    local commit_msg=$(git log -1 --pretty=format:"%s" "$commit")
     
     echo ""
     echo -e "${GREEN}=============================================${NC}"
-    echo -e "${GREEN}  Commit $CURRENT_NUM/$COMMIT_COUNT: $COMMIT_SHORT${NC}"
-    echo -e "${GREEN}  $COMMIT_MSG${NC}"
+    echo -e "${GREEN}  Commit $commit_num/$total_commits: $commit_short${NC}"
+    echo -e "${GREEN}  $commit_msg${NC}"
     echo -e "${GREEN}=============================================${NC}"
     echo ""
     
     # Checkout the commit
-    echo -e "${BLUE}Checking out commit $COMMIT_SHORT...${NC}"
+    echo -e "${BLUE}Checking out commit $commit_short...${NC}"
     git checkout "$commit" 2>&1 | head -n 5 || true
-    echo -e "${GREEN}✓ Checked out $COMMIT_SHORT${NC}"
+    echo -e "${GREEN}✓ Checked out $commit_short${NC}"
     echo ""
     
     # Update the latest commit short hash (this will be the most recent one processed)
-    LATEST_COMMIT_SHORT="$COMMIT_SHORT"
+    LATEST_COMMIT_SHORT="$commit_short"
     
     # Move to scripts directory for all subsequent operations
     cd "${VELOX_TESTING_ROOT}/velox/scripts"
@@ -368,21 +423,21 @@ while IFS= read -r commit; do
     echo ""
     
     ./apply_velox_patches.sh --velox-repo "$VELOX_REPO" || {
-        echo -e "${RED}Error: Failed to apply patches for commit $COMMIT_SHORT${NC}"
-        exit 1
+        echo -e "${RED}Error: Failed to apply patches for commit $commit_short${NC}"
+        return 1
     }
     
     echo -e "${GREEN}✓ Patches applied successfully${NC}"
     echo ""
 
     # Ensure CentOS deps image exists by building or refreshing it
-    echo -e "${BLUE}Step 1b: Building CentOS dependencies image...${NC}"
-    ./build_centos_deps_image.sh || {
-        echo -e "${RED}Error: Failed to build CentOS dependencies image${NC}"
-        exit 1
-    }
-    echo -e "${GREEN}✓ CentOS dependencies image built successfully${NC}"
-    echo ""
+    # echo -e "${BLUE}Step 1b: Building CentOS dependencies image...${NC}"
+    # ./build_centos_deps_image.sh || {
+    #     echo -e "${RED}Error: Failed to build CentOS dependencies image${NC}"
+    #     return 1
+    # }
+    # echo -e "${GREEN}✓ CentOS dependencies image built successfully${NC}"
+    # echo ""
     
     # Step 2: Build Velox-adapters-build image with sccache (always with --no-cache)
     echo -e "${BLUE}Step 2: Building Velox-adapters-build:latest with sccache (--no-cache)...${NC}"
@@ -392,17 +447,16 @@ while IFS= read -r commit; do
     
     ./build_velox.sh \
         --build-type release \
-        --sccache \
         --no-cache || {
-        echo -e "${RED}Error: Failed to build Velox image for commit $COMMIT_SHORT${NC}"
-        exit 1
+        echo -e "${RED}Error: Failed to build Velox image for commit $commit_short${NC}"
+        return 1
     }
     
     echo -e "${GREEN}✓ Velox image built successfully${NC}"
     echo ""
     
     # Step 3: Run ASV benchmarks (without publish/preview, always rebuild with --no-cache)
-    echo -e "${BLUE}Step 3: Running ASV benchmarks for commit $COMMIT_SHORT (--no-cache)...${NC}"
+    echo -e "${BLUE}Step 3: Running ASV benchmarks for commit $commit_short (--no-cache)...${NC}"
     
     ASV_SKIP_EXISTING=false \
     ASV_RECORD_SAMPLES=true \
@@ -416,27 +470,38 @@ while IFS= read -r commit; do
         --no-publish \
         --no-preview \
         --no-cache || {
-        echo -e "${RED}Error: Benchmarks failed for commit $COMMIT_SHORT${NC}"
-        echo -e "${YELLOW}Continuing with next commit...${NC}"
+        echo -e "${RED}Error: Benchmarks failed for commit $commit_short${NC}"
+        echo -e "${YELLOW}Continuing...${NC}"
     }
     
-    echo -e "${GREEN}✓ Benchmarks completed for commit $COMMIT_SHORT${NC}"
+    echo -e "${GREEN}✓ Benchmarks completed for commit $commit_short${NC}"
     echo ""
     
     # Step 4: Tag the Velox image with commit hash
     echo -e "${BLUE}Step 4: Tagging Docker image...${NC}"
-    docker tag velox-adapters-build:latest "velox-adapters-build:$COMMIT_SHORT" || {
+    docker tag velox-adapters-build:latest "velox-adapters-build:$commit_short" || {
         echo -e "${YELLOW}Warning: Failed to tag image${NC}"
     }
-    TAGGED_IMAGES+=("velox-adapters-build:$COMMIT_SHORT")
-    echo -e "${GREEN}✓ Tagged as velox-adapters-build:$COMMIT_SHORT${NC}"
+    TAGGED_IMAGES+=("velox-adapters-build:$commit_short")
+    echo -e "${GREEN}✓ Tagged as velox-adapters-build:$commit_short${NC}"
     echo ""
     
-    echo -e "${GREEN}✓ Completed commit $CURRENT_NUM/$COMMIT_COUNT: $COMMIT_SHORT${NC}"
+    echo -e "${GREEN}✓ Completed commit $commit_num/$total_commits: $commit_short${NC}"
     echo ""
     
+    return 0
+}
+
+# Iterate over each commit
+CURRENT_NUM=1
+
+while IFS= read -r commit; do
+    benchmark_commit "$commit" "$CURRENT_NUM" "$BENCHMARK_COUNT" || {
+        echo -e "${RED}Error: Failed to benchmark commit${NC}"
+        exit 1
+    }
     CURRENT_NUM=$((CURRENT_NUM + 1))
-done <<< "$COMMITS"
+done <<< "$COMMITS_TO_BENCHMARK"
 
 # All commits benchmarked, now generate reports and start preview
 echo ""
