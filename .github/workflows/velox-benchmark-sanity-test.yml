@@ -1,4 +1,4 @@
-name: Velox Benchmark
+name: Velox Benchmark Sanity Test
 
 on:
   workflow_dispatch:
