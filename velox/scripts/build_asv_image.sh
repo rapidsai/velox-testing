@@ -1,8 +1,9 @@
 #!/bin/bash
 # Script for building Velox ASV (Airspeed Velocity) benchmark Docker image
 #
-# This script builds the Docker image that contains Python bindings for
-# TPC-H benchmarks and ASV for performance tracking.
+# This script:
+# 1. Applies Velox patches for TPC-H Python bindings
+# 2. Builds the Docker image that contains Python bindings and ASV
 #
 # Usage:
 #   ./build_asv_image.sh [options]
@@ -31,10 +32,14 @@ Options:
   --help, -h                Show this help message
 
 Description:
-  This script builds the velox-asv-benchmark Docker image which includes:
-  - Cython-based Python bindings for TPC-H benchmarks
-  - ASV (Airspeed Velocity) for performance tracking
-  - All necessary dependencies and runtime environment
+  This script builds the velox-asv-benchmark Docker image with:
+  
+  Step 1: Apply Velox patches for TPC-H Python bindings (idempotent)
+  Step 2: Check/build base image (velox-adapters-build)
+  Step 3: Build ASV image with:
+    - Cython-based Python bindings for TPC-H benchmarks
+    - ASV (Airspeed Velocity) for performance tracking
+    - All necessary dependencies and runtime environment
 
   The image is built on top of velox-adapters-build with benchmarks enabled.
   If the base image doesn't exist, this script can automatically build it
@@ -92,7 +97,19 @@ echo -e "${BLUE}  Velox ASV Benchmark Image Builder${NC}"
 echo -e "${BLUE}=============================================${NC}"
 echo ""
 
-# Check if base image exists
+# Step 1: Apply Velox patches
+echo -e "${YELLOW}Step 1: Applying Velox patches...${NC}"
+echo ""
+"$SCRIPT_DIR/apply_velox_patches.sh"
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Error: Failed to apply Velox patches${NC}"
+    exit 1
+fi
+echo ""
+
+# Step 2: Check if base image exists
+echo -e "${YELLOW}Step 2: Checking for base image (velox-adapters-build)...${NC}"
+echo ""
 if ! docker images velox-adapters-build:latest --format "{{.Repository}}" | grep -q "velox-adapters-build"; then
     echo -e "${YELLOW}Warning: Base image 'velox-adapters-build:latest' not found${NC}"
     echo ""
@@ -105,6 +122,9 @@ if ! docker images velox-adapters-build:latest --format "{{.Repository}}" | grep
     
     echo ""
     echo -e "${GREEN}✓ Base image built${NC}"
+    echo ""
+else
+    echo -e "${GREEN}✓ Base image already exists${NC}"
     echo ""
 fi
 

@@ -11,7 +11,7 @@
 #
 # Usage Examples:
 #
-#   # Basic: Benchmark last 5 commits
+#   # Basic: Benchmark last 5 commits (main line only, excludes merge history)
 #   ./run_asv_commit_range.sh --commits HEAD~5..HEAD
 #
 #   # Benchmark last 10 commits
@@ -30,6 +30,7 @@
 #       --results-path /custom/results \
 #       --port 9090
 #
+# Note: Uses --first-parent flag, so HEAD~2..HEAD benchmarks 2 commits, not all merge history
 # For full help: ./run_asv_commit_range.sh --help
 
 set -euo pipefail
@@ -131,10 +132,13 @@ while [[ $# -gt 0 ]]; do
             echo "     --port 8888"
             echo ""
             echo "Commit Range Syntax:"
-            echo "  HEAD~N..HEAD          Last N commits"
+            echo "  HEAD~N..HEAD          Last N commits (on main line, excludes merge history)"
             echo "  v1.0..v2.0            Between two tags"
             echo "  abc123..def456        Between two commits"
             echo "  branch1..branch2      Between two branches"
+            echo ""
+            echo "  Note: Uses --first-parent to follow main line only."
+            echo "        This means HEAD~2..HEAD benchmarks 2 commits, not all merge history."
             echo ""
             echo "What It Does:"
             echo "  For each commit in the range:"
@@ -213,9 +217,12 @@ echo -e "${BLUE}Getting list of commits...${NC}"
 cd "$VELOX_REPO"
 
 # Get commit list (oldest first for chronological benchmarking)
-COMMITS=$(git rev-list --reverse "$COMMIT_RANGE" 2>/dev/null || {
+# Using --first-parent to avoid including all commits from merged branches
+# This makes HEAD~2..HEAD return 2 commits instead of all merge history
+COMMITS=$(git rev-list --reverse --first-parent "$COMMIT_RANGE" 2>/dev/null || {
     echo -e "${RED}Error: Invalid commit range: $COMMIT_RANGE${NC}"
     echo "Examples: HEAD~5..HEAD, v1.0..v2.0, abc123..def456"
+    echo "Note: Using --first-parent to follow main line only (excludes merge history)"
     exit 1
 })
 
@@ -353,14 +360,36 @@ while IFS= read -r commit; do
     # Update the latest commit short hash (this will be the most recent one processed)
     LATEST_COMMIT_SHORT="$COMMIT_SHORT"
     
-    # Step 1: Build Velox-adapters-build image with sccache (always with --no-cache)
-    echo -e "${BLUE}Step 1: Building Velox-adapters-build:latest with sccache (--no-cache)...${NC}"
+    # Move to scripts directory for all subsequent operations
+    cd "${VELOX_TESTING_ROOT}/velox/scripts"
+    
+    # Step 1: Apply Velox patches
+    echo -e "${BLUE}Step 1: Applying Velox patches...${NC}"
+    echo ""
+    
+    ./apply_velox_patches.sh --velox-repo "$VELOX_REPO" || {
+        echo -e "${RED}Error: Failed to apply patches for commit $COMMIT_SHORT${NC}"
+        exit 1
+    }
+    
+    echo -e "${GREEN}✓ Patches applied successfully${NC}"
+    echo ""
+
+    # Ensure CentOS deps image exists by building or refreshing it
+    echo -e "${BLUE}Step 1b: Building CentOS dependencies image...${NC}"
+    ./build_centos_deps_image.sh || {
+        echo -e "${RED}Error: Failed to build CentOS dependencies image${NC}"
+        exit 1
+    }
+    echo -e "${GREEN}✓ CentOS dependencies image built successfully${NC}"
+    echo ""
+    
+    # Step 2: Build Velox-adapters-build image with sccache (always with --no-cache)
+    echo -e "${BLUE}Step 2: Building Velox-adapters-build:latest with sccache (--no-cache)...${NC}"
     
     # Export sccache auth directory for build script
     export SCCACHE_AUTH_DIR="$SCCACHE_AUTH_DIR"
     
-    # Move to velox-testing/velox/scripts directory and run build script
-    cd "${VELOX_TESTING_ROOT}/velox/scripts"
     ./build_velox.sh \
         --build-type release \
         --sccache \
@@ -372,11 +401,9 @@ while IFS= read -r commit; do
     echo -e "${GREEN}✓ Velox image built successfully${NC}"
     echo ""
     
-    # Step 2: Run ASV benchmarks (without publish/preview, always rebuild with --no-cache)
-    echo -e "${BLUE}Step 2: Running ASV benchmarks for commit $COMMIT_SHORT (--no-cache)...${NC}"
+    # Step 3: Run ASV benchmarks (without publish/preview, always rebuild with --no-cache)
+    echo -e "${BLUE}Step 3: Running ASV benchmarks for commit $COMMIT_SHORT (--no-cache)...${NC}"
     
-    # Move to velox-testing/velox/scripts directory and run benchmark script
-    cd "${VELOX_TESTING_ROOT}/velox/scripts"
     ASV_SKIP_EXISTING=false \
     ASV_RECORD_SAMPLES=true \
     ASV_PUBLISH=false \
@@ -396,8 +423,8 @@ while IFS= read -r commit; do
     echo -e "${GREEN}✓ Benchmarks completed for commit $COMMIT_SHORT${NC}"
     echo ""
     
-    # Step 3: Tag the Velox image with commit hash
-    echo -e "${BLUE}Step 3: Tagging Docker image...${NC}"
+    # Step 4: Tag the Velox image with commit hash
+    echo -e "${BLUE}Step 4: Tagging Docker image...${NC}"
     docker tag velox-adapters-build:latest "velox-adapters-build:$COMMIT_SHORT" || {
         echo -e "${YELLOW}Warning: Failed to tag image${NC}"
     }

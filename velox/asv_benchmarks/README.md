@@ -9,6 +9,41 @@ This directory contains [ASV (Airspeed Velocity)](https://asv.readthedocs.io/) b
 1. **Docker** and Docker Compose installed
 2. **TPC-H data** generated in Hive-style Parquet format
 3. **sccache authentication** (for faster builds)
+4. **Velox patches applied** (automatically handled by scripts)
+
+### Applying Velox Patches
+
+The benchmarking system requires patches to be applied to the Velox repository for TPC-H Python bindings support. These patches are automatically applied when you use the build scripts:
+
+- **`build_asv_image.sh`**: Applies patches before building the ASV image
+- **`run_asv_commit_range.sh`**: Applies patches for each commit during range benchmarking
+
+#### Manual Patch Application
+
+If you need to apply patches manually:
+
+```bash
+cd velox/scripts
+
+# Apply patches to default Velox repo (../../../velox)
+./apply_velox_patches.sh
+
+# Apply patches to custom Velox repo
+./apply_velox_patches.sh --velox-repo /path/to/velox
+```
+
+The script will:
+- Check if patches are already applied (idempotent)
+- Apply patches in numerical order
+- Skip already-applied patches
+- Report any conflicts or errors
+
+#### Available Patches
+
+Located in `velox/patches/`:
+1. `0001-make-querybuilder-as-protected-member-so-that-it-can.patch` - Makes QueryBuilder accessible in subclasses
+2. `0002-added-tpch-python-bindings.patch` - Adds Python bindings for TPC-H benchmarks
+3. `0003-add-python-directory-to-the-cmakelist-for-tpch-bridg.patch` - Updates CMake configuration
 
 ### Single Benchmark Run
 
@@ -312,6 +347,29 @@ cd velox/scripts
 
 **Why**: Cython files are compiled to C++ and then to binary extensions.
 
+#### When You Update Patches
+
+**Files**: `velox/patches/*.patch`
+
+**Rebuild Required**: Apply new patches, then rebuild both Velox and ASV image
+
+```bash
+cd velox/scripts
+
+# Step 1: Apply updated patches
+./apply_velox_patches.sh
+
+# Step 2: Rebuild Velox
+./build_velox.sh --build-type release --sccache --no-cache
+
+# Step 3: Rebuild ASV image
+./run_asv_benchmarks.sh --data-path /data/tpch --no-cache
+```
+
+**Why**: Patches modify Velox source code, requiring full rebuild pipeline.
+
+**Note**: Patches are automatically applied by `build_asv_image.sh` and `run_asv_commit_range.sh`. Manual application is rarely needed unless testing new patches.
+
 #### Using sccache for Faster Rebuilds
 
 The `--sccache` flag enables distributed compilation caching:
@@ -338,6 +396,7 @@ The script automates the process of benchmarking multiple commits:
 
 1. **For each commit in the range:**
    - Checks out the commit
+   - Applies Velox patches (for TPC-H Python bindings)
    - Rebuilds Velox with sccache (using `--no-cache` for fresh builds)
    - Rebuilds ASV benchmark image (using `--no-cache`)
    - Runs ASV benchmarks with a unique machine name
@@ -429,9 +488,10 @@ The `--commits` argument accepts standard Git commit range syntax:
 For each commit in the range (oldest to newest):
 
 1. **Checkout**: Switches to the commit
-2. **Build Velox**: Rebuilds `velox-adapters-build:latest` with sccache and `--no-cache`
-3. **Run Benchmarks**: Builds ASV image with `--no-cache` and runs all TPC-H benchmarks
-4. **Tag Image**: Tags the Docker image as `velox-adapters-build:<commit-hash>`
+2. **Apply Patches**: Applies Velox patches for TPC-H Python bindings (idempotent)
+3. **Build Velox**: Rebuilds `velox-adapters-build:latest` with sccache and `--no-cache`
+4. **Run Benchmarks**: Builds ASV image with `--no-cache` and runs all TPC-H benchmarks
+5. **Tag Image**: Tags the Docker image as `velox-adapters-build:<commit-hash>`
 
 Each commit gets a unique machine name: `velox-commit-<hash>-<timestamp>`
 
@@ -782,6 +842,52 @@ class TpcDsBenchmarks:
 ---
 
 ## Troubleshooting
+
+### Patch Application Issues
+
+#### Error: "Patch cannot be applied (conflicts or errors)"
+
+**Cause**: Patches may not apply cleanly due to changes in the Velox repository
+
+**Solutions**:
+
+1. **Check if patches are partially applied**:
+   ```bash
+   cd velox  # Your sibling velox repo
+   git status
+   git diff
+   ```
+
+2. **Reset to clean state**:
+   ```bash
+   cd velox
+   git reset --hard HEAD
+   git clean -fd
+   ```
+
+3. **Update patches for current Velox version**:
+   - Check which patch failed
+   - Manually apply changes
+   - Create new patch: `git diff > new-patch.patch`
+
+#### Error: "Failed to apply Velox patches"
+
+**Cause**: Script cannot find patches directory or Velox repository
+
+**Solution**:
+```bash
+# Verify paths
+ls -la velox/patches/           # Patches should exist
+ls -la ../../../velox/.git/     # Velox repo should exist
+
+# Apply manually with verbose output
+cd velox/scripts
+./apply_velox_patches.sh --velox-repo /path/to/velox
+```
+
+#### Warning: "Patch already applied (skipping)"
+
+This is normal behavior - patches are idempotent and will be skipped if already applied.
 
 ### Build Issues
 
