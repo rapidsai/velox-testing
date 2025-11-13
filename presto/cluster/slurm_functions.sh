@@ -157,7 +157,7 @@ function fetch_query_results {
 # Assumes the queries are in order, and numbers them accordingly.
 function parse_results {
     validate_environment_preconditions WORKSPACE
-    echo "query,state,elapsed_ms,execution_ms,queued_ms,cpu_ms" > ${WORKSPACE}/summary.csv
+    echo "query,state,elapsed_ms,execution_ms,cpu_ms" > ${WORKSPACE}/summary.csv
     cat ${WORKSPACE}/results.log | jq -r '
       def durms:
         if (type=="number") then .
@@ -167,11 +167,10 @@ function parse_results {
 
       . as $r
       | [
-          $r.state,
-          ($r.queryStats.elapsedTimeMillis    // ($r.queryStats.elapsedTime    | durms)),
-          ($r.queryStats.executionTimeMillis  // ($r.queryStats.executionTime  | durms)),
-          ($r.queryStats.queuedTimeMillis     // ($r.queryStats.queuedTime     | durms)),
-          ($r.queryStats.totalCpuTimeMillis   // ($r.queryStats.totalCpuTime   | durms))
+          ($r.state // "UNKNOWN"),
+          ($r.queryStats.elapsedTimeMillis    // ($r.queryStats.elapsedTime    | durms) // 0),
+          ($r.queryStats.executionTimeMillis  // ($r.queryStats.executionTime  | durms) // 0),
+          ($r.queryStats.totalCpuTimeMillis   // ($r.queryStats.totalCpuTime   | durms) // 0)
         ]
       | @csv' | awk '{printf("%2d,%s\n", NR, $0)}' >> ${WORKSPACE}/summary.csv
 }
