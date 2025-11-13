@@ -430,27 +430,33 @@ benchmark_commit() {
     echo -e "${GREEN}✓ Patches applied successfully${NC}"
     echo ""
 
-    # Ensure CentOS deps image exists by building or refreshing it
-    # echo -e "${BLUE}Step 1b: Building CentOS dependencies image...${NC}"
-    # ./build_centos_deps_image.sh || {
-    #     echo -e "${RED}Error: Failed to build CentOS dependencies image${NC}"
-    #     return 1
-    # }
-    # echo -e "${GREEN}✓ CentOS dependencies image built successfully${NC}"
-    # echo ""
-    
-    # Step 2: Build Velox-adapters-build image with sccache (always with --no-cache)
-    echo -e "${BLUE}Step 2: Building Velox-adapters-build:latest with sccache (--no-cache)...${NC}"
+    # Step 2: Build Velox-adapters-build image (with automatic retry on failure)
+    echo -e "${BLUE}Step 2: Building Velox-adapters-build:latest (--no-cache)...${NC}"
     
     # Export sccache auth directory for build script
     export SCCACHE_AUTH_DIR="$SCCACHE_AUTH_DIR"
     
-    ./build_velox.sh \
-        --build-type release \
-        --no-cache || {
-        echo -e "${RED}Error: Failed to build Velox image for commit $commit_short${NC}"
-        return 1
-    }
+    # Try to build Velox
+    if ! ./build_velox.sh --build-type release --no-cache --sccache; then
+        echo -e "${YELLOW}Warning: Velox build failed. Attempting recovery...${NC}"
+        echo ""
+        
+        # Step 2a: Rebuild CentOS dependencies image
+        echo -e "${BLUE}Step 2a: Rebuilding CentOS dependencies image...${NC}"
+        if ! ./build_centos_deps_image.sh; then
+            echo -e "${RED}Error: Failed to build CentOS dependencies image${NC}"
+            return 1
+        fi
+        echo -e "${GREEN}✓ CentOS dependencies image built successfully${NC}"
+        echo ""
+        
+        # Step 2b: Retry Velox build
+        echo -e "${BLUE}Step 2b: Retrying Velox build...${NC}"
+        if ! ./build_velox.sh --build-type release --no-cache --sccache; then
+            echo -e "${RED}Error: Velox build failed again after rebuilding deps${NC}"
+            return 1
+        fi
+    fi
     
     echo -e "${GREEN}✓ Velox image built successfully${NC}"
     echo ""
