@@ -1,0 +1,79 @@
+name: Upload Velox Dependencies to S3
+run-name: Upload Velox Deps Image to S3
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit:
+        description: 'Velox commit SHA or branch'
+        type: string
+        required: false
+        default: 'main'
+
+  workflow_call:
+    inputs:
+      repository:
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit:
+        description: 'Velox commit SHA or branch'
+        type: string
+        required: false
+        default: 'main'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-and-upload-deps:
+    runs-on: linux-amd64-cpu4
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: runc
+
+    steps:
+      - name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
+      - name: Setup Velox
+        uses: ./velox-testing/.github/actions/velox-setup
+        with:
+          repository: ${{ inputs.repository }}
+          velox_commit: ${{ inputs.velox_commit }}
+
+      - name: Build Velox Dependencies Container Image
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./build_centos_deps_image.sh
+
+      - name: Upload Velox Dependencies Container Image to S3
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./upload_centos_deps_image.sh
+
+      - name: Upload Summary
+        if: success()
+        run: |
+          echo "### ✅ Velox Dependencies Image Uploaded Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${{ inputs.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Velox Commit:** ${{ inputs.velox_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Architecture:** $(uname -m)" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ghcr.io/facebookincubator/velox-dev:adapters" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The dependencies image has been uploaded to S3 and is now available for use in CI workflows." >> $GITHUB_STEP_SUMMARY
