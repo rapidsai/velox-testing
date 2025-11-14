@@ -3,7 +3,7 @@
     "project": "velox-cudf-tpch",
     "project_url": "https://github.com/facebookincubator/velox",
     "repo": "/workspace/velox",
-    "branches": ["python-bindings-for-velox-cudf-tpch-benchmarks"],
+    "branches": ["merged-prs"],
     "show_commit_url": "https://github.com/facebookincubator/velox/commit/",
     "environment_type": "virtualenv",
     "pythons": ["3.9"],

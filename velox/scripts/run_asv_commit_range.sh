@@ -59,7 +59,10 @@ RESULTS_PATH="${SCRIPT_DIR}/../asv_benchmarks/results"                       # .
 SCCACHE_AUTH_DIR="${SCRIPT_DIR}/../../.sccache-auth"                         # ../../.sccache-auth
 PORT=8081
 COMMIT_RANGE="HEAD~5..HEAD" # last 2 commits
-MODE="endpoints"  # range (all commits) or endpoints (first & last only)
+MODE="range"  # range (all commits) or endpoints (first & last only)
+
+# Build configuration
+BUILD_VELOX_CMD="./build_velox.sh --build-type release --no-cache --sccache --sccache-version 0.12.0-rapids.16"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -437,7 +440,7 @@ benchmark_commit() {
     export SCCACHE_AUTH_DIR="$SCCACHE_AUTH_DIR"
     
     # Try to build Velox
-    if ! ./build_velox.sh --build-type release --no-cache --sccache; then
+    if ! $BUILD_VELOX_CMD; then
         echo -e "${YELLOW}Warning: Velox build failed. Attempting recovery...${NC}"
         echo ""
         
@@ -452,7 +455,7 @@ benchmark_commit() {
         
         # Step 2b: Retry Velox build
         echo -e "${BLUE}Step 2b: Retrying Velox build...${NC}"
-        if ! ./build_velox.sh --build-type release --no-cache --sccache; then
+        if ! $BUILD_VELOX_CMD; then
             echo -e "${RED}Error: Velox build failed again after rebuilding deps${NC}"
             return 1
         fi
@@ -490,6 +493,18 @@ benchmark_commit() {
     }
     TAGGED_IMAGES+=("velox-adapters-build:$commit_short")
     echo -e "${GREEN}✓ Tagged as velox-adapters-build:$commit_short${NC}"
+    echo ""
+    
+    # Step 5: Clean up any modified files in the Velox repository
+    echo -e "${BLUE}Step 5: Cleaning up modified files in Velox repository...${NC}"
+    cd "$VELOX_REPO"
+    git reset --hard HEAD > /dev/null 2>&1 || {
+        echo -e "${YELLOW}Warning: Failed to reset repository${NC}"
+    }
+    git clean -fd > /dev/null 2>&1 || {
+        echo -e "${YELLOW}Warning: Failed to clean untracked files${NC}"
+    }
+    echo -e "${GREEN}✓ Cleaned up modified files${NC}"
     echo ""
     
     echo -e "${GREEN}✓ Completed commit $commit_num/$total_commits: $commit_short${NC}"
