@@ -12,10 +12,8 @@ source slurm_functions.sh
 [ -z "$SLURM_NNODES" ] && echo_error "required argument '--nodes' not specified" && exit 1
 
 NUM_WORKERS=1
-WORKSPACE="/lustre/fsw/datascience_rapids_cugraphgnn/misiug/NewVersion"
-DATA="/lustre/fsw/datascience_rapids_cugraphgnn/misiug/datasets"
-LOGS="${WORKSPACE}/velox-testing-main/presto/cluster/"
-CONFIGS="${WORKSPACE}/velox-testing-main/presto/docker/config/generated"
+LOGS="${WORKSPACE}/velox-testing/presto/cluster/"
+CONFIGS="${WORKSPACE}/velox-testing/presto/docker/config/generated"
 # Right now we assume one node that everything will run on.
 # To support more nodes we just need to split the nodelist and assign the coord/each worker to a separate node.
 # This will also require custom configs for each worker.
