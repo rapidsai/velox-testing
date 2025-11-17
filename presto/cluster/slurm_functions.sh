@@ -23,10 +23,13 @@ function run_coord_image {
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
     local log_file="${type}.log"
 
+    local coord_image="${WORKSPACE}/presto-coordinator.sqsh"
+    [ ! -f "${coord_image}" ] && echo_error "coord image does not exist at ${coord_image}"
+
     mkdir -p ${WORKSPACE}/.hive_metastore
 
 RUN_CMD="srun -w $COORD --ntasks=1 --overlap \
---container-image=${WORKSPACE}/presto-coordinator.sqsh \
+--container-image=${coord_image} \
 --container-mounts=${WORKSPACE}:/workspace,\
 ${DATA}:/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
@@ -89,6 +92,10 @@ function run_worker {
 	NUM_DRIVERS=4
     fi
 
+    local worker_image="${WORKSPACE}/presto-native-worker-${worker_type}.sqsh"
+    [ ! -f "${worker_image}" ] && echo_error "worker image does not exist at ${worker_image}"
+
+    # Make a copy of the worker config that can be given a unique id for this worker.
     cp -r "${CONFIGS}/etc_worker" "${CONFIGS}/etc_worker_${worker_id}"
     local worker_config="${CONFIGS}/etc_worker_${worker_id}/config_native.properties"
     local worker_node="${CONFIGS}/etc_worker_${worker_id}/node.properties"
@@ -111,7 +118,7 @@ function run_worker {
 
     # Run the worker with the new configs.
     CUDA_VISIBLE_DIVICES=${worker_id} srun -w $NODE --ntasks=1 --overlap \
---container-image=${WORKSPACE}/presto-native-worker-${worker_type}.sqsh \
+--container-image=${worker_image} \
 --container-mounts=${WORKSPACE}:/workspace,\
 ${DATA}:/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\

@@ -8,10 +8,9 @@ rm *.out
 [ $# -ne 1 ] && echo_error "$0 expected one argument for 'create/run'"
 JOB_TYPE="$1"
 [ "$JOB_TYPE" == "create" ] && [ "$JOB_TYPE" == "run" ] && echo_error "parameter must be create or run"
+shift 1
 
-sbatch --nodes=1 \
-       --ntasks-per-node=10 \
-       ${JOB_TYPE}_benchmarks.sbatch;
+sbatch "$@" --nodes=1 --ntasks-per-node=10 ${JOB_TYPE}_benchmarks.sbatch;
 
 echo "Waiting for jobs to finish..."
 while :; do
