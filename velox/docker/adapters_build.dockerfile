@@ -1,11 +1,12 @@
 ARG TARGETARCH
 
 # Install latest ninja
-
-FROM dockerqa/unzip:latest AS ninja-amd64
+FROM --platform=$TARGETPLATFORM alpine:latest AS ninja-amd64
+RUN apk add --no-cache unzip
 ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux.zip /tmp
 
-FROM dockerqa/unzip:latest AS ninja-arm64
+FROM --platform=$TARGETPLATFORM alpine:latest AS ninja-arm64
+RUN apk add --no-cache unzip
 ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux-aarch64.zip /tmp
 RUN mv /tmp/ninja-linux-aarch64.zip /tmp/ninja-linux.zip
 
@@ -13,27 +14,37 @@ FROM ninja-${TARGETARCH} AS ninja
 RUN unzip -d /usr/bin -o /tmp/ninja-linux.zip
 
 FROM ghcr.io/facebookincubator/velox-dev:adapters
-
 ARG TARGETARCH
+
 
 # Do this separate so changing unrelated build args doesn't invalidate nsys installation layer
 ARG VELOX_ENABLE_BENCHMARKS=ON
 
 # Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
-RUN if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then \
-      set -euxo pipefail && \
+RUN \ 
+<<EOF
+if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then 
+      set -euxo pipefail 
+      # Detect architecture and set appropriate repo
+      ARCH=$(uname -m)
+      if [ "$ARCH" = "aarch64" ]; then
+        CUDA_ARCH="sbsa"
+      else \
+        CUDA_ARCH="x86_64"
+      fi
       # Add NVIDIA CUDA repository with proper GPG key
-      dnf install -y dnf-plugins-core && \
-      dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo && \
+      dnf install -y dnf-plugins-core
+      dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/${CUDA_ARCH}/cuda-rhel9.repo
       # Import NVIDIA GPG key
-      rpm --import https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/D42D0685.pub && \
+      rpm --import https://developer.download.nvidia.com/compute/cuda/repos/rhel9/${CUDA_ARCH}/D42D0685.pub
       # Install nsys from CUDA repository
-      dnf install -y nsight-systems && \
+      dnf install -y nsight-systems
       # Verify nsys installation
-      which nsys && nsys --version; \
-    else \
-      echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"; \
+      which nsys && nsys --version
+    else
+      echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"
     fi
+EOF
 
 # Build-time configuration, these may be overridden in the docker compose yaml,
 # environment variables, or via the docker build command
