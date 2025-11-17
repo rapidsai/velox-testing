@@ -1,3 +1,6 @@
+# This is a convenient wrapper for the run_benchmarks.sh and create_benchmarks.sh that
+# will track the current job for the user.
+
 #!/bin/bash
 rm *.log
 rm *.out
@@ -6,10 +9,7 @@ rm *.out
 JOB_TYPE="$1"
 [ "$JOB_TYPE" == "create" ] && [ "$JOB_TYPE" == "run" ] && echo_error "parameter must be create or run"
 
-sbatch --job-name=datascience_rapids_cugraphgnn-presto:presto-test \
-       -A datascience_rapids_cugraphgnn \
-       -p gb200 \
-       --nodes=1 \
+sbatch --nodes=1 \
        --ntasks-per-node=10 \
        ${JOB_TYPE}_benchmarks.sbatch;
 
