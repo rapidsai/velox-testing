@@ -91,7 +91,7 @@ fi
 CUDA_ARCHITECTURES=""
 if [[ "$VARIANT_TYPE" == "gpu" && "$ALL_CUDA_ARCHS" == "true" ]]; then
   # build for all supported CUDA architectures
-  CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120"
+  CUDA_ARCHITECTURES="75;80;86;90;100;120"
   echo "Building GPU with all supported CUDA architectures"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   # check that nvidia-smi is available

@@ -15,6 +15,7 @@
 # limitations under the License.
 
 set -euo pipefail
+
 # load common variables and functions
 source ./config.sh
 
@@ -30,15 +31,8 @@ LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
-
-# Cleanup function to remove copied sccache auth files
-cleanup_sccache_auth() {
-    if [[ "$ENABLE_SCCACHE" == true && -d "../docker/sccache/sccache_auth/" ]]; then
-        rm -fr ../docker/sccache/sccache_auth/
-    fi
-}
-
-trap cleanup_sccache_auth EXIT SIGTERM SIGINT SIGQUIT
+SCCACHE_VERSION="${SCCACHE_VERSION:-latest}"
+UPDATE_NINJA=true
 
 print_help() {
   cat <<EOF
@@ -56,7 +50,9 @@ Options:
   -j|--num-threads            NUM Number of threads to use for building (default: 3/4 of CPU cores).
   --benchmarks true|false     Enable benchmarks and nsys profiling tools (default: true).
   --sccache                   Enable sccache distributed compilation caching (requires auth files in ~/.sccache-auth/).
+  --sccache-version           Install a specific version of rapidsai/sccache, e.g. "0.12.0-rapids.1" (default: latest)
   --sccache-enable-dist       Enable distributed compilation (WARNING: may cause compilation differences like additional warnings that could lead to build failures).
+  --update-ninja true|false   Update ninja build tool during build (default: true).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
   -h, --help                  Show this help message and exit.
 
@@ -72,7 +68,9 @@ Examples:
   $(basename "$0") -j 8 --gpu
   $(basename "$0") --num-threads 16 --no-cache
   $(basename "$0") --sccache                                   # Build with sccache (remote S3 cache, local compilation)
+  $(basename "$0") --sccache --sccache-version 0.12.0-rapids.1 # Build with sccache v0.12.0-rapids.1 (see: https://github.com/rapidsai/sccache/releases)
   $(basename "$0") --sccache --sccache-enable-dist         # Build with sccache including distributed compilation (may cause build differences)
+  $(basename "$0") --update-ninja false                   # Build without updating ninja
   $(basename "$0") --build-type Debug
   $(basename "$0") --build-type debug --gpu
   $(basename "$0") --build-type RELWITHDEBINFO --gpu
@@ -147,9 +145,34 @@ parse_args() {
         ENABLE_SCCACHE=true
         shift
         ;;
+      --sccache-version)
+        SCCACHE_VERSION="$2"
+        shift 2
+        ;;
       --sccache-enable-dist)
         SCCACHE_ENABLE_DIST=true
         shift
+        ;;
+      --update-ninja)
+        if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
+          case "${2,,}" in
+            true)
+              UPDATE_NINJA=true
+              shift 2
+              ;;
+            false)
+              UPDATE_NINJA=false
+              shift 2
+              ;;
+            *)
+              echo "ERROR: --update-ninja accepts 'true' or 'false', got: $2" >&2
+              exit 1
+              ;;
+          esac
+        else
+          echo "ERROR: --update-ninja requires a value: 'true' or 'false'" >&2
+          exit 1
+        fi
         ;;
       --build-type)
         if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
@@ -183,23 +206,31 @@ parse_args() {
   done
 }
 
+compose_file() {
+  if [[ "$ENABLE_SCCACHE" == true ]]; then
+		echo $COMPOSE_FILE_SCCACHE
+	else
+		echo $COMPOSE_FILE
+	fi
+}
+
 # Validate sccache authentication
 validate_sccache_auth() {
   if [[ "$ENABLE_SCCACHE" == true ]]; then
     echo "Checking for sccache authentication files in: $SCCACHE_AUTH_DIR"
-    
+
     if [[ ! -d "$SCCACHE_AUTH_DIR" ]]; then
       echo "ERROR: sccache auth directory not found: $SCCACHE_AUTH_DIR" >&2
       echo "Run setup_sccache_auth.sh to set up authentication." >&2
       exit 1
     fi
-    
+
     if [[ ! -f "$SCCACHE_AUTH_DIR/github_token" ]]; then
       echo "ERROR: GitHub token not found: $SCCACHE_AUTH_DIR/github_token" >&2
       echo "Run setup_sccache_auth.sh to set up authentication." >&2
       exit 1
     fi
-    
+
     if [[ ! -f "$SCCACHE_AUTH_DIR/aws_credentials" ]]; then
       echo "ERROR: AWS credentials not found: $SCCACHE_AUTH_DIR/aws_credentials" >&2
       echo "Run setup_sccache_auth.sh to set up authentication." >&2
@@ -214,7 +245,7 @@ detect_cuda_architecture() {
   if ! command -v nvidia-smi >/dev/null 2>&1; then
     return 0
   fi
-  
+
   local compute_cap
   if compute_cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1); then
     if [[ -n "$compute_cap" && "$compute_cap" =~ ^[0-9]+\.[0-9]+$ ]]; then
@@ -242,7 +273,7 @@ if [[ "$PLAIN_OUTPUT" == true ]]; then
   DOCKER_BUILD_OPTS+=(--progress=plain)
 fi
 if [[ "$ALL_CUDA_ARCHS" == true ]]; then
-  DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120")
+  DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="75;80;86;90;100;120")
 else
   # Only detect native architecture if not building for all architectures
   detect_cuda_architecture
@@ -252,46 +283,61 @@ DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
+DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_VERSION="${SCCACHE_VERSION}")
+DOCKER_BUILD_OPTS+=(--build-arg UPDATE_NINJA="${UPDATE_NINJA}")
 
-# Create sccache auth directory unconditionally, it is expected by dockerfile
-mkdir -p ../docker/sccache/sccache_auth/
+# If these are set (even to empty string), pass them through as-is
+if test -v MAX_HIGH_MEM_JOBS; then
+    DOCKER_BUILD_OPTS+=(--build-arg MAX_HIGH_MEM_JOBS="${MAX_HIGH_MEM_JOBS:-}")
+else
+    DOCKER_BUILD_OPTS+=(--build-arg MAX_HIGH_MEM_JOBS=4)
+fi
+if test -v MAX_LINK_JOBS; then
+    DOCKER_BUILD_OPTS+=(--build-arg MAX_LINK_JOBS="${MAX_LINK_JOBS:-}")
+else
+    DOCKER_BUILD_OPTS+=(--build-arg MAX_LINK_JOBS=4)
+fi
+
+# sccache checks the existence of these envvars (not their values) so only set them if they're defined
+if test -v SCCACHE_RECACHE; then
+    DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_RECACHE="${SCCACHE_RECACHE:-}")
+fi
+if test -v SCCACHE_NO_CACHE; then
+    DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_NO_CACHE="${SCCACHE_NO_CACHE:-}")
+fi
 
 # Add sccache build arguments
 if [[ "$ENABLE_SCCACHE" == true ]]; then
   DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="ON")
-  # Copy auth files to build context
-  cp "$SCCACHE_AUTH_DIR/github_token" ../docker/sccache/sccache_auth/
-  cp "$SCCACHE_AUTH_DIR/aws_credentials" ../docker/sccache/sccache_auth/
-  
   # Add distributed compilation control (disabled by default)
   if [[ "$SCCACHE_ENABLE_DIST" == true ]]; then
-    DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="OFF")
     echo "WARNING: sccache distributed compilation enabled - may cause compilation differences"
   else
-    DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="ON")
+    DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
   fi
 else
   DOCKER_BUILD_OPTS+=(--build-arg ENABLE_SCCACHE="OFF")
-  DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_DISABLE_DIST="ON")
+  DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
 fi
+
+SELECTED_COMPOSE_FILE=$(compose_file)
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
-  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
+  docker compose -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
   BUILD_EXIT_CODE=${PIPESTATUS[0]}
 else
-  docker compose -f "$COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
+  docker compose -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
   BUILD_EXIT_CODE=$?
 fi
-
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   # Update EXPECTED_OUTPUT_DIR to use the correct build directory
   EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
-  
-  if docker compose  -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
+
+  if docker compose  -f "$SELECTED_COMPOSE_FILE" run --rm "${CONTAINER_NAME}" test -d "${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
     echo "  Built velox-adapters (${BUILD_TYPE} build). View logs with:"
-    echo "    docker compose -f $COMPOSE_FILE logs -f ${CONTAINER_NAME}"
+    echo "    docker compose -f $SELECTED_COMPOSE_FILE logs -f ${CONTAINER_NAME}"
     echo ""
     echo "  The Velox build output is located in the container at:"
     echo "    ${EXPECTED_OUTPUT_DIR}"
@@ -300,7 +346,7 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
     echo "  Downstream tasks will auto-detect this build directory."
     echo ""
     echo "  To access the build output, you can run:"
-    echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} ls ${EXPECTED_OUTPUT_DIR}"
+    echo "    docker compose -f $SELECTED_COMPOSE_FILE run --rm ${CONTAINER_NAME} ls ${EXPECTED_OUTPUT_DIR}"
     echo ""
     if [[ "$VELOX_ENABLE_BENCHMARKS" == "ON" ]]; then
       echo "  Benchmarks and nsys profiling are enabled in this build."
@@ -311,14 +357,14 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
       echo "  sccache distributed compilation caching was enabled for this build."
       if [[ -n "$SCCACHE_AUTH_DIR" ]]; then
         echo "  To check sccache stats, run:"
-        echo "    docker compose -f $COMPOSE_FILE run --rm ${CONTAINER_NAME} sccache --show-stats"
+        echo "    docker compose -f $SELECTED_COMPOSE_FILE run --rm ${CONTAINER_NAME} sccache --show-stats"
       fi
     fi
     echo ""
   else
     echo "  ERROR: Build succeeded but ${EXPECTED_OUTPUT_DIR} not found in the container."
     echo "  View logs with:"
-    echo "    docker compose -f $COMPOSE_FILE logs -f ${CONTAINER_NAME}"
+    echo "    docker compose -f $SELECTED_COMPOSE_FILE logs -f ${CONTAINER_NAME}"
     echo ""
   fi
 else
