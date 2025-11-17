@@ -47,25 +47,6 @@ else
     $RUN_CMD
 }
 
-#function run_cli_image {
-#    [ $# -ne 1 ] && echo_error "$0 expected one argument for '<script>'"
-#    validate_environment_preconditions LOGS CONFIGS WORKSPACE COORD DATA
-#    local script=$1
-#    local log_file="cli.log"
-#
-#    mkdir -p ${WORKSPACE}/.hive_metastore
-#
-#    srun -w $COORD --ntasks=1 --overlap \
-#--container-image=${WORKSPACE}/presto-coordinator.sqsh \
-#--container-mounts=${WORKSPACE}:/workspace,\
-#${DATA}:/data,\
-#${CONFIGS}/etc_common:/opt/presto-server/etc,\
-#${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
-#${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
-#${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
-#-- bash -lc "${script}" > ${LOGS}/${log_file} 2>&1
-#}
-
 # Runs a coordinator on a specific node with default configurations.
 # Overrides the config files with the coord node and other needed updates.
 function run_coordinator {
@@ -205,34 +186,6 @@ function fetch_query_results {
     done < <(grep "Query [^ ]*," "${LOGS}/cli.log")
 }
 
-# Append sum/avg rows to the csv.
-function append_non_failed_sum_and_avg() {
-  local file="$1"
-  awk -F',' -v OFS=',' '
-    function trim(s){ gsub(/^[ \t"]+|[ \t"]+$/,"",s); return s }
-    NR==1 { next }  # skip header
-    {
-      st = trim($2)
-      el = trim($3)+0
-      ex = trim($4)+0
-      cu = trim($5)+0
-      if (st != "FAILED") {
-        s_el += el; s_ex += ex; s_cu += cu; n++
-      }
-    }
-    END {
-      # sums for NON-FAILED
-      printf "%s,%s,%.6f,%.6f,%.6f\n", "SUM", "NON_FAILED", s_el+0, s_ex+0, s_cu+0
-      # averages for NON-FAILED
-      if (n > 0) {
-        printf "%s,%s,%.6f,%.6f,%.6f\n", "AVG", "NON_FAILED", s_el/n, s_ex/n, s_cu/n
-      } else {
-        printf "%s,%s,%.6f,%.6f,%.6f\n", "AVG", "NON_FAILED", 0, 0, 0
-      }
-    }
-  ' "$file" >> "$file"
-}
-
 # Parses results.log for the relevant timing data, storing the results in summary.csv.
 # Assumes the queries are in order, and numbers them accordingly.
 function parse_results {
@@ -259,6 +212,4 @@ function parse_results {
       	BEGIN { if (n <= 0) { print "error: num_iterations must be > 0" > "/dev/stderr"; exit 1 } }
       	{ printf("%2d,%s\n", int((NR-1)/n), $0) }
       ' >> ${LOGS}/summary.csv
-    #| awk '{printf("%2d,%s\n", int(NR / $num_iterations) + 1, $0)}' >> ${LOGS}/summary.csv
-    #append_non_failed_sum_and_avg ${LOGS}/summary.csv
 }
