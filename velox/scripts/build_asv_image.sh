@@ -34,33 +34,34 @@ Options:
 Description:
   This script builds the velox-asv-benchmark Docker image with:
   
-  Step 1: Apply Velox patches for TPC-H Python bindings (idempotent)
-  Step 2: Check/build base image (velox-adapters-build)
+  Step 1: Check base image (velox-adapters-build) exists
+  Step 2: Apply Velox patches for TPC-H Python bindings (idempotent)
   Step 3: Build ASV image with:
     - Cython-based Python bindings for TPC-H benchmarks
     - ASV (Airspeed Velocity) for performance tracking
     - All necessary dependencies and runtime environment
 
   The image is built on top of velox-adapters-build with benchmarks enabled.
-  If the base image doesn't exist, this script can automatically build it
-  using build_velox.sh with benchmarks enabled.
+  The base image MUST exist before running this script.
 
 Prerequisites:
   - Docker and docker compose installed
   - Sufficient disk space for image layers
-  - (Optional) velox-adapters-build image with benchmarks enabled
+  - velox-adapters-build image with benchmarks enabled (REQUIRED)
 
 Examples:
-  # Build the image (incremental)
-  # Will prompt to build base image if it doesn't exist
+  # Build base image first (if not already built)
+  ./build_velox.sh --benchmarks true --sccache
+  
+  # Then build the ASV image (incremental)
   $0
 
-  # Rebuild from scratch
+  # Rebuild ASV image from scratch
   $0 --rebuild
 
 Notes:
-  - If velox-adapters-build image doesn't exist, the script will offer to
-    build it using ./build_velox.sh with benchmarks enabled
+  - The velox-adapters-build image MUST be built with --benchmarks enabled
+  - If the base image doesn't exist, this script will exit with an error
   - Benchmarks are required for the Python bindings and ASV to work properly
 
 After building, run benchmarks with:
@@ -73,7 +74,7 @@ EOF
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --rebuild)
+        --no-cache)
             REBUILD=true
             shift
             ;;
@@ -97,34 +98,25 @@ echo -e "${BLUE}  Velox ASV Benchmark Image Builder${NC}"
 echo -e "${BLUE}=============================================${NC}"
 echo ""
 
-# Step 1: Apply Velox patches
-echo -e "${YELLOW}Step 1: Applying Velox patches...${NC}"
-echo ""
-"$SCRIPT_DIR/apply_velox_patches.sh"
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Error: Failed to apply Velox patches${NC}"
-    exit 1
-fi
-echo ""
 
-# Step 2: Check if base image exists
-echo -e "${YELLOW}Step 2: Checking for base image (velox-adapters-build)...${NC}"
+# Step 1: Check if base image exists
+echo -e "${YELLOW}Step 1: Checking for base image (velox-adapters-build)...${NC}"
 echo ""
 if ! docker images velox-adapters-build:latest --format "{{.Repository}}" | grep -q "velox-adapters-build"; then
-    echo -e "${YELLOW}Warning: Base image 'velox-adapters-build:latest' not found${NC}"
+    echo -e "${RED}Error: Base image 'velox-adapters-build:latest' not found${NC}"
     echo ""
-    echo -e "${YELLOW}Building base image (velox-adapters-build) with benchmarks enabled...${NC}"
+    echo "The ASV benchmark image requires velox-adapters-build as a base image."
     echo ""
-    
-    # Use build_velox.sh script to build with benchmarks enabled
-    cd "$SCRIPT_DIR"
-    ./build_velox.sh --benchmarks true
-    
+    echo "Please build the base image first with benchmarks enabled:"
     echo ""
-    echo -e "${GREEN}✓ Base image built${NC}"
+    echo "  cd $SCRIPT_DIR"
+    echo "  ./build_velox.sh --benchmarks true --sccache"
     echo ""
+    echo "Then run this script again to build the ASV benchmark image."
+    echo ""
+    exit 1
 else
-    echo -e "${GREEN}✓ Base image already exists${NC}"
+    echo -e "${GREEN}✓ Base image 'velox-adapters-build:latest' found${NC}"
     echo ""
 fi
 
@@ -133,15 +125,15 @@ fi
 export USER_ID=${USER_ID:-$(id -u)}
 export GROUP_ID=${GROUP_ID:-$(id -g)}
 
-# Build or rebuild ASV benchmark image
+# Step 3: Build or rebuild ASV benchmark image
 cd "$DOCKER_DIR"
 if [ "$REBUILD" = true ]; then
-    echo -e "${YELLOW}Rebuilding ASV benchmark image (--no-cache)...${NC}"
+    echo -e "${YELLOW}Step 3: Rebuilding ASV benchmark image (--no-cache)...${NC}"
     echo "This may take a while..."
     echo ""
     docker compose -f docker-compose.adapters.benchmark.yml build --no-cache velox-asv-benchmark
 else
-    echo -e "${YELLOW}Building ASV benchmark image...${NC}"
+    echo -e "${YELLOW}Step 3: Building ASV benchmark image...${NC}"
     echo "This may take a while on first build..."
     echo ""
     docker compose -f docker-compose.adapters.benchmark.yml build velox-asv-benchmark
@@ -155,11 +147,12 @@ echo ""
 echo "Image: velox-asv-benchmark:latest"
 echo ""
 echo "Next steps:"
-echo "  1. Prepare TPC-H data in Hive-style Parquet format"
-echo "  2. Run benchmarks:"
-echo "     ./run_asv_benchmarks.sh --data-path ../../presto/testing/integration_tests/data/tpch/"
+echo "  1. Run benchmarks:"
+echo "     ./run_asv_benchmarks.sh"
+echo "2. Run benchmarks for a specific commit range:"
+echo "     ./run_asv_commit_range.sh --commits HEAD~5..HEAD"
 echo ""
 echo "For more information:"
 echo "  ./run_asv_benchmarks.sh --help"
+echo "  ./run_asv_commit_range.sh --help"
 echo ""
-

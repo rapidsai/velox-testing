@@ -210,22 +210,13 @@ DOCKER_DIR="$SCRIPT_DIR/../docker"
 
 cd "$DOCKER_DIR"
 
-# Check if ASV benchmark image exists or rebuild if requested
-if [ "$NO_CACHE" = true ]; then
-    echo -e "${YELLOW}Rebuilding Docker image from scratch (--no-cache)...${NC}"
-    echo ""
-    cd "$SCRIPT_DIR"
-    ./build_asv_image.sh --rebuild
-    cd "$DOCKER_DIR"
-    echo ""
-    echo -e "${GREEN}✓ Image rebuilt successfully${NC}"
-    echo ""
-elif ! docker images velox-asv-benchmark:latest --format "{{.Repository}}" | grep -q "velox-asv-benchmark"; then
+# Check if ASV benchmark image exists
+if ! docker images velox-asv-benchmark:latest --format "{{.Repository}}" | grep -q "velox-asv-benchmark"; then
     echo -e "${RED}Error: Docker image 'velox-asv-benchmark:latest' not found${NC}"
     echo ""
     echo "You need to build the ASV benchmark image first:"
     echo "  cd $SCRIPT_DIR"
-    echo "  ./build_asv_image.sh"
+    echo "  ./build_asv_image.sh --no-cache"
     echo ""
     exit 1
 fi

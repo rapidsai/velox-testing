@@ -1,21 +1,25 @@
 {
-    "version": 1,
-    "project": "velox-cudf-tpch",
-    "project_url": "https://github.com/facebookincubator/velox",
-    "repo": "/workspace/velox",
-    "branches": ["merged-prs"],
-    "show_commit_url": "https://github.com/facebookincubator/velox/commit/",
-    "environment_type": "virtualenv",
-    "pythons": ["3.9"],
-    "install_project": false,
-    "build_command": [
-        "/bin/bash -c 'export VELOX_ROOT=/workspace/velox && export VELOX_BUILD_DIR=/opt/velox-build/release && cd /workspace/velox/velox/experimental/cudf/benchmarks/python && ./build.sh'"
-    ],
-    "install_command": [
-        "/bin/bash -c 'export PYTHONPATH=/workspace/velox/velox/experimental/cudf/benchmarks/python:$PYTHONPATH && python -m pip install --no-build-isolation -e /workspace/velox/velox/experimental/cudf/benchmarks/python'"
-    ],
-    "results_dir": "/asv_results",
-    "html_dir": "/asv_results/html",
-    "benchmark_dir": "benchmarks",
-    "dvcs": "git"
+  "version": 1,
+  "project": "velox-cudf-tpch",
+  "project_url": "https://github.com/facebookincubator/velox",
+  "repo": "/workspace/velox",
+  "branches": [
+    "IBM-techpreview"
+  ],
+  "show_commit_url": "https://github.com/facebookincubator/velox/commit/",
+  "environment_type": "virtualenv",
+  "pythons": [
+    "3.9"
+  ],
+  "install_project": false,
+  "build_command": [
+    "/bin/bash -c 'export VELOX_ROOT=/workspace/velox && export VELOX_BUILD_DIR=/opt/velox-build/release && cd /workspace/velox/velox/experimental/cudf/benchmarks/python && ./build.sh'"
+  ],
+  "install_command": [
+    "/bin/bash -c 'export PYTHONPATH=/workspace/velox/velox/experimental/cudf/benchmarks/python:$PYTHONPATH && python -m pip install --no-build-isolation -e /workspace/velox/velox/experimental/cudf/benchmarks/python'"
+  ],
+  "results_dir": "/asv_results",
+  "html_dir": "/asv_results/html",
+  "benchmark_dir": "benchmarks",
+  "dvcs": "git"
 }

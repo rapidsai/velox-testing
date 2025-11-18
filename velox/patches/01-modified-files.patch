@@ -1,13 +1,3 @@
-From 25184157aba0eac018b03810e96caa576bc08dac Mon Sep 17 00:00:00 2001
-From: Avinash <avistylein3105@gmail.com>
-Date: Mon, 3 Nov 2025 04:10:52 -0800
-Subject: [PATCH 1/4] make querybuilder as protected member so that it can be
- accessible from subclasses
-
----
- velox/benchmarks/tpch/TpchBenchmark.h | 3 +--
- 1 file changed, 1 insertion(+), 2 deletions(-)
-
 diff --git a/velox/benchmarks/tpch/TpchBenchmark.h b/velox/benchmarks/tpch/TpchBenchmark.h
 index 166af3e9d..c684edc99 100644
 --- a/velox/benchmarks/tpch/TpchBenchmark.h
@@ -25,6 +15,14 @@ index 166af3e9d..c684edc99 100644
  };
  
  extern std::unique_ptr<TpchBenchmark> benchmark;
--- 
-2.48.1
-
+diff --git a/velox/experimental/cudf/benchmarks/CMakeLists.txt b/velox/experimental/cudf/benchmarks/CMakeLists.txt
+index 71e8e80c7..bbcbfd80d 100644
+--- a/velox/experimental/cudf/benchmarks/CMakeLists.txt
++++ b/velox/experimental/cudf/benchmarks/CMakeLists.txt
+@@ -20,3 +20,6 @@ target_link_libraries(
+   velox_cudf_exec_test_lib
+   velox_tpch_benchmark_lib
+ )
++
++# Add Python bindings subdirectory
++add_subdirectory(python)

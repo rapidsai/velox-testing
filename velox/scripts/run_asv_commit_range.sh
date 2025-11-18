@@ -219,6 +219,13 @@ if [ ! -d "$SCCACHE_AUTH_DIR" ]; then
     exit 1
 fi
 
+# Detect current Velox branch before we start checking out commits
+echo -e "${BLUE}Detecting current Velox branch...${NC}"
+cd "$VELOX_REPO"
+VELOX_DETECTED_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+echo -e "${GREEN}Current Velox branch: $VELOX_DETECTED_BRANCH${NC}"
+echo ""
+
 # Display configuration
 echo ""
 echo -e "${BLUE}=============================================${NC}"
@@ -227,6 +234,7 @@ echo -e "${BLUE}=============================================${NC}"
 echo ""
 echo "Mode:                 $MODE"
 echo "Velox Repository:     $VELOX_REPO"
+echo "Velox Branch:         $VELOX_DETECTED_BRANCH"
 echo "TPC-H Data Path:      $DATA_PATH"
 echo "Results Path:         $RESULTS_PATH"
 echo "sccache Auth Dir:     $SCCACHE_AUTH_DIR"
@@ -373,12 +381,13 @@ cleanup_and_restore() {
     echo ""
     echo -e "${BLUE}Restoring original Git state...${NC}"
     cd "$VELOX_REPO"
-    if [ "$ORIGINAL_BRANCH" = "HEAD" ]; then
-        # We were in detached HEAD state
-        git checkout "$ORIGINAL_COMMIT" 2>&1 | head -n 3 || true
-    else
-        git checkout "$ORIGINAL_BRANCH" 2>&1 | head -n 3 || true
-    fi
+    # if [ "$ORIGINAL_BRANCH" = "HEAD" ]; then
+    #     # We were in detached HEAD state
+    #     git checkout "$ORIGINAL_COMMIT" 2>&1 | head -n 3 || true
+    # else
+    #     git checkout "$ORIGINAL_BRANCH" 2>&1 | head -n 3 || true
+    # fi
+    git switch - --discard-changes > /dev/null 2>&1 || true
     echo -e "${GREEN}✓ Restored to original state${NC}"
     
     if [ $exit_code -ne 0 ]; then
@@ -425,7 +434,7 @@ benchmark_commit() {
     echo -e "${BLUE}Step 1: Applying Velox patches...${NC}"
     echo ""
     
-    ./apply_velox_patches.sh --velox-repo "$VELOX_REPO" || {
+    ./apply_velox_patches.sh || {
         echo -e "${RED}Error: Failed to apply patches for commit $commit_short${NC}"
         return 1
     }
@@ -463,10 +472,17 @@ benchmark_commit() {
     
     echo -e "${GREEN}✓ Velox image built successfully${NC}"
     echo ""
-    
-    # Step 3: Run ASV benchmarks (without publish/preview, always rebuild with --no-cache)
-    echo -e "${BLUE}Step 3: Running ASV benchmarks for commit $commit_short (--no-cache)...${NC}"
-    
+
+    # Step 3: Build ASV benchmark image
+    echo -e "${BLUE}Step 3: Building ASV benchmark image...${NC}"
+    ./build_asv_image.sh --no-cache
+    echo -e "${GREEN}✓ ASV benchmark image built successfully${NC}"
+    echo ""
+
+    # Step 4: Run ASV benchmarks (without publish/preview)
+    echo -e "${BLUE}Step 4: Running ASV benchmarks for commit $commit_short (No Publish/Preview)...${NC}"
+
+    VELOX_BRANCH="$VELOX_DETECTED_BRANCH" \
     ASV_SKIP_EXISTING=false \
     ASV_RECORD_SAMPLES=true \
     ASV_PUBLISH=false \
@@ -477,8 +493,7 @@ benchmark_commit() {
         --results-path "$RESULTS_PATH" \
         --interleave-rounds \
         --no-publish \
-        --no-preview \
-        --no-cache || {
+        --no-preview || {
         echo -e "${RED}Error: Benchmarks failed for commit $commit_short${NC}"
         echo -e "${YELLOW}Continuing...${NC}"
     }
@@ -498,11 +513,8 @@ benchmark_commit() {
     # Step 5: Clean up any modified files in the Velox repository
     echo -e "${BLUE}Step 5: Cleaning up modified files in Velox repository...${NC}"
     cd "$VELOX_REPO"
-    git reset --hard HEAD > /dev/null 2>&1 || {
+    git reset --hard HEAD^ > /dev/null 2>&1 || {
         echo -e "${YELLOW}Warning: Failed to reset repository${NC}"
-    }
-    git clean -fd > /dev/null 2>&1 || {
-        echo -e "${YELLOW}Warning: Failed to clean untracked files${NC}"
     }
     echo -e "${GREEN}✓ Cleaned up modified files${NC}"
     echo ""
@@ -516,7 +528,15 @@ benchmark_commit() {
 # Iterate over each commit
 CURRENT_NUM=1
 
+echo -e "${BLUE}Starting benchmark loop for $BENCHMARK_COUNT commits...${NC}"
+echo "Commits to process:"
+echo "$COMMITS_TO_BENCHMARK" | while IFS= read -r c; do
+    echo "  - $(git -C "$VELOX_REPO" rev-parse --short "$c" 2>/dev/null || echo "$c")"
+done
+echo ""
+
 while IFS= read -r commit; do
+    [ -z "$commit" ] && continue  # Skip empty lines
     benchmark_commit "$commit" "$CURRENT_NUM" "$BENCHMARK_COUNT" || {
         echo -e "${RED}Error: Failed to benchmark commit${NC}"
         exit 1
@@ -530,6 +550,16 @@ echo -e "${GREEN}=============================================${NC}"
 echo -e "${GREEN}  All Commits Benchmarked Successfully!${NC}"
 echo -e "${GREEN}=============================================${NC}"
 echo ""
+
+# Switch to the previously detected Velox branch if it is set
+if [ -n "$VELOX_DETECTED_BRANCH" ]; then
+    echo -e "${BLUE}Switching Velox repository to previously detected branch: $VELOX_DETECTED_BRANCH...${NC}"
+    cd "$VELOX_REPO"
+    git switch "$VELOX_DETECTED_BRANCH" || {
+        echo -e "${YELLOW}Warning: Failed to switch Velox repository to branch $VELOX_DETECTED_BRANCH${NC}"
+    }
+fi
+
 
 # Final Step: Publish and preview existing benchmark results
 echo -e "${BLUE}Final Step: Publishing HTML reports and starting preview server...${NC}"

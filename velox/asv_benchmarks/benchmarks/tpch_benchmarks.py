@@ -122,8 +122,7 @@ class TpchBenchmarkBase:
     
     def _run_query(self, query_id):
         """Helper method to run a query and return execution time."""
-        result = self.benchmark.run_query(query_id)
-        return result.execution_time_ms
+        return self.benchmark.execute_query(query_id)
 
 
 # Generate benchmark classes for each TPC-H query

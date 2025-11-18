@@ -31,10 +31,11 @@ services:
       - GROUP_ID=${GROUP_ID:-1000}
       - TPCH_DATA_PATH=/workspace/velox/velox-benchmark-data
       - LD_LIBRARY_PATH=/opt/velox-build/release/velox/experimental/cudf/benchmarks/python/cpp/tpch:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}
+      - VELOX_BRANCH=${VELOX_BRANCH:-}
       - ASV_BENCH=${ASV_BENCH:-}
       - ASV_MACHINE=${ASV_MACHINE:-docker-container}
       - ASV_CLEAR_RESULTS=${ASV_CLEAR_RESULTS:-false}
-      - ASV_SKIP_EXISTING=${ASV_SKIP_EXISTING:-false}
+      - ASV_SKIP_EXISTING=${ASV_SKIP_EXISTING:-true}
       - ASV_SKIP_AUTORUN=${ASV_SKIP_AUTORUN:-false}
       - ASV_SKIP_SMOKE_TEST=${ASV_SKIP_SMOKE_TEST:-false}
       - ASV_PREVIEW=${ASV_PREVIEW:-true}
@@ -50,7 +51,7 @@ services:
     volumes:
       - ../../../velox:/workspace/velox
       - ../../../velox-testing/velox/asv_benchmarks:/workspace/velox-testing/velox/asv_benchmarks
-      - ../../../velox-testing/velox/asv_benchmarks/asv.conf.json:/workspace/velox-testing/velox/asv_benchmarks/asv.conf.json:ro
+      - ../../../velox-testing/velox/asv_benchmarks/asv.conf.json:/workspace/velox-testing/velox/asv_benchmarks/asv.conf.json
       - ../../../velox-testing/velox/asv_benchmarks/entrypoint.sh:/entrypoint.sh:ro
       - ${BENCHMARK_DATA_HOST_PATH:-/tmp}:/workspace/velox/velox-benchmark-data:ro
       # Mount ASV results directory separately for easy management and cleanup

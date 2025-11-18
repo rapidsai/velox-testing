@@ -15,6 +15,47 @@ git config --global --add safe.directory /workspace/velox/.git
 git config --global --add safe.directory /workspace/velox-testing/.git
 echo "✓ Git safe.directory configured for mounted repositories"
 
+# Auto-detect and configure the Velox branch for ASV
+echo ""
+echo "=== Configuring ASV branch ==="
+
+# Get current branch from Velox repository (allow override via VELOX_BRANCH env var)
+if [ -n "${VELOX_BRANCH:-}" ]; then
+    # Use explicitly provided branch
+    DETECTED_BRANCH="${VELOX_BRANCH}"
+    echo "Using explicitly provided Velox branch: ${DETECTED_BRANCH}"
+else
+    # Auto-detect from the Velox repository
+    cd /workspace/velox
+    DETECTED_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+    cd /workspace/velox-testing/velox/asv_benchmarks
+    echo "Auto-detected branch from Velox repository: ${DETECTED_BRANCH}"
+fi
+
+
+# Update asv.conf.json with the detected branch
+ASV_CONF="/workspace/velox-testing/velox/asv_benchmarks/asv.conf.json"
+if [ -f "${ASV_CONF}" ]; then
+    # Use jq if available, otherwise use sed
+    if command -v jq &> /dev/null; then
+        # Write directly to the file to avoid cross-device move issues
+        jq --arg branch "${DETECTED_BRANCH}" '.branches = [$branch]' "${ASV_CONF}" > "${ASV_CONF}.tmp" && \
+        cat "${ASV_CONF}.tmp" > "${ASV_CONF}" && \
+        rm -f "${ASV_CONF}.tmp"
+        echo "✓ Updated asv.conf.json with branch: ${DETECTED_BRANCH}"
+    else
+        # Fallback to sed if jq is not available
+        sed -i "s/\"branches\": \[.*\]/\"branches\": [\"${DETECTED_BRANCH}\"]/" "${ASV_CONF}"
+        echo "✓ Updated asv.conf.json with branch: ${DETECTED_BRANCH} (using sed)"
+    fi
+    
+    # Show the updated branches configuration
+    echo "  ASV will benchmark commits from branch: ${DETECTED_BRANCH}"
+else
+    echo "⚠ Warning: asv.conf.json not found at ${ASV_CONF}"
+fi
+echo ""
+
 # Publish existing benchmark results if available, and start preview server if requested
 
 RESULTS_DIR="/asv_results"
