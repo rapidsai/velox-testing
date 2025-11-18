@@ -70,14 +70,23 @@ Access results at `http://localhost:8080` (or your specified port).
 Track performance changes across commits:
 
 ```bash
-# Last 5 commits
-./scripts/run_asv_commit_range.sh --commits HEAD~5..HEAD
+# Step 1: Checkout target branch in Velox repository
+cd /path/to/velox
+git checkout IBM-techpreview  # or any branch you want to benchmark
+
+# Step 2: Run benchmarks from velox-testing
+cd /path/to/velox-testing/velox/scripts
+./run_asv_commit_range.sh --commits HEAD~3..HEAD 2>&1 | tee asv_commit_range.log
+
+# Other examples:
+# Last 5 commits on current branch
+./run_asv_commit_range.sh --commits HEAD~5..HEAD
 
 # Between releases
-./scripts/run_asv_commit_range.sh --commits v1.0..v2.0
+./run_asv_commit_range.sh --commits v1.0..v2.0
 
 # With custom paths
-./scripts/run_asv_commit_range.sh \
+./run_asv_commit_range.sh \
     --data-path /path/to/tpch_data \
     --commits HEAD~10..HEAD
 ```
@@ -87,11 +96,13 @@ Track performance changes across commits:
 Detect performance regressions without benchmarking every commit:
 
 ```bash
+cd /path/to/velox-testing/velox/scripts
+
 # Quick check: compare first vs last commit only (2 builds)
-./scripts/run_asv_commit_range.sh --commits HEAD~20..HEAD --mode endpoints
+./run_asv_commit_range.sh --commits HEAD~20..HEAD --mode endpoints
 
 # Full range: benchmark all commits (comprehensive)
-./scripts/run_asv_commit_range.sh --commits HEAD~5..HEAD --mode range
+./run_asv_commit_range.sh --commits HEAD~5..HEAD --mode range
 ```
 
 **Performance Comparison:**
@@ -431,10 +442,32 @@ The script automates the process of benchmarking multiple commits:
 
 ### Commit Range Usage
 
-```bash
-cd velox/scripts
+#### Quick Start
 
-# Basic usage
+To benchmark a range of commits from the Velox repository:
+
+```bash
+# Step 1: Checkout Velox to the desired branch
+cd /path/to/velox
+git checkout IBM-techpreview  # or your target branch
+
+# Step 2: Run commit range benchmarks from velox-testing
+cd /path/to/velox-testing/velox/scripts
+./run_asv_commit_range.sh --commits HEAD~3..HEAD 2>&1 | tee asv_commit_range.log
+```
+
+**Important Notes:**
+- The script automatically detects the current Velox branch at startup
+- All commits in the range will be benchmarked against this branch
+- The script will checkout each commit, build, benchmark, and cleanup automatically
+- Progress and errors are logged to `asv_commit_range.log`
+
+#### Detailed Usage
+
+```bash
+cd velox-testing/velox/scripts
+
+# Basic usage (benchmarks last 5 commits on current branch)
 ./run_asv_commit_range.sh --commits HEAD~5..HEAD
 
 # With all options
@@ -444,17 +477,19 @@ cd velox/scripts
     --results-path /path/to/asv_results \
     --sccache-auth-dir /path/to/.sccache-auth \
     --port 8080 \
-    --commits HEAD~5..HEAD
+    --commits HEAD~5..HEAD \
+    --mode range
 ```
 
 ### Command-Line Options (Commit Range)
 
-- `--velox-repo PATH` - Path to Velox repository (default: current directory)
-- `--data-path PATH` - Path to TPC-H data directory (required)
-- `--results-path PATH` - Path to store ASV results (default: ../asv_results)
-- `--sccache-auth-dir PATH` - Path to sccache auth directory (default: ~/.sccache-auth)
-- `--port PORT` - HTTP server port for preview (default: `8080`)
+- `--velox-repo PATH` - Path to Velox repository (default: `../../../velox`)
+- `--data-path PATH` - Path to TPC-H data directory (default: auto-detected)
+- `--results-path PATH` - Path to store ASV results (default: `../asv_benchmarks/results`)
+- `--sccache-auth-dir PATH` - Path to sccache auth directory (default: `../../.sccache-auth`)
+- `--port PORT` - HTTP server port for preview (default: `8081`)
 - `--commits RANGE` - Git commit range to benchmark (required)
+- `--mode MODE` - Benchmarking mode: `range` (all commits) or `endpoints` (first & last only) (default: `range`)
 - `-h, --help` - Show help message
 
 **Note**: `--clear-results` is automatic - results are always cleared at the start for commit range benchmarking.
@@ -499,6 +534,7 @@ The `--commits` argument accepts standard Git commit range syntax:
 
 #### 1. Initialization
 
+- Detects and stores the current Velox branch (e.g., `IBM-techpreview`)
 - Validates all paths and arguments
 - Gets list of commits to benchmark (in chronological order)
 - Displays commits and asks for confirmation
@@ -526,51 +562,84 @@ After all commits are benchmarked:
 
 #### 4. Cleanup on Exit
 
-When you stop the preview server (Ctrl+C) or if an error occurs:
+When you stop the preview server (Ctrl+C) or after completion:
 
-1. Tags the most recent commit's image as `velox-adapters-build:latest`
-2. Removes all other tagged commit images
-3. Restores Git to original branch/commit
+1. Switches Velox repository back to the originally detected branch (e.g., `IBM-techpreview`)
+2. Tags the most recent commit's image as `velox-adapters-build:latest`
+3. Removes all other tagged commit images
+4. Restores repository to clean state
 
 ### Commit Range Examples
 
-#### Example 1: Benchmark Recent Development
+#### Example 1: Benchmark IBM TechPreview Branch (Recommended Workflow)
+
+Track performance changes in the IBM TechPreview branch:
+
+```bash
+# Step 1: Navigate to Velox repository and checkout target branch
+cd /path/to/velox
+git checkout IBM-techpreview
+
+# Step 2: Navigate to velox-testing and run benchmarks with logging
+cd /path/to/velox-testing/velox/scripts
+./run_asv_commit_range.sh --commits HEAD~3..HEAD 2>&1 | tee asv_commit_range.log
+
+# The script will:
+# - Detect the IBM-techpreview branch automatically
+# - Benchmark the last 3 commits on this branch
+# - Log all output to asv_commit_range.log
+# - Show results at http://localhost:8081 when done
+```
+
+**Why this works:**
+- The script detects `IBM-techpreview` as the current branch at startup
+- All commits are benchmarked in the context of this branch
+- The script automatically returns to `IBM-techpreview` after completion
+
+#### Example 2: Benchmark Recent Development
 
 Track performance changes in recent development:
 
 ```bash
-./scripts/run_asv_commit_range.sh --commits HEAD~10..HEAD
+cd velox-testing/velox/scripts
+./run_asv_commit_range.sh --commits HEAD~10..HEAD
 ```
 
-#### Example 2: Benchmark Between Releases
+#### Example 3: Benchmark Between Releases
 
 Compare performance between two release tags:
 
 ```bash
-./scripts/run_asv_commit_range.sh --commits v0.0.1..v0.0.2
+cd velox-testing/velox/scripts
+./run_asv_commit_range.sh --commits v0.0.1..v0.0.2
 ```
 
-#### Example 3: Benchmark Specific Feature Branch
+#### Example 4: Benchmark Specific Feature Branch
 
 Benchmark commits from a feature branch:
 
 ```bash
-cd ../velox
+# Step 1: Checkout the feature branch in Velox repo
+cd /path/to/velox
 git checkout feature-branch
-cd ../velox-tetsing/velox/scripts
-./run_asv_commit_range.sh --commits main..feature-branch
+
+# Step 2: Run benchmarks from velox-testing
+cd /path/to/velox-testing/velox/scripts
+./run_asv_commit_range.sh --commits main..HEAD
 ```
 
-#### Example 4: Full Custom Configuration
+#### Example 5: Full Custom Configuration
 
 ```bash
-./scripts/run_asv_commit_range.sh \
+cd velox-testing/velox/scripts
+./run_asv_commit_range.sh \
     --velox-repo /custom/path/to/velox \
     --data-path /custom/tpch/data \
     --results-path /custom/results \
     --sccache-auth-dir /custom/sccache-auth \
     --port 9090 \
-    --commits HEAD~20..HEAD
+    --commits HEAD~20..HEAD \
+    --mode range
 ```
 
 ### Build Process Details
