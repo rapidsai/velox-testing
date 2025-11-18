@@ -4,32 +4,12 @@ on:
   schedule:
     - cron: '0 5 * * *'  # daily at 05:00 UTC
   workflow_dispatch:
-    inputs:
-      repository:
-        description: 'Velox repository'
-        type: string
-        required: false
-        default: ${{ vars.STABLE_VELOX_REPO }}
-      velox_commit:
-        description: 'Velox commit SHA or branch'
-        type: string
-        required: false
-        default: ${{ vars.STABLE_VELOX_COMMIT }}
-      build_target:
-        description: 'Select the build target'
-        type: choice
-        required: false
-        default: 'all'
-        options:
-          - all
-          - cpu
-          - gpu
 
 jobs:
   nightly-test:
     uses: ./.github/workflows/velox-test.yml
     with:
-      repository: ${{ inputs.repository }}
-      velox_commit: ${{ inputs.velox_commit }}
-      build_target: ${{ inputs.build_target }}
+      repository: ${{ vars.STABLE_VELOX_REPO }}
+      velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
+      build_target: 'all'
     secrets: inherit
