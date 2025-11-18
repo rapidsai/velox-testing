@@ -9,12 +9,12 @@ on:
         description: 'Velox repository'
         type: string
         required: false
-        default: 'rapidsai/velox'
+        default: ${{ vars.STABLE_VELOX_REPO }}
       velox_commit:
         description: 'Velox commit SHA or branch'
         type: string
         required: false
-        default: 'merged-prs'
+        default: ${{ vars.STABLE_VELOX_COMMIT }}
       build_target:
         description: 'Select the build target'
         type: choice
@@ -29,7 +29,7 @@ jobs:
   nightly-test:
     uses: ./.github/workflows/velox-test.yml
     with:
-      repository: ${{ inputs.repository || 'rapidsai/velox' }}
-      velox_commit: ${{ inputs.velox_commit || 'merged-prs' }}
-      build_target: ${{ inputs.build_target || 'all' }}
+      repository: ${{ inputs.repository }}
+      velox_commit: ${{ inputs.velox_commit }}
+      build_target: ${{ inputs.build_target }}
     secrets: inherit
