@@ -40,7 +40,7 @@ ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc \"${script}\" > ${LOGS}/${log_file} 2>&1 &
+-- bash -lc "${script}" > ${LOGS}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
@@ -50,14 +50,14 @@ ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc \"${script}\" > ${LOGS}/${log_file} 2>&1
+-- bash -lc "${script}" > ${LOGS}/${log_file} 2>&1
     fi
 }
 
 # Runs a coordinator on a specific node with default configurations.
 # Overrides the config files with the coord node and other needed updates.
 function run_coordinator {
-    validate_environment_preconditions CONFIGS SINGLE_NODE_EXECUTION NODE
+    validate_environment_preconditions CONFIGS SINGLE_NODE_EXECUTION
     local coord_config="${CONFIGS}/etc_coordinator/config_native.properties"
     # Replace placeholder in configs
     sed -i "s+discovery\.uri.*+discovery\.uri=http://${COORD}:8080+g" ${coord_config}
@@ -69,7 +69,7 @@ function run_coordinator {
 # Runs a worker on a given node with custom configuration files which are generated as necessary.
 function run_worker {
     [ $# -ne 4 ] && echo_error "$0 expected arguments 'gpu_id', 'worker_type', 'node_id', and 'worker_id'"
-    validate_environment_preconditions LOGS CONFIGS WORKSPACE COORD SINGLE_NODE_EXECUTION NODE CUDF_LIB DATA
+    validate_environment_preconditions LOGS CONFIGS WORKSPACE COORD SINGLE_NODE_EXECUTION CUDF_LIB DATA
 
     local gpu_id=$1
     local worker_type=$2
