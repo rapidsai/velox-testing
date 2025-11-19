@@ -8,15 +8,14 @@
 #[ -z "$SLURM_TIMELIMIT" ] && echo_error "required argument '--time' not specified" && exit 1
 [ -z "$SLURM_NTASKS_PER_NODE" ] && echo_error "required argument '--ntasks-per-node' not specified" && exit 1
 [ -z "$SLURM_NNODES" ] && echo_error "required argument '--nodes' not specified" && exit 1
+[ -z "$NUM_WORKERS" ] && echo_error "NUM_WORKERS must be set" && exit 1
 
-NUM_WORKERS=1
 LOGS="${WORKSPACE}/velox-testing/presto/cluster/"
 CONFIGS="${WORKSPACE}/velox-testing/presto/docker/config/generated"
 # Right now we assume one node that everything will run on.
 # To support more nodes we just need to split the nodelist and assign the coord/each worker to a separate node.
 # This will also require custom configs for each worker.
-NODE=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -1)
-COORD=${NODE}
+COORD=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -1)
 CUDF_LIB=/usr/lib64/presto-native-libs
 if [ "${NUM_WORKERS}" -eq "1" ]; then
     SINGLE_NODE_EXECUTION=true

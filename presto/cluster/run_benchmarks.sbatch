@@ -5,8 +5,12 @@ source ../../scripts/common.sh
 source slurm_functions.sh
 source setup_coord.sh
 
-for i in $(seq 0 $(( $NUM_WORKERS - 1 )) ); do
-    run_worker $i "gpu"
+local i=0
+for node_id in $(scontrol show hostnames "$SLURM_JOB_NODELIST"); do
+    for gpu_id in $(seq 0 $(( $NUM_GPUS_PER_NODE - 1 )) ); do
+	run_worker "${gpu_id}" "gpu" "${node_id}" "$i"
+	i=$(($i + 1))
+    done
 done
 
 wait_for_workers_to_register $NUM_WORKERS

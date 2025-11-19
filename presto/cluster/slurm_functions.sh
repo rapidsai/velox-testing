@@ -16,7 +16,7 @@ function validate_environment_preconditions {
 
 # Execute script through the coordinator image (used for coordinator and cli executables)
 function run_coord_image {
-    [ $# -ne 1 ] && echo_error "$0 expected one argument for '<script>' and one for '<coord/cli>'"
+    [ $# -ne 2 ] && echo_error "$0 expected one argument for '<script>' and one for '<coord/cli>'"
     validate_environment_preconditions LOGS CONFIGS WORKSPACE COORD DATA
     local script=$1
     local type=$2
@@ -28,7 +28,11 @@ function run_coord_image {
 
     mkdir -p ${WORKSPACE}/.hive_metastore
 
-RUN_CMD="srun -w $COORD --ntasks=1 --overlap \
+    # Coordinator runs as a background process, whereas we want to wait for cli
+    # so that the job will finish when the cli is done (terminating background
+    # processes like the coordinator and workers).
+    if [ "${type}" == "coord" ]; then
+        srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
 --container-mounts=${WORKSPACE}:/workspace,\
 ${DATA}:/data,\
@@ -36,15 +40,18 @@ ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc \"${script}\" > ${LOGS}/${log_file} 2>&1"
-
-# Coordinator runs as a background process, whereas we want to wait for cli
-# so that the job will finish when the cli is done (terminating background
-# processes like the coordinator and workers).
-if [ "${type}" == "coord" ]; then
-    $RUN_CMD &
-else
-    $RUN_CMD
+-- bash -lc \"${script}\" > ${LOGS}/${log_file} 2>&1 &
+    else
+        srun -w $COORD --ntasks=1 --overlap \
+--container-image=${coord_image} \
+--container-mounts=${WORKSPACE}:/workspace,\
+${DATA}:/data,\
+${CONFIGS}/etc_common:/opt/presto-server/etc,\
+${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
+${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
+${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
+-- bash -lc \"${script}\" > ${LOGS}/${log_file} 2>&1
+    fi
 }
 
 # Runs a coordinator on a specific node with default configurations.
@@ -61,11 +68,14 @@ function run_coordinator {
 
 # Runs a worker on a given node with custom configuration files which are generated as necessary.
 function run_worker {
-    [ $# -ne 2 ] && echo_error "$0 expected arguments 'worker_id' and 'worker_type'"
+    [ $# -ne 4 ] && echo_error "$0 expected arguments 'gpu_id', 'worker_type', 'node_id', and 'worker_id'"
     validate_environment_preconditions LOGS CONFIGS WORKSPACE COORD SINGLE_NODE_EXECUTION NODE CUDF_LIB DATA
 
-    local worker_id=$1
+    local gpu_id=$1
     local worker_type=$2
+    local node=$3
+    local worker_id=$4
+    echo "running worker ${worker_id} of type ${worker_type} on node ${node} with gpu_id ${gpu_id}"
     [ "$worker_type" != "cpu" ] && [ "$worker_type" != "gpu" ] && echo_error "worker type must be gpu/cpu"
     if [ "$worker_type" == "cpu" ]; then
 	NUM_DRIVERS=64
@@ -77,6 +87,7 @@ function run_worker {
     [ ! -f "${worker_image}" ] && echo_error "worker image does not exist at ${worker_image}"
 
     # Make a copy of the worker config that can be given a unique id for this worker.
+    rm -rf "${CONFIGS}/etc_worker_${worker_id}"
     cp -r "${CONFIGS}/etc_worker" "${CONFIGS}/etc_worker_${worker_id}"
     local worker_config="${CONFIGS}/etc_worker_${worker_id}/config_native.properties"
     local worker_node="${CONFIGS}/etc_worker_${worker_id}/node.properties"
@@ -98,7 +109,8 @@ function run_worker {
     mkdir -p ${WORKSPACE}/.hive_metastore
 
     # Run the worker with the new configs.
-    CUDA_VISIBLE_DIVICES=${worker_id} srun -w $NODE --ntasks=1 --overlap \
+    #CUDA_VISIBLE_DIVICES=${gpu_id} srun -N1 -w $node --ntasks=1 --overlap \
+    CUDA_VISIBLE_DIVICES=${gpu_id} srun -N1 -w $node --ntasks=1 --exclusive \
 --container-image=${worker_image} \
 --container-mounts=${WORKSPACE}:/workspace,\
 ${DATA}:/data,\
@@ -114,12 +126,14 @@ ${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 # Run a cli node that will connect to the coordinator and run queries that setup a
 # tpch schema based on the create_schema.sql file.
 function create_schema {
+    echo "creating schema"
     run_coord_image "/opt/presto-cli --server ${COORD}:8080 --catalog hive --schema default < /workspace/create_schema.sql" "cli"
 }
 
 # Run a cli node that will connect to the coordinator and run queries from queries.sql
 # Results are stored in cli.log.
 function run_queries {
+    echo "running queries"
     [ $# -ne 1 ] && echo_error "$0 expected one argument for '<iterations>'"
     local num_iterations=$1
     awk -v n="$num_iterations" '{ for (i=1; i<=n; i++) print }' "${WORKSPACE}/queries.sql" > ${WORKSPACE}/iterating_queries.sql
@@ -129,21 +143,23 @@ function run_queries {
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.
 function wait_until_coordinator_is_running {
+    echo "waiting for coordinator to be accessible"
     validate_environment_preconditions COORD LOGS
     local state="INACTIVE"
     for i in {1..10}; do
         state=$(curl -s http://${COORD}:8080/v1/info/state || true)
         if [[ "$state" == "\"ACTIVE\"" ]]; then
-            echo_success "$SLURM_JOB_ID coord started.  state: $state"  >> $LOGS/out.log
+            echo "coord started.  state: $state"
 	    return 0
         fi
         sleep 5
     done
-    echo_error "$SLURM_JOB_ID coord did not start.  state: $state"  >> $LOGS/out.log
+    echo "coord did not start.  state: $state"
 }
 
 # Check N nodes are registered with the coordinator.  Fail after 10 retries.
 function wait_for_workers_to_register {
+    echo "waiting for workers to register"
     validate_environment_preconditions LOGS COORD
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'expected number of workers'"
     local expected_num_workers=$1
@@ -151,12 +167,12 @@ function wait_for_workers_to_register {
     for i in {1..10}; do
         num_workers=$(curl -s http://${COORD}:8080/v1/node | jq length)
         if (( $num_workers == $expected_num_workers )); then
-            echo_success "$SLURM_JOB_ID worker registered. num_nodes: $num_workers"  >> $LOGS/out.log
+            echo "workers registered. num_nodes: $num_workers"
 	    return 0
         fi
         sleep 5
     done
-    echo_error "$SLURM_JOB_ID worker registered. num_nodes: $num_workers"  >> $LOGS/out.log
+    echo "workers failed to register. num_nodes: $num_workers"
 }
 
 function validate_file_exists {
@@ -176,6 +192,7 @@ function validate_config_directory {
 # Reads from cli.log to get the query IDs and fetches their results from the coordinator
 # The results are stored in results.log
 function fetch_query_results {
+    echo "fetching query results"
     validate_environment_preconditions LOGS COORD
     echo "" > ${LOGS}/results.log
     while IFS= read -r query_line; do
@@ -189,6 +206,7 @@ function fetch_query_results {
 # Parses results.log for the relevant timing data, storing the results in summary.csv.
 # Assumes the queries are in order, and numbers them accordingly.
 function parse_results {
+    echo "parsing query results"
     [ $# -ne 1 ] && echo_error "$0 expected one argument for '<iterations>'"
     local num_iterations=$1
 
