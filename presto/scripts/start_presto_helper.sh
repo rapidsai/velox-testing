@@ -66,7 +66,7 @@ function conditionally_add_build_target() {
     echo "Added $2 to the list of services to build because the '$BUILD_TARGET' build target was specified"
     BUILD_TARGET_ARG+=($2)
   fi
-} 
+}
 
 conditionally_add_build_target $COORDINATOR_IMAGE $COORDINATOR_SERVICE "coordinator|c"
 
@@ -130,4 +130,26 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   ${BUILD_TARGET_ARG[@]}
 fi
 
-docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
+function duplicate_worker_configs() {
+    local worker_config="../docker/config/generated/gpu/etc_worker_$1"
+    rm -rf ${worker_config}
+    cp -r ../docker/config/generated/gpu/etc_worker ${worker_config}
+
+    sed -i "s+http-server\.http\.port.*+http-server\.http\.port=808${i}+g" \
+        ${worker_config}/config_native.properties
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
+        ${worker_config}/config_native.properties
+
+    # Give each worker a unique id.
+    sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
+}
+
+WORKERS=""
+if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
+    for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
+        WORKERS="$WORKERS ${GPU_WORKER_SERVICE}-${i}"
+        duplicate_worker_configs $i
+    done
+fi
+
+docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d $WORKERS
