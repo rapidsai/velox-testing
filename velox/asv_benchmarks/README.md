@@ -424,21 +424,25 @@ Use `run_asv_commit_range.sh` to benchmark multiple commits and track performanc
 
 ### Commit Range Overview
 
-The script automates the process of benchmarking multiple commits:
+The script automates the process of benchmarking multiple commits with a space-efficient design:
 
 1. **For each commit in the range:**
    - Checks out the commit
    - Applies Velox patches (for TPC-H Python bindings)
    - Rebuilds Velox with sccache (using `--no-cache` for fresh builds)
    - Rebuilds ASV benchmark image (using `--no-cache`)
-   - Runs ASV benchmarks with a unique machine name
-   - Tags the Docker image with the commit hash
+   - Runs ASV benchmarks IMMEDIATELY with a unique machine name
+   - Reuses the same Docker image (`velox-adapters-build:latest`) - saves 80-90% disk space
 
 2. **After all commits are benchmarked:**
    - Publishes HTML reports for all results
    - Starts ASV preview server
-   - Tags the most recent commit's image as `latest`
-   - Cleans up intermediate tagged images
+   - Restores Git repository to original branch
+
+**Space-Efficient Approach:**
+- Only one Docker image exists at any time (reused for all commits)
+- Benchmark results are saved with unique names before each image rebuild
+- Saves 80-90% disk space compared to tagging each commit separately
 
 ### Commit Range Usage
 
@@ -540,15 +544,59 @@ The `--commits` argument accepts standard Git commit range syntax:
 - Displays commits and asks for confirmation
 - Clears previous results automatically
 
-#### 2. For Each Commit
+#### 2. For Each Commit (Sequential Processing)
 
-For each commit in the range (oldest to newest):
+The script processes each commit completely before moving to the next, ensuring accurate commit-specific benchmarks.
 
-1. **Checkout**: Switches to the commit
-2. **Apply Patches**: Applies Velox patches for TPC-H Python bindings (idempotent)
-3. **Build Velox**: Rebuilds `velox-adapters-build:latest` with sccache and `--no-cache`
-4. **Run Benchmarks**: Builds ASV image with `--no-cache` and runs all TPC-H benchmarks
-5. **Tag Image**: Tags the Docker image as `velox-adapters-build:<commit-hash>`
+**How It Ensures Commit-Specific Benchmarks:**
+
+Each commit is processed completely before moving to the next:
+
+**Commit A:**
+1. Checkout commit A in Velox repo
+2. Apply patches to commit A
+3. Build `velox-adapters-build:latest` FROM commit A's code (with `--no-cache`)
+4. Build ASV benchmark image (uses the image from step 3)
+5. **Run benchmarks IMMEDIATELY** (before moving to next commit)
+6. Results saved with unique machine name (e.g., `docker-container-a0a011d`)
+7. Clean up Velox repo
+
+**Commit B:**
+1. Checkout commit B in Velox repo
+2. Apply patches to commit B
+3. **Rebuild** `velox-adapters-build:latest` FROM commit B's code (overwrites previous)
+4. **Rebuild** ASV benchmark image (uses the NEW image from step 3)
+5. **Run benchmarks IMMEDIATELY** (before moving to next commit)
+6. Results saved with unique machine name (e.g., `docker-container-bc2bc1a`)
+7. Clean up Velox repo
+
+**Commit C, D, E...** (same pattern continues for all remaining commits)
+
+**Key Guarantees:**
+
+✅ **Commit-Specific Builds**: Each commit gets a fresh build with `--no-cache`
+
+✅ **Immediate Benchmarking**: Benchmarks run right after building, while that commit's code is in the image
+
+✅ **Results Preserved**: Results are saved to disk BEFORE the image is overwritten for the next commit
+
+✅ **No Contamination**: `--no-cache` ensures no cached layers from previous commits
+
+✅ **Complete Isolation**: Sequential processing ensures complete isolation between commits
+
+✅ **Space Efficient**: Only one Docker image exists at any time (same image name reused, saving disk space)
+
+**Space-Saving Design:**
+
+The script reuses the same Docker image name (`velox-adapters-build:latest`) for all commits instead of creating separate tagged images per commit:
+
+- **Old approach**: 10 commits = 10 Docker images (each ~5-10 GB) = 50-100 GB
+- **New approach**: 10 commits = 1 Docker image reused = 5-10 GB
+
+The benchmark results remain unique per commit because:
+- Results are saved with unique machine names before the image is overwritten
+- Each commit gets a complete rebuild from scratch with `--no-cache`
+- All results are preserved in the results directory for comparison
 
 Each commit gets a unique machine name: `velox-commit-<hash>-<timestamp>`
 
@@ -558,16 +606,14 @@ After all commits are benchmarked:
 
 1. **Publish**: Generates HTML reports from all benchmark results
 2. **Preview**: Starts ASV web server on specified port
-3. **Cleanup**: Tags most recent commit as `latest`, removes intermediate images
+3. **Restore**: Switches back to originally detected branch
 
 #### 4. Cleanup on Exit
 
 When you stop the preview server (Ctrl+C) or after completion:
 
 1. Switches Velox repository back to the originally detected branch (e.g., `IBM-techpreview`)
-2. Tags the most recent commit's image as `velox-adapters-build:latest`
-3. Removes all other tagged commit images
-4. Restores repository to clean state
+2. Restores repository to clean state
 
 ### Commit Range Examples
 
@@ -674,13 +720,18 @@ Example: 10 commits ≈ 5-10 hours total
 
 #### Disk Space
 
-Each commit requires:
+**Space-Efficient Design (Updated):**
 
-- **Velox build**: ~5-10 GB
-- **Docker images**: ~3-5 GB per tagged image
+With the new space-saving approach:
+
+- **Velox build**: ~5-10 GB (only one image, reused for all commits)
 - **Benchmark results**: ~100-500 MB per commit
 
-Example: 10 commits ≈ 50-100 GB total
+Example: 10 commits ≈ 5-15 GB total
+
+**Old approach (deprecated)**: 10 commits = 10 tagged images = 50-100 GB
+
+The script now reuses the same Docker image for all commits, saving 80-90% of disk space while maintaining benchmark accuracy.
 
 #### sccache Benefits
 
@@ -1294,6 +1345,39 @@ ls -la /data/tpch/lineitem/
 ```bash
 git config --global --add safe.directory /workspace/velox
 git config --global --add safe.directory /workspace/velox-testing
+```
+
+### Commit Range Issues
+
+#### Problem: Script processes only the first commit when range has multiple commits
+
+**Symptom**: Running `./run_asv_commit_range.sh --commits HEAD~3..HEAD` only benchmarks 1 commit instead of 3
+
+**Cause**: Subprocesses (Docker commands) were consuming stdin, causing the commit iteration loop to exit prematurely
+
+**Solution**: Fixed in latest version - all subprocess commands now redirect stdin from `/dev/null`:
+```bash
+./run_asv_benchmarks.sh ... < /dev/null
+./build_velox.sh ... < /dev/null
+```
+
+If you're using an older version, update to the latest script.
+
+#### Problem: Running out of disk space during commit range benchmarking
+
+**Symptom**: Docker build fails with "no space left on device" after several commits
+
+**Cause**: Old versions created separate Docker images for each commit (5-10 GB each)
+
+**Solution**: Fixed in latest version - the script now reuses the same Docker image for all commits, saving 80-90% disk space. Update to the latest script version.
+
+**Manual cleanup** (if using old version):
+```bash
+# Remove old tagged images
+docker images | grep velox-adapters-build | grep -v latest | awk '{print $3}' | xargs docker rmi
+
+# Check available space
+df -h
 ```
 
 ### Results Issues
