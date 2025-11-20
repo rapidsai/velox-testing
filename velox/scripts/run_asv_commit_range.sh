@@ -3,11 +3,13 @@
 # Script to benchmark a range of Velox commits with ASV
 # This script:
 # 1. Iterates over each commit in a range
-# 2. Rebuilds Velox-adapters-build image with sccache
+# 2. Rebuilds Velox-adapters-build image with sccache (reuses same image)
 # 3. Rebuilds ASV benchmark image
 # 4. Runs ASV benchmarks (without publish/preview)
-# 5. Tags the docker image with commit hash
-# 6. Finally generates HTML reports and starts preview server
+# 5. Finally generates HTML reports and starts preview server
+#
+# Note: The same velox-adapters-build:latest image is rebuilt for each commit
+#       to save disk space (no intermediate images are kept)
 #
 # Usage Examples:
 #
@@ -171,19 +173,18 @@ while [[ $# -gt 0 ]]; do
             echo "    2. Rebuild Velox with sccache (--no-cache for fresh build)"
             echo "    3. Rebuild ASV benchmark image (--no-cache)"
             echo "    4. Run all TPC-H benchmarks with unique machine name"
-            echo "    5. Tag Docker image as velox-adapters-build:<commit-hash>"
             echo ""
             echo "  After all commits:"
-            echo "    6. Generate HTML reports from all results"
-            echo "    7. Start preview server on specified port"
-            echo "    8. Tag most recent commit as velox-adapters-build:latest"
-            echo "    9. Clean up intermediate tagged images"
+            echo "    5. Generate HTML reports from all results"
+            echo "    6. Start preview server on specified port"
             echo ""
             echo "Notes:"
             echo "  - Each commit takes ~30-60 minutes to build and benchmark"
             echo "  - sccache provides 2-10x speedup for subsequent builds"
             echo "  - Results are saved with unique machine names per commit"
-            echo "  - Press Ctrl+C on preview server to trigger cleanup"
+            echo "  - The same velox-adapters-build:latest image is rebuilt for each commit"
+            echo "  - No intermediate Docker images are kept (saves disk space)"
+            echo "  - Press Ctrl+C on preview server to stop"
             echo "  - Git state is always restored to original branch/commit"
             echo ""
             exit 0
@@ -340,8 +341,7 @@ HEAD_COMMIT_SHORT=$(git rev-parse --short HEAD)
 echo "Original branch: $ORIGINAL_BRANCH ($ORIGINAL_COMMIT)"
 echo ""
 
-# Array to track tagged images
-TAGGED_IMAGES=()
+# Track the most recent commit for informational purposes
 LATEST_COMMIT_SHORT=""
 
 # Function to cleanup and restore original state
@@ -354,31 +354,7 @@ cleanup_and_restore() {
     echo -e "${BLUE}=============================================${NC}"
     echo ""
     
-    # Tag the most recent/HEAD commit as latest
-    if [ -n "$LATEST_COMMIT_SHORT" ]; then
-        echo -e "${BLUE}Tagging velox-adapters-build:$LATEST_COMMIT_SHORT as latest...${NC}"
-        docker tag "velox-adapters-build:$LATEST_COMMIT_SHORT" velox-adapters-build:latest || {
-            echo -e "${YELLOW}Warning: Could not tag latest image${NC}"
-        }
-        echo -e "${GREEN}✓ Tagged as velox-adapters-build:latest${NC}"
-    fi
-    
-    # Remove all other tagged images
-    if [ ${#TAGGED_IMAGES[@]} -gt 0 ]; then
-        echo ""
-        echo -e "${BLUE}Cleaning up intermediate tagged images...${NC}"
-        for image in "${TAGGED_IMAGES[@]}"; do
-            # Skip the latest commit image
-            if [ "$image" != "velox-adapters-build:$LATEST_COMMIT_SHORT" ]; then
-                echo "  Removing $image"
-                docker rmi "$image" 2>/dev/null || echo "    (already removed or in use)"
-            fi
-        done
-        echo -e "${GREEN}✓ Cleanup complete${NC}"
-    fi
-    
     # Restore Git state
-    echo ""
     echo -e "${BLUE}Restoring original Git state...${NC}"
     cd "$VELOX_REPO"
     # if [ "$ORIGINAL_BRANCH" = "HEAD" ]; then
@@ -513,15 +489,6 @@ benchmark_commit() {
     echo -e "${GREEN}✓ Benchmarks completed for commit $commit_short${NC}"
     echo ""
     
-    # Step 4: Tag the Velox image with commit hash
-    echo -e "${BLUE}Step 4: Tagging Docker image...${NC}"
-    docker tag velox-adapters-build:latest "velox-adapters-build:$commit_short" || {
-        echo -e "${YELLOW}Warning: Failed to tag image${NC}"
-    }
-    TAGGED_IMAGES+=("velox-adapters-build:$commit_short")
-    echo -e "${GREEN}✓ Tagged as velox-adapters-build:$commit_short${NC}"
-    echo ""
-    
     # Step 5: Clean up any modified files in the Velox repository
     echo -e "${BLUE}Step 5: Cleaning up modified files in Velox repository...${NC}"
     clean_velox_repo
@@ -603,9 +570,9 @@ echo -e "${GREEN}=============================================${NC}"
 echo ""
 echo "Results saved to: $RESULTS_PATH"
 echo "Commits benchmarked: $COMMIT_COUNT"
-echo "Latest image: velox-adapters-build:latest (tagged from $LATEST_COMMIT_SHORT)"
+echo "Latest commit processed: $LATEST_COMMIT_SHORT"
 echo ""
-echo -e "${YELLOW}Note: Cleanup will run when the preview server is stopped (Ctrl+C)${NC}"
+echo -e "${YELLOW}Note: Git state will be restored when the preview server is stopped (Ctrl+C)${NC}"
 echo ""
 
 echo ""
