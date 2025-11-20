@@ -1,0 +1,15 @@
+name: Velox Benchmark Nightly Sanity Test (Staging)
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # daily at 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  nightly-tpch-sanity-test:
+    uses: ./.github/workflows/velox-benchmark-sanity-test.yml
+    with:
+      repository: ${{ vars.STABLE_VELOX_REPO }}
+      velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
+      benchmark_type: tpch
+    secrets: inherit
