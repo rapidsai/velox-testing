@@ -1,13 +1,17 @@
 FROM presto/prestissimo-dependency:centos9
 
+RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
+    dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
+    dnf install -y nsight-systems-cli-2025.5.1.121
+
 ARG GPU=ON
 ARG BUILD_TYPE=release
 ARG BUILD_BASE_DIR=/presto_native_${BUILD_TYPE}_gpu_${GPU}_build
 ARG NUM_THREADS=12
 ARG EXTRA_CMAKE_FLAGS="-DPRESTO_ENABLE_TESTING=OFF -DPRESTO_ENABLE_PARQUET=ON -DPRESTO_ENABLE_CUDF=${GPU} -DVELOX_BUILD_TESTING=OFF"
+ARG CUDA_ARCHITECTURES="75;80;86;90;100;120"
 
-# Build for all supported architectures. Note that the `CUDA_ARCHITECTURES="native"` option does not work for docker image builds.
-ENV CUDA_ARCHITECTURES="70;75;80;86;89;90;100;120"
+ENV CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES}
 ENV EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS}
 ENV NUM_THREADS=${NUM_THREADS}
 
@@ -25,4 +29,6 @@ RUN mkdir /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
     echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
 
-CMD bash -c "ldconfig && presto_server --etc-dir=/opt/presto-server/etc"
+COPY velox-testing/presto/docker/launch_presto_server.sh /opt
+
+CMD ["bash", "/opt/launch_presto_server.sh"]

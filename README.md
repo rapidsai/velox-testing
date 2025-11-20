@@ -21,6 +21,29 @@ A Docker-based build infrastructure has been added to facilitate building Velox 
 
 Specifically, the `velox-testing` and `velox` repositories must be checked out as sibling directories under the same parent directory. Once that is done, navigate (`cd`) into the `velox-testing/velox/scripts` directory and execute the build script `build_velox.sh`. After a successful build, the Velox libraries and executables are available in the container at `/opt/velox-build/release`.
 
+## `sccache` Usage
+`sccache` has been integrated to significantly accelerate builds using remote S3 caching and optional distributed compilation. Currently supported for Velox builds only (not Presto).
+
+The fork `rapidsai/sccache` is integrated and configured for use with the `rapidsai` GitHub organization.
+
+### Setup and Usage
+First, set up authentication credentials:
+```bash
+cd velox-testing/velox/scripts
+./setup_sccache_auth.sh
+```
+
+Then build Velox with sccache enabled:
+```bash
+# Default: Remote S3 cache + local compilation (recommended)
+./build_velox.sh --sccache
+
+# Optional: Enable distributed compilation (may cause build differences such as additional warnings)
+./build_velox.sh --sccache --sccache-enable-dist
+```
+
+Authentication files are stored in `~/.sccache-auth/` by default and credentials are valid for 12 hours. By default, distributed compilation is disabled to avoid compiler version differences that can cause build failures.
+
 ## Velox Benchmarking
 A Docker-based benchmarking infrastructure has been added to facilitate running Velox benchmarks with support for CPU/GPU execution engines and profiling capabilities. The infrastructure uses a dedicated `velox-benchmark` Docker service with pre-configured volume mounts that automatically sync benchmark data and results. The data follows Hive directory structure, making it compatible with Presto. Currently, only TPC-H is implemented, but the infrastructure is designed to be easily extended to support additional benchmarks in the future.
 
@@ -102,6 +125,8 @@ A number of docker image build and container services infrastructure (using dock
 ``` 
 Specifically, the `velox-testing`, `presto`, and `velox` repositories have to be checked out as sibling directories under the same parent directory. Once that is done, navigate (`cd`) into the `velox-testing/presto/scripts` directory and execute the start up script for the needed presto deployment variant. The following scripts: `start_java_presto.sh`, `start_native_cpu_presto.sh`, and `start_native_gpu_presto.sh` can be used to build/deploy "Presto Java Coordinator + Presto Java Worker", "Presto Java Coordinator + Presto Native CPU Worker", and "Presto Java Coordinator + Presto Native GPU Worker" variants respectively. The presto server can then be accessed at http://localhost:8080.
 
+Note that CPU and GPU builds require a local dependencies/run-time base Docker image (`presto/prestissimo-dependency:centos9`). The `start` scripts will not create this automatically. It must be obtained manually. Use the `build_centos_deps_image.sh` script to build an image locally, or the `fetch_centos_deps_image.sh` script to fetch a pre-built image from an external source. Note that the latter script currently requires additional credentials not available to third-parties.
+
 ### Running Integration Tests
 The Presto integration tests are implemented using the [pytest](https://docs.pytest.org/en/stable/) framework. The integration tests can be executed directly by using the `pytest` command e.g. `pytest tpch_test.py` or more conveniently, by using the `run_integ_test.sh` script from within the `velox-testing/presto/scripts` directory (this script handles environment setup for test execution). Execute `./run_integ_test.sh --help` to get more details about script options. An instance of Presto must be deployed and running *before* running the integration tests. This can be done using one of the `start_*` scripts mentioned in the "Presto Testing" section.
 
@@ -119,3 +144,5 @@ A couple of utility scripts have been added to facilitate the process of setting
 
 ## Presto Benchmarking
 The Presto benchmarks are implemented using the [pytest](https://docs.pytest.org/en/stable/) framework and builds on top of infrastructure that was implemented for general Presto testing. Specifically, the `start_*` scripts mentioned in the "Presto Testing" section can be used to start up a Presto variant (make sure the `PRESTO_DATA_DIR` environment variable is set appropriately before running the script), and the benchmark can be run by executing the `run_benchmark.sh` script from within the `velox-testing/presto/scripts` directory. Execute `./run_benchmark.sh --help` to get more details about the benchmark script options.
+> [!TIP]
+ANALYZE TABLES `velox-testing/presto/scripts/analyze_tables.sh` must be run on CPU Presto before GPU benchmarks because aggregation is not yet supported on GPU. Statistics are stored in the Hive metastore and automatically benefit GPU query execution, improving performance and reducing OOM failures.

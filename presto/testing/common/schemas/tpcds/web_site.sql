@@ -1,4 +1,4 @@
-CREATE TABLE hive.tpcds_test.web_site (
+CREATE TABLE hive.{schema}.web_site (
     web_site_sk INTEGER,
     web_site_id VARCHAR,
     web_rec_start_date DATE,

@@ -34,14 +34,13 @@ Usage: $0 [OPTIONS]
 $SCRIPT_DESCRIPTION
 
 NOTE: The PRESTO_DATA_DIR environment variable must be set before running this script. This environment variable 
-must also be set before starting the Presto instance/running the `start_*_presto.sh` script.
+must also be set before starting the Presto instance/running the start_*_presto.sh script.
 
 OPTIONS:
     -h, --help                          Show this help message.
     -b, --benchmark-type                Type of benchmark to create tables for. Only "tpch" and "tpcds" are currently supported.
     -s, --schema-name                   Name of the schema that will contain the created tables.
     -d, --data-dir-name                 Name of the directory inside the PRESTO_DATA_DIR path for the benchmark data.
-    -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
     $SCRIPT_EXTRA_OPTIONS_DESCRIPTION
 
 EXAMPLES:
@@ -61,7 +60,7 @@ source ./common_functions.sh
 
 wait_for_worker_node_registration
 
-parse_args() { 
+parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -h|--help)
@@ -94,10 +93,6 @@ parse_args() {
           echo "Error: --data-dir-name requires a value"
           exit 1
         fi
-        ;;
-      -c|--convert-decimals-to-floats)
-        CONVERT_DECIMALS_TO_FLOATS_ARG="--convert-decimals-to-floats"
-        shift
         ;;
       *)
         SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=true

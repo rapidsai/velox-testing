@@ -27,15 +27,24 @@ def init_benchmark_tables(benchmark_type, scale_factor):
 
     duckdb.sql(f"INSTALL {benchmark_type}; LOAD {benchmark_type}; CALL {function_name}(sf = {scale_factor});")
 
+def create_table(table_name, data_path):
+    duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
+    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet';")
+
+# Generates a sample table with a small limit.
+# This is mainly used to extract the schema from the parquet files.
+def create_not_null_table_from_sample(table_name, data_path):
+    duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
+    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
+    ret = duckdb.sql(f"DESCRIBE TABLE {table_name}").fetchall()
+    for row in ret:
+        duckdb.sql(f"ALTER TABLE {table_name} ALTER COLUMN {row[0]} SET NOT NULL;")
+
+
+def create_table_from_sample(table_name, data_path):
+    duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
+    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
+
+
 def is_decimal_column(column_type):
     return bool(re.match(r"^DECIMAL\(\d+,\d+\)$", column_type))
-
-def map_table_schemas(verbose):
-    tables = duckdb.sql("SHOW TABLES").fetchall()
-    assert len(tables) > 0 # Benchmark tables must be initialized.
-    table_to_schema_map = {}
-    for table_name, in tables:
-        table_to_schema_map[table_name] = duckdb.sql(f"SHOW {table_name}").fetchall()
-    if verbose:
-        print(f"Benchmark tables: {table_to_schema_map.keys()}")
-    return table_to_schema_map

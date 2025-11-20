@@ -1,4 +1,5 @@
 name: Velox Test
+run-name: ${{ github.event.head_commit.message }}
 
 on:
   workflow_dispatch:
@@ -33,9 +34,13 @@ on:
         required: false
         default: 'gpu'
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   velox-cpu:
-    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'cpu' || github.event.inputs.build_target == 'all' || github.event.inputs.build_target == 'cpu' }}
+    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'cpu' }}
     runs-on: linux-amd64-cpu4
 
     env:
@@ -50,38 +55,30 @@ jobs:
           path: velox-testing
 
       - &checkout-velox
-        name: Checkout Velox
-        uses: actions/checkout@v4
+        name: Setup Velox
+        uses: ./velox-testing/.github/actions/velox-setup
         with:
-          repository: ${{ inputs.repository || github.event.inputs.repository }}
-          ref: ${{ inputs.velox_commit || github.event.inputs.velox_commit }}
-          path: velox
+          repository: ${{ inputs.repository }}
+          velox_commit: ${{ inputs.velox_commit }}
 
-      - &get-velox-sha
-        name: Get Velox commit SHA
-        id: velox-sha
-        run: |
-          VELOX_REF="${{ inputs.velox_commit || github.event.inputs.velox_commit }}"
-          echo "Input ref: $VELOX_REF"
-          
-          if [[ "$VELOX_REF" == "main" || "$VELOX_REF" == "master" ]]; then
-            cd velox
-            ACTUAL_SHA=$(git rev-parse HEAD)
-            echo "Resolved SHA for branch '$VELOX_REF': $ACTUAL_SHA"
-            echo "VELOX_COMMIT_SHA=$ACTUAL_SHA" >> $GITHUB_ENV
-            echo "velox_sha=$ACTUAL_SHA" >> $GITHUB_OUTPUT
-          else
-            echo "Using provided ref: $VELOX_REF"
-            echo "VELOX_COMMIT_SHA=$VELOX_REF" >> $GITHUB_ENV
-            echo "velox_sha=$VELOX_REF" >> $GITHUB_OUTPUT
-          fi
+      - &fetch-and-load-deps
+        name: Fetch or Build Velox Dependencies
+        uses: ./velox-testing/.github/actions/velox-deps-fetch
+        with:
+          aws_arn_string: ${{ secrets.AWS_ARN_STRING }}
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          s3_bucket_name: ${{ vars.S3_BUCKET_NAME }}
+          s3_bucket_region: ${{ vars.S3_BUCKET_REGION }}
+          fail_on_fetch_error: false
+          auto_build_on_failure: true
 
       - name: Building Velox for CPU
         run: |
           echo "   - CUDF support: DISABLED"
           echo "   - Target: CPU-only build"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --cpu --log build_velox_cpu.log
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --cpu --log build_velox_cpu.log
 
       - name: Upload velox_cpu_build_log as an artifact
         uses: actions/upload-artifact@v4
@@ -91,13 +88,11 @@ jobs:
 
       - &run-velox-tests
         name: Run Velox CPU Tests
-        run: |
-          pushd ${{ github.workspace }}/velox-testing/velox/scripts
-          ./test_velox.sh --device-type cpu
-          popd
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./test_velox.sh --device-type cpu
 
   velox-gpu:
-    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'gpu' || github.event.inputs.build_target == 'all' || github.event.inputs.build_target == 'gpu' }}
+    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'gpu' }}
     runs-on: linux-amd64-gpu-l4-latest-1
     
     env:
@@ -109,14 +104,14 @@ jobs:
 
       - *checkout-velox
 
-      - *get-velox-sha
+      - *fetch-and-load-deps
 
       - name: Building Velox for GPU
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
         run: |
           echo "   - CUDF support: ENABLED"
           echo "   - Target: GPU-accelerated build"
-          cd ${{ github.workspace }}/velox-testing/velox/scripts
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --all-cuda-archs --gpu --log build_velox_gpu.log
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --gpu --log build_velox_gpu.log
 
       - name: Upload velox_gpu_build_log as an artifact
         uses: actions/upload-artifact@v4
@@ -125,7 +120,5 @@ jobs:
           path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_gpu.log
 
       - name: Run Velox GPU Tests
-        run: |
-          pushd ${{ github.workspace }}/velox-testing/velox/scripts
-          ./test_velox.sh --device-type gpu
-          popd
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./test_velox.sh -j 1 --device-type gpu

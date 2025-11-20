@@ -22,12 +22,12 @@ function wait_for_worker_node_registration() {
   PORT=${2:-8080}
   COORDINATOR_URL=http://${HOSTNAME}:${PORT}
   echo "Coordinator URL: $COORDINATOR_URL"
-  local -r MAX_RETRIES=5
+  local -r MAX_RETRIES=12
   local retry_count=0
   until curl -s -f -o node_response.json ${COORDINATOR_URL}/v1/node && \
         (( $(jq length node_response.json) > 0 )); do
     if (( $retry_count >= $MAX_RETRIES )); then
-      echo "Error: Worker node not registered"
+      echo "Error: Worker node not registered after 60s. Exiting."
       exit 1
     fi
     sleep 5

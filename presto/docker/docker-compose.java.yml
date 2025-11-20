@@ -4,7 +4,9 @@ services:
       file: docker-compose.common.yml
       service: presto-base-coordinator
     volumes:
-      - ./config/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/java/etc_common:/opt/presto-server/etc
+      - ./config/generated/java/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/java/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
 
   presto-java-worker:
     extends:
@@ -13,7 +15,8 @@ services:
     container_name: presto-java-worker
     image: presto-java-worker:latest
     volumes:
-      - ./config/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
-      - ./config/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/java/etc_common:/opt/presto-server/etc
+      - ./config/generated/java/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/java/etc_worker/node.properties:/opt/presto-server/etc/node.properties
     depends_on:
       - presto-coordinator

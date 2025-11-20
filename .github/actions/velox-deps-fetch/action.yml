@@ -1,0 +1,77 @@
+name: 'Fetch Velox Dependencies'
+description: 'Download and load Velox dependencies container image from S3, with automatic fallback to building if needed'
+
+inputs:
+  aws_arn_string:
+    description: 'AWS ARN string for authentication'
+    required: true
+  aws_access_key_id:
+    description: 'AWS access key ID'
+    required: true
+  aws_secret_access_key:
+    description: 'AWS secret access key'
+    required: true
+  s3_bucket_name:
+    description: 'S3 bucket name containing the deps image'
+    required: true
+  s3_bucket_region:
+    description: 'S3 bucket region'
+    required: true
+  auto_build_on_failure:
+    description: 'Automatically build deps image if fetch fails (default: true)'
+    required: true
+  fail_on_fetch_error:
+    description: 'Exit workflow if fetch fails (default: false). Takes precedence over auto_build_on_failure.'
+    required: true
+
+outputs:
+  fetch_status:
+    description: 'Status of the fetch operation: success, not_found, or error'
+    value: ${{ steps.fetch_deps.outputs.fetch_status }}
+  deps_built:
+    description: 'Whether the deps image was built (true) or fetched (false)'
+    value: ${{ steps.build_deps.outcome == 'success' }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Fetch Velox Dependencies Container Image
+      id: fetch_deps
+      shell: bash
+      working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+      env:
+        AWS_ARN_STRING: ${{ inputs.aws_arn_string }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws_access_key_id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws_secret_access_key }}
+        S3_BUCKET_NAME: ${{ inputs.s3_bucket_name }}
+        S3_BUCKET_REGION: ${{ inputs.s3_bucket_region }}
+      run: |
+        set +e
+        ./fetch_centos_deps_image.sh
+        status=$?
+        
+        if [[ $status -eq 0 ]]; then
+          echo "Successfully fetched and loaded deps image from S3"
+          echo "fetch_status=success" >> $GITHUB_OUTPUT
+          echo "needs_build=false" >> $GITHUB_OUTPUT
+        else
+          echo "Deps image not found in S3 or failed to load"
+          echo "fetch_status=not_found" >> $GITHUB_OUTPUT
+          echo "needs_build=true" >> $GITHUB_OUTPUT
+          
+          # Check if we should fail instead of building
+          if [[ "${{ inputs.fail_on_fetch_error }}" == "true" ]]; then
+            echo "ERROR: fail_on_fetch_error is enabled. Exiting workflow."
+            exit 1
+          fi
+        fi
+
+    - name: Build Velox Dependencies Container Image (fallback)
+      id: build_deps
+      if: ${{ steps.fetch_deps.outputs.needs_build == 'true' && inputs.auto_build_on_failure == 'true' }}
+      shell: bash
+      working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+      run: |
+        echo "Building deps image as fallback..."
+        ./build_centos_deps_image.sh
+        echo "Successfully built deps image"
