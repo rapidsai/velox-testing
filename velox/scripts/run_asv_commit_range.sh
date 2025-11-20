@@ -399,6 +399,18 @@ cleanup_and_restore() {
 # Trap to ensure we cleanup and restore state on exit (including errors)
 trap cleanup_and_restore EXIT
 
+clean_velox_repo() {
+    local current_dir="$(pwd)"
+    cd "$VELOX_REPO"
+    git checkout -f . > /dev/null 2>&1 || {
+        echo -e "${YELLOW}Warning: Failed to discard changes${NC}"
+    }
+    git clean -fd > /dev/null 2>&1 || {
+        echo -e "${YELLOW}Warning: Failed to clean untracked files${NC}"
+    }
+    cd "$current_dir"
+}
+
 # Function to benchmark a single commit
 benchmark_commit() {
     local commit=$1
@@ -407,6 +419,8 @@ benchmark_commit() {
     
     # Always start in VELOX_REPO (the git repository being benchmarked)
     cd "$VELOX_REPO"
+    # clean velox repo before starting
+    clean_velox_repo
     
     local commit_short=$(git rev-parse --short "$commit")
     local commit_msg=$(git log -1 --pretty=format:"%s" "$commit")
@@ -434,7 +448,7 @@ benchmark_commit() {
     echo -e "${BLUE}Step 1: Applying Velox patches...${NC}"
     echo ""
     
-    ./apply_velox_patches.sh || {
+    ./apply_velox_patches.sh < /dev/null || {
         echo -e "${RED}Error: Failed to apply patches for commit $commit_short${NC}"
         return 1
     }
@@ -449,13 +463,13 @@ benchmark_commit() {
     export SCCACHE_AUTH_DIR="$SCCACHE_AUTH_DIR"
     
     # Try to build Velox
-    if ! $BUILD_VELOX_CMD; then
+    if ! $BUILD_VELOX_CMD < /dev/null; then
         echo -e "${YELLOW}Warning: Velox build failed. Attempting recovery...${NC}"
         echo ""
         
         # Step 2a: Rebuild CentOS dependencies image
         echo -e "${BLUE}Step 2a: Rebuilding CentOS dependencies image...${NC}"
-        if ! ./build_centos_deps_image.sh; then
+        if ! ./build_centos_deps_image.sh < /dev/null; then
             echo -e "${RED}Error: Failed to build CentOS dependencies image${NC}"
             return 1
         fi
@@ -464,7 +478,7 @@ benchmark_commit() {
         
         # Step 2b: Retry Velox build
         echo -e "${BLUE}Step 2b: Retrying Velox build...${NC}"
-        if ! $BUILD_VELOX_CMD; then
+        if ! $BUILD_VELOX_CMD < /dev/null; then
             echo -e "${RED}Error: Velox build failed again after rebuilding deps${NC}"
             return 1
         fi
@@ -475,25 +489,23 @@ benchmark_commit() {
 
     # Step 3: Build ASV benchmark image
     echo -e "${BLUE}Step 3: Building ASV benchmark image...${NC}"
-    ./build_asv_image.sh --no-cache
+    ./build_asv_image.sh --no-cache < /dev/null
     echo -e "${GREEN}✓ ASV benchmark image built successfully${NC}"
     echo ""
 
     # Step 4: Run ASV benchmarks (without publish/preview)
     echo -e "${BLUE}Step 4: Running ASV benchmarks for commit $commit_short (No Publish/Preview)...${NC}"
 
-    VELOX_BRANCH="$VELOX_DETECTED_BRANCH" \
-    ASV_SKIP_EXISTING=false \
-    ASV_RECORD_SAMPLES=true \
-    ASV_PUBLISH=false \
-    ASV_PREVIEW=false \
-    ASV_COMMIT_RANGE="HEAD^!" \
+    export VELOX_BRANCH="$VELOX_DETECTED_BRANCH"
+    export ASV_SKIP_EXISTING=false
+    export ASV_RECORD_SAMPLES=true 
     ./run_asv_benchmarks.sh \
         --data-path "$DATA_PATH" \
         --results-path "$RESULTS_PATH" \
+        --commits "HEAD^!" \
         --interleave-rounds \
         --no-publish \
-        --no-preview || {
+        --no-preview < /dev/null || {
         echo -e "${RED}Error: Benchmarks failed for commit $commit_short${NC}"
         echo -e "${YELLOW}Continuing...${NC}"
     }
@@ -512,10 +524,7 @@ benchmark_commit() {
     
     # Step 5: Clean up any modified files in the Velox repository
     echo -e "${BLUE}Step 5: Cleaning up modified files in Velox repository...${NC}"
-    cd "$VELOX_REPO"
-    git reset --hard HEAD^ > /dev/null 2>&1 || {
-        echo -e "${YELLOW}Warning: Failed to reset repository${NC}"
-    }
+    clean_velox_repo
     echo -e "${GREEN}✓ Cleaned up modified files${NC}"
     echo ""
     
@@ -535,14 +544,25 @@ echo "$COMMITS_TO_BENCHMARK" | while IFS= read -r c; do
 done
 echo ""
 
+echo -e "${YELLOW}[DEBUG] COMMITS_TO_BENCHMARK variable contains:${NC}"
+echo "$COMMITS_TO_BENCHMARK" | nl
+echo -e "${YELLOW}[DEBUG] Total lines: $(echo "$COMMITS_TO_BENCHMARK" | wc -l)${NC}"
+echo ""
+
 while IFS= read -r commit; do
-    [ -z "$commit" ] && continue  # Skip empty lines
+    echo -e "${YELLOW}[DEBUG] Loop iteration $CURRENT_NUM: processing commit '$commit'${NC}"
+    [ -z "$commit" ] && {
+        echo -e "${YELLOW}[DEBUG] Skipping empty line${NC}"
+        continue
+    }
     benchmark_commit "$commit" "$CURRENT_NUM" "$BENCHMARK_COUNT" || {
         echo -e "${RED}Error: Failed to benchmark commit${NC}"
-        exit 1
+        echo -e "${YELLOW}Continuing to next commit...${NC}"
     }
     CURRENT_NUM=$((CURRENT_NUM + 1))
+    echo -e "${YELLOW}[DEBUG] Completed iteration $((CURRENT_NUM - 1)), moving to next...${NC}"
 done <<< "$COMMITS_TO_BENCHMARK"
+echo -e "${YELLOW}[DEBUG] Loop finished normally after processing $((CURRENT_NUM - 1)) commits${NC}"
 
 # All commits benchmarked, now generate reports and start preview
 echo ""
@@ -571,7 +591,7 @@ cd "${VELOX_TESTING_ROOT}/velox/scripts"
     --data-path "$DATA_PATH" \
     --results-path "$RESULTS_PATH" \
     --port "$PORT" \
-    --publish-existing || {
+    --publish-existing < /dev/null || {
     echo -e "${RED}Error: Failed to publish/preview results${NC}"
     exit 1
 }
