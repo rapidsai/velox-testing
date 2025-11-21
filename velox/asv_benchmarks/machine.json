@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "machine": "docker-container",
+    "os": "Linux-Generic-64bit",
+    "arch": "x86_64",
+    "cpu": "Intel Xeon/AWS",
+    "ram": "32GB"
+}
