@@ -15,6 +15,6 @@ done
 
 wait_for_workers_to_register $NUM_WORKERS
 
-run_queries 5
+run_queries 5 $SCALE_FACTOR
 fetch_query_results
 parse_results 5

@@ -2,14 +2,16 @@
 # These steps should verify the context we are running in
 # and start the coordinator.
 
-[ -z "$SLURM_JOB_NAME" ] && echo_error "required argument '--job-name' not specified" && exit 1
-[ -z "$SLURM_JOB_ACCOUNT" ] && echo_error "required argument '--account' not specified" && exit 1
-[ -z "$SLURM_JOB_PARTITION" ] && echo_error "required argument '--partition' not specified" && exit 1
+[ -z "$SLURM_JOB_NAME" ] && echo "required argument '--job-name' not specified" && exit 1
+[ -z "$SLURM_JOB_ACCOUNT" ] && echo "required argument '--account' not specified" && exit 1
+[ -z "$SLURM_JOB_PARTITION" ] && echo "required argument '--partition' not specified" && exit 1
 #[ -z "$SLURM_TIMELIMIT" ] && echo_error "required argument '--time' not specified" && exit 1
-[ -z "$SLURM_NTASKS_PER_NODE" ] && echo_error "required argument '--ntasks-per-node' not specified" && exit 1
-[ -z "$SLURM_NNODES" ] && echo_error "required argument '--nodes' not specified" && exit 1
-[ -z "$NUM_WORKERS" ] && echo_error "NUM_WORKERS must be set" && exit 1
+[ -z "$SLURM_NTASKS_PER_NODE" ] && echo "required argument '--ntasks-per-node' not specified" && exit 1
+[ -z "$SLURM_NNODES" ] && echo "required argument '--nodes' not specified" && exit 1
+[ -z "$NUM_NODES" ] && echo "NUM_WORKERS must be set" && exit 1
+[ -z "$NUM_GPUS_PER_NODE" ] && echo "NUM_GPUS_PER_NODE env variable must be set" && exit 1
 
+NUM_WORKERS=$(( $NUM_NODES * $NUM_GPUS_PER_NODE ))
 LOGS="${WORKSPACE}/velox-testing/presto/cluster/"
 CONFIGS="${WORKSPACE}/velox-testing/presto/docker/config/generated"
 # Right now we assume one node that everything will run on.
@@ -23,8 +25,8 @@ else
     SINGLE_NODE_EXECUTION=false
 fi
 
-[ ! -d "$WORKSPACE" ] && echo_error "WORKSPACE must be a valid directory" && exit 1
-[ ! -d "$DATA" ] && echo_error "DATA must be a valid directory" && exit 1
+[ ! -d "$WORKSPACE" ] && echo "WORKSPACE must be a valid directory" && exit 1
+[ ! -d "$DATA" ] && echo "DATA must be a valid directory" && exit 1
 
 validate_config_directory
 

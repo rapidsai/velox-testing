@@ -40,7 +40,7 @@ ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc "${script}" > ${LOGS}/${log_file} 2>&1 &
+-- bash -lc "${script}" >> ${LOGS}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
@@ -50,7 +50,7 @@ ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc "${script}" > ${LOGS}/${log_file} 2>&1
+-- bash -lc "${script}" >> ${LOGS}/${log_file} 2>&1
     fi
 }
 
@@ -126,17 +126,29 @@ ${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 # tpch schema based on the create_schema.sql file.
 function create_schema {
     echo "creating schema"
+    [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
+    local scale_factor=$1
+    sed -i "s+tpchsf[^/\.]*+tpchsf${scale_factor}+g" "${WORKSPACE}/create_schema.sql"
     run_coord_image "/opt/presto-cli --server ${COORD}:8080 --catalog hive --schema default < /workspace/create_schema.sql" "cli"
+}
+
+function create_tpch_data {
+    echo "creating data"
+    [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
+    local scale_factor=$1
+    [ -d "${DATA}/tpchsf${scale_factor}" ] && echo "data dir already exists at ${DATA}/tpchsf${scale_factor}.  Skipping data gen" && return 0
+    run_coord_image "yum install python3.12 -y; cd /workspace/velox-testing/scripts; ./run_py_script.sh -p ../benchmark_data_tools/generate_data_files.py -b tpch -d /data/tpchsf${scale_factor} -s ${scale_factor} -c -j32" "cli"
 }
 
 # Run a cli node that will connect to the coordinator and run queries from queries.sql
 # Results are stored in cli.log.
 function run_queries {
     echo "running queries"
-    [ $# -ne 1 ] && echo_error "$0 expected one argument for '<iterations>'"
+    [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
+    local scale_factor=$2
     awk -v n="$num_iterations" '{ for (i=1; i<=n; i++) print }' "${WORKSPACE}/queries.sql" > ${WORKSPACE}/iterating_queries.sql
-    run_coord_image "/opt/presto-cli --server ${COORD}:8080 --catalog hive --schema tpch1k < /workspace/iterating_queries.sql" "cli"
+    run_coord_image "/opt/presto-cli --server ${COORD}:8080 --catalog hive --schema tpchsf${scale_factor} < /workspace/iterating_queries.sql" "cli"
     rm ${WORKSPACE}/iterating_queries.sql
 }
 
@@ -153,14 +165,14 @@ function wait_until_coordinator_is_running {
         fi
         sleep 5
     done
-    echo "coord did not start.  state: $state"
+    echo_error "coord did not start.  state: $state"
 }
 
 # Check N nodes are registered with the coordinator.  Fail after 10 retries.
 function wait_for_workers_to_register {
-    echo "waiting for workers to register"
     validate_environment_preconditions LOGS COORD
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'expected number of workers'"
+    echo "waiting for $1 workers to register"
     local expected_num_workers=$1
     local num_workers=0
     for i in {1..10}; do
@@ -171,11 +183,11 @@ function wait_for_workers_to_register {
         fi
         sleep 5
     done
-    echo "workers failed to register. num_nodes: $num_workers"
+    echo_error "workers failed to register. num_nodes: $num_workers"
 }
 
 function validate_file_exists {
-    [ ! -f "$1" ] && echo_error "$1 must exist in CONFIGS directory" && exit 1
+    [ ! -f "$1" ] && echo_error "$1 must exist in CONFIGS directory"
 }
 
 function validate_config_directory {
