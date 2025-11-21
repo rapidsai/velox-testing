@@ -109,7 +109,7 @@ function run_worker {
     mkdir -p ${WORKSPACE}/.hive_metastore
 
     # Run the worker with the new configs.
-    CUDA_VISIBLE_DIVICES=${gpu_id} srun -N1 -w $node --ntasks=1 --overlap \
+    CUDA_VISIBLE_DEVICES=${gpu_id} srun -N1 -w $node --ntasks=1 --overlap \
 --container-image=${worker_image} \
 --container-mounts=${WORKSPACE}:/workspace,\
 ${DATA}:/data,\
