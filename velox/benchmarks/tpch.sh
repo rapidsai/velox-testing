@@ -194,15 +194,14 @@ run_tpch_single_benchmark() {
       num_drivers=${NUM_DRIVERS:-32}
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
       CUDF_FLAGS=""
-      VELOX_CUDF_FLAGS=""
       ;;
     "gpu")
       num_drivers=${NUM_DRIVERS:-4}
       cudf_chunk_read_limit=$((1024 * 1024 * 1024 * 1))
       cudf_pass_read_limit=0
+      cudf_memory_resource="async"
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
-      CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit}"
-      VELOX_CUDF_FLAGS="--velox_cudf_memory_resource=async"
+      CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit} --cudf_memory_resource=${cudf_memory_resource}"
       ;;
   esac
   
@@ -247,7 +246,6 @@ run_tpch_single_benchmark() {
         --num_drivers='"${num_drivers}"' \
         --preferred_output_batch_rows='"${output_batch_rows}"' \
         --max_output_batch_rows='"${output_batch_rows}"' \
-        '"${VELOX_CUDF_FLAGS}"' \
         '"${CUDF_FLAGS}"' 2>&1 | \
         tee \"\$BASE_FILENAME\"
       chown \"${USER_ID}:${GROUP_ID}\" \"\$BASE_FILENAME\"
