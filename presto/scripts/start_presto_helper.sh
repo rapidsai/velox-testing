@@ -134,17 +134,17 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
 fi
 
 function duplicate_worker_configs() {
-    local worker_config="../docker/config/generated/gpu/etc_worker_$1"
+    local worker_config="../docker/config/generated/gpu/etc_worker_${1}"
     rm -rf ${worker_config}
     cp -r ../docker/config/generated/gpu/etc_worker ${worker_config}
 
-    sed -i "s+http-server\.http\.port.*+http-server\.http\.port=808${i}+g" \
+    sed -i "s+http-server\.http\.port.*+http-server\.http\.port=808${1}+g" \
         ${worker_config}/config_native.properties
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
         ${worker_config}/config_native.properties
 
     # Give each worker a unique id.
-    sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
+    sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
 }
 
 if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
