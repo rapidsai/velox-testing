@@ -61,3 +61,7 @@ DATA_GEN_SCRIPT_PATH=$(readlink -f ../../benchmark_data_tools/generate_data_file
 $CONVERT_DECIMALS_TO_FLOATS_ARG
 
 ./setup_benchmark_tables.sh -b $BENCHMARK_TYPE -s $SCHEMA_NAME -d $DATA_DIR_NAME
+
+echo "Running ANALYZE TABLES for schema '$SCHEMA_NAME'..."
+./analyze_tables.sh --schema-name "$SCHEMA_NAME"
+echo "Column statistics refreshed for schema '$SCHEMA_NAME'."

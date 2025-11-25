@@ -50,3 +50,7 @@ trap cleanup EXIT
                                --schema-name $SCHEMA_NAME \
                                --schemas-dir-path $TEMP_SCHEMA_DIR \
                                --data-dir-name $DATA_DIR_NAME
+
+echo "Running ANALYZE TABLES for schema '$SCHEMA_NAME'..."
+./analyze_tables.sh --schema-name "$SCHEMA_NAME"
+echo "Column statistics refreshed for schema '$SCHEMA_NAME'."
