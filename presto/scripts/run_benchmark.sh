@@ -16,6 +16,42 @@
 
 set -e
 
+TPCH_TABLES=(customer lineitem nation orders part partsupp region supplier)
+HIVE_METASTORE_DIR="$(readlink -f ../docker/.hive_metastore)"
+
+verify_schema_stats() {
+  local schema=$1
+  local missing=0
+
+  if [[ ! -d "$HIVE_METASTORE_DIR/$schema" ]]; then
+    echo "Error: Hive metastore directory not found for schema '$schema' at $HIVE_METASTORE_DIR/$schema"
+    exit 1
+  fi
+
+  for table in "${TPCH_TABLES[@]}"; do
+    local stats_file="$HIVE_METASTORE_DIR/$schema/$table/.prestoSchema"
+    if [[ ! -s "$stats_file" ]]; then
+      echo "Missing column statistics for $schema.$table ($stats_file)"
+      missing=1
+      continue
+    fi
+    if ! grep -q '"columnStatistics"' "$stats_file"; then
+      echo "Column statistics entry absent for $schema.$table ($stats_file)"
+      missing=1
+    fi
+  done
+
+  if [[ $missing -ne 0 ]]; then
+    cat <<EOF
+
+Column statistics are required before running GPU benchmarks.
+Run presto-native-cpu and ANALYZE all tables in schema '$schema', then retry.
+
+EOF
+    exit 1
+  fi
+}
+
 print_help() {
   cat << EOF
 
@@ -167,6 +203,13 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
+IS_GPU_CLUSTER=0
+if command -v docker >/dev/null 2>&1; then
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'presto-native-worker-gpu'; then
+    IS_GPU_CLUSTER=1
+  fi
+fi
+
 PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
 if [[ -n ${QUERIES} ]]; then
@@ -216,6 +259,11 @@ TEST_DIR=$(readlink -f ../testing)
 pip install -q -r ${TEST_DIR}/requirements.txt
 
 source ./common_functions.sh
+
+if [[ $IS_GPU_CLUSTER -eq 1 && ${BENCHMARK_TYPE} == "tpch" ]]; then
+  echo "Detected presto-native-gpu cluster; verifying Hive column statistics for schema '${SCHEMA_NAME}'..."
+  verify_schema_stats "${SCHEMA_NAME}"
+fi
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
