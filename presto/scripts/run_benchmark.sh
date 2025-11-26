@@ -44,8 +44,8 @@ verify_schema_stats() {
   if [[ $missing -ne 0 ]]; then
     cat <<EOF
 
-Column statistics are required before running GPU benchmarks.
-Run presto-native-cpu and ANALYZE all tables in schema '$schema', then retry.
+Column statistics are required before running TPCH benchmarks.
+Run ./analyze_tables.sh --schema-name '$schema' (and optional connection args) before retrying.
 
 EOF
     exit 1
@@ -203,13 +203,6 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
-IS_GPU_CLUSTER=0
-if command -v docker >/dev/null 2>&1; then
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'presto-native-worker-gpu'; then
-    IS_GPU_CLUSTER=1
-  fi
-fi
-
 PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
 if [[ -n ${QUERIES} ]]; then
@@ -260,8 +253,8 @@ pip install -q -r ${TEST_DIR}/requirements.txt
 
 source ./common_functions.sh
 
-if [[ $IS_GPU_CLUSTER -eq 1 && ${BENCHMARK_TYPE} == "tpch" ]]; then
-  echo "Detected presto-native-gpu cluster; verifying Hive column statistics for schema '${SCHEMA_NAME}'..."
+if [[ ${BENCHMARK_TYPE} == "tpch" ]]; then
+  echo "Verifying Hive column statistics for schema '${SCHEMA_NAME}'..."
   verify_schema_stats "${SCHEMA_NAME}"
 fi
 
