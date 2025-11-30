@@ -1,0 +1,43 @@
+diff --git a/CMake/resolve_dependency_modules/cudf.cmake b/CMake/resolve_dependency_modules/cudf.cmake
+index 7858eb4bd..3a70a4087 100644
+--- a/CMake/resolve_dependency_modules/cudf.cmake
++++ b/CMake/resolve_dependency_modules/cudf.cmake
+@@ -111,16 +111,30 @@ block(SCOPE_FOR VARIABLES)
+     UPDATE_DISCONNECTED 1
+   )
+ 
+-  FetchContent_Declare(
+-    ucxx
+-    URL ${VELOX_ucxx_SOURCE_URL}
+-    URL_HASH ${VELOX_ucxx_BUILD_SHA256_CHECKSUM}
+-    SOURCE_SUBDIR cpp
+-    UPDATE_DISCONNECTED 1
+-  )
++  # Prefer a preinstalled UCXX (e.g., from a conda/mamba environment) if available,
++  # unless explicitly overridden by VELOX_USE_FETCHCONTENT_UCXX.
++  find_package(ucxx CONFIG)
++  if(NOT DEFINED VELOX_USE_FETCHCONTENT_UCXX)
++    set(VELOX_USE_FETCHCONTENT_UCXX OFF)
++    if(NOT ucxx_FOUND AND NOT TARGET ucxx::ucxx)
++      set(VELOX_USE_FETCHCONTENT_UCXX ON)
++    endif()
++  endif()
++
++  if(VELOX_USE_FETCHCONTENT_UCXX)
++    FetchContent_Declare(
++      ucxx
++      URL ${VELOX_ucxx_SOURCE_URL}
++      URL_HASH ${VELOX_ucxx_BUILD_SHA256_CHECKSUM}
++      SOURCE_SUBDIR cpp
++      UPDATE_DISCONNECTED 1
++    )
++  endif()
+ 
+   FetchContent_MakeAvailable(cudf)
+-  FetchContent_MakeAvailable(ucxx)
++  if(VELOX_USE_FETCHCONTENT_UCXX)
++    FetchContent_MakeAvailable(ucxx)
++  endif()
+ 
+   # cudf sets all warnings as errors, and therefore fails to compile with velox
+   # expanded set of warnings. We selectively disable problematic warnings just for

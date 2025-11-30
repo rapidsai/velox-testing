@@ -1,0 +1,17 @@
+diff --git a/presto-native-execution/presto_cpp/main/connectors/CMakeLists.txt b/presto-native-execution/presto_cpp/main/connectors/CMakeLists.txt
+index 1aa0eb10dd..aaaea5236f 100644
+--- a/presto-native-execution/presto_cpp/main/connectors/CMakeLists.txt
++++ b/presto-native-execution/presto_cpp/main/connectors/CMakeLists.txt
+@@ -26,6 +26,12 @@ if(PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR)
+ endif()
+ 
+ if(PRESTO_ENABLE_CUDF)
++  # Ensure imported targets for cuDF and UCXX are available when GPU is enabled.
++  # These are provided by the conda/mamba env via CMAKE_PREFIX_PATH/Ucxx_DIR.
++  #find_package(cudf CONFIG REQUIRED)
++  if(NOT TARGET ucxx::ucxx)
++    find_package(ucxx CONFIG REQUIRED)
++  endif()
+    target_link_libraries(presto_connectors velox_cudf_hive_connector
+                         ucxx::ucxx cudf::cudf)
+ endif()
