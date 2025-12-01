@@ -103,6 +103,52 @@ pytest tpch_test.py
    ```
    > **Note:** The `--schema-name` flag is required to specify your target DB schema for the benchmark.
 
+### ASV Benchmarks (Performance Tracking)
+
+[ASV (Airspeed Velocity)](https://asv.readthedocs.io/) is used for tracking TPC-H query performance over time and detecting regressions across commits. Results are stored per-machine and can be visualized in an interactive HTML dashboard.
+
+1. Run ASV benchmarks:
+   ```bash
+   cd velox-testing/presto/scripts
+   ./run_asv_benchmark.sh --help              # See all options
+   ./run_asv_benchmark.sh -s bench_sf1        # Run for single schema
+   ```
+
+2. Run for multiple schemas (useful for comparing scale factors):
+   ```bash
+   ./run_asv_benchmark.sh -s "bench_sf1,bench_sf10,bench_sf100"
+   ```
+
+3. Run specific queries:
+   ```bash
+   ./run_asv_benchmark.sh -s bench_sf1 -b TPCHQ1      # Single query
+   ./run_asv_benchmark.sh -s bench_sf1 -b "TPCHQ.*"   # All TPC-H queries
+   ```
+
+4. Quick mode and preview results:
+   ```bash
+   ./run_asv_benchmark.sh -s bench_sf1 --quick --preview
+   ```
+
+5. Publish results to HTML dashboard:
+   ```bash
+   ./run_asv_benchmark.sh -s bench_sf1 --publish
+   ```
+   The HTML dashboard will be generated in `presto/asv_html/`.
+
+**Key Options:**
+| Option | Description |
+|--------|-------------|
+| `-s, --schema-name` | Schema(s) to benchmark (comma-separated for multiple) |
+| `--hostname` | Presto coordinator hostname (default: localhost) |
+| `--port` | Presto coordinator port (default: 8080) |
+| `-b, --benchmark` | Benchmark pattern (e.g., "TPCHQ1", "TPCHQ.*") |
+| `--quick` | Fewer iterations for faster results |
+| `--publish` | Generate HTML dashboard after running |
+| `--preview` | Launch interactive browser preview on port 8086 |
+
+Results are stored in `presto/asv_results/<machine-name>/` and tracked by git commit hash.
+
 ## Directory Structure
 
 - **`docker/`** - Docker Compose configurations and Dockerfiles for different Presto variants

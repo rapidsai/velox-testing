@@ -1,0 +1,18 @@
+{
+    "version": 1,
+    "project": "velox-presto-gpu-benchmarks",
+    "project_url": "https://github.com/nvidia/velox-testing",
+    "repo": "..",
+    "branches": ["HEAD"],
+    "environment_type": "existing:python",
+    "show_commit_url": "https://github.com/nvidia/velox-testing/commit/",
+    "pythons": ["same"],
+    "matrix": {},
+    "benchmark_dir": "asv_benchmarks",
+    "results_dir": "asv_results",
+    "html_dir": "asv_html",
+    "dvcs": "git",
+    "build_command": [],
+    "install_command": []
+}
+
