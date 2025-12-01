@@ -51,7 +51,15 @@ class TPCHBenchmarkBase:
     warmup_time = 0
     
     # Number of times to repeat each benchmark
-    repeat = (3, 5, 60.0)  # (min_repeat, max_repeat, max_time)
+    # In lukewarm mode (ASV_ENV_LUKEWARM=true), run each query exactly once
+    _lukewarm = os.environ.get('ASV_ENV_LUKEWARM', '').lower() == 'true'
+    if _lukewarm:
+        repeat = 1              # Only 1 sample
+        number = 1              # Call function once per sample
+        min_run_count = 1       # Minimum 1 run
+        sample_time = 0.0       # Don't try to reach a target sample time
+    else:
+        repeat = (3, 5, 60.0)  # (min_repeat, max_repeat, max_time)
     
     # Process setup - only run once per process
     processes = 1
@@ -316,4 +324,3 @@ class TPCHQ22(TPCHBenchmarkBase):
         """Execute TPC-H Query 22 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q22"])
         return self.cursor.stats["elapsedTimeMillis"]
-

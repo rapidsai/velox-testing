@@ -35,6 +35,7 @@ OPTIONS:
     -b, --benchmark         Specific benchmark pattern to run (e.g., "TPCHQ01", "TPCHQ.*").
                             By default, all TPC-H benchmarks are run.
     --quick                 Run in quick mode (fewer iterations, faster results).
+    --lukewarm              Run each query exactly once (no repeats, no warmup).
     --profile               Generate profiling data for each benchmark.
     --show-stderr           Show stderr output from benchmarks. Default: false
     --publish               Publish results to ASV HTML dashboard after running.
@@ -52,6 +53,9 @@ EXAMPLES:
 
     # Run in quick mode and preview results
     $0 -s "bench_sf1,bench_sf10" --quick --preview
+
+    # Run each query exactly once (lukewarm mode)
+    $0 -s bench_sf1 --lukewarm
 
     # Run with custom Presto coordinator
     $0 -s bench_sf100 --hostname gpu-node-01 --port 8080
@@ -115,6 +119,10 @@ parse_args() {
         QUICK_MODE=true
         shift
         ;;
+      --lukewarm)
+        LUKEWARM_MODE=true
+        shift
+        ;;
       --profile)
         PROFILE=true
         shift
@@ -162,6 +170,13 @@ echo "Hostname:  ${HOST_NAME}"
 echo "Port:      ${PORT}"
 echo "User:      ${USER_NAME}"
 echo "Benchmark: ${BENCHMARK}"
+if [[ "${LUKEWARM_MODE}" == "true" ]]; then
+    echo "Mode:      lukewarm (single run per query)"
+elif [[ "${QUICK_MODE}" == "true" ]]; then
+    echo "Mode:      quick"
+else
+    echo "Mode:      standard"
+fi
 echo "=========================================="
 echo ""
 
@@ -216,6 +231,9 @@ echo ""
 export ASV_ENV_HOSTNAME="${HOST_NAME}"
 export ASV_ENV_PORT="${PORT}"
 export ASV_ENV_USER="${USER_NAME}"
+if [[ "${LUKEWARM_MODE}" == "true" ]]; then
+    export ASV_ENV_LUKEWARM="true"
+fi
 
 # Function to run benchmarks for a single schema
 run_benchmark_for_schema() {
@@ -240,7 +258,7 @@ run_benchmark_for_schema() {
     fi
     ASV_CMD="${ASV_CMD} --set-commit-hash=${COMMIT_HASH}"
     
-    if [[ "${QUICK_MODE}" == "true" ]]; then
+    if [[ "${QUICK_MODE}" == "true" || "${LUKEWARM_MODE}" == "true" ]]; then
         ASV_CMD="${ASV_CMD} --quick"
     fi
     
