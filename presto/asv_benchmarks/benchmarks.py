@@ -115,84 +115,81 @@ class TPCHBenchmarkBase:
         pass
 
 
-class TPCHQ1(TPCHBenchmarkBase):
+class TPCHQ01(TPCHBenchmarkBase):
     """TPC-H Query 1: Pricing Summary Report"""
     
-    def time_q1(self):
+    def time_q01(self):
         """Execute TPC-H Query 1 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q1"])
-        out = self.cursor.stats["elapsedTimeMillis"]
-        print(f"[ASV DEBUG] Query 1 execution time: {out}ms")
-        return out
+        return self.cursor.stats["elapsedTimeMillis"]
 
-
-class TPCHQ2(TPCHBenchmarkBase):
+class TPCHQ02(TPCHBenchmarkBase):
     """TPC-H Query 2: Minimum Cost Supplier"""
     
-    def time_q2(self):
+    def time_q02(self):
         """Execute TPC-H Query 2 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q2"])
         return self.cursor.stats["elapsedTimeMillis"]
 
 
-class TPCHQ3(TPCHBenchmarkBase):
+class TPCHQ03(TPCHBenchmarkBase):
     """TPC-H Query 3: Shipping Priority"""
     
-    def time_q3(self):
+    def time_q03(self):
         """Execute TPC-H Query 3 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q3"])
         return self.cursor.stats["elapsedTimeMillis"]
 
 
-class TPCHQ4(TPCHBenchmarkBase):
+class TPCHQ04(TPCHBenchmarkBase):
     """TPC-H Query 4: Order Priority Checking"""
     
-    def time_q4(self):
+    def time_q04(self):
         """Execute TPC-H Query 4 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q4"])
         return self.cursor.stats["elapsedTimeMillis"]
 
 
-class TPCHQ5(TPCHBenchmarkBase):
+class TPCHQ05(TPCHBenchmarkBase):
     """TPC-H Query 5: Local Supplier Volume"""
     
-    def time_q5(self):
+    def time_q05(self):
         """Execute TPC-H Query 5 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q5"])
         return self.cursor.stats["elapsedTimeMillis"]
 
 
-class TPCHQ6(TPCHBenchmarkBase):
+class TPCHQ06(TPCHBenchmarkBase):
     """TPC-H Query 6: Forecasting Revenue Change"""
     
-    def time_q6(self):
+    def time_q06(self):
         """Execute TPC-H Query 6 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q6"])
         return self.cursor.stats["elapsedTimeMillis"]
 
 
-class TPCHQ7(TPCHBenchmarkBase):
+class TPCHQ07(TPCHBenchmarkBase):
     """TPC-H Query 7: Volume Shipping"""
     
-    def time_q7(self):
+    def time_q07(self):
         """Execute TPC-H Query 7 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q7"])
         return self.cursor.stats["elapsedTimeMillis"]
 
 
-class TPCHQ8(TPCHBenchmarkBase):
+class TPCHQ08(TPCHBenchmarkBase):
     """TPC-H Query 8: National Market Share"""
     
-    def time_q8(self):
+    def time_q08(self):
         """Execute TPC-H Query 8 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q8"])
         return self.cursor.stats["elapsedTimeMillis"]
 
 
-class TPCHQ9(TPCHBenchmarkBase):
+class TPCHQ09(TPCHBenchmarkBase):
     """TPC-H Query 9: Product Type Profit Measure"""
     
-    def time_q9(self):
+    def time_q09(self):
         """Execute TPC-H Query 9 and return execution time."""
         self.cursor.execute(get_tpch_queries()["Q9"])
         return self.cursor.stats["elapsedTimeMillis"]
@@ -245,13 +242,17 @@ class TPCHQ14(TPCHBenchmarkBase):
         return self.cursor.stats["elapsedTimeMillis"]
 
 
-# class TPCHQ15(TPCHBenchmarkBase):
-#     """TPC-H Query 15: Top Supplier"""
+class TPCHQ15(TPCHBenchmarkBase):
+    """TPC-H Query 15: Top Supplier"""
     
-#     def time_q15(self):
-#         """Execute TPC-H Query 15 and return execution time."""
-#         self.cursor.execute(get_tpch_queries()["Q15"])
-#         return self.cursor.stats["elapsedTimeMillis"]
+    def time_q15(self):
+        """Execute TPC-H Query 15 and return execution time."""
+        try:
+            self.cursor.execute(get_tpch_queries()["Q15"])
+            return self.cursor.stats["elapsedTimeMillis"]
+        except Exception as e:
+            print(f"[ASV ERROR] Failed to execute query 15: {type(e).__name__}: {e}")
+            return 0
 
 
 class TPCHQ16(TPCHBenchmarkBase):
