@@ -142,6 +142,12 @@ pytest tpch_test.py
    ```
    The HTML dashboard will be generated in `presto/asv_html/`.
 
+7. View existing results without running benchmarks:
+   ```bash
+   ./run_asv_benchmark.sh --show-results
+   ```
+   This publishes existing results to HTML and launches the preview server.
+
 **Key Options:**
 | Option | Description |
 |--------|-------------|
@@ -153,6 +159,7 @@ pytest tpch_test.py
 | `--lukewarm` | Run each query exactly once (fastest, for sanity checks) |
 | `--publish` | Generate HTML dashboard after running |
 | `--preview` | Launch interactive browser preview on port 8086 |
+| `--show-results` | Skip benchmarks; publish and preview existing results |
 
 Results are stored in `presto/asv_results/<machine-name>/` and tracked by git commit hash.
 

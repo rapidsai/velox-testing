@@ -40,6 +40,7 @@ OPTIONS:
     --show-stderr           Show stderr output from benchmarks. Default: false
     --publish               Publish results to ASV HTML dashboard after running.
     --preview               Launch interactive preview server to view results in browser.
+    --show-results          Skip benchmarks; only publish and preview existing results.
 
 EXAMPLES:
     # Run for single schema
@@ -59,6 +60,9 @@ EXAMPLES:
 
     # Run with custom Presto coordinator
     $0 -s bench_sf100 --hostname gpu-node-01 --port 8080
+
+    # View existing results without running benchmarks
+    $0 --show-results
 
 EOF
 }
@@ -137,6 +141,10 @@ parse_args() {
         ;;
       --preview)
         PREVIEW=true
+        shift
+        ;;
+      --show-results)
+        SHOW_RESULTS=true
         shift
         ;;
       *)
@@ -308,6 +316,40 @@ print('✓ Results saved: ${RESULT_FILE}')
     
     echo ""
 }
+
+# Handle --show-results mode (skip benchmarks, just display existing results)
+if [[ "${SHOW_RESULTS}" == "true" ]]; then
+    echo "=========================================="
+    echo "Showing Existing Results (no benchmarks)"
+    echo "=========================================="
+    echo ""
+    
+    # List all result files
+    echo "Result files:"
+    ls -la ${MACHINE_DIR}/*.json 2>/dev/null | grep -v machine.json || echo "No result files found"
+    echo ""
+    
+    # Show latest results
+    echo "Benchmark Results Summary:"
+    asv show
+    echo ""
+    
+    # Always publish in show-results mode
+    echo "Publishing results to HTML dashboard..."
+    asv publish
+    echo ""
+    echo "HTML dashboard generated in: ${PRESTO_DIR}/asv_html"
+    
+    # Always preview in show-results mode
+    echo ""
+    echo "Launching preview server on port 8086..."
+    echo "Press Ctrl+C to stop the server when done."
+    echo ""
+    asv preview --port 8086 || true
+    echo ""
+    echo "Preview server stopped."
+    exit 0
+fi
 
 # Parse comma-separated schemas, sort them, and run benchmarks for each
 IFS=',' read -ra SCHEMA_ARRAY <<< "$SCHEMA_NAME"
