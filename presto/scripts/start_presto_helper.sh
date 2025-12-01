@@ -66,19 +66,22 @@ function conditionally_add_build_target() {
     echo "Added $2 to the list of services to build because the '$BUILD_TARGET' build target was specified"
     BUILD_TARGET_ARG+=($2)
   fi
-} 
+}
 
 conditionally_add_build_target $COORDINATOR_IMAGE $COORDINATOR_SERVICE "coordinator|c"
 
 if [[ "$VARIANT_TYPE" == "java" ]]; then
   DOCKER_COMPOSE_FILE="java"
   conditionally_add_build_target $JAVA_WORKER_IMAGE $JAVA_WORKER_SERVICE "worker|w"
+  WORKERS="$JAVA_WORKER_SERVICE"
 elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
   DOCKER_COMPOSE_FILE="native-cpu"
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
+  WORKERS="$CPU_WORKER_SERVICE"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
+  WORKERS="$GPU_WORKER_SERVICE"
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
@@ -130,4 +133,26 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   ${BUILD_TARGET_ARG[@]}
 fi
 
-docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
+function duplicate_worker_configs() {
+    local worker_config="../docker/config/generated/gpu/etc_worker_${1}"
+    rm -rf ${worker_config}
+    cp -r ../docker/config/generated/gpu/etc_worker ${worker_config}
+
+    sed -i "s+http-server\.http\.port.*+http-server\.http\.port=808${1}+g" \
+        ${worker_config}/config_native.properties
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
+        ${worker_config}/config_native.properties
+
+    # Give each worker a unique id.
+    sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
+}
+
+if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
+    WORKERS=""
+    for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
+        WORKERS="$WORKERS ${GPU_WORKER_SERVICE}-${i}"
+        duplicate_worker_configs $i
+    done
+fi
+
+docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d $WORKERS
