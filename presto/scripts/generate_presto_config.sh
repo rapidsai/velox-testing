@@ -42,6 +42,9 @@ fi
 NPROC=`nproc`
 # lsmem will report in SI.  Make sure we get values in GB.
 RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024*1024)); }')
+if [[ ${RAM_GB} -gt 1024 ]]; then
+  RAM_GB=1024
+fi
 
 # variant-specific behavior
 # for GPU you must set vcpu_per_worker to a small number, not the CPU count
