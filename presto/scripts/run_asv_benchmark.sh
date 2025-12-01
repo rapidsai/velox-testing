@@ -32,7 +32,7 @@ OPTIONS:
     --hostname              Hostname of the Presto coordinator. Default: localhost
     --port                  Port number of the Presto coordinator. Default: 8080
     -u, --user              User who queries will be executed as. Default: test_user
-    -b, --benchmark         Specific benchmark pattern to run (e.g., "TPCHQ1", "TPCHQ.*").
+    -b, --benchmark         Specific benchmark pattern to run (e.g., "TPCHQ01", "TPCHQ.*").
                             By default, all TPC-H benchmarks are run.
     --quick                 Run in quick mode (fewer iterations, faster results).
     --profile               Generate profiling data for each benchmark.
@@ -48,7 +48,7 @@ EXAMPLES:
     $0 -s "bench_sf1,bench_sf10"
 
     # Run specific query for multiple schemas
-    $0 -s "bench_sf1,bench_sf10" -b TPCHQ1
+    $0 -s "bench_sf1,bench_sf10" -b TPCHQ01
 
     # Run in quick mode and preview results
     $0 -s "bench_sf1,bench_sf10" --quick --preview

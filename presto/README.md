@@ -121,7 +121,7 @@ pytest tpch_test.py
 
 3. Run specific queries:
    ```bash
-   ./run_asv_benchmark.sh -s bench_sf1 -b TPCHQ1      # Single query
+   ./run_asv_benchmark.sh -s bench_sf1 -b TPCHQ01     # Single query
    ./run_asv_benchmark.sh -s bench_sf1 -b "TPCHQ.*"   # All TPC-H queries
    ```
 
@@ -142,7 +142,7 @@ pytest tpch_test.py
 | `-s, --schema-name` | Schema(s) to benchmark (comma-separated for multiple) |
 | `--hostname` | Presto coordinator hostname (default: localhost) |
 | `--port` | Presto coordinator port (default: 8080) |
-| `-b, --benchmark` | Benchmark pattern (e.g., "TPCHQ1", "TPCHQ.*") |
+| `-b, --benchmark` | Benchmark pattern (e.g., "TPCHQ01", "TPCHQ.*") |
 | `--quick` | Fewer iterations for faster results |
 | `--publish` | Generate HTML dashboard after running |
 | `--preview` | Launch interactive browser preview on port 8086 |
