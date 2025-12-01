@@ -130,7 +130,13 @@ pytest tpch_test.py
    ./run_asv_benchmark.sh -s bench_sf1 --quick --preview
    ```
 
-5. Publish results to HTML dashboard:
+5. Lukewarm mode (run each query exactly once):
+   ```bash
+   ./run_asv_benchmark.sh -s "bench_sf1,bench_sf10,bench_sf100" --lukewarm
+   ```
+   This is useful for quick sanity checks or warming up caches without waiting for multiple iterations.
+
+6. Publish results to HTML dashboard:
    ```bash
    ./run_asv_benchmark.sh -s bench_sf1 --publish
    ```
@@ -144,6 +150,7 @@ pytest tpch_test.py
 | `--port` | Presto coordinator port (default: 8080) |
 | `-b, --benchmark` | Benchmark pattern (e.g., "TPCHQ01", "TPCHQ.*") |
 | `--quick` | Fewer iterations for faster results |
+| `--lukewarm` | Run each query exactly once (fastest, for sanity checks) |
 | `--publish` | Generate HTML dashboard after running |
 | `--preview` | Launch interactive browser preview on port 8086 |
 
