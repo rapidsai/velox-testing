@@ -16,6 +16,10 @@ RUN unzip -d /usr/bin -o /tmp/ninja-linux.zip
 FROM ghcr.io/facebookincubator/velox-dev:adapters
 ARG TARGETARCH
 
+# Override CC/CXX to use gcc-toolset-14 (upstream default is gcc-toolset-12)
+# Reference: https://github.com/facebookincubator/velox/pull/15427
+ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
+    CXX=/opt/rh/gcc-toolset-14/root/bin/g++
 
 # Do this separate so changing unrelated build args doesn't invalidate nsys installation layer
 ARG VELOX_ENABLE_BENCHMARKS=ON
@@ -79,7 +83,7 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     MAKEFLAGS="NUM_THREADS=${NUM_THREADS}" \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     CUDA_COMPILER=/usr/local/cuda-${CUDA_VERSION}/bin/nvcc \
-    CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-12/root/usr/bin" \
+    CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-14/root/usr/bin" \
     BUILD_TYPE=${BUILD_TYPE} \
     EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_BENCHMARKS=${VELOX_ENABLE_BENCHMARKS} \
                       -DVELOX_ENABLE_EXAMPLES=ON \
