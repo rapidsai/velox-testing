@@ -177,7 +177,7 @@ parse_args() {
       --build-type)
         if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
           # Convert to lowercase first, then validate
-          local build_type_lower="${2@L}"
+          local build_type_lower="${2,,}"
           case "${build_type_lower}" in
             "release"|"debug"|"relwithdebinfo")
               BUILD_TYPE="${build_type_lower}"
