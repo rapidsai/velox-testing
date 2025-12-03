@@ -16,11 +16,6 @@ RUN unzip -d /usr/bin -o /tmp/ninja-linux.zip
 FROM ghcr.io/facebookincubator/velox-dev:adapters
 ARG TARGETARCH
 
-# Override CC/CXX to use gcc-toolset-14 (upstream default is gcc-toolset-12)
-# Reference: https://github.com/facebookincubator/velox/pull/15427
-ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
-    CXX=/opt/rh/gcc-toolset-14/root/bin/g++
-
 # Do this separate so changing unrelated build args doesn't invalidate nsys installation layer
 ARG VELOX_ENABLE_BENCHMARKS=ON
 
@@ -74,7 +69,11 @@ ARG SCCACHE_NO_CACHE
 ARG SCCACHE_NO_DIST_COMPILE
 
 # Environment mirroring upstream CI defaults and incorporating build args
-ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
+# CC/CXX override to use gcc-toolset-14 (base image uses gcc-toolset-12)
+# Reference: https://github.com/facebookincubator/velox/pull/15427
+ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
+    CXX=/opt/rh/gcc-toolset-14/root/bin/g++ \
+    VELOX_DEPENDENCY_SOURCE=SYSTEM \
     GTest_SOURCE=BUNDLED \
     cudf_SOURCE=BUNDLED \
     faiss_SOURCE=BUNDLED \
@@ -149,6 +148,15 @@ RUN \
     --mount=type=bind,source=velox-testing/velox/docker/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
 <<EOF
 set -euxo pipefail;
+
+# Enable gcc-toolset-14 and set compilers
+# Reference: https://github.com/facebookincubator/velox/pull/15427
+source /opt/rh/gcc-toolset-14/enable;
+export CC=gcc CXX=g++;
+
+# Verify gcc version
+echo "Using GCC version:";
+gcc --version | head -1;
 
 # Install and configure sccache if enabled
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
