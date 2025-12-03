@@ -16,6 +16,9 @@ on:
         description: 'Velox commit SHA or branch to build'
         required: true
         default: "main"
+  # temporary push trigger to register workflow in GitHub UI
+  push:
+    branches: [main]
 
 jobs:
   build-images:
