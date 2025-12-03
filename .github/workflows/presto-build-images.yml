@@ -60,10 +60,18 @@ on:
 jobs:
   build-and-package:
     name: Build and package docker images
-    runs-on: ${{ inputs.runner_label }}
+    runs-on: ${{ inputs.runner_label || 'linux-amd64-cpu16' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     env:
-      PRESTO_REF: ${{ inputs.presto_commit }}
-      VELOX_REF: ${{ inputs.velox_commit }}
+      PRESTO_REF: ${{ inputs.presto_commit || 'master' }}
+      VELOX_REF: ${{ inputs.velox_commit || 'main' }}
+      PRESTO_REPOSITORY: ${{ inputs.presto_repository || 'prestodb/presto' }}
+      VELOX_REPOSITORY: ${{ inputs.velox_repository || 'facebookincubator/velox' }}
+      TARGET_PLATFORM: ${{ inputs.target_platform || 'linux/amd64' }}
+      BUILD_NATIVE_CPU: ${{ inputs.build_native_cpu || 'true' }}
+      BUILD_NATIVE_GPU: ${{ inputs.build_native_gpu || 'true' }}
+      BUILD_JAVA_WORKER: ${{ inputs.build_java_worker || 'false' }}
+      SET_VELOX_BACKWARD_COMPATIBLE: ${{ inputs.set_velox_backward_compatible || 'false' }}
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
@@ -73,18 +81,18 @@ jobs:
       - name: Checkout Presto
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.presto_repository }}
-          ref: ${{ inputs.presto_commit }}
+          repository: ${{ env.PRESTO_REPOSITORY }}
+          ref: ${{ env.PRESTO_REF }}
           path: presto
           fetch-depth: 0
           submodules: recursive
 
       - name: Checkout Velox
-        if: ${{ inputs.build_native_cpu || inputs.build_native_gpu }}
+        if: ${{ env.BUILD_NATIVE_CPU == 'true' || env.BUILD_NATIVE_GPU == 'true' }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.velox_repository }}
-          ref: ${{ inputs.velox_commit }}
+          repository: ${{ env.VELOX_REPOSITORY }}
+          ref: ${{ env.VELOX_REF }}
           path: velox
           fetch-depth: 0
           submodules: recursive
@@ -92,7 +100,7 @@ jobs:
       - name: Configure target platform
         shell: bash
         run: |
-          echo "DOCKER_DEFAULT_PLATFORM=${{ inputs.target_platform }}" >> "$GITHUB_ENV"
+          echo "DOCKER_DEFAULT_PLATFORM=${TARGET_PLATFORM}" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -120,7 +128,7 @@ jobs:
           mkdir -p "${artifact_dir}"
 
       - name: Fetch Presto dependency image
-        if: ${{ inputs.build_native_cpu || inputs.build_native_gpu }}
+        if: ${{ env.BUILD_NATIVE_CPU == 'true' || env.BUILD_NATIVE_GPU == 'true' }}
         env:
           AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -135,7 +143,7 @@ jobs:
           popd >/dev/null
 
       - name: Enable Velox backward compatibility flag
-        if: ${{ (inputs.build_native_cpu || inputs.build_native_gpu) && inputs.set_velox_backward_compatible }}
+        if: ${{ (env.BUILD_NATIVE_CPU == 'true' || env.BUILD_NATIVE_GPU == 'true') && env.SET_VELOX_BACKWARD_COMPATIBLE == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -172,7 +180,7 @@ jobs:
           docker save presto-coordinator:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz"
 
       - name: Archive Java worker image
-        if: ${{ inputs.build_java_worker }}
+        if: ${{ env.BUILD_JAVA_WORKER == 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
@@ -181,7 +189,7 @@ jobs:
           docker save presto-java-worker:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-java-worker-${IMAGE_TAG}.tar.gz"
 
       - name: Build Presto native CPU worker image
-        if: ${{ inputs.build_native_cpu }}
+        if: ${{ env.BUILD_NATIVE_CPU == 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
@@ -200,7 +208,7 @@ jobs:
           docker save presto-native-worker-cpu:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz"
 
       - name: Build Presto native GPU worker image
-        if: ${{ inputs.build_native_gpu }}
+        if: ${{ env.BUILD_NATIVE_GPU == 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
