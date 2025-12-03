@@ -52,23 +52,11 @@ on:
         type: string
         required: false
         default: 'linux-amd64-cpu16'
-  push:
-    branches-ignore:
-      - main
-      - master
 
 jobs:
-  register-on-push:
-    if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Register workflow on feature branches
-        run: echo "Workflow registered on push to ${GITHUB_REF}"
-
   build-and-package:
     name: Build and package docker images
     runs-on: ${{ inputs.runner_label || 'linux-amd64-cpu16' }}
-    if: ${{ github.event_name == 'workflow_dispatch' }}
     env:
       PRESTO_REF: ${{ inputs.presto_commit || 'master' }}
       VELOX_REF: ${{ inputs.velox_commit || 'main' }}
