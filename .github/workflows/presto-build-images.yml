@@ -52,6 +52,10 @@ on:
         type: string
         required: false
         default: 'linux-amd64-cpu16'
+  push:
+    branches-ignore:
+      - main
+      - master
 
 jobs:
   build-and-package:
