@@ -1,37 +1,231 @@
-#
-# Presto Docker Image Builder
-#
-
 name: Presto Build Docker Images
+description: Build Presto coordinator and worker images and store them as artifacts
 
 on:
-  # run manually from the Actions tab with parameters
   workflow_dispatch:
     inputs:
+      presto_repository:
+        description: 'Presto repository to clone'
+        type: string
+        required: false
+        default: 'prestodb/presto'
       presto_commit:
         description: 'Presto commit SHA or branch to build'
-        required: true
-        default: "master"
+        type: string
+        required: false
+        default: 'master'
+      velox_repository:
+        description: 'Velox repository to clone'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
       velox_commit:
         description: 'Velox commit SHA or branch to build'
-        required: true
-        default: "main"
-  # temporary push trigger to register workflow in GitHub UI
-  push:
-    branches: [main]
+        type: string
+        required: false
+        default: 'main'
+      build_native_cpu:
+        description: 'Build and archive the native CPU worker image'
+        type: boolean
+        default: true
+      build_native_gpu:
+        description: 'Build and archive the native GPU worker image'
+        type: boolean
+        default: true
+      build_java_worker:
+        description: 'Also archive the Java worker image (same bits as the coordinator)'
+        type: boolean
+        default: false
+      set_velox_backward_compatible:
+        description: 'Define VELOX_ENABLE_BACKWARD_COMPATIBILITY when building native workers'
+        type: boolean
+        default: false
+      target_platform:
+        description: 'Docker platform/architecture for image builds'
+        type: choice
+        options:
+          - linux/amd64
+          - linux/arm64
+        default: linux/amd64
+      runner_label:
+        description: 'Runner label (encodes architecture/capacity)'
+        type: string
+        required: false
+        default: 'linux-amd64-cpu16'
 
 jobs:
-  build-images:
-    name: Build Docker Images
-    runs-on: linux-amd64-cpu16
-    defaults:
-      run:
-        shell: bash
-
+  build-and-package:
+    name: Build and package docker images
+    runs-on: ${{ github.event.inputs.runner_label || 'linux-amd64-cpu16' }}
+    env:
+      PRESTO_REF: ${{ github.event.inputs.presto_commit || 'master' }}
+      VELOX_REF: ${{ github.event.inputs.velox_commit || 'main' }}
+      PRESTO_REPOSITORY: ${{ github.event.inputs.presto_repository || 'prestodb/presto' }}
+      VELOX_REPOSITORY: ${{ github.event.inputs.velox_repository || 'facebookincubator/velox' }}
+      TARGET_PLATFORM: ${{ github.event.inputs.target_platform || 'linux/amd64' }}
+      BUILD_NATIVE_CPU: ${{ github.event.inputs.build_native_cpu || 'true' }}
+      BUILD_NATIVE_GPU: ${{ github.event.inputs.build_native_gpu || 'true' }}
+      BUILD_JAVA_WORKER: ${{ github.event.inputs.build_java_worker || 'false' }}
+      SET_VELOX_BACKWARD_COMPATIBLE: ${{ github.event.inputs.set_velox_backward_compatible || 'false' }}
     steps:
-      # Test step
-      - name: Test Workflow
+      - name: Checkout velox-testing
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout Presto
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRESTO_REPOSITORY }}
+          ref: ${{ env.PRESTO_REF }}
+          path: presto
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Checkout Velox
+        if: ${{ github.event.inputs.build_native_cpu == 'true' || github.event.inputs.build_native_gpu == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.VELOX_REPOSITORY }}
+          ref: ${{ env.VELOX_REF }}
+          path: velox
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Configure target platform
+        shell: bash
         run: |
-          echo "Building Presto commit: ${{ github.event.inputs.presto_commit }}"
-          echo "Building Velox commit: ${{ github.event.inputs.velox_commit }}"
-          echo "Workflow is working!"
+          echo "DOCKER_DEFAULT_PLATFORM=${TARGET_PLATFORM}" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          sanitize() {
+            echo "${1}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_.-' '-'
+          }
+          presto_safe=$(sanitize "${PRESTO_REF:-unknown}")
+          velox_safe=$(sanitize "${VELOX_REF:-unknown}")
+          presto_short="${presto_safe:0:12}"
+          velox_short="${velox_safe:0:12}"
+          image_tag="presto-${presto_short}-velox-${velox_short}"
+          artifact_dir="${GITHUB_WORKSPACE}/artifacts"
+          echo "IMAGE_TAG=${image_tag}" >> "${GITHUB_ENV}"
+          echo "ARTIFACT_DIR=${artifact_dir}" >> "${GITHUB_ENV}"
+          mkdir -p "${artifact_dir}"
+
+      - name: Fetch Presto dependency image
+        if: ${{ github.event.inputs.build_native_cpu == 'true' || github.event.inputs.build_native_gpu == 'true' }}
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pushd velox-testing/presto/scripts >/dev/null
+          ./fetch_centos_deps_image.sh
+          popd >/dev/null
+
+      - name: Enable Velox backward compatibility flag
+        if: ${{ (github.event.inputs.build_native_cpu == 'true' || github.event.inputs.build_native_gpu == 'true') && github.event.inputs.set_velox_backward_compatible == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pushd presto/presto-native-execution >/dev/null
+          if ! grep -q "VELOX_ENABLE_BACKWARD_COMPATIBILITY" CMakeLists.txt; then
+            sed -i 's/add_subdirectory(presto_cpp)/add_definitions(-DVELOX_ENABLE_BACKWARD_COMPATIBILITY)\nadd_subdirectory(presto_cpp)/' CMakeLists.txt
+          fi
+          popd >/dev/null
+
+      - name: Build Presto Java distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          pushd velox-testing/presto/scripts >/dev/null
+          PRESTO_VERSION="${PRESTO_REF}" ./build_presto_java_package.sh
+          popd >/dev/null
+
+      - name: Build Presto coordinator image
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          docker build \
+            --progress plain \
+            --file presto/docker/Dockerfile \
+            --build-arg PRESTO_VERSION="${PRESTO_REF}" \
+            --tag presto-coordinator:latest \
+            --tag presto-coordinator:${IMAGE_TAG} \
+            --tag presto-java-base:${IMAGE_TAG} \
+            presto/docker
+          docker tag presto-coordinator:${IMAGE_TAG} presto-java-worker:${IMAGE_TAG}
+          docker tag presto-coordinator:latest presto-java-worker:latest
+          docker save presto-coordinator:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz"
+
+      - name: Archive Java worker image
+        if: ${{ github.event.inputs.build_java_worker == 'true' }}
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          docker save presto-java-worker:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-java-worker-${IMAGE_TAG}.tar.gz"
+
+      - name: Build Presto native CPU worker image
+        if: ${{ github.event.inputs.build_native_cpu == 'true' }}
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          docker build \
+            --progress plain \
+            --file velox-testing/presto/docker/native_build.dockerfile \
+            --build-arg GPU=OFF \
+            --build-arg BUILD_TYPE=release \
+            --build-arg NUM_THREADS="$(nproc)" \
+            --build-arg CUDA_ARCHITECTURES="75;80;86;90;100;120" \
+            --tag presto-native-worker-cpu:latest \
+            --tag presto-native-worker-cpu:${IMAGE_TAG} \
+            .
+          docker save presto-native-worker-cpu:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz"
+
+      - name: Build Presto native GPU worker image
+        if: ${{ github.event.inputs.build_native_gpu == 'true' }}
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          docker build \
+            --progress plain \
+            --file velox-testing/presto/docker/native_build.dockerfile \
+            --build-arg GPU=ON \
+            --build-arg BUILD_TYPE=release \
+            --build-arg NUM_THREADS="$(nproc)" \
+            --build-arg CUDA_ARCHITECTURES="75;80;86;90;100;120" \
+            --tag presto-native-worker-gpu:latest \
+            --tag presto-native-worker-gpu:${IMAGE_TAG} \
+            .
+          docker save presto-native-worker-gpu:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz"
+
+      - name: Upload docker image artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: presto-images-${{ github.run_id }}
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: error
+
