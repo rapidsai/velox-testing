@@ -1,24 +1,34 @@
+#
+# Presto Docker Image Builder
+#
+
 name: Presto Build Docker Images
 
 on:
+  # run manually from the Actions tab with parameters
   workflow_dispatch:
     inputs:
       presto_commit:
-        description: 'Presto commit SHA or branch'
-        required: false
-        default: 'master'
+        description: 'Presto commit SHA or branch to build'
+        required: true
+        default: "master"
       velox_commit:
-        description: 'Velox commit SHA or branch'
-        required: false
-        default: 'main'
+        description: 'Velox commit SHA or branch to build'
+        required: true
+        default: "main"
 
 jobs:
   build-images:
     name: Build Docker Images
     runs-on: linux-amd64-cpu16
+    defaults:
+      run:
+        shell: bash
+
     steps:
-      - name: Test workflow
+      # Test step
+      - name: Test Workflow
         run: |
           echo "Building Presto commit: ${{ github.event.inputs.presto_commit }}"
           echo "Building Velox commit: ${{ github.event.inputs.velox_commit }}"
-          echo "This workflow is working!"
+          echo "Workflow is working!"
