@@ -203,20 +203,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat <<EOF | tee "${ARTIFACT_DIR}/build-metadata.txt"
-Presto repository : ${PRESTO_REPOSITORY}
-Presto ref         : ${PRESTO_REF}
-Velox repository   : ${VELOX_REPOSITORY}
-Velox ref          : ${VELOX_REF}
-Target platform    : ${TARGET_PLATFORM}
-Worker bundle mode : ${WORKER_PLAN}
-Build native CPU   : ${BUILD_NATIVE_CPU}
-Build native GPU   : ${BUILD_NATIVE_GPU}
-Build Java worker  : ${BUILD_JAVA}
-Image tag          : ${IMAGE_TAG}
-Registry push      : ${REGISTRY_PUSH_ENABLED}
-Generated at       : $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-EOF
+          python <<'PY'
+import datetime
+import os
+
+fields = [
+    ("Presto repository", os.environ.get("PRESTO_REPOSITORY", "")),
+    ("Presto ref", os.environ.get("PRESTO_REF", "")),
+    ("Velox repository", os.environ.get("VELOX_REPOSITORY", "")),
+    ("Velox ref", os.environ.get("VELOX_REF", "")),
+    ("Target platform", os.environ.get("TARGET_PLATFORM", "")),
+    ("Worker bundle mode", os.environ.get("WORKER_PLAN", "")),
+    ("Build native CPU", os.environ.get("BUILD_NATIVE_CPU", "")),
+    ("Build native GPU", os.environ.get("BUILD_NATIVE_GPU", "")),
+    ("Build Java worker", os.environ.get("BUILD_JAVA", "")),
+    ("Image tag", os.environ.get("IMAGE_TAG", "")),
+    ("Registry push", os.environ.get("REGISTRY_PUSH_ENABLED", "")),
+    ("Generated at", datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")),
+]
+
+lines = "\n".join(f"{key:<18}: {value}" for key, value in fields)
+artifact_dir = os.environ["ARTIFACT_DIR"]
+os.makedirs(artifact_dir, exist_ok=True)
+metadata_path = os.path.join(artifact_dir, "build-metadata.txt")
+with open(metadata_path, "w", encoding="utf-8") as fh:
+    fh.write(lines + "\n")
+
+print(lines)
+PY
 
       - name: Fetch Presto dependency image
         if: ${{ env.NEEDS_NATIVE == 'true' }}
