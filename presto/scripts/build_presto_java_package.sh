@@ -24,35 +24,8 @@ echo "Building Presto Java from source with PRESTO_VERSION: $PRESTO_VERSION..."
 docker run --rm \
     -v $(pwd)/../../../presto:/presto \
     -v ./.mvn_cache:/root/.m2 \
+    -v $(pwd):/scripts \
     -e PRESTO_VERSION=$PRESTO_VERSION \
     -w /presto \
     eclipse-temurin:17-jdk-jammy \
-    bash -c "
-    ./mvnw clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true &&
-    echo 'Copying artifacts with version $PRESTO_VERSION...' &&
-    SERVER_TARBALL=$(find presto-server/target -maxdepth 5 -type f -name 'presto-server-*.tar.gz' -print 2>/dev/null | sort | head -n 1)
-    if [[ -z \"${SERVER_TARBALL}\" ]]; then
-      echo 'ERROR: presto-server tarball not found'
-      echo 'DEBUG: Listing available artifacts under presto-server/target'
-      find presto-server/target -maxdepth 3 -type f -print 2>/dev/null || true
-      exit 1
-    fi &&
-    cp \"${SERVER_TARBALL}\" docker/presto-server-$PRESTO_VERSION.tar.gz &&
-    FUNCTION_SERVER_JAR=$(ls presto-function-server/target/presto-function-server-*-executable.jar 2>/dev/null | head -n 1)
-    if [[ -z \"${FUNCTION_SERVER_JAR}\" ]]; then
-      FUNCTION_SERVER_JAR=$(ls presto-function-server/target/presto-function-server-executable.jar 2>/dev/null | head -n 1)
-    fi
-    if [[ -z \"${FUNCTION_SERVER_JAR}\" ]]; then
-      echo 'ERROR: presto-function-server executable jar not found'
-      exit 1
-    fi
-    cp \"${FUNCTION_SERVER_JAR}\" docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
-    CLI_JAR=$(ls presto-cli/target/presto-cli-*-executable.jar 2>/dev/null | head -n 1)
-    if [[ -z \"${CLI_JAR}\" ]]; then
-      echo 'ERROR: presto-cli executable jar not found'
-      exit 1
-    fi &&
-    cp \"${CLI_JAR}\" docker/presto-cli-$PRESTO_VERSION-executable.jar &&
-    chmod +r docker/presto-cli-$PRESTO_VERSION-executable.jar &&
-    echo 'Build complete! Artifacts copied with version $PRESTO_VERSION'
-    "
+    bash /scripts/build_presto_java_package_container.sh
