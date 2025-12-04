@@ -66,6 +66,7 @@ jobs:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
         with:
+          path: velox-testing
           fetch-depth: 0
 
       - name: Checkout Presto
