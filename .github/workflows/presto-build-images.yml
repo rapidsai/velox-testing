@@ -199,6 +199,25 @@ jobs:
           echo "NEEDS_NATIVE=${needs_native}" >> "${GITHUB_ENV}"
           echo "WORKER_PLAN=${mode}" >> "${GITHUB_ENV}"
 
+      - name: Record build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat <<EOF | tee "${ARTIFACT_DIR}/build-metadata.txt"
+Presto repository : ${PRESTO_REPOSITORY}
+Presto ref         : ${PRESTO_REF}
+Velox repository   : ${VELOX_REPOSITORY}
+Velox ref          : ${VELOX_REF}
+Target platform    : ${TARGET_PLATFORM}
+Worker bundle mode : ${WORKER_PLAN}
+Build native CPU   : ${BUILD_NATIVE_CPU}
+Build native GPU   : ${BUILD_NATIVE_GPU}
+Build Java worker  : ${BUILD_JAVA}
+Image tag          : ${IMAGE_TAG}
+Registry push      : ${REGISTRY_PUSH_ENABLED}
+Generated at       : $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+EOF
+
       - name: Fetch Presto dependency image
         if: ${{ env.NEEDS_NATIVE == 'true' }}
         env:
