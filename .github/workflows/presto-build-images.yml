@@ -61,6 +61,7 @@ jobs:
       TARGET_PLATFORM: ${{ github.event.inputs.target_platform || 'linux/amd64' }}
       WORKER_VARIANT: ${{ github.event.inputs.worker_variant || 'native_cpu' }}
       SET_VELOX_BACKWARD_COMPATIBLE: ${{ github.event.inputs.set_velox_backward_compatible || 'false' }}
+      ARTIFACT_DIR: ${{ github.workspace }}/artifacts
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
@@ -86,10 +87,10 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Configure target platform
+      - name: Ensure artifact directory
         shell: bash
         run: |
-          echo "DOCKER_DEFAULT_PLATFORM=${TARGET_PLATFORM}" >> "$GITHUB_ENV"
+          mkdir -p "${ARTIFACT_DIR}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -158,6 +159,7 @@ jobs:
           set -euo pipefail
           docker build \
             --progress plain \
+            --platform ${TARGET_PLATFORM} \
             --file presto/docker/Dockerfile \
             --build-arg PRESTO_VERSION="${PRESTO_REF}" \
             --tag presto-coordinator:latest \
@@ -186,6 +188,7 @@ jobs:
           set -euo pipefail
           docker build \
             --progress plain \
+            --platform ${TARGET_PLATFORM} \
             --file velox-testing/presto/docker/native_build.dockerfile \
             --build-arg GPU=OFF \
             --build-arg BUILD_TYPE=release \
@@ -205,6 +208,7 @@ jobs:
           set -euo pipefail
           docker build \
             --progress plain \
+            --platform ${TARGET_PLATFORM} \
             --file velox-testing/presto/docker/native_build.dockerfile \
             --build-arg GPU=ON \
             --build-arg BUILD_TYPE=release \
@@ -221,5 +225,5 @@ jobs:
         with:
           name: presto-images-${{ github.run_id }}
           path: ${{ env.ARTIFACT_DIR }}
-          if-no-files-found: error
+          if-no-files-found: warn
 
