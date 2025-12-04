@@ -96,16 +96,6 @@ jobs:
         run: |
           mkdir -p "${ARTIFACT_DIR}"
 
-      - name: Install image tooling
-        if: ${{ env.REGISTRY_PUSH_ENABLED != 'true' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v skopeo >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y --no-install-recommends skopeo
-          fi
-
       - name: Configure registry publishing
         shell: bash
         env:
@@ -210,10 +200,9 @@ jobs:
           docker tag presto-coordinator:${IMAGE_TAG} presto-java-worker:${IMAGE_TAG}
           docker tag presto-coordinator:latest presto-java-worker:latest
           if [[ "${REGISTRY_PUSH_ENABLED}" != "true" ]]; then
-            archive_path="${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.oci.tar"
-            echo "Exporting coordinator image to ${archive_path} (OCI archive, compressed)..."
-            time skopeo copy --dest-compress docker-daemon:presto-coordinator:${IMAGE_TAG} oci-archive:"${archive_path}"
-            ls -lh "${archive_path}"
+            echo "Saving coordinator image to ${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
+            time docker save presto-coordinator:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz"
+            ls -lh "${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz"
           else
             echo "Registry publishing enabled; skipping coordinator tarball export."
           fi
@@ -241,10 +230,9 @@ jobs:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
         run: |
           set -euo pipefail
-          archive_path="${ARTIFACT_DIR}/presto-java-worker-${IMAGE_TAG}.oci.tar"
-          echo "Exporting Java worker image to ${archive_path} (OCI archive, compressed)..."
-          time skopeo copy --dest-compress docker-daemon:presto-java-worker:${IMAGE_TAG} oci-archive:"${archive_path}"
-          ls -lh "${archive_path}"
+          echo "Saving Java worker image to ${ARTIFACT_DIR}/presto-java-worker-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
+          time docker save presto-java-worker:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-java-worker-${IMAGE_TAG}.tar.gz"
+          ls -lh "${ARTIFACT_DIR}/presto-java-worker-${IMAGE_TAG}.tar.gz"
 
       - name: Build Presto native CPU worker image
         if: ${{ env.WORKER_VARIANT == 'native_cpu' }}
@@ -265,10 +253,9 @@ jobs:
             --tag presto-native-worker-cpu:${IMAGE_TAG} \
             .
           if [[ "${REGISTRY_PUSH_ENABLED}" != "true" ]]; then
-            archive_path="${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.oci.tar"
-            echo "Exporting native CPU worker image to ${archive_path} (OCI archive, compressed)..."
-            time skopeo copy --dest-compress docker-daemon:presto-native-worker-cpu:${IMAGE_TAG} oci-archive:"${archive_path}"
-            ls -lh "${archive_path}"
+            echo "Saving native CPU worker image to ${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
+            time docker save presto-native-worker-cpu:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz"
+            ls -lh "${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz"
           else
             echo "Registry publishing enabled; skipping native CPU worker tarball export."
           fi
@@ -304,10 +291,9 @@ jobs:
             --tag presto-native-worker-gpu:${IMAGE_TAG} \
             .
           if [[ "${REGISTRY_PUSH_ENABLED}" != "true" ]]; then
-            archive_path="${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.oci.tar"
-            echo "Exporting native GPU worker image to ${archive_path} (OCI archive, compressed)..."
-            time skopeo copy --dest-compress docker-daemon:presto-native-worker-gpu:${IMAGE_TAG} oci-archive:"${archive_path}"
-            ls -lh "${archive_path}"
+            echo "Saving native GPU worker image to ${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
+            time docker save presto-native-worker-gpu:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz"
+            ls -lh "${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz"
           else
             echo "Registry publishing enabled; skipping native GPU worker tarball export."
           fi
