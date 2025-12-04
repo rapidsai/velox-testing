@@ -30,9 +30,27 @@ docker run --rm \
     bash -c "
     ./mvnw clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true &&
     echo 'Copying artifacts with version $PRESTO_VERSION...' &&
-    cp presto-server/target/presto-server-*.tar.gz docker/presto-server-$PRESTO_VERSION.tar.gz &&
-    cp presto-function-server/target/presto-function-server-*-executable.jar docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
-    cp presto-cli/target/presto-cli-*-executable.jar docker/presto-cli-$PRESTO_VERSION-executable.jar &&
+    SERVER_TARBALL=$(ls presto-server/target/presto-server-*.tar.gz 2>/dev/null | head -n 1)
+    if [[ -z \"${SERVER_TARBALL}\" ]]; then
+      echo 'ERROR: presto-server tarball not found'
+      exit 1
+    fi &&
+    cp \"${SERVER_TARBALL}\" docker/presto-server-$PRESTO_VERSION.tar.gz &&
+    FUNCTION_SERVER_JAR=$(ls presto-function-server/target/presto-function-server-*-executable.jar 2>/dev/null | head -n 1)
+    if [[ -z \"${FUNCTION_SERVER_JAR}\" ]]; then
+      FUNCTION_SERVER_JAR=$(ls presto-function-server/target/presto-function-server-executable.jar 2>/dev/null | head -n 1)
+    fi
+    if [[ -z \"${FUNCTION_SERVER_JAR}\" ]]; then
+      echo 'ERROR: presto-function-server executable jar not found'
+      exit 1
+    fi
+    cp \"${FUNCTION_SERVER_JAR}\" docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
+    CLI_JAR=$(ls presto-cli/target/presto-cli-*-executable.jar 2>/dev/null | head -n 1)
+    if [[ -z \"${CLI_JAR}\" ]]; then
+      echo 'ERROR: presto-cli executable jar not found'
+      exit 1
+    fi &&
+    cp \"${CLI_JAR}\" docker/presto-cli-$PRESTO_VERSION-executable.jar &&
     chmod +r docker/presto-cli-$PRESTO_VERSION-executable.jar &&
     echo 'Build complete! Artifacts copied with version $PRESTO_VERSION'
     "
