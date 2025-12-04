@@ -30,9 +30,11 @@ docker run --rm \
     bash -c "
     ./mvnw clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true &&
     echo 'Copying artifacts with version $PRESTO_VERSION...' &&
-    SERVER_TARBALL=$(ls presto-server/target/presto-server-*.tar.gz 2>/dev/null | head -n 1)
+    SERVER_TARBALL=$(find presto-server/target -maxdepth 5 -type f -name 'presto-server-*.tar.gz' -print 2>/dev/null | sort | head -n 1)
     if [[ -z \"${SERVER_TARBALL}\" ]]; then
       echo 'ERROR: presto-server tarball not found'
+      echo 'DEBUG: Listing available artifacts under presto-server/target'
+      find presto-server/target -maxdepth 3 -type f -print 2>/dev/null || true
       exit 1
     fi &&
     cp \"${SERVER_TARBALL}\" docker/presto-server-$PRESTO_VERSION.tar.gz &&
