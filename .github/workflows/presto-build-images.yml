@@ -32,6 +32,14 @@ on:
           - native_gpu
           - java
         default: native_cpu
+      worker_bundle_mode:
+        description: 'Optional bundle mode to build multiple worker variants'
+        type: choice
+        options:
+          - single
+          - all
+          - all_native
+        default: single
       set_velox_backward_compatible:
         description: 'Define VELOX_ENABLE_BACKWARD_COMPATIBILITY when building native workers'
         type: boolean
@@ -60,6 +68,7 @@ jobs:
       VELOX_REPOSITORY: ${{ github.event.inputs.velox_repository || 'facebookincubator/velox' }}
       TARGET_PLATFORM: ${{ github.event.inputs.target_platform || 'linux/amd64' }}
       WORKER_VARIANT: ${{ github.event.inputs.worker_variant || 'native_cpu' }}
+      WORKER_BUNDLE_MODE: ${{ github.event.inputs.worker_bundle_mode || 'single' }}
       SET_VELOX_BACKWARD_COMPATIBLE: ${{ github.event.inputs.set_velox_backward_compatible || 'false' }}
       ARTIFACT_DIR: ${{ github.workspace }}/artifacts
       REGISTRY_HOST: ${{ vars.GITLAB_REGISTRY_HOST || 'gitlab-master.nvidia.com:5005' }}
@@ -82,7 +91,7 @@ jobs:
           submodules: recursive
 
       - name: Checkout Velox
-        if: ${{ env.WORKER_VARIANT != 'java' }}
+        if: ${{ env.WORKER_VARIANT != 'java' || env.WORKER_BUNDLE_MODE == 'all' || env.WORKER_BUNDLE_MODE == 'all_native' }}
         uses: actions/checkout@v4
         with:
           repository: ${{ env.VELOX_REPOSITORY }}
@@ -148,8 +157,50 @@ jobs:
           echo "ARTIFACT_DIR=${artifact_dir}" >> "${GITHUB_ENV}"
           mkdir -p "${artifact_dir}"
 
+      - name: Determine worker build plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="${WORKER_BUNDLE_MODE:-single}"
+          build_native_cpu=false
+          build_native_gpu=false
+          build_java=false
+          case "${mode}" in
+            all)
+              build_native_cpu=true
+              build_native_gpu=true
+              build_java=true
+              ;;
+            all_native)
+              build_native_cpu=true
+              build_native_gpu=true
+              ;;
+            *)
+              case "${WORKER_VARIANT:-native_cpu}" in
+                native_cpu)
+                  build_native_cpu=true
+                  ;;
+                native_gpu)
+                  build_native_gpu=true
+                  ;;
+                java)
+                  build_java=true
+                  ;;
+              esac
+              ;;
+          esac
+          needs_native="false"
+          if [[ "${build_native_cpu}" == "true" || "${build_native_gpu}" == "true" ]]; then
+            needs_native="true"
+          fi
+          echo "BUILD_NATIVE_CPU=${build_native_cpu}" >> "${GITHUB_ENV}"
+          echo "BUILD_NATIVE_GPU=${build_native_gpu}" >> "${GITHUB_ENV}"
+          echo "BUILD_JAVA=${build_java}" >> "${GITHUB_ENV}"
+          echo "NEEDS_NATIVE=${needs_native}" >> "${GITHUB_ENV}"
+          echo "WORKER_PLAN=${mode}" >> "${GITHUB_ENV}"
+
       - name: Fetch Presto dependency image
-        if: ${{ env.WORKER_VARIANT != 'java' }}
+        if: ${{ env.NEEDS_NATIVE == 'true' }}
         env:
           AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -164,7 +215,7 @@ jobs:
           popd >/dev/null
 
       - name: Enable Velox backward compatibility flag
-        if: ${{ env.WORKER_VARIANT != 'java' && env.SET_VELOX_BACKWARD_COMPATIBLE == 'true' }}
+        if: ${{ env.NEEDS_NATIVE == 'true' && env.SET_VELOX_BACKWARD_COMPATIBLE == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -224,7 +275,7 @@ jobs:
           docker push "${REGISTRY_PREFIX}/presto-java-worker:latest"
 
       - name: Archive Java worker image
-        if: ${{ env.WORKER_VARIANT == 'java' && env.REGISTRY_PUSH_ENABLED != 'true' }}
+        if: ${{ env.BUILD_JAVA == 'true' && env.REGISTRY_PUSH_ENABLED != 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
@@ -235,7 +286,7 @@ jobs:
           ls -lh "${ARTIFACT_DIR}/presto-java-worker-${IMAGE_TAG}.tar.gz"
 
       - name: Build Presto native CPU worker image
-        if: ${{ env.WORKER_VARIANT == 'native_cpu' }}
+        if: ${{ env.BUILD_NATIVE_CPU == 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
@@ -261,7 +312,7 @@ jobs:
           fi
 
       - name: Push Presto native CPU worker image
-        if: ${{ env.WORKER_VARIANT == 'native_cpu' && env.REGISTRY_PUSH_ENABLED == 'true' }}
+        if: ${{ env.BUILD_NATIVE_CPU == 'true' && env.REGISTRY_PUSH_ENABLED == 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
@@ -273,7 +324,7 @@ jobs:
           docker push "${REGISTRY_PREFIX}/presto-native-worker-cpu:latest"
 
       - name: Build Presto native GPU worker image
-        if: ${{ env.WORKER_VARIANT == 'native_gpu' }}
+        if: ${{ env.BUILD_NATIVE_GPU == 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
@@ -299,7 +350,7 @@ jobs:
           fi
 
       - name: Push Presto native GPU worker image
-        if: ${{ env.WORKER_VARIANT == 'native_gpu' && env.REGISTRY_PUSH_ENABLED == 'true' }}
+        if: ${{ env.BUILD_NATIVE_GPU == 'true' && env.REGISTRY_PUSH_ENABLED == 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
