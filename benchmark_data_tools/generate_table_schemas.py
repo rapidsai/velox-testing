@@ -51,7 +51,7 @@ def get_table_schema(benchmark_type, table_name):
     ]
     columns_text = ",\n".join(columns_ddl_list)
     schema = f"CREATE TABLE hive.{{schema}}.{table_name} (\n{columns_text}\n) \
-WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{{file_path}}')"
+WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{{file_path}}')"
     return schema
 
 

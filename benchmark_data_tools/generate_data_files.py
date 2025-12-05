@@ -19,6 +19,10 @@ import subprocess
 import os
 import shutil
 import math
+import tempfile
+import boto3
+import sys
+from botocore.exceptions import ClientError, NoCredentialsError
 
 from duckdb_utils import init_benchmark_tables, is_decimal_column
 from pathlib import Path
@@ -45,7 +49,7 @@ def generate_partition(table, partition, raw_data_path, scale_factor, num_partit
 def generate_data_files(args):
     if os.path.exists(args.data_dir_path):
         shutil.rmtree(args.data_dir_path)
-    Path(f"{args.data_dir_path}").mkdir(parents=True, exist_ok=True)
+    Path(f"{args.data_dir_path}").mkdir(parents=True, exist_ok=True) if not args.data_dir_path.startswith("s3:") else print("Using s3 for data generated")
 
     # tpchgen is much faster, but is exclusive to generating tpch data.  Use duckdb as a fallback.
     if args.benchmark_type == "tpch" and not args.use_duckdb:
@@ -55,11 +59,50 @@ def generate_data_files(args):
         if args.verbose: print("generating with duckdb")
         generate_data_files_with_duckdb(args)
 
+def copy_files_to_s3(local_directory, bucket_url):
+    bucket_name = bucket_url.split("/")[2]
+    try:
+        s3_client = boto3.client('s3', endpoint_url='http://localhost:9000')
+    except NoCredentialsError:
+        print("Error: AWS credentials not found. Please configure AWS credentials.")
+        sys.exit(1)
+    local_path = Path(local_directory)
+    # Get all files in directory (recursively)
+    files_to_upload = []
+    for file_path in local_path.rglob('*'):
+        if file_path.is_file():
+            files_to_upload.append(file_path)
+    if not files_to_upload:
+        print(f"No files found in '{local_directory}'")
+        return
+    print(f"Found {len(files_to_upload)} file(s) to upload to s3://{bucket_name}")
+    
+    uploaded = 0
+    failed = 0
+
+    for file_path in files_to_upload:
+        # Get relative path from source directory
+        s3_key = "/".join(bucket_url.split("/")[3:]) if (len(bucket_url.split("/")) > 3) else ""
+        s3_key += "/" + str(file_path.relative_to(local_path))
+
+        try:
+            print(f"Uploading: {s3_key} -> {bucket_url}")
+            s3_client.upload_file(str(file_path), bucket_name, s3_key)
+            uploaded += 1
+        except ClientError as e:
+            print(f"  Error uploading {file_path}: {e}")
+            failed += 1
+
+    print()
+    print(f"Upload complete: {uploaded} succeeded, {failed} failed")
+
 def generate_data_files_with_tpchgen(args):
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
 
+    data_dir_path = args.data_dir_path if not args.data_dir_path.startswith("s3:") else str(tempfile.TemporaryDirectory());
+
     if args.convert_decimals_to_floats:
-        raw_data_path = args.data_dir_path + "-temp"
+        raw_data_path = data_dir_path + "-temp"
         if os.path.exists(raw_data_path):
             shutil.rmtree(raw_data_path)
     else:
@@ -85,11 +128,17 @@ def generate_data_files_with_tpchgen(args):
     if args.verbose: print(f"Raw data created at: {raw_data_path}")
 
     if args.convert_decimals_to_floats:
-        process_dir(raw_data_path, args.data_dir_path, args.num_threads, args.verbose,
+        process_dir(raw_data_path, data_dir_path, args.num_threads, args.verbose,
                     args.convert_decimals_to_floats)
         shutil.rmtree(raw_data_path)
 
-    write_metadata(args.data_dir_path, args.scale_factor)
+    write_metadata(data_dir_path, args.scale_factor)
+
+    if args.data_dir_path.startswith("s3:"):
+        copy_files_to_s3(data_dir_path, args.data_dir_path)
+        shutil.rmtree(data_dir_path)
+        
+
 
 # This dictionary maps each table to the number of partitions it should have based on it's
 # expected file size relative to the SF.

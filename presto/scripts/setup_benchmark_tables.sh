@@ -49,4 +49,5 @@ trap cleanup EXIT
                                -r $CREATE_TABLES_REQUIREMENTS_PATH \
                                --schema-name $SCHEMA_NAME \
                                --schemas-dir-path $TEMP_SCHEMA_DIR \
+                               --root-dir-name $PRESTO_DATA_DIR
                                --data-dir-name $DATA_DIR_NAME
