@@ -9,6 +9,7 @@ Current features:
   - download     : fetch artifacts for a specific image tag
   - prepare      : extract and validate artifacts, generating an upload plan
   - push         : load the prepared tarballs and push them to the GitLab registry
+  - clean        : remove downloaded artifacts and prepared data for a tag
 
 The script relies on the GitHub CLI (`gh`) for authenticated API calls so that
 users can keep using their existing login session (`gh auth login`). For GitLab
@@ -41,7 +42,7 @@ import tarfile
 import textwrap
 import zipfile
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from urllib.parse import quote
 
@@ -301,6 +302,7 @@ def expected_gitlab_tags_from_metadata(metadata: Dict[str, str]) -> List[str]:
     if not image_tag:
         return []
     platform = (metadata.get("Target platform") or "").lower()
+    normalized_tag = normalize_gitlab_image_tag(image_tag, platform)
     if "arm" in platform:
         arch_prefix = "arm"
     elif "amd" in platform or "x86" in platform:
@@ -309,7 +311,7 @@ def expected_gitlab_tags_from_metadata(metadata: Dict[str, str]) -> List[str]:
         arch_prefix = ""
 
     def full_name(repo: str) -> str:
-        return f"{arch_prefix}/{repo}:{image_tag}" if arch_prefix else f"{repo}:{image_tag}"
+        return f"{arch_prefix}/{repo}:{normalized_tag}" if arch_prefix else f"{repo}:{normalized_tag}"
 
     tags = [
         full_name("presto-coordinator"),
@@ -321,6 +323,20 @@ def expected_gitlab_tags_from_metadata(metadata: Dict[str, str]) -> List[str]:
     if metadata.get("Build native GPU", "").lower() == "true":
         tags.append(full_name("presto-native-worker-gpu"))
     return tags
+
+
+def normalize_gitlab_image_tag(image_tag: str, platform: str) -> str:
+    """
+    Remove the platform suffix (e.g. '-linux-amd64') from the image tag when present so
+    GitLab tags rely on the registry path for architecture differentiation.
+    """
+    if not image_tag or not platform:
+        return image_tag
+    normalized_platform = platform.lower().replace("/", "-")
+    suffix = f"-{normalized_platform}"
+    if normalized_platform and image_tag.endswith(suffix):
+        return image_tag[: -len(suffix)]
+    return image_tag
 
 
 def format_command(cmd: List[str]) -> str:
@@ -827,6 +843,129 @@ def cmd_prepare(args: argparse.Namespace) -> None:
     print("Prepare complete.")
 
 
+def cmd_clean(args: argparse.Namespace) -> None:
+    downloads_dir = Path(args.downloads_dir)
+
+    print("[1/3] Resolving run metadata from GitHub ...")
+    gh_repo = args.repo or DEFAULT_GITHUB_REPO
+    gh_workflow = args.workflow or DEFAULT_WORKFLOW_FILE
+    gh_branch = args.branch
+
+    try:
+        run_info, metadata = find_run_metadata_for_tag(
+            repo=gh_repo,
+            workflow=gh_workflow,
+            branch=gh_branch,
+            limit=args.limit,
+            image_tag=args.image_tag,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        raise RuntimeError(
+            "Failed to resolve workflow run for the specified tag. "
+            "Ensure the GitHub token is set (via --gh-token or GH_TOKEN / GITHUB_TOKEN). "
+            f"Details: {exc}"
+        ) from exc
+
+    resolved_tag = metadata.get("Image tag") or args.image_tag
+    print(
+        f"    → run {run_info['databaseId']} ({run_info['displayTitle']}), "
+        f"branch={run_info.get('headBranch')}, conclusion={run_info.get('conclusion')}"
+    )
+    if resolved_tag != args.image_tag:
+        print(f"    → normalized image tag: {resolved_tag}")
+
+    candidates: List[Path] = []
+    legacy_candidates: List[Path] = []
+
+    primary_dir = downloads_dir / resolved_tag
+    if primary_dir.exists():
+        candidates.append(primary_dir)
+
+    run_id = metadata.get("run_id") or run_info.get("databaseId")
+
+    local_metadata = None
+    primary_meta = primary_dir / "metadata.json"
+    if primary_meta.exists():
+        with primary_meta.open("r", encoding="utf-8") as fh:
+            local_metadata = json.load(fh)
+    elif run_id:
+        legacy_meta = downloads_dir / str(run_id) / "metadata.json"
+        if legacy_meta.exists():
+            with legacy_meta.open("r", encoding="utf-8") as fh:
+                local_metadata = json.load(fh)
+
+    if local_metadata:
+        metadata = {**metadata, **local_metadata}
+        run_id = metadata.get("run_id") or run_id
+        resolved_tag = metadata.get("Image tag") or resolved_tag
+
+    run_id_str = str(run_id) if run_id is not None else None
+
+    if run_id_str:
+        legacy_dir = downloads_dir / run_id_str
+        if legacy_dir.exists() and legacy_dir != primary_dir:
+            legacy_candidates.append(legacy_dir)
+
+    possible_paths: Set[Path] = set()
+    name_candidates = [
+        args.image_tag,
+        resolved_tag,
+        run_id_str,
+        metadata.get("artifact_name"),
+        metadata.get("artifact_zip"),
+    ]
+    for name in name_candidates:
+        if not name:
+            continue
+        possible_paths.add(downloads_dir / name)
+        possible_paths.add(downloads_dir / f"{name}.zip")
+        possible_paths.add(downloads_dir / f"{name}.tar.gz")
+        if run_id_str:
+            possible_paths.add(downloads_dir / f"presto-images-{run_id_str}.zip")
+
+    if run_id_str:
+        possible_paths.update(downloads_dir.glob(f"*{run_id_str}*.zip"))
+        possible_paths.update(downloads_dir.glob(f"*{run_id_str}*.tar.gz"))
+    possible_paths.update(downloads_dir.glob(f"*{resolved_tag}*.zip"))
+    possible_paths.update(downloads_dir.glob(f"*{resolved_tag}*.tar.gz"))
+
+    for file_path in list(possible_paths):
+        if file_path.exists():
+            legacy_candidates.append(file_path)
+
+    if not candidates and not legacy_candidates:
+        raise RuntimeError(
+            "No local artifacts found for this image tag. "
+            "If old downloads exist elsewhere, remove them manually."
+        )
+
+    print("[2/3] The following paths will be removed:")
+    for path in candidates:
+        print(f"  - {path}/ (download + prepared data)")
+    for path in legacy_candidates:
+        suffix = "/" if path.is_dir() else ""
+        label = "additional directory" if path.is_dir() else "downloaded artifact"
+        print(f"  - {path}{suffix} ({label})")
+
+    if not args.yes and not prompt_yes_no("[3/3] Proceed with deletion? [y/N]: "):
+        print("Clean aborted.")
+        return
+
+    for path in candidates:
+        shutil.rmtree(path)
+        print(f"Removed directory {path}")
+
+    for path in legacy_candidates:
+        if path.is_dir():
+            shutil.rmtree(path)
+            print(f"Removed legacy directory {path}")
+        else:
+            path.unlink()
+            print(f"Removed legacy file {path}")
+
+    print("Clean complete.")
+
+
 def cmd_push(args: argparse.Namespace) -> None:
     if shutil.which("docker") is None:
         raise RuntimeError("Docker CLI not found in PATH. Install Docker or ensure it is available.")
@@ -1169,6 +1308,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="GitHub token (otherwise GH_TOKEN/GITHUB_TOKEN env vars or gh auth login are used).",
     )
     push.set_defaults(func=cmd_push)
+
+    # clean
+    clean = subparsers.add_parser("clean", help="Remove downloaded artifacts and prepared data for a tag.")
+    clean.add_argument("image_tag", help="Image tag to clean.")
+    clean.add_argument("--downloads-dir", default="downloads", help="Directory where downloads are stored (default: %(default)s)")
+    clean.add_argument("--yes", action="store_true", help="Skip confirmation prompt.")
+    clean.add_argument("--repo", default=DEFAULT_GITHUB_REPO, help="GitHub owner/repo for verification (default: %(default)s)")
+    clean.add_argument("--workflow", default=DEFAULT_WORKFLOW_FILE, help="Workflow filename for verification (default: %(default)s)")
+    clean.add_argument("--branch", default=None, help="Only consider runs from this branch when verifying.")
+    clean.add_argument("--limit", type=int, default=20, help="Maximum workflow runs to search when verifying (default: %(default)s)")
+    clean.add_argument(
+        "--gh-token",
+        default=None,
+        help="GitHub token (otherwise GH_TOKEN/GITHUB_TOKEN env vars or gh auth login are used).",
+    )
+    clean.set_defaults(func=cmd_clean)
 
     return parser
 
