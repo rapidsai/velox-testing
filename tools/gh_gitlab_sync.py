@@ -10,6 +10,7 @@ Current features:
   - prepare      : extract and validate artifacts, generating an upload plan
   - push         : load the prepared tarballs and push them to the GitLab registry
   - clean        : remove downloaded artifacts and prepared data for a tag
+  - daemon       : periodically mirror missing GitHub builds into the GitLab registry
 
 The script relies on the GitHub CLI (`gh`) for authenticated API calls so that
 users can keep using their existing login session (`gh auth login`). For GitLab
@@ -42,7 +43,10 @@ import tarfile
 import textwrap
 import zipfile
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+import time
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from urllib.parse import quote
 
@@ -458,105 +462,6 @@ def prompt_yes_no(prompt: str) -> bool:
         print("Please respond with 'y' or 'n'.")
 
 
-def cmd_xref(args: argparse.Namespace) -> None:
-    # Gather GitHub runs and expected tags
-    runs = fetch_workflow_runs(
-        repo=args.repo,
-        workflow=args.workflow,
-        branch=args.branch,
-        limit=args.limit,
-    )
-    gh_tags: Dict[str, Dict[str, str]] = {}
-    runs_by_image: Dict[str, List[str]] = {}
-    for run in runs:
-        if run.get("conclusion") != "success":
-            continue
-        try:
-            logs = download_run_logs(args.repo, run["databaseId"])
-            metadata = parse_metadata_from_logs(logs)
-        except Exception:  # pylint: disable=broad-except
-            continue
-        tags = expected_gitlab_tags_from_metadata(metadata)
-        if not tags:
-            continue
-        canonical_metadata = metadata.copy()
-        canonical_metadata["_tags"] = tags
-        for tag in tags:
-            gh_tags[tag] = canonical_metadata
-        key = metadata.get("Image tag", "unknown")
-        runs_by_image.setdefault(key, []).append(run["displayTitle"])
-
-    print(f"Collected {len(gh_tags)} expected image tags from GitHub runs.")
-
-    # Gather GitLab tags
-    requests_module = ensure_requests()
-    token = args.gitlab_token or os.environ.get("GITLAB_TOKEN")
-    if not token:
-        raise RuntimeError("GitLab token not provided. Use --gitlab-token or set GITLAB_TOKEN.")
-
-    project_path = args.gitlab_project or DEFAULT_GITLAB_PROJECT
-    encoded_project = project_path.replace("/", "%2F")
-
-    repos = gitlab_api_json(
-        requests_module,
-        args.gitlab_host,
-        f"/api/v4/projects/{encoded_project}/registry/repositories",
-        token,
-        params={"per_page": 100},
-    )
-
-    gitlab_tags: Dict[str, dict] = {}
-    for repo in repos:
-        repo_id = repo["id"]
-        repo_name = repo.get("name") or repo.get("path")
-        tags = gitlab_api_json(
-            requests_module,
-            args.gitlab_host,
-            f"/api/v4/projects/{encoded_project}/registry/repositories/{repo_id}/tags",
-            token,
-            params={"per_page": 100},
-        )
-        for tag in tags or []:
-            gitlab_tags[f"{repo_name}:{tag['name']}"] = tag
-
-    print(f"Found {len(gitlab_tags)} tags in GitLab registry.")
-
-    missing_on_gitlab = sorted(set(gh_tags) - set(gitlab_tags))
-    extra_on_gitlab = sorted(set(gitlab_tags) - set(gh_tags))
-
-    if missing_on_gitlab:
-        print("\nImages present in GitHub runs but missing on GitLab:")
-        grouped: Dict[str, Dict[str, any]] = {}
-        for tag in missing_on_gitlab:
-            metadata = gh_tags[tag]
-            image_tag = metadata.get("Image tag", "unknown")
-            info = grouped.setdefault(
-                image_tag,
-                {
-                    "metadata": metadata,
-                    "tags": [],
-                },
-            )
-            info["tags"].append(tag)
-        for image_tag, info in grouped.items():
-            metadata = info["metadata"]
-            print(f"  Image tag: {image_tag}")
-            print(f"    Presto ref : {metadata.get('Presto ref', '?')}")
-            print(f"    Velox ref  : {metadata.get('Velox ref', '?')}")
-            print(f"    Platform   : {metadata.get('Target platform', '?')}")
-            if runs_by_image.get(image_tag):
-                print(f"    Runs       : {', '.join(runs_by_image[image_tag])}")
-            for tag in sorted(info["tags"]):
-                print(f"    missing tag: {tag}")
-    else:
-        print("\nNo missing GitLab images.")
-
-    if extra_on_gitlab and args.list_extra:
-        print("\nImages on GitLab with no matching GitHub run:")
-        for tag in extra_on_gitlab:
-            print(f"  {tag}")
-
-
 def find_run_metadata_for_tag(
     repo: str,
     workflow: str,
@@ -590,6 +495,145 @@ def find_run_metadata_for_tag(
                 f"Encountered errors while inspecting runs: {error_summaries}"
             ) from errors[0][1]
         raise RuntimeError(f"No successful workflow run found with image tag '{image_tag}'.")
+
+
+def compute_registry_sync_state(
+    repo: str,
+    workflow: str,
+    branch: Optional[str],
+    limit: int,
+    gitlab_host: str,
+    gitlab_project: str,
+    gitlab_token: str,
+) -> Dict[str, Any]:
+    runs = fetch_workflow_runs(
+        repo=repo,
+        workflow=workflow,
+        branch=branch,
+        limit=limit,
+    )
+    gh_tags: Dict[str, Dict[str, str]] = {}
+    runs_by_image: Dict[str, List[str]] = {}
+    for run in runs:
+        if run.get("conclusion") != "success":
+            continue
+        try:
+            logs = download_run_logs(repo, run["databaseId"])
+            metadata = parse_metadata_from_logs(logs)
+        except Exception:  # pylint: disable=broad-except
+            continue
+        tags = expected_gitlab_tags_from_metadata(metadata)
+        if not tags:
+            continue
+        canonical_metadata = metadata.copy()
+        canonical_metadata["_tags"] = tags
+        canonical_metadata["_run_display"] = run.get("displayTitle")
+        canonical_metadata["_run_id"] = run.get("databaseId")
+        canonical_metadata["_run_info"] = {
+            "databaseId": run.get("databaseId"),
+            "displayTitle": run.get("displayTitle"),
+            "headBranch": run.get("headBranch"),
+            "conclusion": run.get("conclusion"),
+            "htmlUrl": run.get("url"),
+        }
+        canonical_metadata["_run_branch"] = run.get("headBranch")
+        canonical_metadata["_run_conclusion"] = run.get("conclusion")
+        canonical_metadata["run_id"] = run.get("databaseId")
+        canonical_metadata["run_name"] = run.get("displayTitle")
+        for tag in tags:
+            gh_tags[tag] = canonical_metadata
+        key = metadata.get("Image tag", "unknown")
+        runs_by_image.setdefault(key, []).append(run["displayTitle"])
+
+    requests_module = ensure_requests()
+    encoded_project = gitlab_project.replace("/", "%2F")
+    repos = gitlab_api_json(
+        requests_module,
+        gitlab_host,
+        f"/api/v4/projects/{encoded_project}/registry/repositories",
+        gitlab_token,
+        params={"per_page": 100},
+    )
+
+    gitlab_tags: Dict[str, dict] = {}
+    for repo_entry in repos:
+        repo_id = repo_entry["id"]
+        repo_name = repo_entry.get("name") or repo_entry.get("path")
+        tags = gitlab_api_json(
+            requests_module,
+            gitlab_host,
+            f"/api/v4/projects/{encoded_project}/registry/repositories/{repo_id}/tags",
+            gitlab_token,
+            params={"per_page": 100},
+        )
+        for tag in tags or []:
+            gitlab_tags[f"{repo_name}:{tag['name']}"] = tag
+
+    missing_on_gitlab = sorted(set(gh_tags) - set(gitlab_tags))
+    extra_on_gitlab = sorted(set(gitlab_tags) - set(gh_tags))
+
+    grouped_missing: Dict[str, Dict[str, Any]] = {}
+    for tag in missing_on_gitlab:
+        metadata = gh_tags[tag]
+        image_tag = metadata.get("Image tag", "unknown")
+        info = grouped_missing.setdefault(
+            image_tag,
+            {
+                "metadata": metadata,
+                "tags": [],
+                "runs": runs_by_image.get(image_tag, []),
+            },
+        )
+        info["tags"].append(tag)
+
+    return {
+        "gh_tags": gh_tags,
+        "gitlab_tags": gitlab_tags,
+        "missing_grouped": grouped_missing,
+        "extra_on_gitlab": extra_on_gitlab,
+        "runs_by_image": runs_by_image,
+    }
+
+
+def cmd_xref(args: argparse.Namespace) -> None:
+    token = args.gitlab_token or os.environ.get("GITLAB_TOKEN")
+    if not token:
+        raise RuntimeError("GitLab token not provided. Use --gitlab-token or set GITLAB_TOKEN.")
+
+    state = compute_registry_sync_state(
+        repo=args.repo,
+        workflow=args.workflow,
+        branch=args.branch,
+        limit=args.limit,
+        gitlab_host=args.gitlab_host,
+        gitlab_project=args.gitlab_project or DEFAULT_GITLAB_PROJECT,
+        gitlab_token=token,
+    )
+
+    print(f"Collected {len(state['gh_tags'])} expected image tags from GitHub runs.")
+    print(f"Found {len(state['gitlab_tags'])} tags in GitLab registry.")
+
+    grouped = state["missing_grouped"]
+    if grouped:
+        print("\nImages present in GitHub runs but missing on GitLab:")
+        for image_tag, info in grouped.items():
+            metadata = info["metadata"]
+            print(f"  Image tag: {image_tag}")
+            print(f"    Presto ref : {metadata.get('Presto ref', '?')}")
+            print(f"    Velox ref  : {metadata.get('Velox ref', '?')}")
+            print(f"    Platform   : {metadata.get('Target platform', '?')}")
+            if info.get("runs"):
+                print(f"    Runs       : {', '.join(info['runs'])}")
+            for tag in sorted(info["tags"]):
+                print(f"    missing tag: {tag}")
+    else:
+        print("\nNo missing GitLab images.")
+
+    extra_on_gitlab = state["extra_on_gitlab"]
+    if extra_on_gitlab and args.list_extra:
+        print("\nImages on GitLab with no matching GitHub run:")
+        for tag in extra_on_gitlab:
+            print(f"  {tag}")
 
     def sort_key(item: Tuple[dict, Dict[str, str]]) -> str:
         run = item[0]
@@ -644,17 +688,27 @@ def cmd_download(args: argparse.Namespace) -> None:
     def log(step: int, message: str) -> None:
         print(f"[{step}/{steps_total}] {message}")
 
-    log(1, f"Locating workflow run for image tag '{args.image_tag}' ...")
-    run, metadata = find_run_metadata_for_tag(
-        repo=args.repo,
-        workflow=args.workflow,
-        branch=args.branch,
-        limit=args.limit,
-        image_tag=args.image_tag,
-    )
+    precomputed_run = getattr(args, "precomputed_run", None)
+    precomputed_metadata = getattr(args, "precomputed_metadata", None)
+
+    if precomputed_metadata:
+        metadata = {**precomputed_metadata}
+    if precomputed_run and precomputed_metadata:
+        log(1, f"Using cached workflow run for image tag '{args.image_tag}' ...")
+        run = precomputed_run
+        metadata = {**metadata, **precomputed_metadata}
+    else:
+        log(1, f"Locating workflow run for image tag '{args.image_tag}' ...")
+        run, metadata = find_run_metadata_for_tag(
+            repo=args.repo,
+            workflow=args.workflow,
+            branch=args.branch,
+            limit=args.limit,
+            image_tag=args.image_tag,
+        )
 
     print(
-        f"        → run {run['databaseId']} ({run['displayTitle']}), "
+        f"        → run {run.get('databaseId')} ({run.get('displayTitle')}), "
         f"Presto={metadata.get('Presto ref', '?')}, Velox={metadata.get('Velox ref', '?')}, "
         f"platform={metadata.get('Target platform', '?')}"
     )
@@ -691,12 +745,16 @@ def cmd_download(args: argparse.Namespace) -> None:
 
     log(5, f"Writing metadata to {metadata_path} ...")
     metadata_record = dict(metadata)
-    metadata_record["run_id"] = run["databaseId"]
-    metadata_record["run_name"] = run["displayTitle"]
+    metadata_record["run_id"] = run.get("databaseId")
+    metadata_record["run_name"] = run.get("displayTitle")
     metadata_record["repository"] = args.repo
     metadata_record["artifact_name"] = name
     metadata_record["artifact_size_bytes"] = expected_size
     metadata_record["artifact_zip"] = output_name
+    if precomputed_run:
+        metadata_record["_run_info"] = precomputed_run
+        metadata_record["_run_branch"] = precomputed_run.get("headBranch")
+        metadata_record["_run_conclusion"] = precomputed_run.get("conclusion")
     with open(metadata_path, "w", encoding="utf-8") as fh:
         json.dump(metadata_record, fh, indent=2, sort_keys=True)
     print("Download complete.")
@@ -847,28 +905,50 @@ def cmd_clean(args: argparse.Namespace) -> None:
     downloads_dir = Path(args.downloads_dir)
 
     print("[1/3] Resolving run metadata from GitHub ...")
-    gh_repo = args.repo or DEFAULT_GITHUB_REPO
+    precomputed_run = getattr(args, "precomputed_run", None)
+    precomputed_metadata = getattr(args, "precomputed_metadata", None) or {}
+    metadata = dict(precomputed_metadata)
+
+    gh_repo = args.repo or metadata.get("repository") or DEFAULT_GITHUB_REPO
     gh_workflow = args.workflow or DEFAULT_WORKFLOW_FILE
     gh_branch = args.branch
 
-    try:
-        run_info, metadata = find_run_metadata_for_tag(
-            repo=gh_repo,
-            workflow=gh_workflow,
-            branch=gh_branch,
-            limit=args.limit,
-            image_tag=args.image_tag,
-        )
-    except Exception as exc:  # pylint: disable=broad-except
-        raise RuntimeError(
-            "Failed to resolve workflow run for the specified tag. "
-            "Ensure the GitHub token is set (via --gh-token or GH_TOKEN / GITHUB_TOKEN). "
-            f"Details: {exc}"
-        ) from exc
+    run_info = precomputed_run
+    if run_info:
+        print("    → using cached workflow run metadata.")
+    else:
+        try:
+            run_info, gh_metadata = find_run_metadata_for_tag(
+                repo=gh_repo,
+                workflow=gh_workflow,
+                branch=gh_branch,
+                limit=args.limit,
+                image_tag=args.image_tag,
+            )
+            metadata.update({k: v for k, v in gh_metadata.items() if v is not None})
+        except Exception as exc:  # pylint: disable=broad-except
+            fallback_run = {
+                "databaseId": metadata.get("run_id"),
+                "displayTitle": metadata.get("run_name"),
+                "headBranch": metadata.get("_run_branch"),
+                "conclusion": metadata.get("_run_conclusion"),
+            }
+            if fallback_run["databaseId"]:
+                print(
+                    "    → warning: failed to re-query GitHub; using stored metadata. "
+                    f"Details: {exc}"
+                )
+                run_info = fallback_run
+            else:
+                raise RuntimeError(
+                    "Failed to resolve workflow run for the specified tag. "
+                    "Ensure the GitHub token is set (via --gh-token or GH_TOKEN / GITHUB_TOKEN). "
+                    f"Details: {exc}"
+                ) from exc
 
     resolved_tag = metadata.get("Image tag") or args.image_tag
     print(
-        f"    → run {run_info['databaseId']} ({run_info['displayTitle']}), "
+        f"    → run {run_info.get('databaseId')} ({run_info.get('displayTitle')}), "
         f"branch={run_info.get('headBranch')}, conclusion={run_info.get('conclusion')}"
     )
     if resolved_tag != args.image_tag:
@@ -966,6 +1046,122 @@ def cmd_clean(args: argparse.Namespace) -> None:
     print("Clean complete.")
 
 
+def cmd_daemon(args: argparse.Namespace) -> None:
+    token = args.gitlab_token or os.environ.get("GITLAB_TOKEN")
+    if not token:
+        raise RuntimeError("GitLab token not provided. Use --gitlab-token or set GITLAB_TOKEN.")
+
+    interval = max(args.interval, 1)
+    downloads_dir = args.downloads_dir
+
+    print(f"Starting daemon loop (interval={interval}s, downloads_dir='{downloads_dir}')")
+    try:
+        while True:
+            cycle_ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            print(f"\n[{cycle_ts}] Checking for missing GitLab images ...")
+            try:
+                state = compute_registry_sync_state(
+                    repo=args.repo,
+                    workflow=args.workflow,
+                    branch=args.branch,
+                    limit=args.limit,
+                    gitlab_host=args.gitlab_host,
+                    gitlab_project=args.gitlab_project or DEFAULT_GITLAB_PROJECT,
+                    gitlab_token=token,
+                )
+            except Exception as exc:  # pylint: disable=broad-except
+                print(f"[{cycle_ts}] ERROR: Failed to compute registry state: {exc}")
+                if args.once:
+                    raise
+                print(f"[{cycle_ts}] Sleeping {interval}s before retry.")
+                time.sleep(interval)
+                continue
+
+            missing = state["missing_grouped"]
+            if not missing:
+                print(f"[{cycle_ts}] No missing tags. Sleeping {interval}s.")
+                if args.once:
+                    break
+                time.sleep(interval)
+                continue
+
+            for image_tag in sorted(missing.keys()):
+                print(f"[{cycle_ts}] Processing image '{image_tag}'")
+                try:
+                    info = missing[image_tag]
+                    metadata = info["metadata"]
+                    precomputed_run = metadata.get("_run_info") or {
+                        "databaseId": metadata.get("_run_id"),
+                        "displayTitle": metadata.get("_run_display"),
+                        "headBranch": metadata.get("_run_branch"),
+                        "conclusion": metadata.get("_run_conclusion"),
+                    }
+
+                    download_args = SimpleNamespace(
+                        image_tag=image_tag,
+                        repo=args.repo,
+                        workflow=args.workflow,
+                        branch=args.branch,
+                        limit=args.limit,
+                        output_dir=downloads_dir,
+                        force=True,
+                        precomputed_run=precomputed_run,
+                        precomputed_metadata=metadata,
+                    )
+                    cmd_download(download_args)
+
+                    prepare_args = SimpleNamespace(
+                        image_tag=image_tag,
+                        downloads_dir=downloads_dir,
+                        clean=True,
+                    )
+                    cmd_prepare(prepare_args)
+
+                    push_args = SimpleNamespace(
+                        image_tag=image_tag,
+                        downloads_dir=downloads_dir,
+                        gitlab_host=args.gitlab_host,
+                        gitlab_project=args.gitlab_project or DEFAULT_GITLAB_PROJECT,
+                        registry=args.registry or DEFAULT_GITLAB_REGISTRY,
+                        gitlab_token=token,
+                        repo=args.repo,
+                        workflow=args.workflow,
+                        branch=args.branch,
+                        limit=args.limit,
+                        registry_username=args.registry_username,
+                        registry_password=args.registry_password,
+                        skip_login=args.skip_login,
+                        yes=True,
+                        force=args.force_push,
+                        verbose=args.verbose,
+                    )
+                    cmd_push(push_args)
+
+                    clean_args = SimpleNamespace(
+                        image_tag=image_tag,
+                        downloads_dir=downloads_dir,
+                        yes=True,
+                        repo=args.repo,
+                        workflow=args.workflow,
+                        branch=args.branch,
+                        limit=args.limit,
+                        precomputed_run=precomputed_run,
+                        precomputed_metadata=metadata,
+                    )
+                    cmd_clean(clean_args)
+                except Exception as exc:  # pylint: disable=broad-except
+                    print(f"[{cycle_ts}] ERROR while processing '{image_tag}': {exc}")
+                    continue
+
+            if args.once:
+                break
+
+            print(f"[{cycle_ts}] Cycle complete. Sleeping {interval}s.")
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        print("\nDaemon interrupted by user. Exiting.")
+
+
 def cmd_push(args: argparse.Namespace) -> None:
     if shutil.which("docker") is None:
         raise RuntimeError("Docker CLI not found in PATH. Install Docker or ensure it is available.")
@@ -1007,35 +1203,60 @@ def cmd_push(args: argparse.Namespace) -> None:
     def log(step: int, message: str) -> None:
         print(f"[{step}/{steps_total}] {message}")
 
-    # Step 1: verify GitHub run metadata
-    log(1, "Resolving run metadata from GitHub ...")
+    precomputed_run = getattr(args, "precomputed_run", None)
+    precomputed_metadata = getattr(args, "precomputed_metadata", None)
+    if precomputed_metadata:
+        metadata.update({k: v for k, v in precomputed_metadata.items() if v is not None})
+
+    run_info = precomputed_run
+
+    # Step 1: verify GitHub run metadata (or use cached/fallback)
     gh_repo = args.repo or metadata.get("repository") or DEFAULT_GITHUB_REPO
     gh_workflow = args.workflow or DEFAULT_WORKFLOW_FILE
     gh_branch = args.branch
-    try:
-        run_info, gh_metadata = find_run_metadata_for_tag(
-            repo=gh_repo,
-            workflow=gh_workflow,
-            branch=gh_branch,
-            limit=args.limit,
-            image_tag=args.image_tag,
-        )
-    except Exception as exc:  # pylint: disable=broad-except
-        raise RuntimeError(
-            "Failed to verify run metadata from GitHub. Ensure the gh CLI is authenticated or provide --gh-token. "
-            f"Details: {exc}"
-        ) from exc
+
+    if run_info:
+        log(1, "Using cached workflow run metadata.")
+    else:
+        log(1, "Resolving run metadata from GitHub ...")
+        try:
+            run_info, gh_metadata = find_run_metadata_for_tag(
+                repo=gh_repo,
+                workflow=gh_workflow,
+                branch=gh_branch,
+                limit=args.limit,
+                image_tag=args.image_tag,
+            )
+            metadata.update({k: v for k, v in gh_metadata.items() if v is not None})
+        except Exception as exc:  # pylint: disable=broad-except
+            fallback_run = {
+                "databaseId": metadata.get("run_id"),
+                "displayTitle": metadata.get("run_name"),
+                "headBranch": metadata.get("_run_branch"),
+                "conclusion": metadata.get("_run_conclusion"),
+            }
+            if fallback_run["databaseId"]:
+                print(
+                    "WARNING: Failed to re-query GitHub for run metadata. Falling back to stored metadata. "
+                    f"Details: {exc}"
+                )
+                run_info = fallback_run
+            else:
+                raise RuntimeError(
+                    "Failed to verify run metadata from GitHub. Ensure the gh CLI is authenticated or provide --gh-token. "
+                    f"Details: {exc}"
+                ) from exc
 
     print(
-        f"    → run {run_info['databaseId']} ({run_info['displayTitle']}), "
+        f"    → run {run_info.get('databaseId')} ({run_info.get('displayTitle')}), "
         f"branch={run_info.get('headBranch')}, conclusion={run_info.get('conclusion')}"
     )
 
     stored_run_id = metadata.get("run_id")
-    if stored_run_id and stored_run_id != run_info["databaseId"]:
+    if stored_run_id and run_info.get("databaseId") and stored_run_id != run_info.get("databaseId"):
         print(
             "WARNING: Prepared metadata run_id differs from GitHub lookup "
-            f"({stored_run_id} vs {run_info['databaseId']}). Using GitHub data."
+            f"({stored_run_id} vs {run_info.get('databaseId')}). Using GitHub data."
         )
 
     # Common GitLab settings
@@ -1324,6 +1545,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="GitHub token (otherwise GH_TOKEN/GITHUB_TOKEN env vars or gh auth login are used).",
     )
     clean.set_defaults(func=cmd_clean)
+
+    # daemon
+    daemon = subparsers.add_parser("daemon", help="Continuously mirror missing GitHub artifacts into GitLab.")
+    daemon.add_argument("--interval", type=int, default=900, help="Sleep interval between checks in seconds (default: %(default)s)")
+    daemon.add_argument("--downloads-dir", default="downloads", help="Directory where downloads are stored (default: %(default)s)")
+    daemon.add_argument("--once", action="store_true", help="Run a single synchronization cycle and exit.")
+    daemon.add_argument("--repo", default=DEFAULT_GITHUB_REPO, help="GitHub owner/repo (default: %(default)s)")
+    daemon.add_argument("--workflow", default=DEFAULT_WORKFLOW_FILE, help="Workflow filename (default: %(default)s)")
+    daemon.add_argument("--branch", default=None, help="Only consider runs from this branch.")
+    daemon.add_argument("--limit", type=int, default=20, help="Maximum workflow runs to inspect (default: %(default)s)")
+    daemon.add_argument("--gitlab-host", default=DEFAULT_GITLAB_HOST, help="GitLab host (default: %(default)s)")
+    daemon.add_argument("--gitlab-project", default=DEFAULT_GITLAB_PROJECT, help="GitLab project path (default: %(default)s)")
+    daemon.add_argument("--gitlab-token", default=None, help="GitLab access token (or set GITLAB_TOKEN).")
+    daemon.add_argument("--registry", default=DEFAULT_GITLAB_REGISTRY, help="Docker registry hostname (default: %(default)s)")
+    daemon.add_argument("--registry-username", default=None, help="Docker registry username (or set GITLAB_REGISTRY_USERNAME/CI_REGISTRY_USER).")
+    daemon.add_argument("--registry-password", default=None, help="Docker registry password/token (or set GITLAB_REGISTRY_PASSWORD/CI_REGISTRY_PASSWORD).")
+    daemon.add_argument("--skip-login", action="store_true", help="Skip docker login (assume already authenticated).")
+    daemon.add_argument("--force-push", action="store_true", help="Push even if tags already exist on the registry.")
+    daemon.add_argument("--verbose", action="store_true", help="Enable verbose output from nested commands.")
+    daemon.add_argument(
+        "--gh-token",
+        default=None,
+        help="GitHub token (otherwise GH_TOKEN/GITHUB_TOKEN env vars or gh auth login are used).",
+    )
+    daemon.set_defaults(func=cmd_daemon)
 
     return parser
 
