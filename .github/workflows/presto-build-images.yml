@@ -18,7 +18,7 @@ on:
         description: 'Velox repository to clone'
         type: string
         required: false
-        default: 'facebookincubator/velox'
+        default: 'rapidsai/velox'
       velox_commit:
         description: 'Velox commit SHA or branch to build'
         type: string

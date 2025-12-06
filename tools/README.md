@@ -26,7 +26,7 @@ gh workflow run presto-build-images.yml \
   --ref mattgara/presto-image-build \
   --field presto_repository=prestodb/presto \
   --field presto_commit=92865fbce0d2a056af5334a0afecc1f36853b657 \
-  --field velox_repository=facebookincubator/velox \
+  --field velox_repository=rapidsai/velox \
   --field velox_commit=65797d572e0a297fa898e4f6ab4c1afc75fe3419 \
   --field worker_bundle_mode=all_native \
   --field target_platform=linux/amd64 \
@@ -60,7 +60,7 @@ gh workflow run presto-build-images.yml \
 |------------------------------|----------------------------------------------------------------------------------------------|
 | `presto_repository`          | GitHub repo containing the Presto source (default `prestodb/presto`).                        |
 | `presto_commit`              | Presto commit SHA/branch to build (use full SHA for reproducibility).                        |
-| `velox_repository`           | GitHub repo containing the Velox source (default `facebookincubator/velox`).                 |
+| `velox_repository`           | GitHub repo containing the Velox source (default `rapidsai/velox`).                 |
 | `velox_commit`               | Velox commit SHA/branch to build (use full SHA).                                             |
 | `worker_variant`             | Worker to build when `worker_bundle_mode=single` (`native_cpu`, `native_gpu`, `java`).        |
 | `worker_bundle_mode`         | Bundle mode (`single`, `all`, `all_native`).                                                 |
