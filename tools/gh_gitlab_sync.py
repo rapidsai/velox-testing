@@ -635,22 +635,6 @@ def cmd_xref(args: argparse.Namespace) -> None:
         for tag in extra_on_gitlab:
             print(f"  {tag}")
 
-    def sort_key(item: Tuple[dict, Dict[str, str]]) -> str:
-        run = item[0]
-        return run.get("startedAt") or run.get("createdAt") or ""
-
-    matches.sort(key=sort_key, reverse=True)
-
-    if len(matches) > 1:
-        run_ids = ", ".join(str(item[0]["databaseId"]) for item in matches)
-        print(
-            f"WARNING: Found {len(matches)} successful runs with image tag '{image_tag}'. "
-            f"Using the most recent run (IDs: {run_ids})."
-        )
-
-    return matches[0]
-
-
 def download_artifact_with_progress(url: str, token: str, dest_path: str) -> None:
     requests_module = ensure_requests()
     headers = {"Authorization": f"token {token}"}
@@ -755,6 +739,16 @@ def cmd_download(args: argparse.Namespace) -> None:
         metadata_record["_run_info"] = precomputed_run
         metadata_record["_run_branch"] = precomputed_run.get("headBranch")
         metadata_record["_run_conclusion"] = precomputed_run.get("conclusion")
+    else:
+        metadata_record["_run_info"] = {
+            "databaseId": run.get("databaseId"),
+            "displayTitle": run.get("displayTitle"),
+            "headBranch": run.get("headBranch"),
+            "conclusion": run.get("conclusion"),
+            "htmlUrl": run.get("url"),
+        }
+        metadata_record["_run_branch"] = run.get("headBranch")
+        metadata_record["_run_conclusion"] = run.get("conclusion")
     with open(metadata_path, "w", encoding="utf-8") as fh:
         json.dump(metadata_record, fh, indent=2, sort_keys=True)
     print("Download complete.")
@@ -1134,6 +1128,8 @@ def cmd_daemon(args: argparse.Namespace) -> None:
                         yes=True,
                         force=args.force_push,
                         verbose=args.verbose,
+                        precomputed_run=precomputed_run,
+                        precomputed_metadata=metadata,
                     )
                     cmd_push(push_args)
 

@@ -71,9 +71,6 @@ jobs:
       WORKER_BUNDLE_MODE: ${{ github.event.inputs.worker_bundle_mode || 'single' }}
       SET_VELOX_BACKWARD_COMPATIBLE: ${{ github.event.inputs.set_velox_backward_compatible || 'false' }}
       ARTIFACT_DIR: ${{ github.workspace }}/artifacts
-      REGISTRY_HOST: ${{ vars.GITLAB_REGISTRY_HOST || 'gitlab-master.nvidia.com:5005' }}
-      REGISTRY_NAMESPACE: ${{ vars.GITLAB_REGISTRY_NAMESPACE || 'hercules/veloxtesting' }}
-      REGISTRY_PUSH_ENABLED: 'false'
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
@@ -104,31 +101,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p "${ARTIFACT_DIR}"
-
-      - name: Configure registry publishing
-        shell: bash
-        env:
-          REGISTRY_USER: ${{ secrets.GITLAB_REGISTRY_USER }}
-          REGISTRY_TOKEN: ${{ secrets.GITLAB_REGISTRY_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -n "${REGISTRY_USER:-}" && -n "${REGISTRY_TOKEN:-}" ]]; then
-            registry_host="${REGISTRY_HOST%/}"
-            namespace="${REGISTRY_NAMESPACE#/}"
-            echo "REGISTRY_PUSH_ENABLED=true" >> "${GITHUB_ENV}"
-            echo "REGISTRY_PREFIX=${registry_host}/${namespace}" >> "${GITHUB_ENV}"
-          else
-            echo "REGISTRY_PUSH_ENABLED=false" >> "${GITHUB_ENV}"
-            echo "REGISTRY_PREFIX=" >> "${GITHUB_ENV}"
-          fi
-
-      - name: Login to GitLab registry
-        if: ${{ env.REGISTRY_PUSH_ENABLED == 'true' }}
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY_HOST }}
-          username: ${{ secrets.GITLAB_REGISTRY_USER }}
-          password: ${{ secrets.GITLAB_REGISTRY_TOKEN }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -214,7 +186,6 @@ jobs:
             printf "%-18s: %s\n" "Build native GPU" "${BUILD_NATIVE_GPU}"
             printf "%-18s: %s\n" "Build Java worker" "${BUILD_JAVA}"
             printf "%-18s: %s\n" "Image tag" "${IMAGE_TAG}"
-            printf "%-18s: %s\n" "Registry push" "${REGISTRY_PUSH_ENABLED}"
             printf "%-18s: %s\n" "Generated at" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           } | tee "${ARTIFACT_DIR}/build-metadata.txt"
 
@@ -269,32 +240,12 @@ jobs:
             presto/docker
           docker tag presto-coordinator:${IMAGE_TAG} presto-java-worker:${IMAGE_TAG}
           docker tag presto-coordinator:latest presto-java-worker:latest
-          if [[ "${REGISTRY_PUSH_ENABLED}" != "true" ]]; then
-            echo "Saving coordinator image to ${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
-            time docker save presto-coordinator:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz"
-            ls -lh "${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz"
-          else
-            echo "Registry publishing enabled; skipping coordinator tarball export."
-          fi
-
-      - name: Push Presto coordinator image
-        if: ${{ env.REGISTRY_PUSH_ENABLED == 'true' }}
-        shell: bash
-        env:
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
-        run: |
-          set -euo pipefail
-          docker tag presto-coordinator:${IMAGE_TAG} "${REGISTRY_PREFIX}/presto-coordinator:${IMAGE_TAG}"
-          docker tag presto-coordinator:latest "${REGISTRY_PREFIX}/presto-coordinator:latest"
-          docker push "${REGISTRY_PREFIX}/presto-coordinator:${IMAGE_TAG}"
-          docker push "${REGISTRY_PREFIX}/presto-coordinator:latest"
-          docker tag presto-java-worker:${IMAGE_TAG} "${REGISTRY_PREFIX}/presto-java-worker:${IMAGE_TAG}"
-          docker tag presto-java-worker:latest "${REGISTRY_PREFIX}/presto-java-worker:latest"
-          docker push "${REGISTRY_PREFIX}/presto-java-worker:${IMAGE_TAG}"
-          docker push "${REGISTRY_PREFIX}/presto-java-worker:latest"
+          echo "Saving coordinator image to ${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
+          time docker save presto-coordinator:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz"
+          ls -lh "${ARTIFACT_DIR}/presto-coordinator-${IMAGE_TAG}.tar.gz"
 
       - name: Archive Java worker image
-        if: ${{ env.BUILD_JAVA == 'true' && env.REGISTRY_PUSH_ENABLED != 'true' }}
+        if: ${{ env.BUILD_JAVA == 'true' }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
@@ -322,25 +273,9 @@ jobs:
             --tag presto-native-worker-cpu:latest \
             --tag presto-native-worker-cpu:${IMAGE_TAG} \
             .
-          if [[ "${REGISTRY_PUSH_ENABLED}" != "true" ]]; then
-            echo "Saving native CPU worker image to ${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
-            time docker save presto-native-worker-cpu:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz"
-            ls -lh "${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz"
-          else
-            echo "Registry publishing enabled; skipping native CPU worker tarball export."
-          fi
-
-      - name: Push Presto native CPU worker image
-        if: ${{ env.BUILD_NATIVE_CPU == 'true' && env.REGISTRY_PUSH_ENABLED == 'true' }}
-        shell: bash
-        env:
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
-        run: |
-          set -euo pipefail
-          docker tag presto-native-worker-cpu:${IMAGE_TAG} "${REGISTRY_PREFIX}/presto-native-worker-cpu:${IMAGE_TAG}"
-          docker tag presto-native-worker-cpu:latest "${REGISTRY_PREFIX}/presto-native-worker-cpu:latest"
-          docker push "${REGISTRY_PREFIX}/presto-native-worker-cpu:${IMAGE_TAG}"
-          docker push "${REGISTRY_PREFIX}/presto-native-worker-cpu:latest"
+          echo "Saving native CPU worker image to ${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
+          time docker save presto-native-worker-cpu:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz"
+          ls -lh "${ARTIFACT_DIR}/presto-native-worker-cpu-${IMAGE_TAG}.tar.gz"
 
       - name: Build Presto native GPU worker image
         if: ${{ env.BUILD_NATIVE_GPU == 'true' }}
@@ -360,28 +295,11 @@ jobs:
             --tag presto-native-worker-gpu:latest \
             --tag presto-native-worker-gpu:${IMAGE_TAG} \
             .
-          if [[ "${REGISTRY_PUSH_ENABLED}" != "true" ]]; then
-            echo "Saving native GPU worker image to ${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
-            time docker save presto-native-worker-gpu:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz"
-            ls -lh "${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz"
-          else
-            echo "Registry publishing enabled; skipping native GPU worker tarball export."
-          fi
-
-      - name: Push Presto native GPU worker image
-        if: ${{ env.BUILD_NATIVE_GPU == 'true' && env.REGISTRY_PUSH_ENABLED == 'true' }}
-        shell: bash
-        env:
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
-        run: |
-          set -euo pipefail
-          docker tag presto-native-worker-gpu:${IMAGE_TAG} "${REGISTRY_PREFIX}/presto-native-worker-gpu:${IMAGE_TAG}"
-          docker tag presto-native-worker-gpu:latest "${REGISTRY_PREFIX}/presto-native-worker-gpu:latest"
-          docker push "${REGISTRY_PREFIX}/presto-native-worker-gpu:${IMAGE_TAG}"
-          docker push "${REGISTRY_PREFIX}/presto-native-worker-gpu:latest"
+          echo "Saving native GPU worker image to ${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz (this may take several minutes)..."
+          time docker save presto-native-worker-gpu:${IMAGE_TAG} | gzip -9 > "${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz"
+          ls -lh "${ARTIFACT_DIR}/presto-native-worker-gpu-${IMAGE_TAG}.tar.gz"
 
       - name: Upload docker image artifacts
-        if: ${{ env.REGISTRY_PUSH_ENABLED != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: presto-images-${{ github.run_id }}
