@@ -33,7 +33,7 @@ defaults:
     shell: bash
 
 jobs:
-  build-and-upload-deps:
+  build-and-upload-deps-amd64:
     runs-on: linux-amd64-cpu4
 
     env:
@@ -41,22 +41,24 @@ jobs:
       DOCKER_RUNTIME: runc
 
     steps:
-      - name: Checkout this repository for CI scripts
+      - &checkout-velox-testing
+        name: Checkout this repository for CI scripts
         uses: actions/checkout@v4
         with:
           path: velox-testing
 
-      - name: Setup Velox
+      - &checkout-velox
+        name: Setup Velox
         uses: ./velox-testing/.github/actions/velox-setup
         with:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
 
-      - name: Build Velox Dependencies Container Image
+      - name: Build Velox Dependencies Container Image (AMD64)
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
         run: ./build_centos_deps_image.sh
 
-      - name: Upload Velox Dependencies Container Image to S3
+      - name: Upload Velox Dependencies Container Image to S3 (AMD64)
         env:
           AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -66,14 +68,52 @@ jobs:
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
         run: ./upload_centos_deps_image.sh
 
-      - name: Upload Summary
+      - name: Upload Summary (AMD64)
         if: success()
         run: |
-          echo "### ✅ Velox Dependencies Image Uploaded Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Velox Dependencies Image (AMD64) Uploaded Successfully" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Repository:** ${{ inputs.repository }}" >> $GITHUB_STEP_SUMMARY
           echo "**Velox Commit:** ${{ inputs.velox_commit }}" >> $GITHUB_STEP_SUMMARY
           echo "**Architecture:** $(uname -m)" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** ghcr.io/facebookincubator/velox-dev:adapters" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The dependencies image has been uploaded to S3 and is now available for use in CI workflows." >> $GITHUB_STEP_SUMMARY
+          echo "The AMD64 dependencies image has been uploaded to S3 and is now available for use in CI workflows." >> $GITHUB_STEP_SUMMARY
+
+  build-and-upload-deps-arm64:
+    runs-on: linux-arm64-cpu4
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: runc
+
+    steps:
+      - *checkout-velox-testing
+
+      - *checkout-velox
+
+      - name: Build Velox Dependencies Container Image (ARM64)
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./build_centos_deps_image.sh
+
+      - name: Upload Velox Dependencies Container Image to S3 (ARM64)
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./upload_centos_deps_image.sh
+
+      - name: Upload Summary (ARM64)
+        if: success()
+        run: |
+          echo "### ✅ Velox Dependencies Image (ARM64) Uploaded Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${{ inputs.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Velox Commit:** ${{ inputs.velox_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Architecture:** $(uname -m)" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ghcr.io/facebookincubator/velox-dev:adapters" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The ARM64 dependencies image has been uploaded to S3 and is now available for use in CI workflows." >> $GITHUB_STEP_SUMMARY
