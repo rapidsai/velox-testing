@@ -16,22 +16,16 @@
 
 set -e
 
+# Source common utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common.sh"
+
 #
 # upload_docker_image_to_s3 <imagename> <subdir> <filename>
 #
 # saves Docker image to a tar.gz file
 # and uploads it to s3://rapidsai-velox-testing/<subdir>/<filename>
-# 
-
-validate_docker_image() {
-  local IMAGE_NAME=$1
-  echo "Validating Docker image ${IMAGE_NAME}..."
-  if [[ -z $(docker images -q ${IMAGE_NAME}) ]]; then
-    echo "ERROR: Docker image ${IMAGE_NAME} does not exist"
-    exit 1
-  fi
-  echo "✓ Docker image exists"
-}
+#
 
 upload_docker_image_to_s3() {
   # validate parameter count
