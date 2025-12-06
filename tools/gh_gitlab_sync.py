@@ -68,7 +68,6 @@ METADATA_KEYS = [
     "Build native GPU",
     "Build Java worker",
     "Image tag",
-    "Registry push",
     "Generated at",
 ]
 
@@ -78,6 +77,11 @@ _GH_TOKEN: Optional[str] = None
 
 def run_gh(args: List[str], capture_bytes: bool = False) -> subprocess.CompletedProcess:
     """Execute a GitHub CLI command, raising on failure."""
+    if shutil.which("gh") is None:
+        raise RuntimeError(
+            "GitHub CLI ('gh') is not installed or not found in PATH. Install it from "
+            "https://cli.github.com/ and ensure it is available before running this command."
+        )
     cmd = ["gh"] + args
     stdout_option = subprocess.PIPE
     env = os.environ.copy()

@@ -94,8 +94,8 @@ gh workflow run presto-build-images.yml \
 
 The Python tool requires:
 
-- Access to the GitHub REST API (either via `gh auth login` or by supplying `--gh-token` /
-  setting `GH_TOKEN` or `GITHUB_TOKEN`).
+- The GitHub CLI (`gh`) installed and available on `PATH`. Authenticate via `gh auth login`, or supply
+  an API token with `--gh-token` / `GH_TOKEN` / `GITHUB_TOKEN`.
 - A GitLab registry token (`GITLAB_TOKEN` or the `--gitlab-token` flag) with
   `read_registry` permission at minimum; pushing also needs `write_registry`.
 - Optional Docker registry credentials provided via `--registry-username` /
