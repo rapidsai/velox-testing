@@ -99,7 +99,7 @@ def copy_files_to_s3(local_directory, bucket_url):
 def generate_data_files_with_tpchgen(args):
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
 
-    data_dir_path = args.data_dir_path if not args.data_dir_path.startswith("s3:") else str(tempfile.TemporaryDirectory());
+    data_dir_path = args.data_dir_path if not args.data_dir_path.startswith("s3:") else args.data_dir_path.replace("s3:/", ".")
 
     if args.convert_decimals_to_floats:
         raw_data_path = data_dir_path + "-temp"
@@ -136,7 +136,8 @@ def generate_data_files_with_tpchgen(args):
 
     if args.data_dir_path.startswith("s3:"):
         copy_files_to_s3(data_dir_path, args.data_dir_path)
-        shutil.rmtree(data_dir_path)
+        # TODO: delete at some point
+        #shutil.rmtree(data_dir_path)
         
 
 

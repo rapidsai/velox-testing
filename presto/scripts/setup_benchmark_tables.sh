@@ -24,7 +24,7 @@ SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100"
 
 source ./setup_benchmark_helper_check_instance_and_parse_args.sh
 
-if [[ ! -d ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} ]]; then
+if [[ ! "${PRESTO_DATA_DIR}" =~ ^s3: && ! -d ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} ]]; then
   echo "Error: Benchmark data must already exist inside: ${PRESTO_DATA_DIR}/${DATA_DIR_NAME}"
   exit 1
 fi
@@ -49,5 +49,5 @@ trap cleanup EXIT
                                -r $CREATE_TABLES_REQUIREMENTS_PATH \
                                --schema-name $SCHEMA_NAME \
                                --schemas-dir-path $TEMP_SCHEMA_DIR \
-                               --root-dir-name $PRESTO_DATA_DIR
+                               --root-dir-name $PRESTO_DATA_DIR \
                                --data-dir-name $DATA_DIR_NAME

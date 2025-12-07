@@ -76,4 +76,6 @@ if __name__ == "__main__":
                         default=False, help="Extra verbose logging")
     args = parser.parse_args()
 
-    generate_table_schemas(args.benchmark_type, args.schemas_dir_path, args.data_dir_name, args.verbose)
+    data_dir_path = args.data_dir_name if not args.data_dir_name.startswith("s3:") else args.data_dir_name.replace("s3:/", ".")
+
+    generate_table_schemas(args.benchmark_type, args.schemas_dir_path, data_dir_path, args.verbose)
