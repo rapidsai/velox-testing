@@ -60,6 +60,5 @@ if __name__ == "__main__":
 
     conn = prestodb.dbapi.connect(host="localhost", port=8080, user="test_user", catalog="hive")
     cursor = conn.cursor()
-    data_root_directory = f"file:{args.root_dir_name}" if args.root_dir_name.startswith("/") else args.root_dir_name
-    data_sub_directory = f"user_data/{args.data_dir_name}" if args.root_dir_name.startswith("/") else args.data_dir_name
+    data_root_directory = f"file:/var/lib/presto/data/hive/data/user_data" if args.root_dir_name.startswith("/") else args.root_dir_name
     create_tables(cursor, args.schema_name, args.schemas_dir_path, data_root_directory, args.data_dir_name)
