@@ -90,7 +90,7 @@ EOF
     echo_error "ERROR: Errors reported by pbench genconfig. Configs were not generated successfully."
   fi
 
-  if [ -n "${HIVE_METASTORE_URI}" ]; then
+  if [ -v HIVE_METASTORE_URI ]; then
     sed -i 's/hive.metastore=file/#hive.metastore=file/' "${CONFIG_DIR}/etc_common/catalog/hive.properties"
     sed -i "s|hive.metastore.catalog.dir=.*|hive.metastore.uri=${HIVE_METASTORE_URI}|" "${CONFIG_DIR}/etc_common/catalog/hive.properties"
   fi
