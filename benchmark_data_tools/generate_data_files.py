@@ -62,7 +62,7 @@ def generate_data_files(args):
 def copy_files_to_s3(local_directory, bucket_url):
     bucket_name = bucket_url.split("/")[2]
     try:
-        s3_client = boto3.client('s3', endpoint_url='http://localhost:9000')
+        s3_client = boto3.client('s3')#, endpoint_url='http://localhost:9000')
     except NoCredentialsError:
         print("Error: AWS credentials not found. Please configure AWS credentials.")
         sys.exit(1)
