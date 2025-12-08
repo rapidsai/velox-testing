@@ -599,6 +599,17 @@ def compute_registry_sync_state(
     }
 
 
+def split_registry_reference(ref: str) -> Tuple[str, str]:
+    if ":" not in ref:
+        raise ValueError(f"Registry reference '{ref}' must be of the form <repository>:<tag>")
+    repo, tag = ref.rsplit(":", 1)
+    repo = repo.strip().strip("/")
+    tag = tag.strip()
+    if not repo or not tag:
+        raise ValueError(f"Registry reference '{ref}' must include both repository path and tag")
+    return repo, tag
+
+
 def cmd_xref(args: argparse.Namespace) -> None:
     token = args.gitlab_token or os.environ.get("GITLAB_TOKEN")
     if not token:
@@ -1044,6 +1055,58 @@ def cmd_clean(args: argparse.Namespace) -> None:
     print("Clean complete.")
 
 
+def cmd_retag(args: argparse.Namespace) -> None:
+    registry = args.registry or DEFAULT_GITLAB_REGISTRY
+    registry_host = registry.split("/", 1)[0].rstrip("/")
+    if not registry_host:
+        raise RuntimeError("Registry host could not be determined. Provide --registry.")
+
+    username = (
+        args.registry_username
+        or os.environ.get("GITLAB_REGISTRY_USERNAME")
+        or os.environ.get("CI_REGISTRY_USER")
+    )
+    token = (
+        args.registry_password
+        or os.environ.get("GITLAB_REGISTRY_PASSWORD")
+        or os.environ.get("CI_REGISTRY_PASSWORD")
+        or args.gitlab_token
+        or os.environ.get("GITLAB_TOKEN")
+    )
+    if args.gitlab_token and not args.registry_password:
+        token = args.gitlab_token
+    if not token:
+        raise RuntimeError(
+            "Registry credentials required. Supply --registry-password or set GITLAB_REGISTRY_PASSWORD / CI_REGISTRY_PASSWORD, "
+            "or provide a GitLab token via --gitlab-token."
+        )
+    if not username:
+        username = "oauth2"
+
+    namespace = args.registry_project or DEFAULT_GITLAB_PROJECT
+    namespace = namespace.strip().strip("/")
+
+    source_repo, source_tag = split_registry_reference(args.source)
+    target_repo, target_tag = split_registry_reference(args.target)
+    source_repo_full = f"{namespace}/{source_repo}".strip("/")
+    target_repo_full = f"{namespace}/{target_repo}".strip("/")
+
+    repo_path = f"{source_repo_full}"
+    src_ref = f"{registry_host}/{repo_path}:{source_tag}"
+    dst_ref = f"{registry_host}/{target_repo_full}:{target_tag}"
+
+    def run(cmd: List[str]) -> None:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"{cmd[0]} failed: {proc.stderr.strip() or proc.stdout.strip()}")
+
+    run(["docker", "pull", src_ref])
+    run(["docker", "tag", src_ref, dst_ref])
+    run(["docker", "push", dst_ref])
+
+    print(f"Retagged '{args.source}' -> '{args.target}' via docker pull/tag/push.")
+
+
 def cmd_daemon(args: argparse.Namespace) -> None:
     token = args.gitlab_token or os.environ.get("GITLAB_TOKEN")
     if not token:
@@ -1132,6 +1195,8 @@ def cmd_daemon(args: argparse.Namespace) -> None:
                         yes=True,
                         force=args.force_push,
                         verbose=args.verbose,
+                        registry_project=args.registry_project or DEFAULT_GITLAB_PROJECT,
+                        retag_as_latest=args.retag_as_latest,
                         precomputed_run=precomputed_run,
                         precomputed_metadata=metadata,
                     )
@@ -1266,7 +1331,7 @@ def cmd_push(args: argparse.Namespace) -> None:
         raise RuntimeError("GitLab token not provided. Use --gitlab-token or set GITLAB_TOKEN.")
 
     registry = (args.registry or DEFAULT_GITLAB_REGISTRY).rstrip("/")
-    project = args.gitlab_project or DEFAULT_GITLAB_PROJECT
+    project = args.registry_project or args.gitlab_project or DEFAULT_GITLAB_PROJECT
     encoded_project = project.replace("/", "%2F")
 
     registry_username = (
@@ -1427,6 +1492,13 @@ def cmd_push(args: argparse.Namespace) -> None:
             run_command(["docker", "tag", source_tag, entry["remote_ref"]], args.verbose)
         run_command(["docker", "push", entry["remote_ref"]], args.verbose)
 
+        if args.retag_as_latest:
+            latest_ref = entry["remote_ref"].rsplit(":", 1)[0] + ":latest"
+            if args.verbose:
+                print(f"    Tagging {latest_ref}")
+            run_command(["docker", "tag", source_tag, latest_ref], args.verbose)
+            run_command(["docker", "push", latest_ref], args.verbose)
+
     print("\nPush complete.")
 
 
@@ -1522,6 +1594,8 @@ def build_parser() -> argparse.ArgumentParser:
     push.add_argument("--skip-login", action="store_true", help="Skip docker login (assume already authenticated).")
     push.add_argument("--yes", action="store_true", help="Skip interactive confirmation.")
     push.add_argument("--force", action="store_true", help="Push even if tags already exist on the registry.")
+    push.add_argument("--registry-project", default=None, help="Override registry project/namespace (defaults to the GitLab project).")
+    push.add_argument("--retag-as-latest", action="store_true", help="After pushing images, also tag/push <repo>:latest.")
     push.add_argument("--verbose", action="store_true", help="Show docker commands that will be executed.")
     push.add_argument(
         "--gh-token",
@@ -1563,6 +1637,8 @@ def build_parser() -> argparse.ArgumentParser:
     daemon.add_argument("--registry-password", default=None, help="Docker registry password/token (or set GITLAB_REGISTRY_PASSWORD/CI_REGISTRY_PASSWORD).")
     daemon.add_argument("--skip-login", action="store_true", help="Skip docker login (assume already authenticated).")
     daemon.add_argument("--force-push", action="store_true", help="Push even if tags already exist on the registry.")
+    daemon.add_argument("--registry-project", default=None, help="Override registry project/namespace (defaults to the GitLab project).")
+    daemon.add_argument("--retag-as-latest", action="store_true", help="After pushing images, also tag/push <repo>:latest.")
     daemon.add_argument("--verbose", action="store_true", help="Enable verbose output from nested commands.")
     daemon.add_argument(
         "--gh-token",
@@ -1570,6 +1646,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="GitHub token (otherwise GH_TOKEN/GITHUB_TOKEN env vars or gh auth login are used).",
     )
     daemon.set_defaults(func=cmd_daemon)
+
+    # retag
+    retag = subparsers.add_parser(
+        "retag",
+        help="Create or update a GitLab tag by reusing an existing manifest (no layer uploads).",
+    )
+    retag.add_argument("source", help="Existing tag (e.g. x86/presto-native-worker-cpu:presto-<sha>).")
+    retag.add_argument("target", help="Target tag to create/update (e.g. x86/presto-native-worker-cpu:latest).")
+    retag.add_argument("--registry", default=DEFAULT_GITLAB_REGISTRY, help="Docker registry hostname (default: %(default)s)")
+    retag.add_argument("--gitlab-host", default=DEFAULT_GITLAB_HOST, help="GitLab host for API calls (default: %(default)s)")
+    retag.add_argument("--gitlab-token", default=None, help="GitLab access token (or set GITLAB_TOKEN).")
+    retag.add_argument("--registry-project", default=DEFAULT_GITLAB_PROJECT, help="GitLab project/namespace for the registry (default: %(default)s)")
+    retag.add_argument(
+        "--registry-username",
+        default=None,
+        help="Docker registry username (or set GITLAB_REGISTRY_USERNAME/CI_REGISTRY_USER).",
+    )
+    retag.add_argument(
+        "--registry-password",
+        default=None,
+        help="Docker registry password/token (or set GITLAB_REGISTRY_PASSWORD/CI_REGISTRY_PASSWORD).",
+    )
+    retag.set_defaults(func=cmd_retag)
 
     return parser
 

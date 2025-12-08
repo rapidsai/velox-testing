@@ -114,6 +114,7 @@ The Python tool requires:
 | `push`          | Load the tarballs into Docker and push them to the GitLab registry.                              |
 | `clean`         | Remove all local data (artifacts, extracted tarballs, metadata) for a specific image tag.        |
 | `daemon`        | Periodically run xref → download → prepare → push → clean to keep GitLab in sync.                |
+| `retag`         | Point a new GitLab tag (e.g. `latest`) at an existing manifest without re-uploading layers.      |
 
 ### Basic Listing
 
@@ -177,12 +178,14 @@ To copy images manually:
      --gitlab-token "$GITLAB_TOKEN" \
      --registry gitlab-master.nvidia.com:5005 \
      --registry-username <user> \
+  [--retag-as-latest] \
      --verbose \
      --yes
    ```
 
    - `push` performs `docker login`, `docker load`, `docker tag`, and `docker push` for each tarball.
    - It skips tags already present in GitLab unless `--force` is supplied.
+- Add `--retag-as-latest` if you want the tool to tag and push `<repo>:latest` alongside the commit-specific tag.
    - Docker command output (including layer progress) is streamed to stdout.
 
 4. **Clean local files**
@@ -194,6 +197,31 @@ To copy images manually:
    ```
    Removes the downloaded archive, extracted tarballs, and any run-specific metadata, keeping the
    workspace tidy for future syncs.
+
+### Retagging Existing Images
+
+If you already have an image in GitLab and want to add another tag (e.g. set `latest` to point at a specific build)
+without re-uploading layers, use the `retag` subcommand:
+
+```bash
+python3 tools/gh_gitlab_sync.py retag \
+  x86/presto-coordinator:presto-92865fbce0d2-velox-65797d572e0a \
+  x86/presto-coordinator:latest \
+  --registry gitlab-master.nvidia.com:5005 \
+  --registry-project hercules/veloxtesting \
+  --gitlab-token "$GITLAB_TOKEN" \
+  --registry-username <user> \
+  --registry-password "$GITLAB_TOKEN"
+```
+
+Behind the scenes the tool runs `docker pull`, `docker tag`, and `docker push` using the existing credentials,
+so only the manifest is re-tagged—layers are not duplicated.
+
+> **Tagging behavior:** Docker (and OCI registries such as GitLab) treat each tag as a pointer to an image
+> manifest. Multiple tags can reference the same manifest, which is how “soft links” such as `latest` work.
+> Retagging does **not** remove the original tag; it simply creates or updates another tag to reference the
+> same manifest digest. Use this subcommand to add tags like `latest` without rebuilding or re-uploading
+> the image layers.
 
 ---
 
@@ -214,6 +242,7 @@ python3 tools/gh_gitlab_sync.py daemon \
   --gitlab-token "$GITLAB_TOKEN" \
   --registry gitlab-master.nvidia.com:5005 \
   --registry-username <user> \
+  [--retag-as-latest] \
   --verbose
 ```
 
@@ -259,10 +288,11 @@ and cleans local files after a successful upload.
 
 - `download`: `--output-dir`, `--force`.
 - `prepare`: `--downloads-dir`, `--clean`.
-- `push`: `--downloads-dir`, `--skip-login`, `--force`, `--yes`, `--verbose`.
+- `push`: `--downloads-dir`, `--skip-login`, `--force`, `--yes`, `--verbose`, `--retag-as-latest`, `--registry-project`.
 - `clean`: `--downloads-dir`, `--yes` (non-interactive).
-- `daemon`: `--downloads-dir`, `--interval`, `--once`, `--skip-login`, `--force-push`, `--verbose`.  
+- `daemon`: `--downloads-dir`, `--interval`, `--once`, `--skip-login`, `--force-push`, `--retag-as-latest`, `--verbose`.  
   (Automatically enables `--yes` when calling `push`/`clean`).
+- `retag`: `--registry`, `--gitlab-host`, `--gitlab-token`, `--registry-username`, `--registry-password`, `--registry-project`.
 
 ---
 
