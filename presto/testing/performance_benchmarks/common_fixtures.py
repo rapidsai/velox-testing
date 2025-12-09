@@ -61,8 +61,9 @@ def presto_cursor(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema = request.config.getoption("--schema-name")
-    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
-    return conn.cursor()
+
+    return prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive",
+                                  schema=schema)
 
 
 @pytest.fixture(scope="module")
@@ -71,6 +72,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     profile = request.config.getoption("--profile")
     profile_script_path = request.config.getoption("--profile-script-path")
     metrics = request.config.getoption("--metrics")
+    parallel = request.config.getoption("--parallel")
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     bench_output_dir = request.config.getoption("--output-dir")
     hostname = request.config.getoption("--hostname")
@@ -93,6 +95,8 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     failed_queries_dict = benchmark_dict[BenchmarkKeys.FAILED_QUERIES_KEY]
     assert failed_queries_dict == {}
 
+    threads_dict = {}
+
     def benchmark_query_function(query_id):
         profile_output_file_path = None
         try:
@@ -102,8 +106,9 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
             for iteration_num in range(iterations):
-                cursor = presto_cursor.execute(
-                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
+                cursor = presto_cursor.cursor().execute(
+                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" +
+                    benchmark_queries[query_id]
                 )
                 result.append(cursor.stats["elapsedTimeMillis"])
 
@@ -138,5 +143,19 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
         finally:
             if profile and profile_output_file_path is not None:
                 stop_profiler(profile_script_path, profile_output_file_path)
+    
+    def parallel_benchmark_query_function(query_id):
+        local_query_id = query_id
+        threads_dict[local_query_id] = threading.Thread(target=benchmark_query_function, args=(local_query_id,))
+        num_queries = len(request.config.getoption("--queries").split(","))
+        num_threads = len(threads_dict.keys())
+        if (num_queries == num_threads):
+            for q in threads_dict.keys():
+                threads_dict[q].start()
+            for q in threads_dict.keys():
+                threads_dict[q].join()
 
-    return benchmark_query_function
+    if (parallel):
+        return parallel_benchmark_query_function
+    else:
+        return benchmark_query_function

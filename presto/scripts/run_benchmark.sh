@@ -45,6 +45,7 @@ OPTIONS:
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
                             Use when engine is misdetected or the run fails.
+    --parallel              Run given queries in parallel
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -171,6 +172,10 @@ parse_args() {
         export PRESTO_BENCHMARK_DEBUG=1
         shift
         ;;
+      --parallel)
+        PARALLEL=true
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -245,6 +250,10 @@ fi
 
 if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
+fi
+
+if [[ "${PARALLEL}" == "true" ]]; then
+  PYTEST_ARGS+=("--parallel")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
