@@ -73,15 +73,12 @@ conditionally_add_build_target $COORDINATOR_IMAGE $COORDINATOR_SERVICE "coordina
 if [[ "$VARIANT_TYPE" == "java" ]]; then
   DOCKER_COMPOSE_FILE="java"
   conditionally_add_build_target $JAVA_WORKER_IMAGE $JAVA_WORKER_SERVICE "worker|w"
-  WORKERS="$JAVA_WORKER_SERVICE"
 elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
   DOCKER_COMPOSE_FILE="native-cpu"
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
-  WORKERS="$CPU_WORKER_SERVICE"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
-  WORKERS="$GPU_WORKER_SERVICE"
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
@@ -199,10 +196,6 @@ YAML
 }
 
 if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
-    WORKERS=""
-    for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
-        WORKERS="$WORKERS ${GPU_WORKER_SERVICE}-${i}"
-    done
     generate_worker_compose $i
     docker compose -f $OUT up -d
 else
