@@ -146,14 +146,41 @@ function generate_worker_config() {
     sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
 }
 
-function generate_worker_compose() {
-    local worker_id=$1
+function generate_worker_service() {
+    # These variables were created so that we have more fine-grain control over the naming
+    # of services and files (so we don't have to change legacy names for 1-worker setup)
+    local worker_suffix="$1"
+    local file_suffix="$2"
+    local worker_gpu="$3"
 
-    # Where to write the override
-    OUT="../docker/docker-compose-multi-worker.generated.yml"
+    cat >> "$DOCKER_COMPOSE_FILE_PATH" <<YAML
 
+  presto-native-worker-gpu${worker_suffix}:
+    extends:
+      file: docker-compose.common.yml
+      service: presto-base-native-worker
+    container_name: presto-native-worker-gpu${worker_suffix}
+    image: presto-native-worker-gpu:latest
+    build:
+      args:
+        - GPU=ON
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${worker_gpu}
+      - PROFILE=\${PROFILE}
+      - PROFILE_ARGS=\${PROFILE_ARGS}
+    depends_on:
+      - presto-coordinator
+    volumes:
+      - ./config/generated/gpu/etc_common:/opt/presto-server/etc
+      - ./config/generated/gpu/etc_worker${file_suffix}/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/gpu/etc_worker${file_suffix}/config_native.properties:/opt/presto-server/etc/config.properties
+YAML
+}
+
+function generate_coordinator_service() {
     # Start the override file
-    cat > "$OUT" <<YAML
+    cat > "$DOCKER_COMPOSE_FILE_PATH" <<YAML
 services:
   presto-coordinator:
     extends:
@@ -164,40 +191,25 @@ services:
       - ./config/generated/gpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
       - ./config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
 YAML
-
-    # Generate N worker services, each bound to a unique GPU index
-    for i in $(seq 0 $((NUM_WORKERS-1))); do
-        generate_worker_config $i
-
-        cat >> "$OUT" <<YAML
-
-  presto-native-worker-gpu-$i:
-    extends:
-      file: docker-compose.common.yml
-      service: presto-base-native-worker
-    container_name: presto-native-worker-gpu-$i
-    image: presto-native-worker-gpu:latest
-    build:
-      args:
-        - GPU=ON
-    runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=$i
-      - PROFILE=\${PROFILE}
-      - PROFILE_ARGS=\${PROFILE_ARGS}
-    depends_on:
-      - presto-coordinator
-    volumes:
-      - ./config/generated/gpu/etc_common:/opt/presto-server/etc
-      - ./config/generated/gpu/etc_worker_$i/node.properties:/opt/presto-server/etc/node.properties
-      - ./config/generated/gpu/etc_worker_$i/config_native.properties:/opt/presto-server/etc/config.properties
-YAML
-    done
 }
 
-if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
-    generate_worker_compose $i
-    docker compose -f $OUT up -d
-else
-    docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
+function generate_worker_compose() {
+    generate_coordinator_service
+
+    if [[ "$NUM_WORKERS" -gt "1" ]]; then
+        # Generate NUM_WORKERS services, each with one gpu.
+        for i in $(seq 0 $((NUM_WORKERS-1))); do
+            generate_worker_service "-$i" "_$i" "$i"
+            generate_worker_config $i
+        done
+    else
+        # Generate one worker service with access to all gpus
+        generate_worker_service "" "" "all"
+    fi
+}
+
+if [[ "$VARIANT_TYPE" == "gpu" ]]; then
+    generate_worker_compose
 fi
+
+docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
