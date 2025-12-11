@@ -148,7 +148,7 @@ set -euxo pipefail;
 # Enable gcc-toolset-14 and set compilers
 # Reference: https://github.com/facebookincubator/velox/pull/15427
 source /opt/rh/gcc-toolset-14/enable;
-
+export CC=gcc CXX=g++;
 # Verify gcc version
 echo "Using GCC version:";
 gcc --version | head -1;
