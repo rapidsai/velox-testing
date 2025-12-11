@@ -18,3 +18,4 @@ benchmark_output
 
 # Generated Presto Config
 presto/docker/config/generated/
+presto/docker/docker-compose-multi-worker.generated.yml
