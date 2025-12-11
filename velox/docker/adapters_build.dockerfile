@@ -69,8 +69,6 @@ ARG SCCACHE_NO_CACHE
 ARG SCCACHE_NO_DIST_COMPILE
 
 # Environment mirroring upstream CI defaults and incorporating build args
-# CC/CXX override to use gcc-toolset-14 (base image uses gcc-toolset-12)
-# Reference: https://github.com/facebookincubator/velox/pull/15427
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     GTest_SOURCE=BUNDLED \
     cudf_SOURCE=BUNDLED \
