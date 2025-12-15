@@ -80,7 +80,9 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}.nsys-rep"
                 start_profiler(profile_script_path, profile_output_file_path)
             result = [
-                presto_cursor.execute(benchmark_queries[query_id]).stats["elapsedTimeMillis"]
+                presto_cursor.execute("--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" +
+                                      benchmark_queries[query_id])
+                .stats["elapsedTimeMillis"]
                 for _ in range(iterations)
             ]
             raw_times_dict[query_id] = result
