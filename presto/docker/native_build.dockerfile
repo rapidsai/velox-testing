@@ -2,7 +2,7 @@ FROM presto/prestissimo-dependency:centos9
 
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
     dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
-    dnf install -y nsight-systems-cli
+    dnf install -y nsight-systems-cli ucx ucx-devel
 
 ARG GPU=ON
 ARG BUILD_TYPE=release
@@ -24,8 +24,8 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
     --mount=type=cache,target=${BUILD_BASE_DIR} \
     source /opt/rh/gcc-toolset-14/enable && \
     make --directory="/presto_native_staging/presto" cmake-and-build BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR} && \
-    !(LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | grep "not found") && \
-    LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 { system("cp " $3 " /runtime-libraries") }' && \
+    !(LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | grep "not found" | grep -v -E "libcuda\\.so|libnvidia") && \
+    LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 && $3 != "not" && $1 !~ /libcuda\\.so|libnvidia/ { system("cp " $3 " /runtime-libraries") }' && \
     cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin
 
 RUN mkdir /usr/lib64/presto-native-libs && \
