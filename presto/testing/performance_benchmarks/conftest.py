@@ -23,6 +23,7 @@ from ..common.conftest import *
 def pytest_addoption(parser):
     parser.addoption("--queries")
     parser.addoption("--schema-name", required=True)
+    parser.addoption("--scale-factor")
     parser.addoption("--hostname", default="localhost")
     parser.addoption("--port", default=8080, type=int)
     parser.addoption("--user", default="test_user")
