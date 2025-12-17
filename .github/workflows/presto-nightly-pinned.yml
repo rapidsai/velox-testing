@@ -1,0 +1,46 @@
+name: Presto Nightly Test (Pinned)
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # daily at 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  get-presto-pinned-velox:
+    runs-on: linux-amd64-cpu8 # wasteful but no reliable smaller runner available
+    outputs:
+      presto_pinned_velox_sha: ${{ steps.set_variable_step.outputs.PRESTO_PINNED_VELOX_SHA }}
+    steps:
+      - name: Checkout Presto
+        uses: actions/checkout@v4
+        with:
+          repository: prestodb/presto
+          ref: master
+          path: presto
+      - name: Get Presto Pinned Velox Version
+        id: get-presto-pinned-velox-version
+        run: |
+          pushd presto/presto-native-execution
+          make submodules
+          cd velox
+          PRESTO_PINNED_VELOX_SHA=$(git rev-parse HEAD)
+          echo "Found Presto pinned Velox SHA: ${PRESTO_PINNED_VELOX_SHA}"
+          echo "PRESTO_PINNED_VELOX_SHA=${PRESTO_PINNED_VELOX_SHA}" >> $GITHUB_OUTPUT
+          popd
+      - name: Set Variable Step
+        id: set_variable_step
+        run: |
+          echo "PRESTO_PINNED_VELOX_SHA=${{ steps.get-presto-pinned-velox-version.outputs.PRESTO_PINNED_VELOX_SHA }}" >> $GITHUB_OUTPUT
+  nightly:
+    needs: get-presto-pinned-velox
+    uses: ./.github/workflows/presto-test.yml
+    with:
+      presto_repository: prestodb/presto
+      presto_commit: master
+      velox_repository: facebookincubator/velox
+      velox_commit: ${{ needs.get-presto-pinned-velox.outputs.PRESTO_PINNED_VELOX_SHA }}
+      run_java_tests: true
+      run_cpu_tests: true
+      run_gpu_tests: true
+      set_velox_backward_compatible: false
+    secrets: inherit

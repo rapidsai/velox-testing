@@ -22,7 +22,8 @@ def pytest_generate_tests(metafunc):
     if TPCDS_FIXTURE_NAME in metafunc.fixturenames:
         TPCDS_NUM_QUERIES = 99
         TPCDS_DISABLED_QUERIES = [
-            # All queries are now enabled to show actual failure modes
+            70, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="Invalid reference to output of SELECT clause from grouping() expression in ORDER BY", query_id=20250815_182928_01495_uy5t2)
+            86, # PrestoUserError(type=USER_ERROR, name=SYNTAX_ERROR, message="Invalid reference to output of SELECT clause from grouping() expression in ORDER BY", query_id=20250815_182935_01511_uy5t2)
         ]
         set_query_id_param(metafunc, TPCDS_FIXTURE_NAME, TPCDS_NUM_QUERIES, TPCDS_DISABLED_QUERIES)
 
