@@ -23,3 +23,7 @@ services:
       - ./config/generated/cpu/etc_common:/opt/presto-server/etc
       - ./config/generated/cpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
       - ./config/generated/cpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
