@@ -81,6 +81,8 @@ docker run --rm -it \
   -v "$OUTPUT_DIR:/output" \
   sccache-auth \
   bash -c '
+    set -euo pipefail
+
     if [[ ! -f /output/github_token ]]; then
       echo "Error: GitHub token not found"
       exit 1
