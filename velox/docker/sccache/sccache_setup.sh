@@ -5,9 +5,7 @@ set -euo pipefail
 
 if test "${SCCACHE_VERSION:-latest}" = latest; then
     # Install the latest version
-    wget --no-hsts -q -O- https://api.github.com/repos/rapidsai/sccache/releases/latest \
-  | jq -r ".assets[] | select(.name | test(\"^sccache-v.*?-$(uname -m)-unknown-linux-musl.tar.gz\$\")) | .browser_download_url" \
-  | wget --no-hsts -q -O- -i- \
+    wget --no-hsts -q -O- "https://github.com/rapidsai/sccache/releases/latest/download/sccache-$(uname -m)-unknown-linux-musl.tar.gz" \
   | tar -C /usr/bin -vzf - --wildcards --strip-components=1 -x '*/sccache'
 else
     # Install pinned version
