@@ -163,4 +163,4 @@ if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
 fi
 
 # Start all services defined in the rendered docker-compose file.
-docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d --remove-orphans
+docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
