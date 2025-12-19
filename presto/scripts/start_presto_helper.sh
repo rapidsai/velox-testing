@@ -112,6 +112,18 @@ elif [[ "$ALL_CUDA_ARCHS" == "true" ]]; then
 fi
 
 DOCKER_COMPOSE_FILE_PATH=../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml
+# For GPU, the docker-compose file is a Jinja template. Render it before any docker compose operations.
+if [[ "$VARIANT_TYPE" == "gpu" ]]; then
+  TEMPLATE_PATH="../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml.j2"
+  RENDERED_DIR="../docker/.generated"
+  mkdir -p "$RENDERED_DIR"
+  RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
+  # Default to 0 if not provided, which results in no per-GPU workers being rendered.
+  LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
+  RENDER_SCRIPT_PATH=$(readlink -f ./render_docker_compose_template.py)
+  ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS"
+  DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
+fi
 if (( ${#BUILD_TARGET_ARG[@]} )); then
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
@@ -148,11 +160,10 @@ function duplicate_worker_configs() {
 }
 
 if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
-    WORKERS=""
-    for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
-        WORKERS="$WORKERS ${GPU_WORKER_SERVICE}-${i}"
-        duplicate_worker_configs $i
-    done
+  for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
+    duplicate_worker_configs $i
+  done
 fi
 
-docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d $WORKERS
+# Start all services defined in the rendered docker-compose file.
+docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d --remove-orphans
