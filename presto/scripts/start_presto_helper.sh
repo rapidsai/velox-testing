@@ -66,7 +66,7 @@ function conditionally_add_build_target() {
     echo "Added $2 to the list of services to build because the '$BUILD_TARGET' build target was specified"
     BUILD_TARGET_ARG+=($2)
   fi
-} 
+}
 
 conditionally_add_build_target $COORDINATOR_IMAGE $COORDINATOR_SERVICE "coordinator|c"
 
@@ -109,6 +109,18 @@ elif [[ "$ALL_CUDA_ARCHS" == "true" ]]; then
 fi
 
 DOCKER_COMPOSE_FILE_PATH=../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml
+# For GPU, the docker-compose file is a Jinja template. Render it before any docker compose operations.
+if [[ "$VARIANT_TYPE" == "gpu" ]]; then
+  TEMPLATE_PATH="../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml.j2"
+  RENDERED_DIR="../docker/.generated"
+  mkdir -p "$RENDERED_DIR"
+  RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
+  # Default to 0 if not provided, which results in no per-GPU workers being rendered.
+  LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
+  RENDER_SCRIPT_PATH=$(readlink -f ./render_docker_compose_template.py)
+  ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS"
+  DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
+fi
 if (( ${#BUILD_TARGET_ARG[@]} )); then
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
@@ -130,4 +142,25 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   ${BUILD_TARGET_ARG[@]}
 fi
 
+function duplicate_worker_configs() {
+    local worker_config="../docker/config/generated/gpu/etc_worker_${1}"
+    rm -rf ${worker_config}
+    cp -r ../docker/config/generated/gpu/etc_worker ${worker_config}
+
+    sed -i "s+http-server\.http\.port.*+http-server\.http\.port=808${1}+g" \
+        ${worker_config}/config_native.properties
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
+        ${worker_config}/config_native.properties
+
+    # Give each worker a unique id.
+    sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
+}
+
+if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
+  for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
+    duplicate_worker_configs $i
+  done
+fi
+
+# Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
