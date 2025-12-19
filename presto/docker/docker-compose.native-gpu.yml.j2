@@ -17,6 +17,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
     - ../config/generated/gpu/etc_common:/opt/presto-server/etc
     - ../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
     - ../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+    - ../config/generated/gpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
 services:
   presto-coordinator:
@@ -27,6 +28,7 @@ services:
       - ../config/generated/gpu/etc_common:/opt/presto-server/etc
       - ../config/generated/gpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
       - ../config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
 {% if workers %}
   # These workers are generated dynamically; each is pinned to a specific GPU.
