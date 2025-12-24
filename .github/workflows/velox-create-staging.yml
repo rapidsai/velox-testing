@@ -1,4 +1,4 @@
-name: Update Velox Staging Branch
+name: Velox Create Staging Branch
 
 on:
   workflow_dispatch:  # Manual trigger
