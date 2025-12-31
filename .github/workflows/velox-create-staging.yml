@@ -74,7 +74,7 @@ jobs:
           rapids-echo-stderr "Cloning ${TARGET_REPO}..."
           rapids-retry git clone https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git velox
           cd velox
-          git remote add upstream https://github.com/facebook/velox.git
+          git remote add upstream https://github.com/facebookincubator/velox.git
           rapids-echo-stderr "Fetching upstream main..."
           rapids-retry git fetch upstream main
 
