@@ -16,6 +16,9 @@
 
 set -e
 
+SCRIPT_PATH=$(dirname -- "${BASH_SOURCE[0]}")
+source "${SCRIPT_PATH}/../../scripts/helper_function.sh"
+
 if [[ -z $SCRIPT_DESCRIPTION ]]; then
   echo "Internal error: SCRIPT_DESCRIPTION must be set"
   exit 1
@@ -51,14 +54,11 @@ EOF
 }
 
 if [[ -z $PRESTO_DATA_DIR ]]; then
-  echo "Error: PRESTO_DATA_DIR must be set to the directory path that contains the benchmark data directories"
   print_help
-  exit 1
+  echo_error "Error: PRESTO_DATA_DIR must be set to the directory path that contains the benchmark data directories"
 fi
 
 source ./common_functions.sh
-
-wait_for_worker_node_registration
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -72,8 +72,7 @@ parse_args() {
           BENCHMARK_TYPE=$2
           shift 2
         else
-          echo "Error: --benchmark-type requires a value"
-          exit 1
+          echo_error "Error: --benchmark-type requires a value"
         fi
         ;;
       -s|--schema-name)
@@ -81,8 +80,7 @@ parse_args() {
           SCHEMA_NAME=$2
           shift 2
         else
-          echo "Error: --schema-name requires a value"
-          exit 1
+          echo_error "Error: --schema-name requires a value"
         fi
         ;;
       -d|--data-dir-name)
@@ -90,8 +88,7 @@ parse_args() {
           DATA_DIR_NAME=$2
           shift 2
         else
-          echo "Error: --data-dir-name requires a value"
-          exit 1
+          echo_error "Error: --data-dir-name requires a value"
         fi
         ;;
       *)
@@ -104,9 +101,8 @@ parse_args() {
         fi
 
         if [[ "$SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG" == "true" ]]; then
-          echo "Error: Unknown argument $1"
           print_help
-          exit 1
+          echo_error "Error: Unknown argument $1"
         fi
         ;;
     esac
@@ -115,20 +111,19 @@ parse_args() {
 
 parse_args "$@"
 
+wait_for_worker_node_registration
+
 if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
-  echo "Error: A valid benchmark type (tpch or tpcds) is required. Use the -b or --benchmark-type argument."
   print_help
-  exit 1
+  echo_error "Error: A valid benchmark type (tpch or tpcds) is required. Use the -b or --benchmark-type argument."
 fi
 
 if [[ -z ${SCHEMA_NAME} ]]; then
-  echo "Error: Schema name is required. Use the -s or --schema-name argument."
   print_help
-  exit 1
+  echo_error "Error: Schema name is required. Use the -s or --schema-name argument."
 fi
 
 if [[ -z ${DATA_DIR_NAME} ]]; then
-  echo "Error: Data directory name is required. Use the -d or --data-dir-name argument."
   print_help
-  exit 1
+  echo_error "Error: Data directory name is required. Use the -d or --data-dir-name argument."
 fi
