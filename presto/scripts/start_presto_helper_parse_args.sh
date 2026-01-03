@@ -42,6 +42,7 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
     SCCACHE_AUTH_DIR     Directory containing sccache auth files (default: ~/.sccache-auth/).
+    -s, --skip-server    (gpu-dev only) Keep the dev worker container running but do not start presto_server.
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -54,6 +55,7 @@ EXAMPLES:
     $SCRIPT_NAME --sccache -b worker
     $SCRIPT_NAME --sccache --sccache-version 0.12.0-rapids.1 -b worker
     $SCRIPT_NAME --sccache --sccache-enable-dist -b worker
+    $SCRIPT_NAME --skip-server
     $SCRIPT_NAME -h
 
 EOF
@@ -187,6 +189,10 @@ parse_args() {
         ;;
       --sccache-enable-dist)
         SCCACHE_ENABLE_DIST=true
+        shift
+        ;;
+      -s|--skip-server)
+        export PRESTO_SKIP_SERVER=1
         shift
         ;;
       *)
