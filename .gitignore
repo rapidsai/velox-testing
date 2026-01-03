@@ -21,3 +21,6 @@ presto/docker/config/generated/
 
 # Generated Presto Docker Compose files
 presto/docker/docker-compose/generated/
+
+# Presto dev container persistent state
+presto/devstate/

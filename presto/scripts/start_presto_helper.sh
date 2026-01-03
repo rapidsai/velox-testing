@@ -16,8 +16,27 @@
 
 set -e
 
-if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
-  echo "Internal error: A valid variant type (cpu, gpu, or java) is required. Set VARIANT_TYPE to an appropriate value."
+function to_abs_path() {
+  local target="$1"
+  realpath "$target"
+}
+
+function prepare_gpu_dev_environment() {
+  local default_state_root="../devstate"
+  local configured_root="${PRESTO_DEV_STATE_ROOT:-$default_state_root}"
+
+  mkdir -p "$configured_root"
+  PRESTO_DEV_STATE_ROOT=$(to_abs_path "$configured_root")
+
+  export PRESTO_DEV_STATE_ROOT
+}
+
+function is_gpu_variant() {
+  [[ "$VARIANT_TYPE" == "gpu" || "$VARIANT_TYPE" == "gpu-dev" ]]
+}
+
+if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|gpu-dev|java)$ ]]; then
+  echo "Internal error: A valid variant type (cpu, gpu, gpu-dev, or java) is required. Set VARIANT_TYPE to an appropriate value."
   exit 1
 fi
 
@@ -36,8 +55,8 @@ fi
 source ./start_presto_helper_parse_args.sh
 
 
-if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
-  echo "Error: the --profile argument is only supported for Presto GPU"
+if [[ "$PROFILE" == "ON" ]] && ! is_gpu_variant; then
+  echo "Error: the --profile argument is only supported for Presto GPU variants"
   exit 1
 fi
 
@@ -54,6 +73,8 @@ CPU_WORKER_SERVICE="presto-native-worker-cpu"
 CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:latest
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
 GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:latest
+GPU_DEV_WORKER_SERVICE="presto-native-worker-gpu-dev"
+GPU_DEV_WORKER_IMAGE=${GPU_DEV_WORKER_SERVICE}:latest
 
 DEPS_IMAGE="presto/prestissimo-dependency:centos9"
 
@@ -73,6 +94,23 @@ function conditionally_add_build_target() {
   fi
 }
 
+function conditionally_add_build_target_if_missing() {
+  if is_image_missing $1; then
+    echo "Added $2 to the list of services to build because the $1 image is missing"
+    BUILD_TARGET_ARG+=($2)
+  fi
+}
+
+function ensure_build_target() {
+  local service="$1"
+  for existing in "${BUILD_TARGET_ARG[@]}"; do
+    if [[ "$existing" == "$service" ]]; then
+      return 0
+    fi
+  done
+  BUILD_TARGET_ARG+=("$service")
+}
+
 conditionally_add_build_target $COORDINATOR_IMAGE $COORDINATOR_SERVICE "coordinator|c"
 
 if [[ "$VARIANT_TYPE" == "java" ]]; then
@@ -84,6 +122,27 @@ elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
+elif [[ "$VARIANT_TYPE" == "gpu-dev" ]]; then
+  DOCKER_COMPOSE_FILE="native-gpu-dev"
+  prepare_gpu_dev_environment
+  # For the dev worker, image rebuilds are usually not needed for code changes.
+  # The presto_server binary is built inside the running container against the
+  # persistent build dir. Only rebuild the dev image lazily if missing.
+  conditionally_add_build_target_if_missing $GPU_DEV_WORKER_IMAGE $GPU_DEV_WORKER_SERVICE
+
+  # Honor "-b worker" (or "-b all") for the dev variant by forcing an incremental
+  # in-container rebuild of presto_server at startup (without wiping the build dir).
+  if [[ ${BUILD_TARGET} =~ ^(worker|w|all|a)$ ]]; then
+    if [[ -n ${SKIP_CACHE_ARG:-} ]]; then
+      # Special case: "-b w --no-cache" should rebuild the dev image and force a
+      # clean native rebuild by deleting the build dir (for the selected build type).
+      ensure_build_target "$GPU_DEV_WORKER_SERVICE"
+      export PRESTO_FORCE_REBUILD=1
+      export PRESTO_REBUILD=0
+    else
+      export PRESTO_REBUILD=1
+    fi
+  fi
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
@@ -100,11 +159,11 @@ fi
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
-if [[ "$VARIANT_TYPE" == "gpu" && "$ALL_CUDA_ARCHS" == "true" ]]; then
+if is_gpu_variant && [[ "$ALL_CUDA_ARCHS" == "true" ]]; then
   # build for all supported CUDA architectures
   CUDA_ARCHITECTURES="75;80;86;90;100;120"
   echo "Building GPU with all supported CUDA architectures"
-elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
+elif is_gpu_variant; then
   # check that nvidia-smi is available
   if ! command -v nvidia-smi &> /dev/null; then
     echo "ERROR: nvidia-smi could not be found. Please ensure that the NVIDIA drivers and Docker runtime are properly installed."
@@ -138,7 +197,7 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
 if (( ${#BUILD_TARGET_ARG[@]} )); then
-  if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
+  if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE|$GPU_DEV_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
     echo "Either build a local image using build_centos9_deps_image.sh or fetch a pre-built"
     echo "image using fetch_centos9_deps_image.sh (credentials may be required)."
