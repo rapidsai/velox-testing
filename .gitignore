@@ -23,3 +23,6 @@ presto/docker/config/generated*/
 presto/docker/docker-compose/generated*/
 
 devstate*
+
+# Presto dev container persistent state
+presto/devstate/
