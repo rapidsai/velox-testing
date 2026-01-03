@@ -1,0 +1,47 @@
+services:
+  presto-coordinator:
+    extends:
+      file: docker-compose.common.yml
+      service: presto-base-coordinator
+    volumes:
+      - ./config/generated/gpu-dev/etc_common:/opt/presto-server/etc
+      - ./config/generated/gpu-dev/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/gpu-dev/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/gpu-dev/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+
+  presto-native-worker-gpu-dev:
+    extends:
+      file: docker-compose.common.yml
+      service: presto-base-volumes
+    container_name: presto-native-worker-gpu-dev
+    image: presto-native-worker-gpu-dev:latest
+    build:
+      context: ../../..
+      dockerfile: velox-testing/presto/docker/native_dev_build.dockerfile
+    runtime: nvidia
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - PROFILE=${PROFILE}
+      - PROFILE_ARGS=${PROFILE_ARGS:-}
+      - HOME=/workspace/home
+      - PRESTO_BUILD_TYPE=${PRESTO_BUILD_TYPE:-RelWithDebInfo}
+      - PRESTO_BUILD_DIR_NAME=${PRESTO_BUILD_DIR_NAME:-relwithdebinfo}
+      - PRESTO_REBUILD=${PRESTO_REBUILD:-0}
+      - PRESTO_FORCE_REBUILD=${PRESTO_FORCE_REBUILD:-0}
+      - PRESTO_SKIP_SERVER=${PRESTO_SKIP_SERVER:-0}
+      - PRESTO_NUM_THREADS=${NUM_THREADS:-12}
+      - CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES:-}
+    depends_on:
+      - presto-coordinator
+    volumes:
+      - ./config/generated/gpu-dev/etc_common:/opt/presto-server/etc
+      - ./config/generated/gpu-dev/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/gpu-dev/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/gpu-dev/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      - ../../../presto:/workspace/presto:rw
+      - ../../../velox:/workspace/presto/presto-native-execution/velox:rw
+      - ${PRESTO_DEV_STATE_ROOT:-../devstate}:/workspace:rw
