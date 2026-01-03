@@ -44,6 +44,7 @@ OPTIONS:
     --profile-args       Arguments to pass to the profiler when it launches the Presto server.
                          This will override the default arguments.
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
+    -s, --skip-server    (gpu-dev only) Keep the dev worker container running but do not start presto_server.
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -53,6 +54,7 @@ EXAMPLES:
     $SCRIPT_NAME -w 4
     $SCRIPT_NAME -w 4 -g 4,5,6,7
     $SCRIPT_NAME --profile
+    $SCRIPT_NAME --skip-server
     $SCRIPT_NAME -h
 
 EOF
@@ -165,6 +167,10 @@ parse_args() {
         ;;
       --overwrite-config)
         OVERWRITE_CONFIG=true
+        shift
+        ;;
+      -s|--skip-server)
+        export PRESTO_SKIP_SERVER=1
         shift
         ;;
       *)
