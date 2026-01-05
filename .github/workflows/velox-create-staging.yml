@@ -150,27 +150,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
           PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
-          AUTO_FETCH: ${{ inputs.auto_fetch_prs }}
         run: |
           rapids-echo-stderr "Processing PRs: $PR_LIST"
           MERGED_COUNT=0
-          SKIPPED_COUNT=0
           MERGED_PRS=""
 
           for pr_num in $PR_LIST; do
-            rapids-echo-stderr "Checking PR #$pr_num..."
-            
-            # Check if this PR touches the cudf directory (skip check for manual PRs)
-            if [ "$AUTO_FETCH" != "false" ]; then
-              affected_files=$(rapids-retry --quiet gh pr diff $pr_num --repo facebookincubator/velox --name-only)
-              
-              if ! echo "$affected_files" | grep -q "velox/experimental/cudf"; then
-                rapids-echo-stderr " -> PR #$pr_num does not touch cudf. Skipping."
-                SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-                continue
-              fi
-            fi
-            
             rapids-echo-stderr " -> PR #$pr_num: Attempting merge..."
             
             # Fetch the specific PR head
@@ -190,7 +175,7 @@ jobs:
             MERGED_PRS="$MERGED_PRS $pr_num"
           done
 
-          rapids-echo-stderr "Summary: Merged=$MERGED_COUNT, Skipped=$SKIPPED_COUNT"
+          rapids-echo-stderr "Summary: Merged $MERGED_COUNT PRs"
           
           # Output the list of successfully merged PRs
           echo "merged_prs=${MERGED_PRS}" >> $GITHUB_OUTPUT
