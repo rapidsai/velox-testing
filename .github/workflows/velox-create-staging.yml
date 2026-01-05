@@ -19,10 +19,20 @@ on:
         required: true
         default: 'rapidsai/velox'
       target_branch:
-        description: Target Velox branch
+        description: Target Velox branch (source branch for PR)
         type: string
         required: true
         default: 'staging'
+      target_base_branch:
+        description: Target base branch for PR (PR will be created from target_branch to this branch)
+        type: string
+        required: false
+        default: 'velox-cudf'
+      create_pr:
+        description: Create a PR from target_branch to target_base_branch after push
+        type: boolean
+        required: false
+        default: false
       auto_fetch_prs:
         description: Auto-fetch PRs with 'ready-to-merge' label (disable to manually specify PRs)
         type: boolean
@@ -216,6 +226,7 @@ jobs:
           echo "commit_sha=$FINAL_COMMIT" >> $GITHUB_OUTPUT
 
       - name: 📝 Create ${{ inputs.target_branch }} PR
+        if: inputs.create_pr == true
         working-directory: velox
         env:
           GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
@@ -225,8 +236,8 @@ jobs:
         run: |
           rapids-echo-stderr "Checking for existing ${{ inputs.target_branch }} PR..."
           
-          # Check if a PR already exists from staging to main
-          EXISTING_PR=$(gh pr list --repo "$TARGET_REPO" --head ${{ inputs.target_branch }} --base main --state open --json number,url --jq '.[0]' 2>/dev/null || echo "")
+          # Check if a PR already exists from target_branch to target_base_branch
+          EXISTING_PR=$(gh pr list --repo "$TARGET_REPO" --head ${{ inputs.target_branch }} --base ${{ inputs.target_base_branch }} --state open --json number,url --jq '.[0]' 2>/dev/null || echo "")
           
           if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
             PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
@@ -236,7 +247,7 @@ jobs:
             exit 0
           fi
           
-          rapids-echo-stderr "Creating new PR from ${{ inputs.target_branch }} to main..."
+          rapids-echo-stderr "Creating new PR from ${{ inputs.target_branch }} to ${{ inputs.target_base_branch }}..."
           
           # Build PR body with links to merged PRs
           PR_TITLE="🚀 ${{ inputs.target_branch }}: Sync with upstream + cuDF PRs"
@@ -265,10 +276,10 @@ jobs:
           _This PR was automatically created by the [Update ${{ inputs.target_branch }} Branch](https://github.com/${{ github.repository }}/actions/workflows/velox-create-staging.yml) workflow._
           "
           
-          NEW_PR_URL=$(gh pr create --repo "$TARGET_REPO" --head ${{ inputs.target_branch }} --base main --title "$PR_TITLE" --body "$PR_BODY" 2>&1) || {
+          NEW_PR_URL=$(gh pr create --repo "$TARGET_REPO" --head ${{ inputs.target_branch }} --base ${{ inputs.target_base_branch }} --title "$PR_TITLE" --body "$PR_BODY" 2>&1) || {
             # PR creation might fail if there are no commits difference
             if echo "$NEW_PR_URL" | grep -q "No commits"; then
-              rapids-echo-stderr "ℹ️ No commits between ${{ inputs.target_branch }} and main. Skipping PR creation."
+              rapids-echo-stderr "ℹ️ No commits between ${{ inputs.target_branch }} and ${{ inputs.target_base_branch }}. Skipping PR creation."
             else
               rapids-echo-stderr "⚠️ PR creation failed: $NEW_PR_URL"
             fi

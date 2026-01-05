@@ -57,14 +57,17 @@ Automates the creation and maintenance of the staging branch by aggregating cuDF
 - Syncs with upstream `facebookincubator/velox:main`
 - Auto-fetches PRs labeled `ready-to-merge` and `cudf`
 - Merges PRs into staging branch with conflict detection
-- Creates/updates a PR from staging to main
+- Optionally creates a PR from staging to a configurable base branch
 - Optionally triggers build and test workflow
 
 | Input | Description | Default |
 |-------|-------------|---------|
 | `base_repository` | Base Velox repo | `facebookincubator/velox` |
+| `base_velox_commit` | Base Velox commit SHA or branch | `main` |
 | `target_repository` | Target repo for staging | `rapidsai/velox` |
-| `target_branch` | Branch name | `staging` |
+| `target_branch` | Source branch for PR (where cuDF PRs are merged) | `staging` |
+| `target_base_branch` | Base branch for PR (PR merges into this branch) | `velox-cudf` |
+| `create_pr` | Whether to create a PR after pushing | `false` |
 | `auto_fetch_prs` | Auto-fetch labeled PRs | `true` |
 | `manual_pr_numbers` | Manual PR list (space-separated) | `''` |
 | `build_and_run_tests` | Run tests after update | `true` |
