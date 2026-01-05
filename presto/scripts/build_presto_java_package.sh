@@ -30,7 +30,7 @@ docker run --rm \
     bash -c "
     apt-get update && apt-get install -y git curl &&
     git config --global --add safe.directory /presto &&
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - &&
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - &&
     apt-get install -y nodejs &&
     npm install -g yarn &&
     ./mvnw clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true &&
