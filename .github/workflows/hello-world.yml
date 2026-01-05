@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - hello-world/**
+      - mattgara/hello-world-workflow-test
 
 jobs:
   greet:
