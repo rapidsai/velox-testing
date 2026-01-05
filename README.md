@@ -9,6 +9,11 @@ The provided infrastructure is broken down into four categories:
 
 Important details about each category is provided below.
 
+## CI/CD Workflows
+This repository includes comprehensive GitHub Actions workflows for automated testing and benchmarking. The workflows support nightly testing against upstream and staging branches, benchmark sanity checks, and automated staging branch management.
+
+For detailed information about available workflows, their inputs, and how to use them, see the [Workflows Documentation](.github/workflows/README.md).
+
 ## Velox Testing
 A Docker-based build infrastructure has been added to facilitate building Velox with comprehensive configuration options including GPU support, various storage adapters, and CI-mirrored settings. This infrastructure builds Velox libraries and executables only. In order to build Velox using this infrastructure, the following directory structure is expected:
 
