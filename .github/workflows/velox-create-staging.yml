@@ -101,7 +101,7 @@ jobs:
             --label "cudf" \
             --state open \
             --json number \
-            --jq '.[].number' | tr '\n' ' ')
+            --jq '.[].number' | tr '\n' ' ' | xargs)
 
           if [ -z "$PR_LIST" ]; then
             rapids-echo-stderr "No PRs found with 'ready-to-merge' and 'cudf' labels."
@@ -117,15 +117,18 @@ jobs:
         id: manual-prs
         if: inputs.auto_fetch_prs == false
         run: |  # This step is only executed if auto_fetch_prs is false
-          if [ -z "${{ inputs.manual_pr_numbers }}" ]; then
+          # Trim whitespace from input
+          MANUAL_PRS=$(echo "${{ inputs.manual_pr_numbers }}" | xargs)
+
+          if [ -z "$MANUAL_PRS" ]; then
             rapids-echo-stderr "No manual PR numbers provided."
             echo "has_prs=false" >> $GITHUB_OUTPUT
             echo "pr_list=" >> $GITHUB_OUTPUT
-            exit 0
+          else
+            rapids-echo-stderr "Auto-fetch disabled. Using manual PR numbers: $MANUAL_PRS"
+            echo "pr_list=$MANUAL_PRS" >> $GITHUB_OUTPUT
+            echo "has_prs=true" >> $GITHUB_OUTPUT
           fi
-          rapids-echo-stderr "Auto-fetch disabled. Using manual PR numbers: ${{ inputs.manual_pr_numbers }}"
-          echo "pr_list=${{ inputs.manual_pr_numbers }}" >> $GITHUB_OUTPUT
-          echo "has_prs=true" >> $GITHUB_OUTPUT
 
       - name: 📋 Determine PR List to Process
         id: prs-to-process
