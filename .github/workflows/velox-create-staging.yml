@@ -8,8 +8,8 @@ on:
         type: string
         required: false
         default: 'facebookincubator/velox'
-      base_velox_commit:
-        description: Base Velox commit SHA or branch
+      base_branch:
+        description: Base Velox branch
         type: string
         required: false
         default: 'main'
@@ -24,7 +24,7 @@ on:
         required: true
         default: 'staging'
       auto_fetch_prs:
-        description: Auto-fetch PRs with 'ready-to-merge' label (disable to manually specify PRs)
+        description: Auto-fetch PRs with 'ready-to-merge', 'cudf' label (disable to manually specify PRs)
         type: boolean
         required: false
         default: true
@@ -70,28 +70,30 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
           TARGET_REPO: ${{ inputs.target_repository }}
+          BASE_REPO: ${{ inputs.base_repository }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
           rapids-echo-stderr "Cloning ${TARGET_REPO}..."
           rapids-retry git clone https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git velox
           cd velox
-          git remote add upstream https://github.com/facebookincubator/velox.git
-          rapids-echo-stderr "Fetching upstream main..."
-          rapids-retry git fetch upstream main
+          git remote add upstream https://github.com/${BASE_REPO}.git
+          rapids-echo-stderr "Fetching upstream ${BASE_BRANCH}..."
+          rapids-retry git fetch upstream ${BASE_BRANCH}
 
-      - name: 🔄 Reset ${{ inputs.target_branch }} Branch to Upstream Main
+      - name: 🔄 Reset ${{ inputs.target_branch }} Branch to Upstream ${{ inputs.base_branch }}
         working-directory: velox
         run: |
-          rapids-echo-stderr "Resetting ${{ inputs.target_branch }} branch to match upstream/main..."
-          git checkout -B ${{ inputs.target_branch }} upstream/main
-          echo "${{ inputs.target_branch }} branch reset to upstream/main at $(git rev-parse HEAD)"
+          rapids-echo-stderr "Resetting ${{ inputs.target_branch }} branch to match upstream/${{ inputs.base_branch }}..."
+          git checkout -B ${{ inputs.target_branch }} upstream/${{ inputs.base_branch }}
+          echo "${{ inputs.target_branch }} branch reset to upstream/${{ inputs.base_branch }} at $(git rev-parse HEAD)"
 
-      - name: 🔍 Auto-fetch PRs with 'ready-to-merge' Label
+      - name: 🔍 Auto-fetch PRs with 'ready-to-merge' and 'cudf' Labels
         id: auto-fetch-prs
         if: inputs.auto_fetch_prs == true  # Defaults to true for scheduled runs
         env:
           GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          rapids-echo-stderr "Auto-fetch enabled. Scanning for PRs with 'ready-to-merge' label..."
+          rapids-echo-stderr "Auto-fetch enabled. Scanning for PRs with 'ready-to-merge' and 'cudf' labels..."
           
           PR_LIST=$(rapids-retry --quiet gh pr list \
             --repo facebookincubator/velox \
@@ -102,7 +104,7 @@ jobs:
             --jq '.[].number' | tr '\n' ' ')
 
           if [ -z "$PR_LIST" ]; then
-            rapids-echo-stderr "No PRs found with 'ready-to-merge' label."
+            rapids-echo-stderr "No PRs found with 'ready-to-merge' and 'cudf' labels."
             echo "pr_list=" >> $GITHUB_OUTPUT
             echo "has_prs=false" >> $GITHUB_OUTPUT
           else
@@ -113,8 +115,14 @@ jobs:
 
       - name: ✏️ Use Manual PR Numbers
         id: manual-prs
-        if: inputs.auto_fetch_prs == false && inputs.manual_pr_numbers != ''
-        run: |
+        if: inputs.auto_fetch_prs == false
+        run: |  # This step is only executed if auto_fetch_prs is false
+          if [ -z "${{ inputs.manual_pr_numbers }}" ]; then
+            rapids-echo-stderr "No manual PR numbers provided."
+            echo "has_prs=false" >> $GITHUB_OUTPUT
+            echo "pr_list=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           rapids-echo-stderr "Auto-fetch disabled. Using manual PR numbers: ${{ inputs.manual_pr_numbers }}"
           echo "pr_list=${{ inputs.manual_pr_numbers }}" >> $GITHUB_OUTPUT
           echo "has_prs=true" >> $GITHUB_OUTPUT
@@ -133,6 +141,12 @@ jobs:
           echo "has_prs=${HAS_PRS:-false}" >> $GITHUB_OUTPUT
           rapids-echo-stderr "PRs to process: $PR_LIST"
 
+      - name: ❌ Exit if No PRs Found
+        if: steps.prs-to-process.outputs.has_prs != 'true'
+        run: |
+          rapids-echo-stderr "No PRs found to merge. Exiting workflow."
+          exit 1
+
       - name: 🔀 Filter and Merge cuDF PRs
         id: merge-prs
         if: steps.prs-to-process.outputs.has_prs == 'true'
@@ -140,6 +154,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
           PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
+          BASE_REPO: ${{ inputs.base_repository }}
         run: |
           rapids-echo-stderr "Processing PRs: $PR_LIST"
           MERGED_COUNT=0
@@ -154,7 +169,7 @@ jobs:
             # Try to merge pr-$pr_num into staging - FAIL IMMEDIATELY on conflict
             if ! git merge pr-$pr_num --no-edit; then
               rapids-echo-stderr "❌ MERGE CONFLICT in PR #$pr_num!"
-              rapids-echo-stderr "   PR URL: https://github.com/facebookincubator/velox/pull/$pr_num"
+              rapids-echo-stderr "   PR URL: https://github.com/${BASE_REPO}/pull/$pr_num"
               rapids-echo-stderr "   Please resolve the conflict manually or remove this PR from the merge list."
               git merge --abort
               exit 1
@@ -181,7 +196,7 @@ jobs:
         run: |
           rapids-echo-stderr "Pushing ${{ inputs.target_branch }} branch to ${TARGET_REPO}..."
           
-          # For scheduled runs, always force push since we're resetting to upstream/main
+          # For scheduled runs, always force push since we're resetting to upstream base
           # For manual dispatch, respect the force_push input (defaults to false)
           if [ "$EVENT_NAME" == "schedule" ] || [ "$FORCE_PUSH" == "true" ]; then
             rapids-echo-stderr "Force push enabled. Overwriting target branch..."

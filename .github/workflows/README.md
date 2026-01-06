@@ -62,7 +62,7 @@ Automates the creation and maintenance of the staging branch by aggregating cuDF
 | Input | Description | Default |
 |-------|-------------|---------|
 | `base_repository` | Base Velox repo | `facebookincubator/velox` |
-| `base_velox_commit` | Base Velox commit SHA or branch | `main` |
+| `base_branch` | Base Velox branch to sync from | `main` |
 | `target_repository` | Target repo for staging | `rapidsai/velox` |
 | `target_branch` | Target branch (where cuDF PRs are merged) | `staging` |
 | `auto_fetch_prs` | Auto-fetch labeled PRs | `true` |
