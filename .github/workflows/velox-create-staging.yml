@@ -8,8 +8,8 @@ on:
         type: string
         required: false
         default: 'facebookincubator/velox'
-      base_velox_commit:
-        description: Base Velox commit SHA or branch
+      base_branch:
+        description: Base Velox branch
         type: string
         required: false
         default: 'main'
@@ -24,7 +24,7 @@ on:
         required: true
         default: 'staging'
       auto_fetch_prs:
-        description: Auto-fetch PRs with 'ready-to-merge' label (disable to manually specify PRs)
+        description: Auto-fetch PRs with 'ready-to-merge', 'cudf' label (disable to manually specify PRs)
         type: boolean
         required: false
         default: true
@@ -70,28 +70,30 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
           TARGET_REPO: ${{ inputs.target_repository }}
+          BASE_REPO: ${{ inputs.base_repository }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
           rapids-echo-stderr "Cloning ${TARGET_REPO}..."
           rapids-retry git clone https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git velox
           cd velox
-          git remote add upstream https://github.com/facebook/velox.git
-          rapids-echo-stderr "Fetching upstream main..."
-          rapids-retry git fetch upstream main
+          git remote add upstream https://github.com/${BASE_REPO}.git
+          rapids-echo-stderr "Fetching upstream ${BASE_BRANCH}..."
+          rapids-retry git fetch upstream ${BASE_BRANCH}
 
-      - name: 🔄 Reset ${{ inputs.target_branch }} Branch to Upstream Main
+      - name: 🔄 Reset ${{ inputs.target_branch }} Branch to Upstream ${{ inputs.base_branch }}
         working-directory: velox
         run: |
-          rapids-echo-stderr "Resetting ${{ inputs.target_branch }} branch to match upstream/main..."
-          git checkout -B ${{ inputs.target_branch }} upstream/main
-          echo "${{ inputs.target_branch }} branch reset to upstream/main at $(git rev-parse HEAD)"
+          rapids-echo-stderr "Resetting ${{ inputs.target_branch }} branch to match upstream/${{ inputs.base_branch }}..."
+          git checkout -B ${{ inputs.target_branch }} upstream/${{ inputs.base_branch }}
+          echo "${{ inputs.target_branch }} branch reset to upstream/${{ inputs.base_branch }} at $(git rev-parse HEAD)"
 
-      - name: 🔍 Auto-fetch PRs with 'ready-to-merge' Label
+      - name: 🔍 Auto-fetch PRs with 'ready-to-merge' and 'cudf' Labels
         id: auto-fetch-prs
         if: inputs.auto_fetch_prs == true  # Defaults to true for scheduled runs
         env:
           GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          rapids-echo-stderr "Auto-fetch enabled. Scanning for PRs with 'ready-to-merge' label..."
+          rapids-echo-stderr "Auto-fetch enabled. Scanning for PRs with 'ready-to-merge' and 'cudf' labels..."
           
           PR_LIST=$(rapids-retry --quiet gh pr list \
             --repo facebookincubator/velox \
@@ -99,10 +101,10 @@ jobs:
             --label "cudf" \
             --state open \
             --json number \
-            --jq '.[].number' | tr '\n' ' ')
+            --jq '.[].number' | tr '\n' ' ' | xargs)
 
           if [ -z "$PR_LIST" ]; then
-            rapids-echo-stderr "No PRs found with 'ready-to-merge' label."
+            rapids-echo-stderr "No PRs found with 'ready-to-merge' and 'cudf' labels."
             echo "pr_list=" >> $GITHUB_OUTPUT
             echo "has_prs=false" >> $GITHUB_OUTPUT
           else
@@ -113,11 +115,20 @@ jobs:
 
       - name: ✏️ Use Manual PR Numbers
         id: manual-prs
-        if: inputs.auto_fetch_prs == false && inputs.manual_pr_numbers != ''
-        run: |
-          rapids-echo-stderr "Auto-fetch disabled. Using manual PR numbers: ${{ inputs.manual_pr_numbers }}"
-          echo "pr_list=${{ inputs.manual_pr_numbers }}" >> $GITHUB_OUTPUT
-          echo "has_prs=true" >> $GITHUB_OUTPUT
+        if: inputs.auto_fetch_prs == false
+        run: |  # This step is only executed if auto_fetch_prs is false
+          # Trim whitespace from input
+          MANUAL_PRS=$(echo "${{ inputs.manual_pr_numbers }}" | xargs)
+
+          if [ -z "$MANUAL_PRS" ]; then
+            rapids-echo-stderr "No manual PR numbers provided."
+            echo "has_prs=false" >> $GITHUB_OUTPUT
+            echo "pr_list=" >> $GITHUB_OUTPUT
+          else
+            rapids-echo-stderr "Auto-fetch disabled. Using manual PR numbers: $MANUAL_PRS"
+            echo "pr_list=$MANUAL_PRS" >> $GITHUB_OUTPUT
+            echo "has_prs=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: 📋 Determine PR List to Process
         id: prs-to-process
@@ -133,6 +144,12 @@ jobs:
           echo "has_prs=${HAS_PRS:-false}" >> $GITHUB_OUTPUT
           rapids-echo-stderr "PRs to process: $PR_LIST"
 
+      - name: ❌ Exit if No PRs Found
+        if: steps.prs-to-process.outputs.has_prs != 'true'
+        run: |
+          rapids-echo-stderr "No PRs found to merge. Exiting workflow."
+          exit 1
+
       - name: 🔀 Filter and Merge cuDF PRs
         id: merge-prs
         if: steps.prs-to-process.outputs.has_prs == 'true'
@@ -140,27 +157,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
           PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
-          AUTO_FETCH: ${{ inputs.auto_fetch_prs }}
+          BASE_REPO: ${{ inputs.base_repository }}
         run: |
           rapids-echo-stderr "Processing PRs: $PR_LIST"
           MERGED_COUNT=0
-          SKIPPED_COUNT=0
           MERGED_PRS=""
 
           for pr_num in $PR_LIST; do
-            rapids-echo-stderr "Checking PR #$pr_num..."
-            
-            # Check if this PR touches the cudf directory (skip check for manual PRs)
-            if [ "$AUTO_FETCH" != "false" ]; then
-              affected_files=$(rapids-retry --quiet gh pr diff $pr_num --repo facebookincubator/velox --name-only)
-              
-              if ! echo "$affected_files" | grep -q "velox/experimental/cudf"; then
-                rapids-echo-stderr " -> PR #$pr_num does not touch cudf. Skipping."
-                ((SKIPPED_COUNT++))
-                continue
-              fi
-            fi
-            
             rapids-echo-stderr " -> PR #$pr_num: Attempting merge..."
             
             # Fetch the specific PR head
@@ -169,18 +172,18 @@ jobs:
             # Try to merge pr-$pr_num into staging - FAIL IMMEDIATELY on conflict
             if ! git merge pr-$pr_num --no-edit; then
               rapids-echo-stderr "❌ MERGE CONFLICT in PR #$pr_num!"
-              rapids-echo-stderr "   PR URL: https://github.com/facebookincubator/velox/pull/$pr_num"
+              rapids-echo-stderr "   PR URL: https://github.com/${BASE_REPO}/pull/$pr_num"
               rapids-echo-stderr "   Please resolve the conflict manually or remove this PR from the merge list."
               git merge --abort
               exit 1
             fi
             
             rapids-echo-stderr " -> ✅ Merged PR #$pr_num successfully."
-            ((MERGED_COUNT++))
+            MERGED_COUNT=$((MERGED_COUNT + 1))
             MERGED_PRS="$MERGED_PRS $pr_num"
           done
 
-          rapids-echo-stderr "Summary: Merged=$MERGED_COUNT, Skipped=$SKIPPED_COUNT"
+          rapids-echo-stderr "Summary: Merged $MERGED_COUNT PRs"
           
           # Output the list of successfully merged PRs
           echo "merged_prs=${MERGED_PRS}" >> $GITHUB_OUTPUT
@@ -196,7 +199,7 @@ jobs:
         run: |
           rapids-echo-stderr "Pushing ${{ inputs.target_branch }} branch to ${TARGET_REPO}..."
           
-          # For scheduled runs, always force push since we're resetting to upstream/main
+          # For scheduled runs, always force push since we're resetting to upstream base
           # For manual dispatch, respect the force_push input (defaults to false)
           if [ "$EVENT_NAME" == "schedule" ] || [ "$FORCE_PUSH" == "true" ]; then
             rapids-echo-stderr "Force push enabled. Overwriting target branch..."
@@ -215,66 +218,6 @@ jobs:
           echo "Final commit: $FINAL_COMMIT"
           echo "commit_sha=$FINAL_COMMIT" >> $GITHUB_OUTPUT
 
-      - name: 📝 Create ${{ inputs.target_branch }} PR
-        working-directory: velox
-        env:
-          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
-          MERGED_PRS: ${{ steps.merge-prs.outputs.merged_prs }}
-          MERGED_COUNT: ${{ steps.merge-prs.outputs.merged_count }}
-          TARGET_REPO: ${{ inputs.target_repository }}
-        run: |
-          rapids-echo-stderr "Checking for existing ${{ inputs.target_branch }} PR..."
-          
-          # Check if a PR already exists from staging to main
-          EXISTING_PR=$(gh pr list --repo "$TARGET_REPO" --head ${{ inputs.target_branch }} --base main --state open --json number,url --jq '.[0]' 2>/dev/null || echo "")
-          
-          if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
-            PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
-            PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
-            rapids-echo-stderr "📌 PR already exists: $PR_URL"
-            rapids-echo-stderr "Skipping PR creation."
-            exit 0
-          fi
-          
-          rapids-echo-stderr "Creating new PR from ${{ inputs.target_branch }} to main..."
-          
-          # Build PR body with links to merged PRs
-          PR_TITLE="🚀 ${{ inputs.target_branch }}: Sync with upstream + cuDF PRs"
-          
-          PR_BODY="## ${{ inputs.target_branch }} Branch Update
-          
-          This PR aggregates the following cuDF-related PRs from [facebookincubator/velox](https://github.com/facebookincubator/velox):
-          
-          "
-          
-          if [ -n "$MERGED_PRS" ]; then
-            for pr_num in $MERGED_PRS; do
-              PR_BODY="${PR_BODY}- https://github.com/facebookincubator/velox/pull/${pr_num}
-          "
-            done
-            PR_BODY="${PR_BODY}
-          **Total PRs merged:** ${MERGED_COUNT:-0}
-          "
-          else
-            PR_BODY="${PR_BODY}_No cuDF PRs were merged in this update._
-          "
-          fi
-          
-          PR_BODY="${PR_BODY}
-          ---
-          _This PR was automatically created by the [Update ${{ inputs.target_branch }} Branch](https://github.com/${{ github.repository }}/actions/workflows/velox-create-staging.yml) workflow._
-          "
-          
-          NEW_PR_URL=$(gh pr create --repo "$TARGET_REPO" --head ${{ inputs.target_branch }} --base main --title "$PR_TITLE" --body "$PR_BODY" 2>&1) || {
-            # PR creation might fail if there are no commits difference
-            if echo "$NEW_PR_URL" | grep -q "No commits"; then
-              rapids-echo-stderr "ℹ️ No commits between ${{ inputs.target_branch }} and main. Skipping PR creation."
-            else
-              rapids-echo-stderr "⚠️ PR creation failed: $NEW_PR_URL"
-            fi
-            exit 0
-          }
-          rapids-echo-stderr "✅ Created new PR: $NEW_PR_URL"
     outputs:
       staging_commit: ${{ steps.push-staging.outputs.commit_sha }}
 
