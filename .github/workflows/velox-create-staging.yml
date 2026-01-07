@@ -1,0 +1,290 @@
+name: Velox Create Staging Branch
+
+on:
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      base_repository:
+        description: Base Velox repository
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      base_velox_commit:
+        description: Base Velox commit SHA or branch
+        type: string
+        required: false
+        default: 'main'
+      target_repository:
+        description: Target Velox repository
+        type: string
+        required: true
+        default: 'rapidsai/velox'
+      target_branch:
+        description: Target Velox branch
+        type: string
+        required: true
+        default: 'staging'
+      auto_fetch_prs:
+        description: Auto-fetch PRs with 'ready-to-merge' label (disable to manually specify PRs)
+        type: boolean
+        required: false
+        default: true
+      manual_pr_numbers:
+        description: "Manual PR numbers to merge (space-separated, e.g., '12345 12346'). Only used when auto_fetch_prs is false."
+        type: string
+        required: false
+        default: ''
+      build_and_run_tests:
+        description: Build and run tests on the target branch after update
+        type: boolean
+        required: false
+        default: true
+      force_push:
+        description: Force push to override existing target branch (use with caution)
+        type: boolean
+        required: false
+        default: false
+  # schedule:
+  #   # - cron: '0 */6 * * *'  # Run every 6 hours
+
+jobs:
+  sync-and-aggregate:
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: 📦 Checkout velox-testing
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
+      - name: 🔧 Download gha-tools
+        run: |
+          git clone https://github.com/rapidsai/gha-tools.git -b main /tmp/gha-tools
+          # Add gha-tools command-line scripts to PATH for subsequent steps
+          echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
+
+      - name: ⚙️ Setup Git Configuration
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: 📥 Clone Target Repository and Setup Remotes
+        env:
+          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          TARGET_REPO: ${{ inputs.target_repository }}
+        run: |
+          rapids-echo-stderr "Cloning ${TARGET_REPO}..."
+          rapids-retry git clone https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git velox
+          cd velox
+          git remote add upstream https://github.com/facebook/velox.git
+          rapids-echo-stderr "Fetching upstream main..."
+          rapids-retry git fetch upstream main
+
+      - name: 🔄 Reset ${{ inputs.target_branch }} Branch to Upstream Main
+        working-directory: velox
+        run: |
+          rapids-echo-stderr "Resetting ${{ inputs.target_branch }} branch to match upstream/main..."
+          git checkout -B ${{ inputs.target_branch }} upstream/main
+          echo "${{ inputs.target_branch }} branch reset to upstream/main at $(git rev-parse HEAD)"
+
+      - name: 🔍 Auto-fetch PRs with 'ready-to-merge' Label
+        id: auto-fetch-prs
+        if: inputs.auto_fetch_prs == true  # Defaults to true for scheduled runs
+        env:
+          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          rapids-echo-stderr "Auto-fetch enabled. Scanning for PRs with 'ready-to-merge' label..."
+          
+          PR_LIST=$(rapids-retry --quiet gh pr list \
+            --repo facebookincubator/velox \
+            --label "ready-to-merge" \
+            --label "cudf" \
+            --state open \
+            --json number \
+            --jq '.[].number' | tr '\n' ' ')
+
+          if [ -z "$PR_LIST" ]; then
+            rapids-echo-stderr "No PRs found with 'ready-to-merge' label."
+            echo "pr_list=" >> $GITHUB_OUTPUT
+            echo "has_prs=false" >> $GITHUB_OUTPUT
+          else
+            rapids-echo-stderr "Found PRs: $PR_LIST"
+            echo "pr_list=$PR_LIST" >> $GITHUB_OUTPUT
+            echo "has_prs=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: ✏️ Use Manual PR Numbers
+        id: manual-prs
+        if: inputs.auto_fetch_prs == false && inputs.manual_pr_numbers != ''
+        run: |
+          rapids-echo-stderr "Auto-fetch disabled. Using manual PR numbers: ${{ inputs.manual_pr_numbers }}"
+          echo "pr_list=${{ inputs.manual_pr_numbers }}" >> $GITHUB_OUTPUT
+          echo "has_prs=true" >> $GITHUB_OUTPUT
+
+      - name: 📋 Determine PR List to Process
+        id: prs-to-process
+        run: |
+          if [ "${{ inputs.auto_fetch_prs }}" != "false" ]; then
+            PR_LIST="${{ steps.auto-fetch-prs.outputs.pr_list }}"
+            HAS_PRS="${{ steps.auto-fetch-prs.outputs.has_prs }}"
+          else
+            PR_LIST="${{ steps.manual-prs.outputs.pr_list }}"
+            HAS_PRS="${{ steps.manual-prs.outputs.has_prs }}"
+          fi
+          echo "pr_list=$PR_LIST" >> $GITHUB_OUTPUT
+          echo "has_prs=${HAS_PRS:-false}" >> $GITHUB_OUTPUT
+          rapids-echo-stderr "PRs to process: $PR_LIST"
+
+      - name: 🔀 Filter and Merge cuDF PRs
+        id: merge-prs
+        if: steps.prs-to-process.outputs.has_prs == 'true'
+        working-directory: velox
+        env:
+          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
+          AUTO_FETCH: ${{ inputs.auto_fetch_prs }}
+        run: |
+          rapids-echo-stderr "Processing PRs: $PR_LIST"
+          MERGED_COUNT=0
+          SKIPPED_COUNT=0
+          MERGED_PRS=""
+
+          for pr_num in $PR_LIST; do
+            rapids-echo-stderr "Checking PR #$pr_num..."
+            
+            # Check if this PR touches the cudf directory (skip check for manual PRs)
+            if [ "$AUTO_FETCH" != "false" ]; then
+              affected_files=$(rapids-retry --quiet gh pr diff $pr_num --repo facebookincubator/velox --name-only)
+              
+              if ! echo "$affected_files" | grep -q "velox/experimental/cudf"; then
+                rapids-echo-stderr " -> PR #$pr_num does not touch cudf. Skipping."
+                ((SKIPPED_COUNT++))
+                continue
+              fi
+            fi
+            
+            rapids-echo-stderr " -> PR #$pr_num: Attempting merge..."
+            
+            # Fetch the specific PR head
+            rapids-retry git fetch upstream pull/$pr_num/head:pr-$pr_num
+            
+            # Try to merge pr-$pr_num into staging - FAIL IMMEDIATELY on conflict
+            if ! git merge pr-$pr_num --no-edit; then
+              rapids-echo-stderr "❌ MERGE CONFLICT in PR #$pr_num!"
+              rapids-echo-stderr "   PR URL: https://github.com/facebookincubator/velox/pull/$pr_num"
+              rapids-echo-stderr "   Please resolve the conflict manually or remove this PR from the merge list."
+              git merge --abort
+              exit 1
+            fi
+            
+            rapids-echo-stderr " -> ✅ Merged PR #$pr_num successfully."
+            ((MERGED_COUNT++))
+            MERGED_PRS="$MERGED_PRS $pr_num"
+          done
+
+          rapids-echo-stderr "Summary: Merged=$MERGED_COUNT, Skipped=$SKIPPED_COUNT"
+          
+          # Output the list of successfully merged PRs
+          echo "merged_prs=${MERGED_PRS}" >> $GITHUB_OUTPUT
+          echo "merged_count=$MERGED_COUNT" >> $GITHUB_OUTPUT
+
+      - name: 🚀 Push ${{ inputs.target_branch }} Branch
+        id: push-staging
+        working-directory: velox
+        env:
+          FORCE_PUSH: ${{ inputs.force_push }}
+          EVENT_NAME: ${{ github.event_name }}
+          TARGET_REPO: ${{ inputs.target_repository }}
+        run: |
+          rapids-echo-stderr "Pushing ${{ inputs.target_branch }} branch to ${TARGET_REPO}..."
+          
+          # For scheduled runs, always force push since we're resetting to upstream/main
+          # For manual dispatch, respect the force_push input (defaults to false)
+          if [ "$EVENT_NAME" == "schedule" ] || [ "$FORCE_PUSH" == "true" ]; then
+            rapids-echo-stderr "Force push enabled. Overwriting target branch..."
+            rapids-retry git push origin ${{ inputs.target_branch }} --force-with-lease
+          else
+            rapids-echo-stderr "Force push disabled. Attempting normal push..."
+            if ! rapids-retry git push origin ${{ inputs.target_branch }}; then
+              rapids-echo-stderr "❌ Push failed! Target branch may have diverged."
+              rapids-echo-stderr "   Enable 'force_push' to override, or manually resolve conflicts."
+              exit 1
+            fi
+          fi
+          
+          FINAL_COMMIT=$(git rev-parse HEAD)
+          rapids-echo-stderr "✅ Done! ${{ inputs.target_branch }} branch updated successfully."
+          echo "Final commit: $FINAL_COMMIT"
+          echo "commit_sha=$FINAL_COMMIT" >> $GITHUB_OUTPUT
+
+      - name: 📝 Create ${{ inputs.target_branch }} PR
+        working-directory: velox
+        env:
+          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          MERGED_PRS: ${{ steps.merge-prs.outputs.merged_prs }}
+          MERGED_COUNT: ${{ steps.merge-prs.outputs.merged_count }}
+          TARGET_REPO: ${{ inputs.target_repository }}
+        run: |
+          rapids-echo-stderr "Checking for existing ${{ inputs.target_branch }} PR..."
+          
+          # Check if a PR already exists from staging to main
+          EXISTING_PR=$(gh pr list --repo "$TARGET_REPO" --head ${{ inputs.target_branch }} --base main --state open --json number,url --jq '.[0]' 2>/dev/null || echo "")
+          
+          if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
+            PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
+            PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+            rapids-echo-stderr "📌 PR already exists: $PR_URL"
+            rapids-echo-stderr "Skipping PR creation."
+            exit 0
+          fi
+          
+          rapids-echo-stderr "Creating new PR from ${{ inputs.target_branch }} to main..."
+          
+          # Build PR body with links to merged PRs
+          PR_TITLE="🚀 ${{ inputs.target_branch }}: Sync with upstream + cuDF PRs"
+          
+          PR_BODY="## ${{ inputs.target_branch }} Branch Update
+          
+          This PR aggregates the following cuDF-related PRs from [facebookincubator/velox](https://github.com/facebookincubator/velox):
+          
+          "
+          
+          if [ -n "$MERGED_PRS" ]; then
+            for pr_num in $MERGED_PRS; do
+              PR_BODY="${PR_BODY}- https://github.com/facebookincubator/velox/pull/${pr_num}
+          "
+            done
+            PR_BODY="${PR_BODY}
+          **Total PRs merged:** ${MERGED_COUNT:-0}
+          "
+          else
+            PR_BODY="${PR_BODY}_No cuDF PRs were merged in this update._
+          "
+          fi
+          
+          PR_BODY="${PR_BODY}
+          ---
+          _This PR was automatically created by the [Update ${{ inputs.target_branch }} Branch](https://github.com/${{ github.repository }}/actions/workflows/velox-create-staging.yml) workflow._
+          "
+          
+          NEW_PR_URL=$(gh pr create --repo "$TARGET_REPO" --head ${{ inputs.target_branch }} --base main --title "$PR_TITLE" --body "$PR_BODY" 2>&1) || {
+            # PR creation might fail if there are no commits difference
+            if echo "$NEW_PR_URL" | grep -q "No commits"; then
+              rapids-echo-stderr "ℹ️ No commits between ${{ inputs.target_branch }} and main. Skipping PR creation."
+            else
+              rapids-echo-stderr "⚠️ PR creation failed: $NEW_PR_URL"
+            fi
+            exit 0
+          }
+          rapids-echo-stderr "✅ Created new PR: $NEW_PR_URL"
+    outputs:
+      staging_commit: ${{ steps.push-staging.outputs.commit_sha }}
+
+  # Build and run tests on the updated staging branch
+  build-and-run-tests:
+    needs: sync-and-aggregate
+    if: inputs.build_and_run_tests != false  # Defaults to true for scheduled runs
+    uses: ./.github/workflows/velox-test.yml
+    with:
+      repository: ${{ inputs.target_repository }}
+      velox_commit: ${{ inputs.target_branch }}
+      build_target: 'gpu'
+    secrets: inherit

@@ -169,4 +169,4 @@ source ./common_functions.sh
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 INTEGRATION_TEST_DIR=${TEST_DIR}/integration_tests
-pytest -v ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+pytest -v --durations=0 ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
