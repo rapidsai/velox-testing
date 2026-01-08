@@ -58,6 +58,46 @@ jobs:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
 
+      - &verify-s3-access
+        name: Verify S3 Read/Write Access
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        run: |
+          # Configure AWS region
+          export AWS_DEFAULT_REGION="${S3_BUCKET_REGION}"
+          
+          # Generate unique test file name
+          TEST_FILE="s3-access-test-$(date +%s)-${RANDOM}.txt"
+          TEST_CONTENT="S3 access verification test - $(date)"
+          
+          echo "Verifying S3 credentials for bucket: ${S3_BUCKET_NAME}"
+          
+          # Test WRITE access
+          echo "Testing WRITE access..."
+          if ! echo "${TEST_CONTENT}" | aws s3 cp - "s3://${S3_BUCKET_NAME}/${TEST_FILE}"; then
+            echo "❌ WRITE access FAILED! Check AWS credentials and bucket permissions."
+            exit 1
+          fi
+          echo "✅ WRITE access verified."
+          
+          # Test READ access
+          echo "Testing READ access..."
+          if ! aws s3 cp "s3://${S3_BUCKET_NAME}/${TEST_FILE}" - > /dev/null; then
+            echo "❌ READ access FAILED! Check AWS credentials and bucket permissions."
+            aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_FILE}" 2>/dev/null || true
+            exit 1
+          fi
+          echo "✅ READ access verified."
+          
+          # Cleanup test file
+          echo "Cleaning up test file..."
+          aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_FILE}"
+          
+          echo "✅ S3 credentials verified successfully with read/write access."
+
       - name: Build Velox Dependencies Container Image (AMD64)
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
         run: ./build_centos_deps_image.sh
@@ -95,6 +135,8 @@ jobs:
       - *checkout-velox-testing
 
       - *checkout-velox
+
+      - *verify-s3-access
 
       - name: Build Velox Dependencies Container Image (ARM64)
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
