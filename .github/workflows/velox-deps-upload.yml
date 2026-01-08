@@ -57,6 +57,7 @@ jobs:
       - &verify-s3-access
         name: Verify S3 Read/Write Access
         env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
@@ -64,6 +65,28 @@ jobs:
         run: |
           # Configure AWS region
           export AWS_DEFAULT_REGION="${S3_BUCKET_REGION}"
+          export AWS_REGION="${S3_BUCKET_REGION}"
+          
+          # Replace 'reader' with 'writer' in ARN string for write access
+          WRITER_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
+          
+          # Assume IAM role to get temporary credentials
+          echo "Assuming IAM role for S3 access..."
+          TEMP_CREDS_JSON=$(aws sts assume-role \
+            --role-arn "${WRITER_ARN_STRING}" \
+            --role-session-name "VerifyS3Access" \
+            --query "Credentials" \
+            --output json)
+          
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to assume IAM role. Check AWS_ARN_STRING and base credentials."
+            exit 1
+          fi
+          
+          export AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
+          export AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
+          export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
+          echo "✅ Successfully assumed IAM role."
           
           # Generate unique test file name
           TEST_FILE="s3-access-test-$(date +%s)-${RANDOM}.txt"
@@ -91,7 +114,7 @@ jobs:
           # Cleanup test file
           echo "Cleaning up test file..."
           aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_FILE}"
-          
+
           echo "✅ S3 credentials verified successfully with read/write access."
 
       - name: Build Velox Dependencies Container Image (AMD64)
@@ -106,7 +129,10 @@ jobs:
           S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
           S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
-        run: ./upload_centos_deps_image.sh
+        run: |
+          # Replace 'reader' with 'writer' in ARN string for write access
+          export AWS_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
+          ./upload_centos_deps_image.sh
 
       - name: Upload Summary (AMD64)
         if: success()
@@ -146,7 +172,10 @@ jobs:
           S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
           S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
-        run: ./upload_centos_deps_image.sh
+        run: |
+          # Replace 'reader' with 'writer' in ARN string for write access
+          export AWS_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
+          ./upload_centos_deps_image.sh
 
       - name: Upload Summary (ARM64)
         if: success()
