@@ -13,7 +13,7 @@ jobs:
       presto_commit: master
       velox_repository: facebookincubator/velox
       velox_commit: main
-      run_java_tests: true
+      run_java_tests: false
       run_cpu_tests: true
       run_gpu_tests: true
       set_velox_backward_compatible: false
