@@ -28,6 +28,10 @@ on:
         required: false
         default: 'main'
 
+  push:
+    branches:
+      - avi/GHA-job-for-velox-deps-image-upload-to-s3
+
 defaults:
   run:
     shell: bash
