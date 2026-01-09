@@ -38,6 +38,10 @@ services:
     container_name: presto-native-worker-gpu-{{ i }}
     environment:
       - NVIDIA_VISIBLE_DEVICES={{ i }}
+      - UCX_LOG_LEVEL=info
+      - UCX_RNDV_PIPELINE_ERROR_HANDLING=y
+      - UCX_TLS=tcp,cuda_copy,cuda_ipc
+      - UCX_PROTO_INFO=y
     volumes:
       - ../config/generated/gpu/etc_common:/opt/presto-server/etc
       - ../config/generated/gpu/etc_worker_{{ i }}/node.properties:/opt/presto-server/etc/node.properties
