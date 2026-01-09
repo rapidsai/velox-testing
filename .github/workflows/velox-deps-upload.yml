@@ -55,7 +55,7 @@ jobs:
           velox_commit: ${{ inputs.velox_commit }}
 
       - &verify-s3-access
-        name: Verify S3 Read/Write Access
+        name: Verify S3 Access
         env:
           AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -67,55 +67,55 @@ jobs:
           export AWS_DEFAULT_REGION="${S3_BUCKET_REGION}"
           export AWS_REGION="${S3_BUCKET_REGION}"
           
-          # Replace 'reader' with 'writer' in ARN string for write access
+          # Derive writer ARN string from reader ARN
           WRITER_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
           
-          # Assume IAM role to get temporary credentials
-          echo "Assuming IAM role for S3 access..."
-          TEMP_CREDS_JSON=$(aws sts assume-role \
+          echo "Verifying S3 credentials for bucket: ${S3_BUCKET_NAME}"
+          
+          # Assume WRITER IAM role
+          echo "Assuming WRITER IAM role..."
+          WRITER_CREDS_JSON=$(aws sts assume-role \
             --role-arn "${WRITER_ARN_STRING}" \
             --role-session-name "VerifyS3Access" \
             --query "Credentials" \
             --output json)
           
           if [ $? -ne 0 ]; then
-            echo "❌ Failed to assume IAM role. Check AWS_ARN_STRING and base credentials."
+            echo "❌ Failed to assume WRITER IAM role."
             exit 1
           fi
+          echo "✅ Successfully assumed WRITER IAM role."
           
-          export AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
-          export AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
-          export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
-          echo "✅ Successfully assumed IAM role."
+          # Set writer credentials
+          export AWS_ACCESS_KEY_ID=$(echo "$WRITER_CREDS_JSON" | jq -r '.AccessKeyId')
+          export AWS_SECRET_ACCESS_KEY=$(echo "$WRITER_CREDS_JSON" | jq -r '.SecretAccessKey')
+          export AWS_SESSION_TOKEN=$(echo "$WRITER_CREDS_JSON" | jq -r '.SessionToken')
+          
+          # Test LIST access
+          echo "Testing LIST access..."
+          if ! aws s3 ls "s3://${S3_BUCKET_NAME}/" > /dev/null; then
+            echo "❌ LIST access FAILED! Check writer role permissions."
+            exit 1
+          fi
+          echo "✅ LIST access verified."
           
           # Generate unique test file name
           TEST_FILE="s3-access-test-$(date +%s)-${RANDOM}.txt"
           TEST_CONTENT="S3 access verification test - $(date)"
           
-          echo "Verifying S3 credentials for bucket: ${S3_BUCKET_NAME}"
-          
           # Test WRITE access
           echo "Testing WRITE access..."
           if ! echo "${TEST_CONTENT}" | aws s3 cp - "s3://${S3_BUCKET_NAME}/${TEST_FILE}"; then
-            echo "❌ WRITE access FAILED! Check AWS credentials and bucket permissions."
+            echo "❌ WRITE access FAILED! Check writer role permissions."
             exit 1
           fi
           echo "✅ WRITE access verified."
-          
-          # Test READ access
-          echo "Testing READ access..."
-          if ! aws s3 cp "s3://${S3_BUCKET_NAME}/${TEST_FILE}" - > /dev/null; then
-            echo "❌ READ access FAILED! Check AWS credentials and bucket permissions."
-            aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_FILE}" 2>/dev/null || true
-            exit 1
-          fi
-          echo "✅ READ access verified."
           
           # Cleanup test file
           echo "Cleaning up test file..."
           aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_FILE}"
 
-          echo "✅ S3 credentials verified successfully with read/write access."
+          echo "✅ S3 credentials verified successfully (list, write, delete)."
 
       - name: Build Velox Dependencies Container Image (AMD64)
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
