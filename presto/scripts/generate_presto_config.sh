@@ -113,7 +113,8 @@ EOF
   # for Java variant, disable some Parquet properties which are now rejected
   if [[ "${VARIANT_TYPE}" == "java" ]]; then
     HIVE_CONFIG="${CONFIG_DIR}/etc_worker/catalog/hive.properties"
-    sed -i 's/parquet/#parquet/g' ${HIVE_CONFIG}
+    sed -i 's/parquet\.reader\.chunk-read-limit/#parquet\.reader\.chunk-read-limit/' ${HIVE_CONFIG}
+    sed -i 's/parquet\.reader\.pass-read-limit/#parquet\.reader\.pass-read-limit/' ${HIVE_CONFIG}
   fi
 
   # success message
