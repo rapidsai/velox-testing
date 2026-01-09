@@ -110,6 +110,12 @@ EOF
     echo "cluster-tag=native-cpu" >> ${WORKER_CONFIG}
   fi
 
+  # for Java variant, disable some Parquet properties which are now rejected
+  if [[ "${VARIANT_TYPE}" == "java" ]]; then
+    HIVE_CONFIG="${CONFIG_DIR}/etc_worker/catalog/hive.properties"
+    sed -i 's/parquet/#parquet/g' ${HIVE_CONFIG}
+  fi
+
   # success message
   echo_success "Configs were generated successfully"
 else
