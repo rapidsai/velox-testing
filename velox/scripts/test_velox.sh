@@ -107,13 +107,17 @@ TEST_PREAMBLE='if [ -f "/opt/miniforge/etc/profile.d/conda.sh" ]; then
 
 if [[ "$DEVICE_TYPE" == "cpu" ]]; then
   SKIP_TESTS="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test"
-  TEST_CMD="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error -E \"${SKIP_TESTS}\""
+  # ulimit increased pending possible fix for velox_table_evolution_fuzzer_test to not open so many files
+  # seves 1/9/26
+  TEST_CMD="ulimit -n 4096 && ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error -E \"${SKIP_TESTS}\""
 else
   if [[ "$NUM_THREADS" -gt 2 ]]; then
     echo "Warning: For GPU mode, setting NUM_THREADS to 2 to avoid possible OOM errors."
     NUM_THREADS=2
   fi
-  SKIP_TESTS="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3"
+  # disable velox_cudf_s3_read_test pending inheritance of RMM with shutdown error-avoidance (PR 2202)
+  # seves 1/9/26
+  SKIP_TESTS="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3|velox_cudf_s3_read_test"
   TEST_CMD="ctest -j ${NUM_THREADS} -L cuda_driver --output-on-failure --no-tests=error -E \"${SKIP_TESTS}\""
 fi
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "set -euo pipefail; cd ${EXPECTED_OUTPUT_DIR} && ${TEST_PREAMBLE} && ${TEST_CMD}"; then
