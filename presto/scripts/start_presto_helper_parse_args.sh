@@ -31,6 +31,7 @@ OPTIONS:
                          By default, services will be lazily built i.e. a build 
                          will only occur if there is no local image for the service.
     -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
+    -w, --num-workers    Number of GPU workers to start (GPU variant only).
     --build-type         Build type for native CPU and GPU image builds. Possible values are "release",
                          "relwithdebinfo", or "debug". Values are case insensitive. The default value
                          is "release".
@@ -45,6 +46,7 @@ EXAMPLES:
     $SCRIPT_NAME -b worker
     $SCRIPT_NAME --build c
     $SCRIPT_NAME -j 8
+    $SCRIPT_NAME -w 4
     $SCRIPT_NAME --profile
     $SCRIPT_NAME -h
 
@@ -82,6 +84,15 @@ parse_args() {
           shift 2
         else
           echo "Error: --num-threads requires a value"
+          exit 1
+        fi
+        ;;
+      -w|--num-workers)
+        if [[ -n $2 ]]; then
+          export NUM_WORKERS=$2
+          shift 2
+        else
+          echo "Error: --num-workers requires a value"
           exit 1
         fi
         ;;
