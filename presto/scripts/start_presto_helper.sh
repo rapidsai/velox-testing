@@ -160,7 +160,10 @@ function duplicate_worker_configs() {
     sed -i "s+http-server\.http\.port.*+http-server\.http\.port=80${1}0+g" \
          ${worker_config}/config_native.properties
     sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
-	${worker_config}/config_native.properties
+        ${worker_config}/config_native.properties
+    if ! grep -q "^cudf.exchange.server.port=80${1}3" ${worker_config}/config_native.properties; then
+        echo "cudf.exchange.server.port=80${1}3" >> ${worker_config}/config_native.properties
+    fi
 
     # Give each worker a unique id.
     sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
