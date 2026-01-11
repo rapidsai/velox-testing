@@ -61,6 +61,7 @@ pushd ../docker/config > /dev/null
 trap "popd > /dev/null" EXIT
 
 CONFIG_DIR=generated/${VARIANT_TYPE}
+NUM_WORKERS=${NUM_WORKERS:-1}
 
 # generate only if no existing config or overwrite flag is set
 if [[ ! -d ${CONFIG_DIR} || "${OVERWRITE_CONFIG}" == "true" ]]; then
@@ -76,7 +77,7 @@ if [[ ! -d ${CONFIG_DIR} || "${OVERWRITE_CONFIG}" == "true" ]]; then
     "coordinator_instance_ebs_size": 50,
     "worker_instance_type": "${NPROC}-core CPU and ${RAM_GB}GB RAM",
     "worker_instance_ebs_size": 50,
-    "number_of_workers": 1,
+    "number_of_workers": ${NUM_WORKERS},
     "memory_per_node_gb": ${RAM_GB},
     "vcpu_per_worker": ${VCPU_PER_WORKER},
     "fragment_result_cache_enabled": true,
@@ -98,9 +99,11 @@ EOF
     COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
     
+    if [[ ${NUM_WORKERS} -eq 1 ]]; then
     # Adds a cluster tag for gpu variant
     WORKER_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
     echo "cluster-tag=native-gpu" >> ${WORKER_CONFIG}
+    fi
   fi
 
   # now perform other variant-specific modifications to the generated configs
