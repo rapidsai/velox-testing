@@ -36,7 +36,7 @@ docker run --rm \
     ./mvnw clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true &&
     echo 'Copying artifacts with version $PRESTO_VERSION...' &&
     cp presto-server/target/presto-server-*.tar.gz docker/presto-server-$PRESTO_VERSION.tar.gz &&
-    cp presto-function-server/target/presto-function-server-*-executable.jar docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
+    cp presto-function-server/target/presto-function-server-*executable.jar docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
     cp presto-cli/target/presto-cli-*-executable.jar docker/presto-cli-$PRESTO_VERSION-executable.jar &&
     chmod +r docker/presto-cli-$PRESTO_VERSION-executable.jar &&
     echo 'Build complete! Artifacts copied with version $PRESTO_VERSION'
