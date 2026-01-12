@@ -38,6 +38,8 @@ services:
     container_name: presto-native-worker-gpu-{{ i }}
     environment:
       - NVIDIA_VISIBLE_DEVICES={{ i }}
+      - PROFILE=${PROFILE}
+      - PROFILE_ARGS=-t nvtx,cuda,osrt,ucx --cuda-memory-usage=true --cuda-um-cpu-page-faults=true --cuda-um-gpu-page-faults=true --cudabacktrace=true
       - UCX_LOG_LEVEL=info
       - UCX_RNDV_PIPELINE_ERROR_HANDLING=y
       - UCX_TLS=tcp,cuda_copy,cuda_ipc
