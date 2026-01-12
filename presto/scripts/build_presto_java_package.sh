@@ -28,6 +28,11 @@ docker run --rm \
     -w /presto \
     eclipse-temurin:17-jdk-jammy \
     bash -c "
+    apt-get update && apt-get install -y git curl &&
+    git config --global --add safe.directory /presto &&
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - &&
+    apt-get install -y nodejs &&
+    npm install -g yarn@1.22.22 &&
     ./mvnw clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true &&
     echo 'Copying artifacts with version $PRESTO_VERSION...' &&
     cp presto-server/target/presto-server-*.tar.gz docker/presto-server-$PRESTO_VERSION.tar.gz &&

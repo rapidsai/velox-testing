@@ -143,6 +143,13 @@ EOF
     WORKER_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
     echo "cluster-tag=native-cpu" >> ${WORKER_CONFIG}
   fi
+  
+  # for Java variant, disable some Parquet properties which are now rejected
+  if [[ "${VARIANT_TYPE}" == "java" ]]; then
+    HIVE_CONFIG="${CONFIG_DIR}/etc_worker/catalog/hive.properties"
+    sed -i 's/parquet\.reader\.chunk-read-limit/#parquet\.reader\.chunk-read-limit/' ${HIVE_CONFIG}
+    sed -i 's/parquet\.reader\.pass-read-limit/#parquet\.reader\.pass-read-limit/' ${HIVE_CONFIG}
+  fi
 
   if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
     for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
