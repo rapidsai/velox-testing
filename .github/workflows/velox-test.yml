@@ -23,6 +23,10 @@ on:
           - all
           - cpu
           - gpu
+      use_upstream_deps_image:
+        description: 'Pull the deps image from ghcr.io'
+        type: boolean
+        default: true
 
   workflow_call:
     inputs:
@@ -33,6 +37,10 @@ on:
         type: string
         required: false
         default: 'gpu'
+      use_upstream_deps_image:
+        description: 'Pull the deps image from ghcr.io'
+        type: boolean
+        default: true
 
 defaults:
   run:
@@ -61,7 +69,14 @@ jobs:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
 
+      - &pull-deps
+        if: ${{ inputs.use_upstream_deps_image }}
+        name: Pull Velox Dependencies
+        run: |
+          docker pull ghcr.io/facebookincubator/velox-dev:adapters
+
       - &fetch-and-load-deps
+        if: ${{ ! inputs.use_upstream_deps_image }}
         name: Fetch or Build Velox Dependencies
         uses: ./velox-testing/.github/actions/velox-deps-fetch
         with:
@@ -104,6 +119,7 @@ jobs:
 
       - *checkout-velox
 
+      - *pull-deps
       - *fetch-and-load-deps
 
       - name: Building Velox for GPU
