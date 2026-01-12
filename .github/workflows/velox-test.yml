@@ -23,8 +23,8 @@ on:
           - all
           - cpu
           - gpu
-      use_upstream_deps_image:
-        description: 'Pull the deps image from ghcr.io'
+      use_upstream_deps_image: &use_upstream_deps_image
+        description: 'Use upstream deps image from ghcr.io'
         type: boolean
         default: true
 
@@ -37,10 +37,7 @@ on:
         type: string
         required: false
         default: 'gpu'
-      use_upstream_deps_image:
-        description: 'Pull the deps image from ghcr.io'
-        type: boolean
-        default: true
+      use_upstream_deps_image: *use_upstream_deps_image
 
 defaults:
   run:

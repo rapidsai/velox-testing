@@ -20,6 +20,10 @@ on:
         default: 'tpch'
         options:
           - tpch
+      use_upstream_deps_image: &use_upstream_deps_image
+        description: 'Use upstream deps image from ghcr.io'
+        type: boolean
+        default: true
 
   workflow_call:
     inputs:
@@ -30,6 +34,7 @@ on:
         type: string
         required: false
         default: 'tpch'
+      use_upstream_deps_image: *use_upstream_deps_image
 
 jobs:
   velox-benchmark:
@@ -46,7 +51,14 @@ jobs:
           repository: ${{ inputs.repository }}
           velox_commit: ${{ inputs.velox_commit }}
 
+      - name: Pull Velox Dependencies
+        if: ${{ inputs.use_upstream_deps_image }}
+        name: Pull Velox Dependencies
+        run: |
+          docker pull ghcr.io/facebookincubator/velox-dev:adapters
+
       - name: Fetch or Build Velox Dependencies
+        if: ${{ ! inputs.use_upstream_deps_image }}
         uses: ./velox-testing/.github/actions/velox-deps-fetch
         with:
           aws_arn_string: ${{ secrets.AWS_ARN_STRING }}
