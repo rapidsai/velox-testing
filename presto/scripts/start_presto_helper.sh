@@ -134,45 +134,12 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     PRESTO_VERSION=$PRESTO_VERSION ./build_presto_java_package.sh
   fi
 
-  echo "Building services: ${BUILD_TARGET_ARG[@]}"
+  echo "Building services: ${BUILD_TARGET_ARG[@]}${NUM_WORKERS:+-0}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
-  ${BUILD_TARGET_ARG[@]}
-fi
-
-function duplicate_worker_configs() {
-    local worker_config="../docker/config/generated/gpu/etc_worker_${1}"
-    local coord_config="../docker/config/generated/gpu/etc_coordinator"
-    rm -rf ${worker_config}
-    cp -r ../docker/config/generated/gpu/etc_worker ${worker_config}
-
-    # Single node execution needs to be disabled if we are running multiple workers.
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
-        ${coord_config}/config_native.properties
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
-	${worker_config}/config_native.properties
-
-    # Each worker node needs to have it's own http-server port.  This isn't used, but
-    # the cudf.exchange server port is currently hard-coded to be the server port +3
-    # and that needs to be unique for each worker.
-    sed -i "s+http-server\.http\.port.*+http-server\.http\.port=80${1}0+g" \
-         ${worker_config}/config_native.properties
-    sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
-        ${worker_config}/config_native.properties
-    if ! grep -q "^cudf.exchange.server.port=80${1}3" ${worker_config}/config_native.properties; then
-        echo "cudf.exchange.server.port=80${1}3" >> ${worker_config}/config_native.properties
-    fi
-
-    # Give each worker a unique id.
-    sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
-}
-
-if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
-  for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
-    duplicate_worker_configs $i
-  done
+  ${BUILD_TARGET_ARG[@]}${NUM_WORKERS:+-0}
 fi
 
 # Start all services defined in the rendered docker-compose file.

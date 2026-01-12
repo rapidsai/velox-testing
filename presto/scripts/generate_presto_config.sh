@@ -38,6 +38,33 @@ if [ ! -x ../pbench/pbench ]; then
   echo_error "ERROR: generate_presto_config.sh script must only be run from presto:presto/scripts"
 fi
 
+function duplicate_worker_configs() {
+    local worker_config="${CONFIG_DIR}/etc_worker_${1}"
+    local coord_config="${CONFIG_DIR}/etc_coordinator"
+    rm -rf ${worker_config}
+    cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
+
+    # Single node execution needs to be disabled if we are running multiple workers.
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
+        ${coord_config}/config_native.properties
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
+	${worker_config}/config_native.properties
+
+    # Each worker node needs to have it's own http-server port.  This isn't used, but
+    # the cudf.exchange server port is currently hard-coded to be the server port +3
+    # and that needs to be unique for each worker.
+    sed -i "s+http-server\.http\.port.*+http-server\.http\.port=80${1}0+g" \
+         ${worker_config}/config_native.properties
+    sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
+        ${worker_config}/config_native.properties
+    if ! grep -q "^cudf.exchange.server.port=80${1}3" ${worker_config}/config_native.properties; then
+        echo "cudf.exchange.server.port=80${1}3" >> ${worker_config}/config_native.properties
+    fi
+
+    # Give each worker a unique id.
+    sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
+}
+
 # get host values
 NPROC=`nproc`
 # lsmem will report in SI.  Make sure we get values in GB.
@@ -49,7 +76,11 @@ if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo_error "ERROR: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
 fi
 if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
-  VCPU_PER_WORKER=2
+ if [[ -n "$NUM_WORKERS" ]]; then
+   VCPU_PER_WORKER=1
+ else
+   VCPU_PER_WORKER=2
+ fi
 else
   VCPU_PER_WORKER=${NPROC}
 fi
@@ -113,6 +144,11 @@ EOF
     echo "cluster-tag=native-cpu" >> ${WORKER_CONFIG}
   fi
 
+  if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
+    for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
+      duplicate_worker_configs $i
+    done
+  fi
   # success message
   echo_success "Configs were generated successfully"
 else
