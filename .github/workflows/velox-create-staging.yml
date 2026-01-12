@@ -24,7 +24,7 @@ on:
         required: true
         default: 'staging'
       auto_fetch_prs:
-        description: Auto-fetch PRs with 'ready-to-merge', 'cudf' label (disable to manually specify PRs)
+        description: Auto-fetch non-draft PRs with 'cudf' label (disable to manually specify PRs)
         type: boolean
         required: false
         default: true
@@ -87,24 +87,23 @@ jobs:
           git checkout -B ${{ inputs.target_branch }} upstream/${{ inputs.base_branch }}
           echo "${{ inputs.target_branch }} branch reset to upstream/${{ inputs.base_branch }} at $(git rev-parse HEAD)"
 
-      - name: 🔍 Auto-fetch PRs with 'ready-to-merge' and 'cudf' Labels
+      - name: 🔍 Auto-fetch PRs with 'cudf' Label (non-draft)
         id: auto-fetch-prs
         if: inputs.auto_fetch_prs == true  # Defaults to true for scheduled runs
         env:
           GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          rapids-echo-stderr "Auto-fetch enabled. Scanning for PRs with 'ready-to-merge' and 'cudf' labels..."
+          rapids-echo-stderr "Auto-fetch enabled. Scanning for non-draft PRs with 'cudf' label..."
           
           PR_LIST=$(rapids-retry --quiet gh pr list \
             --repo facebookincubator/velox \
-            --label "ready-to-merge" \
             --label "cudf" \
             --state open \
-            --json number \
-            --jq '.[].number' | tr '\n' ' ' | xargs)
+            --json number,isDraft \
+            --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs)
 
           if [ -z "$PR_LIST" ]; then
-            rapids-echo-stderr "No PRs found with 'ready-to-merge' and 'cudf' labels."
+            rapids-echo-stderr "No non-draft PRs found with 'cudf' label."
             echo "pr_list=" >> $GITHUB_OUTPUT
             echo "has_prs=false" >> $GITHUB_OUTPUT
           else
