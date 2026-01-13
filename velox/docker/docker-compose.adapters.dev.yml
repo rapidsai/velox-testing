@@ -1,0 +1,11 @@
+services:
+  velox-adapters-dev:
+    container_name: velox-adapters-dev
+    image: velox-adapters-dev:latest
+    build:
+      context: ../../..
+      dockerfile: velox-testing/velox/docker/adapters_dev.dockerfile
+    runtime: ${DOCKER_RUNTIME:-nvidia}
+    volumes:
+      - ../../../velox:/workspace/velox
+    working_dir: /workspace/velox
