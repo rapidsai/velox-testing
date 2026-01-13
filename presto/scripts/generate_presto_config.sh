@@ -49,6 +49,7 @@ function duplicate_worker_configs() {
         ${coord_config}/config_native.properties
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
 	${worker_config}/config_native.properties
+  echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
 
     # Each worker node needs to have it's own http-server port.  This isn't used, but
     # the cudf.exchange server port is currently hard-coded to be the server port +3
@@ -60,6 +61,7 @@ function duplicate_worker_configs() {
     if ! grep -q "^cudf.exchange.server.port=80${1}3" ${worker_config}/config_native.properties; then
         echo "cudf.exchange.server.port=80${1}3" >> ${worker_config}/config_native.properties
     fi
+    echo "async-data-cache-enabled=false" >> ${worker_config}/config_native.properties
 
     # Give each worker a unique id.
     sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
