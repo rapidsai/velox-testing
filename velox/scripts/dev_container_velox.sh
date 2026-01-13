@@ -26,7 +26,7 @@ BUILD_WITH_VELOX_ENABLE_CUDF="ON"
 VELOX_ENABLE_BENCHMARKS="ON"
 BUILD_TYPE="release"
 LOG_ENABLED=false
-TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
+TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-0}"
 LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
@@ -322,8 +322,10 @@ fi
 
 SELECTED_COMPOSE_FILE=$(compose_file)
 
-# Run container as the invoking host user (used by compose user: field)
+# Run container as the invoking host user (used by entrypoint to create user + sudo)
 export HOST_UID=$(id -u) HOST_GID=$(id -g)
+export HOST_USER=${HOST_USER:-hostuser}
+export HOST_HOME=${HOST_HOME:-/home/${HOST_USER}}
 
 docker compose -f "$SELECTED_COMPOSE_FILE" down  velox-adapters-dev --remove-orphans
 
@@ -341,7 +343,7 @@ docker compose -f "$SELECTED_COMPOSE_FILE" up -d velox-adapters-dev
 BUILD_EXIT_CODE=$?
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
-  echo "Built dev container you can get a shell with: docker exec -it velox-adapters-dev /bin/bash"
+  echo "Built dev container. Shell as host user: docker exec -it -u ${HOST_USER} velox-adapters-dev /bin/bash"
   echo ""
 else
   echo "  ERROR: failed to build dev container, exit code: $BUILD_EXIT_CODE."

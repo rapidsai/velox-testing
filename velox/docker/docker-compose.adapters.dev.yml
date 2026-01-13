@@ -6,8 +6,8 @@ services:
       context: ../../..
       dockerfile: velox-testing/velox/docker/adapters_dev.dockerfile
     runtime: ${DOCKER_RUNTIME:-nvidia}
-    user: "${HOST_UID:-0}:${HOST_GID:-0}"
-    command: tail -f /dev/null
+    entrypoint: ["/usr/local/bin/hostuser_entrypoint.sh"]
+    command: []
     volumes:
       # Source tree 
       - ../../../velox:/workspace/velox:rw
@@ -18,7 +18,14 @@ services:
       - ./sccache/sccache_setup.sh:/sccache_setup.sh:ro
       # mount build script
       - ../scripts/velox_dev_build.sh:/velox_dev_build.sh:ro
+      # entrypoint to create user + sudo
+      - ../scripts/hostuser_entrypoint.sh:/usr/local/bin/hostuser_entrypoint.sh:ro
     working_dir: /workspace/velox
+    environment:
+      HOST_UID: ${HOST_UID:-0}
+      HOST_GID: ${HOST_GID:-0}
+      HOST_USER: ${HOST_USER:-hostuser}
+      HOST_HOME: ${HOST_HOME:-/home/hostuser}
 volumes:
   velox_sccache_preprocessor:
   velox_sccache_dist_client:
