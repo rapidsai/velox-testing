@@ -32,6 +32,9 @@ OPTIONS:
                          will only occur if there is no local image for the service.
     -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
     -w, --num-workers    Number of GPU workers to start (GPU variant only).
+    -g, --gpu-ids        Comma-delimited list of GPU device IDs to use (e.g., "0,1,3,5").
+                         Must be used with --num-workers. If not specified, defaults to "0,1,...,N-1"
+                         where N is the value from --num-workers.
     --build-type         Build type for native CPU and GPU image builds. Possible values are "release",
                          "relwithdebinfo", or "debug". Values are case insensitive. The default value
                          is "release".
@@ -47,6 +50,7 @@ EXAMPLES:
     $SCRIPT_NAME --build c
     $SCRIPT_NAME -j 8
     $SCRIPT_NAME -w 4
+    $SCRIPT_NAME -w 4 -g 4,5,6,7
     $SCRIPT_NAME --profile
     $SCRIPT_NAME -h
 
@@ -93,6 +97,15 @@ parse_args() {
           shift 2
         else
           echo "Error: --num-workers requires a value"
+          exit 1
+        fi
+        ;;
+      -g|--gpu-ids)
+        if [[ -n $2 ]]; then
+          export GPU_IDS=$2
+          shift 2
+        else
+          echo "Error: --gpu-ids requires a value"
           exit 1
         fi
         ;;
@@ -159,4 +172,29 @@ fi
 if [[ -n $PROFILE_ARGS && "$PROFILE" == "OFF" ]]; then
   echo "Error: the --profile-args argument should only be set when --profile is enabled"
   exit 1
+fi
+
+# Validation for GPU IDs
+if [[ -n $GPU_IDS ]]; then
+  # If GPU_IDS is set, NUM_WORKERS must also be set
+  if [[ -z $NUM_WORKERS ]]; then
+    echo "Error: --gpu-ids requires --num-workers to be set"
+    exit 1
+  fi
+  
+  # Validate that GPU_IDS is a comma-delimited list of integers
+  if [[ ! $GPU_IDS =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+    echo "Error: --gpu-ids must be a comma-delimited list of integers (e.g., '0,1,2,3')"
+    exit 1
+  fi
+  
+  # Count the number of GPU IDs provided
+  IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
+  GPU_ID_COUNT=${#GPU_ID_ARRAY[@]}
+  
+  # Validate that the count matches NUM_WORKERS
+  if [[ $GPU_ID_COUNT -ne $NUM_WORKERS ]]; then
+    echo "Error: number of GPU IDs ($GPU_ID_COUNT) must match --num-workers ($NUM_WORKERS)"
+    exit 1
+  fi
 fi

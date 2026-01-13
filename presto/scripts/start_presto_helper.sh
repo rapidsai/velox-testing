@@ -117,8 +117,19 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
   # Default to 0 if not provided, which results in no per-GPU workers being rendered.
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
+  
+  # Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
+  if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
+    # Generate default GPU IDs: 0,1,2,...,N-1
+    GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
+  fi
+  
   RENDER_SCRIPT_PATH=$(readlink -f ./render_docker_compose_template.py)
-  ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS"
+  if [[ -n $GPU_IDS ]]; then
+    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS" "$GPU_IDS"
+  else
+    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS"
+  fi
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
 if (( ${#BUILD_TARGET_ARG[@]} )); then
