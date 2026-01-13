@@ -322,6 +322,9 @@ fi
 
 SELECTED_COMPOSE_FILE=$(compose_file)
 
+# Run container as the invoking host user (used by compose user: field)
+export HOST_UID=$(id -u) HOST_GID=$(id -g)
+
 docker compose -f "$SELECTED_COMPOSE_FILE" down  velox-adapters-dev --remove-orphans
 
 if [[ "$LOG_ENABLED" == true ]]; then

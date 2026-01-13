@@ -6,10 +6,11 @@ services:
       context: ../../..
       dockerfile: velox-testing/velox/docker/adapters_dev.dockerfile
     runtime: ${DOCKER_RUNTIME:-nvidia}
+    user: "${HOST_UID:-0}:${HOST_GID:-0}"
     command: tail -f /dev/null
     volumes:
-      # Source tree (read-only, matches the BuildKit bind in the Dockerfile comment)
-      - ../../../velox:/workspace/velox:ro
+      # Source tree 
+      - ../../../velox:/workspace/velox:rw
       # sccache caches (persistent volumes to mimic BuildKit cache mounts)
       - velox_sccache_preprocessor:/root/.cache/sccache/preprocessor
       - velox_sccache_dist_client:/root/.cache/sccache-dist-client
