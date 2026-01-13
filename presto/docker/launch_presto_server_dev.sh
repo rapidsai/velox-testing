@@ -2,7 +2,12 @@
 
 set -euo pipefail
 
-PRESTO_EXTRA_CMAKE_FLAGS=${PRESTO_EXTRA_CMAKE_FLAGS:-"-DPRESTO_ENABLE_TESTING=OFF -DPRESTO_ENABLE_PARQUET=ON -DPRESTO_ENABLE_CUDF=ON -DVELOX_BUILD_TESTING=OFF -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"}
+# Base flags for configuring/building presto-native-execution (including Velox).
+# To avoid duplicating this long string across host + container scripts, host-side
+# scripts should *append* via PRESTO_EXTRA_CMAKE_FLAGS_APPEND.
+DEFAULT_PRESTO_EXTRA_CMAKE_FLAGS="-DPRESTO_ENABLE_TESTING=OFF -DPRESTO_ENABLE_PARQUET=ON -DPRESTO_ENABLE_CUDF=ON -DVELOX_BUILD_TESTING=OFF -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+PRESTO_EXTRA_CMAKE_FLAGS=${PRESTO_EXTRA_CMAKE_FLAGS:-"${DEFAULT_PRESTO_EXTRA_CMAKE_FLAGS}"}
+PRESTO_EXTRA_CMAKE_FLAGS_APPEND=${PRESTO_EXTRA_CMAKE_FLAGS_APPEND:-""}
 PRESTO_BUILD_BASE=/workspace/build
 PRESTO_BUILD_TYPE=${PRESTO_BUILD_TYPE:-RelWithDebInfo}
 PRESTO_BUILD_DIR_NAME=${PRESTO_BUILD_DIR_NAME:-relwithdebinfo}
@@ -59,9 +64,20 @@ function build_presto_if_needed() {
 
   local cuda_archs
   cuda_archs=$(resolve_cuda_archs)
-  local extra_flags="$PRESTO_EXTRA_CMAKE_FLAGS"
+  local extra_flags="${PRESTO_EXTRA_CMAKE_FLAGS} ${PRESTO_EXTRA_CMAKE_FLAGS_APPEND}"
   if [[ -n "$cuda_archs" ]]; then
     extra_flags="${extra_flags} -DCMAKE_CUDA_ARCHITECTURES=${cuda_archs}"
+  fi
+
+  # Optional local cuDF checkout override (in-container path).
+  # When set, force Velox to build cuDF from source and point FetchContent at the local checkout.
+  if [[ -n "${PRESTO_CUDF_DIR:-}" && -d "${PRESTO_CUDF_DIR}" ]]; then
+    if [[ "$extra_flags" != *"FETCHCONTENT_SOURCE_DIR_CUDF="* ]]; then
+      extra_flags="${extra_flags} -DFETCHCONTENT_SOURCE_DIR_CUDF=${PRESTO_CUDF_DIR}"
+    fi
+    if [[ "$extra_flags" != *"-Dcudf_SOURCE="* ]]; then
+      extra_flags="${extra_flags} -Dcudf_SOURCE=BUNDLED"
+    fi
   fi
 
   local build_dir="${PRESTO_BUILD_BASE}/${PRESTO_BUILD_DIR_NAME}"

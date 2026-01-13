@@ -35,6 +35,8 @@ function is_gpu_variant() {
   [[ "$VARIANT_TYPE" == "gpu" || "$VARIANT_TYPE" == "gpu-dev" ]]
 }
 
+DOCKER_COMPOSE_EXTRA_ARGS=()
+
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|gpu-dev|java)$ ]]; then
   echo "Internal error: A valid variant type (cpu, gpu, gpu-dev, or java) is required. Set VARIANT_TYPE to an appropriate value."
   exit 1
@@ -136,6 +138,56 @@ elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
 elif [[ "$VARIANT_TYPE" == "gpu-dev" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu-dev"
   prepare_gpu_dev_environment
+
+  # Optional: mount a local cuDF checkout into the dev worker container and
+  # forward the in-container path via PRESTO_CUDF_DIR.
+  #
+  # Usage:
+  #   PRESTO_CUDF_DIR=/abs/path/to/cudf ./start_native_gpu_dev_presto.sh
+  #
+  if [[ -n "${PRESTO_CUDF_DIR:-}" ]]; then
+    if [[ ! -d "$PRESTO_CUDF_DIR" || ! -d "$PRESTO_CUDF_DIR/cpp" ]]; then
+      echo "ERROR: PRESTO_CUDF_DIR must point to a cuDF checkout containing a 'cpp/' directory. Got: $PRESTO_CUDF_DIR"
+      exit 1
+    fi
+
+    PRESTO_CUDF_DIR=$(to_abs_path "$PRESTO_CUDF_DIR")
+
+    # Keep separate build dirs for "default cuDF" vs "local cuDF override" so you can
+    # switch PRESTO_CUDF_DIR on/off without wiping the build directory.
+    #
+    # If you want a custom naming scheme, set PRESTO_BUILD_DIR_NAME explicitly.
+    if [[ -z "${PRESTO_BUILD_DIR_NAME:-}" ]]; then
+      export PRESTO_BUILD_DIR_NAME="relwithdebinfo-localcudf"
+    fi
+
+    # Make the override work even if the gpu-dev image wasn't rebuilt yet by passing the
+    # cuDF FetchContent override via PRESTO_EXTRA_CMAKE_FLAGS_APPEND (consumed by the container
+    # entrypoint /opt/launch_presto_server_dev.sh).
+    presto_extra_flags_append="${PRESTO_EXTRA_CMAKE_FLAGS_APPEND:-}"
+    presto_extra_flags_append="${presto_extra_flags_append} -Dcudf_SOURCE=BUNDLED -DFETCHCONTENT_SOURCE_DIR_CUDF=/workspace/cudf"
+
+    override_file="$(mktemp "${PRESTO_DEV_STATE_ROOT}/docker-compose.cudf.XXXXXX.yml")"
+    {
+      printf '%s\n' "services:"
+      printf '%s\n' "  presto-native-worker-gpu-dev:"
+      printf '%s\n' "    volumes:"
+      printf '%s\n' "      - ${PRESTO_CUDF_DIR}:/workspace/cudf:rw"
+      printf '%s\n' "    environment:"
+      printf '%s\n' "      - PRESTO_CUDF_DIR=/workspace/cudf"
+      printf '%s\n' "      - PRESTO_BUILD_DIR_NAME=${PRESTO_BUILD_DIR_NAME}"
+      # Forward host-provided base flags only if explicitly set (otherwise keep container defaults).
+      if [[ -n "${PRESTO_EXTRA_CMAKE_FLAGS:-}" ]]; then
+        printf '%s\n' "      - PRESTO_EXTRA_CMAKE_FLAGS=${PRESTO_EXTRA_CMAKE_FLAGS}"
+      fi
+      printf '%s\n' "      - PRESTO_EXTRA_CMAKE_FLAGS_APPEND=${presto_extra_flags_append}"
+    } >"$override_file"
+    DOCKER_COMPOSE_EXTRA_ARGS=(-f "$override_file")
+
+    # The override file is only needed to start/build the containers.
+    trap 'rm -f "$override_file"' EXIT
+  fi
+
   # For the dev worker, image rebuilds are usually not needed for code changes.
   # The presto_server binary is built inside the running container against the
   # persistent build dir. Only rebuild the dev image lazily if missing.
@@ -221,12 +273,12 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   fi
 
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
-  docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
+  docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH "${DOCKER_COMPOSE_EXTRA_ARGS[@]}" build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
   ${BUILD_TARGET_ARG[@]}
 fi
 
-# Start all services defined in the rendered docker-compose file.
-docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
+# Start all services defined in the (possibly rendered) docker-compose file.
+docker compose -f $DOCKER_COMPOSE_FILE_PATH "${DOCKER_COMPOSE_EXTRA_ARGS[@]}" up -d
