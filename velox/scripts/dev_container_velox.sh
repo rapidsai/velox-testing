@@ -322,17 +322,19 @@ fi
 
 SELECTED_COMPOSE_FILE=$(compose_file)
 
-#if [[ "$LOG_ENABLED" == true ]]; then
-#  echo "Logging build output to $LOGFILE"
-#  docker compose -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
-#  BUILD_EXIT_CODE=${PIPESTATUS[0]}
-#else
-#  docker compose -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
-#  BUILD_EXIT_CODE=$?
-#fi
-
 docker compose -f "$SELECTED_COMPOSE_FILE" down  velox-adapters-dev --remove-orphans
-docker compose -f "$SELECTED_COMPOSE_FILE" up -d --build velox-adapters-dev
+
+if [[ "$LOG_ENABLED" == true ]]; then
+  echo "Logging build output to $LOGFILE"
+  docker compose -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
+  BUILD_EXIT_CODE=${PIPESTATUS[0]}
+else
+  docker compose -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
+  BUILD_EXIT_CODE=$?
+fi
+
+
+docker compose -f "$SELECTED_COMPOSE_FILE" up -d velox-adapters-dev
 BUILD_EXIT_CODE=$?
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then

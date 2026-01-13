@@ -79,7 +79,9 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     CUDA_COMPILER=/usr/local/cuda-${CUDA_VERSION}/bin/nvcc \
     CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-14/root/usr/bin" \
+    BUILD_BASE_DIR=${BUILD_BASE_DIR} \
     BUILD_TYPE=${BUILD_TYPE} \
+    NUM_THREADS=${NUM_THREADS} \
     EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_BENCHMARKS=${VELOX_ENABLE_BENCHMARKS} \
                       -DVELOX_ENABLE_EXAMPLES=ON \
                       -DVELOX_ENABLE_ARROW=ON \
@@ -93,6 +95,7 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
                       -DVELOX_MONO_LIBRARY=ON \
                       -DVELOX_BUILD_SHARED=ON \
                       -DVELOX_ENABLE_CUDF=${BUILD_WITH_VELOX_ENABLE_CUDF} \
+                      -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
                       -DVELOX_ENABLE_FAISS=ON" \
     LD_LIBRARY_PATH="${BUILD_BASE_DIR}/${BUILD_TYPE}/lib:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/cudf-build:\
@@ -101,6 +104,13 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rapids_logger-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     ENABLE_SCCACHE="${ENABLE_SCCACHE}" \
+    BUILD_WITH_VELOX_ENABLE_CUDF="${BUILD_WITH_VELOX_ENABLE_CUDF}" \
+    BUILD_WITH_VELOX_ENABLE_WAVE="${BUILD_WITH_VELOX_ENABLE_WAVE}" \
+    MAX_HIGH_MEM_JOBS="${MAX_HIGH_MEM_JOBS}" \
+    MAX_LINK_JOBS="${MAX_LINK_JOBS}" \
+    SCCACHE_NO_DIST_COMPILE="${SCCACHE_NO_DIST_COMPILE}" \
+    SCCACHE_RECACHE="${SCCACHE_RECACHE}" \
+    SCCACHE_NO_CACHE="${SCCACHE_NO_CACHE}" \
     SCCACHE_VERSION="${SCCACHE_VERSION}" \
     SCCACHE_SERVER_LOG="${SCCACHE_SERVER_LOG}" \
     SCCACHE_ERROR_LOG=/tmp/sccache.log \
@@ -114,7 +124,8 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     SCCACHE_DIST_REQUEST_TIMEOUT=7140 \
     SCCACHE_DIST_SCHEDULER_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com" \
     SCCACHE_DIST_MAX_RETRIES=4 \
-    SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true
+    SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true \
+    UPDATE_NINJA="${UPDATE_NINJA}"
 
 WORKDIR /workspace/velox
 
@@ -130,56 +141,4 @@ RUN --mount=from=ninja,source=/usr/bin/ninja,target=/tmp/ninja \
       echo "Skipping ninja installation"; \
     fi
 
-# Build into ${BUILD_BASE_DIR}
-#RUN \
-#    # Mount velox source dir
-#    --mount=type=bind,source=velox,target=/workspace/velox,ro \
-#    # Mount sccache preprocessor and toolchain caches
-#    --mount=type=cache,target=/root/.cache/sccache/preprocessor \
-#    --mount=type=cache,target=/root/.cache/sccache-dist-client \
-#    # Mount sccache auth secrets
-#    --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \
-#    --mount=type=secret,id=aws_credentials,target=/root/.aws/credentials \
-#    # Mount sccache setup script
-#    --mount=type=bind,source=velox-testing/velox/docker/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
-#<<EOF
-#set -euxo pipefail;
-#
-## Enable gcc-toolset-14 and set compilers
-## Reference: https://github.com/facebookincubator/velox/pull/15427
-#source /opt/rh/gcc-toolset-14/enable;
-#export CC=gcc CXX=g++;
-## Verify gcc version
-#echo "Using GCC version:";
-#gcc --version | head -1;
-#
-## Install and configure sccache if enabled
-#if [ "$ENABLE_SCCACHE" = "ON" ]; then
-#  # Run sccache setup script
-#  bash /sccache_setup.sh;
-#  # Add sccache CMake flags
-#  EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
-#  export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
-#fi
-#
-#if test -n "${MAX_HIGH_MEM_JOBS:-}"; then
-#  MAKEFLAGS="${MAKEFLAGS} MAX_HIGH_MEM_JOBS=${MAX_HIGH_MEM_JOBS}";
-#fi
-#if test -n "${MAX_LINK_JOBS:-}"; then
-#  MAKEFLAGS="${MAKEFLAGS} MAX_LINK_JOBS=${MAX_LINK_JOBS}";
-#fi
-#
-## Disable sccache-dist for CMake configuration's test compiles
-#SCCACHE_NO_DIST_COMPILE=1 \
-#make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
-#
-## Run the build with timings
-#time make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
-#
-## Show final sccache stats if enabled
-#if [ "$ENABLE_SCCACHE" = "ON" ]; then
-#  echo "Post-build sccache statistics:";
-#  sccache --show-stats;
-#fi
-#
-#EOF
+# Defer build to dev container

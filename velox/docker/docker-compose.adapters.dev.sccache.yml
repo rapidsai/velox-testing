@@ -5,12 +5,21 @@ services:
       service: velox-adapters-dev
     build:
       ulimits: {nofile: {soft: 500000, hard: 500000}}
-      secrets:
-        - github_token
-        - aws_credentials
+    environment:
+      # Mirror the BuildKit secret env mapping for the dist auth token
+      SCCACHE_DIST_AUTH_TOKEN: /run/secrets/github_token
+    secrets:
+      # Runtime secrets so the files are present inside the container
+      - source: github_token
+        target: /run/secrets/github_token
+      - source: aws_credentials
+        target: /root/.aws/credentials
 
 secrets:
   github_token:
     file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/github_token"
   aws_credentials:
     file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/aws_credentials"
+volumes:
+  velox_sccache_preprocessor:
+  velox_sccache_dist_client:
