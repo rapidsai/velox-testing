@@ -68,7 +68,7 @@ jobs:
 
       - name: 📥 Clone Target Repository and Setup Remotes
         env:
-          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_REPO: ${{ inputs.target_repository }}
           BASE_REPO: ${{ inputs.base_repository }}
           BASE_BRANCH: ${{ inputs.base_branch }}
@@ -91,7 +91,7 @@ jobs:
         id: auto-fetch-prs
         if: inputs.auto_fetch_prs == true  # Defaults to true for scheduled runs
         env:
-          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           rapids-echo-stderr "Auto-fetch enabled. Scanning for non-draft PRs with 'cudf' label..."
           
@@ -156,11 +156,11 @@ jobs:
         if: steps.prs-to-process.outputs.has_prs == 'true'
         working-directory: velox
         env:
-          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
           BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
-            rapids-echo-stderr "Testing merge compatibility for each PR against ${BASE_BRANCH}..."
+            rapids-echo-stderr "Testing merge compatibility for each PR against $BASE_BRANCH..."
             
             # Store the base commit to reset after each test
             BASE_COMMIT=$(git rev-parse HEAD)
@@ -217,18 +217,21 @@ jobs:
             # Fail if any conflicts
             if [ -n "$(echo $CONFLICT_PRS | xargs)" ]; then
               rapids-echo-stderr ""
-              rapids-echo-stderr "❌ Some PRs have merge conflicts with ${BASE_BRANCH}. Please resolve before proceeding."
+              rapids-echo-stderr "❌ Some PRs have merge conflicts with $BASE_BRANCH. Please resolve before proceeding."
+              for pr_num in $CONFLICT_PRS; do
+                rapids-echo-stderr "   PR #$pr_num: https://github.com/${BASE_REPO}/pull/$pr_num"
+              done
               exit 1
             fi
             
-            rapids-echo-stderr "✅ All PRs can merge cleanly with ${BASE_BRANCH}."
+            rapids-echo-stderr "✅ All PRs can merge cleanly with $BASE_BRANCH."
 
       - name: 🧪 Test Pairwise PR Merge Compatibility
         id: test-pairwise
         if: steps.prs-to-process.outputs.has_prs == 'true' && steps.prs-to-process.outputs.pr_count >= 2
         working-directory: velox
         env:
-          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
           BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
@@ -320,7 +323,7 @@ jobs:
         if: steps.prs-to-process.outputs.has_prs == 'true'
         working-directory: velox
         env:
-          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
           BASE_REPO: ${{ inputs.base_repository }}
         run: |
