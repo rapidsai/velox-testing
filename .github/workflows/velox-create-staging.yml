@@ -139,15 +139,181 @@ jobs:
             PR_LIST="${{ steps.manual-prs.outputs.pr_list }}"
             HAS_PRS="${{ steps.manual-prs.outputs.has_prs }}"
           fi
+          PR_COUNT=$(echo $PR_LIST | wc -w)
           echo "pr_list=$PR_LIST" >> $GITHUB_OUTPUT
           echo "has_prs=${HAS_PRS:-false}" >> $GITHUB_OUTPUT
-          rapids-echo-stderr "PRs to process: $PR_LIST"
+          echo "pr_count=$PR_COUNT" >> $GITHUB_OUTPUT
+          rapids-echo-stderr "PRs to process: $PR_LIST (count: $PR_COUNT)"
 
       - name: ❌ Exit if No PRs Found
         if: steps.prs-to-process.outputs.has_prs != 'true'
         run: |
           rapids-echo-stderr "No PRs found to merge. Exiting workflow."
           exit 1
+
+      - name: 🧪 Test PR Merge Compatibility with ${{ inputs.base_branch }}
+        id: test-merge
+        if: steps.prs-to-process.outputs.has_prs == 'true'
+        working-directory: velox
+        env:
+          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+        run: |
+            rapids-echo-stderr "Testing merge compatibility for each PR against ${BASE_BRANCH}..."
+            
+            # Store the base commit to reset after each test
+            BASE_COMMIT=$(git rev-parse HEAD)
+            
+            # Arrays to track results
+            SUCCESSFUL_PRS=""
+            CONFLICT_PRS=""
+            
+            for pr_num in $PR_LIST; do
+              rapids-echo-stderr "Testing PR #$pr_num..."
+              
+              # Fetch the specific PR head
+              rapids-retry git fetch upstream pull/$pr_num/head:pr-$pr_num
+              
+              # Try to merge (test only)
+              if git merge --no-commit --no-ff pr-$pr_num 2>/dev/null; then
+                SUCCESSFUL_PRS="$SUCCESSFUL_PRS $pr_num"
+              else
+                CONFLICT_PRS="$CONFLICT_PRS $pr_num"
+              fi
+              
+              # Abort merge and reset to base for next test
+              git merge --abort 2>/dev/null || true
+              git reset --hard $BASE_COMMIT
+              git clean -fd
+            done
+            
+            # Print summary table
+            echo ""
+            rapids-echo-stderr "======================================"
+            rapids-echo-stderr "       PR Merge Compatibility Report"
+            rapids-echo-stderr "======================================"
+            echo ""
+            rapids-echo-stderr "| Base Branch | PR NO  | Status |"
+            rapids-echo-stderr "|-------------|--------|--------|"
+            
+            for pr_num in $SUCCESSFUL_PRS; do
+              rapids-echo-stderr "| ${BASE_BRANCH} | #$pr_num |   ✅   |"
+            done
+            
+            for pr_num in $CONFLICT_PRS; do
+              rapids-echo-stderr "| ${BASE_BRANCH} | #$pr_num |   ❌   |"
+            done
+            
+            echo ""
+            rapids-echo-stderr "======================================"
+            rapids-echo-stderr "Successful: $(echo $SUCCESSFUL_PRS | wc -w) | Conflicts: $(echo $CONFLICT_PRS | wc -w)"
+            rapids-echo-stderr "======================================"
+            
+            # Output results
+            echo "successful_prs=$SUCCESSFUL_PRS" >> $GITHUB_OUTPUT
+            echo "conflict_prs=$CONFLICT_PRS" >> $GITHUB_OUTPUT
+            
+            # Fail if any conflicts
+            if [ -n "$(echo $CONFLICT_PRS | xargs)" ]; then
+              rapids-echo-stderr ""
+              rapids-echo-stderr "❌ Some PRs have merge conflicts with ${BASE_BRANCH}. Please resolve before proceeding."
+              exit 1
+            fi
+            
+            rapids-echo-stderr "✅ All PRs can merge cleanly with ${BASE_BRANCH}."
+
+      - name: 🧪 Test Pairwise PR Merge Compatibility
+        id: test-pairwise
+        if: steps.prs-to-process.outputs.has_prs == 'true' && steps.prs-to-process.outputs.pr_count >= 2
+        working-directory: velox
+        env:
+          GH_TOKEN: ${{ secrets.VELOX_TEST_PAT || secrets.GITHUB_TOKEN }}
+          PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+        run: |
+          rapids-echo-stderr "Testing pairwise merge compatibility between PRs..."
+          
+          # Convert PR list to array
+          PR_ARRAY=($PR_LIST)
+          PR_COUNT=${#PR_ARRAY[@]}
+          
+          # Store the base commit to reset after each test
+            BASE_COMMIT=$(git rev-parse HEAD)
+            
+            # Track pairwise results
+            SUCCESSFUL_PAIRS=""
+            CONFLICT_PAIRS=""
+            
+            # Test each pair of PRs
+            for ((i=0; i<$PR_COUNT; i++)); do
+              for ((j=i+1; j<$PR_COUNT; j++)); do
+                PR1=${PR_ARRAY[$i]}
+                PR2=${PR_ARRAY[$j]}
+                
+                rapids-echo-stderr "Testing PR #$PR1 + PR #$PR2..."
+                
+                # Reset to base
+                git reset --hard $BASE_COMMIT
+                git clean -fd
+                
+                # First merge PR1
+                if ! git merge --no-edit pr-$PR1 2>/dev/null; then
+                  # PR1 alone has conflict (shouldn't happen if base test passed)
+                  git merge --abort 2>/dev/null || true
+                  git reset --hard $BASE_COMMIT
+                  CONFLICT_PAIRS="$CONFLICT_PAIRS ${PR1}+${PR2}"
+                  continue
+                fi
+                
+                # Then try to merge PR2 on top
+                if git merge --no-commit --no-ff pr-$PR2 2>/dev/null; then
+                  SUCCESSFUL_PAIRS="$SUCCESSFUL_PAIRS ${PR1}+${PR2}"
+                else
+                  CONFLICT_PAIRS="$CONFLICT_PAIRS ${PR1}+${PR2}"
+                fi
+                
+                # Reset for next test
+                git merge --abort 2>/dev/null || true
+                git reset --hard $BASE_COMMIT
+                git clean -fd
+              done
+            done
+            
+            # Print summary table
+            echo ""
+            rapids-echo-stderr "==========================================="
+            rapids-echo-stderr "     Pairwise PR Merge Compatibility Report"
+            rapids-echo-stderr "==========================================="
+            echo ""
+            rapids-echo-stderr "| PR Pair      | Status |"
+            rapids-echo-stderr "|--------------|--------|"
+            
+            for pair in $SUCCESSFUL_PAIRS; do
+              rapids-echo-stderr "| #$pair | ✅     |"
+            done
+            
+            for pair in $CONFLICT_PAIRS; do
+              rapids-echo-stderr "| #$pair | ❌     |"
+            done
+            
+            echo ""
+            rapids-echo-stderr "==========================================="
+            rapids-echo-stderr "Successful pairs: $(echo $SUCCESSFUL_PAIRS | wc -w) | Conflict pairs: $(echo $CONFLICT_PAIRS | wc -w)"
+            rapids-echo-stderr "==========================================="
+            
+            # Output results
+            echo "successful_pairs=$SUCCESSFUL_PAIRS" >> $GITHUB_OUTPUT
+            echo "conflict_pairs=$CONFLICT_PAIRS" >> $GITHUB_OUTPUT
+            
+            # Fail if any pairwise conflicts
+            if [ -n "$(echo $CONFLICT_PAIRS | xargs)" ]; then
+              rapids-echo-stderr ""
+              rapids-echo-stderr "❌ Some PR pairs have merge conflicts. Please resolve before proceeding."
+              exit 1
+            fi
+            
+            rapids-echo-stderr "✅ All PR pairs can merge cleanly together."
 
       - name: 🔀 Filter and Merge cuDF PRs
         id: merge-prs
@@ -158,35 +324,35 @@ jobs:
           PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
           BASE_REPO: ${{ inputs.base_repository }}
         run: |
-          rapids-echo-stderr "Processing PRs: $PR_LIST"
-          MERGED_COUNT=0
-          MERGED_PRS=""
+            rapids-echo-stderr "Processing PRs: $PR_LIST"
+            MERGED_COUNT=0
+            MERGED_PRS=""
 
-          for pr_num in $PR_LIST; do
-            rapids-echo-stderr " -> PR #$pr_num: Attempting merge..."
-            
-            # Fetch the specific PR head
-            rapids-retry git fetch upstream pull/$pr_num/head:pr-$pr_num
-            
-            # Try to merge pr-$pr_num into staging - FAIL IMMEDIATELY on conflict
-            if ! git merge pr-$pr_num --no-edit; then
-              rapids-echo-stderr "❌ MERGE CONFLICT in PR #$pr_num!"
-              rapids-echo-stderr "   PR URL: https://github.com/${BASE_REPO}/pull/$pr_num"
-              rapids-echo-stderr "   Please resolve the conflict manually or remove this PR from the merge list."
-              git merge --abort
-              exit 1
-            fi
-            
-            rapids-echo-stderr " -> ✅ Merged PR #$pr_num successfully."
-            MERGED_COUNT=$((MERGED_COUNT + 1))
-            MERGED_PRS="$MERGED_PRS $pr_num"
-          done
+            for pr_num in $PR_LIST; do
+              rapids-echo-stderr " -> PR #$pr_num: Attempting merge..."
+              
+              # Fetch the specific PR head
+              rapids-retry git fetch upstream pull/$pr_num/head:pr-$pr_num
+              
+              # Try to merge pr-$pr_num into staging - FAIL IMMEDIATELY on conflict
+              if ! git merge pr-$pr_num --no-edit; then
+                rapids-echo-stderr "❌ MERGE CONFLICT in PR #$pr_num!"
+                rapids-echo-stderr "   PR URL: https://github.com/${BASE_REPO}/pull/$pr_num"
+                rapids-echo-stderr "   Please resolve the conflict manually or remove this PR from the merge list."
+                git merge --abort
+                exit 1
+              fi
+              
+              rapids-echo-stderr " -> ✅ Merged PR #$pr_num successfully."
+              MERGED_COUNT=$((MERGED_COUNT + 1))
+              MERGED_PRS="$MERGED_PRS $pr_num"
+            done
 
-          rapids-echo-stderr "Summary: Merged $MERGED_COUNT PRs"
-          
-          # Output the list of successfully merged PRs
-          echo "merged_prs=${MERGED_PRS}" >> $GITHUB_OUTPUT
-          echo "merged_count=$MERGED_COUNT" >> $GITHUB_OUTPUT
+            rapids-echo-stderr "Summary: Merged $MERGED_COUNT PRs"
+            
+            # Output the list of successfully merged PRs
+            echo "merged_prs=${MERGED_PRS}" >> $GITHUB_OUTPUT
+            echo "merged_count=$MERGED_COUNT" >> $GITHUB_OUTPUT
 
       - name: 🚀 Push ${{ inputs.target_branch }} Branch
         id: push-staging
@@ -196,26 +362,26 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           TARGET_REPO: ${{ inputs.target_repository }}
         run: |
-          rapids-echo-stderr "Pushing ${{ inputs.target_branch }} branch to ${TARGET_REPO}..."
-          
-          # For scheduled runs, always force push since we're resetting to upstream base
-          # For manual dispatch, respect the force_push input (defaults to false)
-          if [ "$EVENT_NAME" == "schedule" ] || [ "$FORCE_PUSH" == "true" ]; then
-            rapids-echo-stderr "Force push enabled. Overwriting target branch..."
-            rapids-retry git push origin ${{ inputs.target_branch }} --force-with-lease
-          else
-            rapids-echo-stderr "Force push disabled. Attempting normal push..."
-            if ! rapids-retry git push origin ${{ inputs.target_branch }}; then
-              rapids-echo-stderr "❌ Push failed! Target branch may have diverged."
-              rapids-echo-stderr "   Enable 'force_push' to override, or manually resolve conflicts."
-              exit 1
+            rapids-echo-stderr "Pushing ${{ inputs.target_branch }} branch to ${TARGET_REPO}..."
+            
+            # For scheduled runs, always force push since we're resetting to upstream base
+            # For manual dispatch, respect the force_push input (defaults to false)
+            if [ "$EVENT_NAME" == "schedule" ] || [ "$FORCE_PUSH" == "true" ]; then
+              rapids-echo-stderr "Force push enabled. Overwriting target branch..."
+              rapids-retry git push origin ${{ inputs.target_branch }} --force-with-lease
+            else
+              rapids-echo-stderr "Force push disabled. Attempting normal push..."
+              if ! rapids-retry git push origin ${{ inputs.target_branch }}; then
+                rapids-echo-stderr "❌ Push failed! Target branch may have diverged."
+                rapids-echo-stderr "   Enable 'force_push' to override, or manually resolve conflicts."
+                exit 1
+              fi
             fi
-          fi
-          
-          FINAL_COMMIT=$(git rev-parse HEAD)
-          rapids-echo-stderr "✅ Done! ${{ inputs.target_branch }} branch updated successfully."
-          echo "Final commit: $FINAL_COMMIT"
-          echo "commit_sha=$FINAL_COMMIT" >> $GITHUB_OUTPUT
+            
+            FINAL_COMMIT=$(git rev-parse HEAD)
+            rapids-echo-stderr "✅ Done! ${{ inputs.target_branch }} branch updated successfully."
+            echo "Final commit: $FINAL_COMMIT"
+            echo "commit_sha=$FINAL_COMMIT" >> $GITHUB_OUTPUT
 
     outputs:
       staging_commit: ${{ steps.push-staging.outputs.commit_sha }}
