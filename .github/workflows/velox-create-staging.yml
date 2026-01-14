@@ -158,9 +158,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
+          BASE_REPO: ${{ inputs.base_repository }}
           BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
-            rapids-echo-stderr "Testing merge compatibility for each PR against $BASE_BRANCH..."
+            rapids-echo-stderr "Testing merge compatibility for each PR against $BASE_REPO/$BASE_BRANCH..."
             
             # Store the base commit to reset after each test
             BASE_COMMIT=$(git rev-parse HEAD)
