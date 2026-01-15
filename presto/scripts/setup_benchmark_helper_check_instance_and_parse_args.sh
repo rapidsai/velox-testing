@@ -58,6 +58,8 @@ fi
 
 source ./common_functions.sh
 
+echo "wait_for... PORT: $PORT, HOSTNAME: $HOSTNAME"
+
 wait_for_worker_node_registration
 
 parse_args() {

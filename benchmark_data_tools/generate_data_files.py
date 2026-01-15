@@ -180,7 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("--use-duckdb", action="store_true", required=False,
                         default=False, help="Use duckdb instead of tpchgen")
     parser.add_argument("-j", "--num-threads", type=int, required=False,
-                        default=4, help="Number of threads to generate data with tpchgen")
+                        default=8, help="Number of threads to generate data with tpchgen")
     parser.add_argument("-v", "--verbose", action="store_true", required=False,
                         default=False, help="Extra verbose logging")
     parser.add_argument("--max-rows-per-file", type=int, required=False,
