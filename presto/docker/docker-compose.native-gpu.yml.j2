@@ -44,15 +44,16 @@ services:
       - ../config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
       - ../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
-{% if workers %}
-  # These workers are generated dynamically; each is pinned to a specific GPU.
-{% for gpu_id in workers %}
-  presto-native-worker-gpu-{{ loop.index0 }}:
+  # Combined GPU worker - runs {{ workers|length if workers else 1 }} presto servers in parallel, each pinned to a specific GPU
+  presto-native-worker-gpu:
     <<: *gpu_worker_base
-    container_name: presto-native-worker-gpu-{{ loop.index0 }}
+    container_name: presto-native-worker-gpu
+{%- if workers %}
+    # command: ["nsys",  "launch", "-t", "nvtx,cuda,osrt,ucx", "bash", "/opt/presto-server/launch_presto_server_multi.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
+    command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
+{%- endif %}
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - CUDA_VISIBLE_DEVICES={{ gpu_id }}
       - PROFILE=${PROFILE}
       - PROFILE_ARGS=-t nvtx,cuda,osrt,ucx --cuda-memory-usage=true --cuda-um-cpu-page-faults=true --cuda-um-gpu-page-faults=true --cudabacktrace=true
       - UCX_LOG_LEVEL=info #debug
@@ -76,17 +77,22 @@ services:
       - /dev/infiniband/uverbs7
       - /dev/infiniband/uverbs8
       - /dev/infiniband/uverbs9
-
     volumes:
+{%- if workers %}
+      # Mount all etc directories for workers {{ workers|join(', ') }}
+{%- for gpu_id in workers %}
+      - ../config/generated/gpu/etc_common:/opt/presto-server/etc{{ gpu_id }}
+{%- endfor %}
+{%- for gpu_id in workers %}
+      # worker {{ gpu_id }} configs
+      - ../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc{{ gpu_id }}/node.properties
+      - ../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc{{ gpu_id }}/config.properties
+      - ../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc{{ gpu_id }}/catalog/hive.properties
+{%- endfor %}
+{%- else %}
+      # Default single worker configuration
       - ../config/generated/gpu/etc_common:/opt/presto-server/etc
-      - ../config/generated/gpu/etc_worker_{{ loop.index0 }}/node.properties:/opt/presto-server/etc/node.properties
-      - ../config/generated/gpu/etc_worker_{{ loop.index0 }}/config_native.properties:/opt/presto-server/etc/config.properties
-      - ../config/generated/gpu/etc_worker_{{ loop.index0 }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
-{% endfor %}
-{% else %}
-  # Default single worker when num-workers is not specified
-  presto-native-worker-gpu:
-    <<: *gpu_worker_base
-    container_name: presto-native-worker-gpu
-{% endif %}
-
+      - ../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+      - ../config/generated/gpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+{%- endif %}

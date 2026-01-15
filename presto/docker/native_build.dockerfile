@@ -32,6 +32,6 @@ RUN mkdir /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
     echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
 
-COPY velox-testing/presto/docker/launch_presto_server.sh /opt
+COPY velox-testing/presto/docker/launch_presto_servers.sh velox-testing/presto/docker/presto_profiling_wrapper.sh /opt
 
-CMD ["bash", "/opt/launch_presto_server.sh"]
+CMD ["bash", "/opt/presto_profiling_wrapper.sh"]

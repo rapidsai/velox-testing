@@ -79,7 +79,7 @@ if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
 fi
 if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
  if [[ -n "$NUM_WORKERS" ]]; then
-   VCPU_PER_WORKER=1
+   VCPU_PER_WORKER=4
  else
    VCPU_PER_WORKER=2
  fi
@@ -94,7 +94,6 @@ pushd ../docker/config > /dev/null
 trap "popd > /dev/null" EXIT
 
 CONFIG_DIR=generated/${VARIANT_TYPE}
-NUM_WORKERS=${NUM_WORKERS:-1}
 
 # generate only if no existing config or overwrite flag is set
 if [[ ! -d ${CONFIG_DIR} || "${OVERWRITE_CONFIG}" == "true" ]]; then
@@ -153,8 +152,10 @@ EOF
     sed -i 's/parquet\.reader\.pass-read-limit/#parquet\.reader\.pass-read-limit/' ${HIVE_CONFIG}
   fi
 
-  if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
-    for i in $( seq 0 $(( $NUM_WORKERS - 1 )) ); do
+  if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" && "$VARIANT_TYPE" == "gpu" ]]; then
+    # Count the number of GPU IDs provided
+    IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
+    for i in "${GPU_ID_ARRAY[@]}"; do
       duplicate_worker_configs $i
     done
   fi

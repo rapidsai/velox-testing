@@ -83,6 +83,12 @@ else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
 
+# Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
+if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
+  # Generate default GPU IDs: 0,1,2,...,N-1
+  export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
+fi
+
 ./stop_presto.sh
 
 ./generate_presto_config.sh
@@ -118,15 +124,9 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   # Default to 0 if not provided, which results in no per-GPU workers being rendered.
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
   
-  # Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
-  if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
-    # Generate default GPU IDs: 0,1,2,...,N-1
-    GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
-  fi
-  
   RENDER_SCRIPT_PATH=$(readlink -f ./render_docker_compose_template.py)
   if [[ -n $GPU_IDS ]]; then
-    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS" "$GPU_IDS"
+    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$NUM_WORKERS" "$GPU_IDS"
   else
     ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS"
   fi
@@ -145,12 +145,12 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     PRESTO_VERSION=$PRESTO_VERSION ./build_presto_java_package.sh
   fi
 
-  echo "Building services: ${BUILD_TARGET_ARG[@]}${NUM_WORKERS:+-0}"
+  echo "Building services: ${BUILD_TARGET_ARG[@]}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
-  ${BUILD_TARGET_ARG[@]}${NUM_WORKERS:+-0}
+  ${BUILD_TARGET_ARG[@]}
 fi
 
 # Start all services defined in the rendered docker-compose file.

@@ -62,6 +62,7 @@ BUILD_TYPE=release
 ALL_CUDA_ARCHS=false
 export OVERWRITE_CONFIG=false
 export PROFILE=OFF
+export NUM_WORKERS=1
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
