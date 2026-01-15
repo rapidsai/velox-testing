@@ -4,10 +4,7 @@ services:
       file: docker-compose.common.yml
       service: presto-base-coordinator
     volumes:
-      - ./config/generated/cpu/etc_common:/opt/presto-server/etc
-      - ./config/generated/cpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
-      - ./config/generated/cpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-      - ./config/generated/cpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      - ./config/generated/cpu/etc_coordinator:/opt/presto-server/etc
 
   presto-native-worker-cpu:
     extends:
@@ -21,7 +18,4 @@ services:
     depends_on:
       - presto-coordinator
     volumes:
-      - ./config/generated/cpu/etc_common:/opt/presto-server/etc
-      - ./config/generated/cpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
-      - ./config/generated/cpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
-      - ./config/generated/cpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      - ./config/generated/cpu/etc_worker:/opt/presto-server/etc
