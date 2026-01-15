@@ -4,7 +4,11 @@ services:
       file: docker-compose.common.yml
       service: presto-base-coordinator
     volumes:
-      - ./config/generated/cpu/etc_coordinator:/opt/presto-server/etc
+      - ./config/generated/cpu/etc_coordinator/config.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/cpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/cpu/etc_coordinator/jvm.config:/opt/presto-server/etc/jvm.config
+      - ./config/generated/cpu/etc_coordinator/log.properties:/opt/presto-server/etc/log.properties
+      - ./config/generated/cpu/etc_coordinator/catalog:/opt/presto-server/etc/catalog
 
   presto-native-worker-cpu:
     extends:
@@ -18,4 +22,8 @@ services:
     depends_on:
       - presto-coordinator
     volumes:
-      - ./config/generated/cpu/etc_worker:/opt/presto-server/etc
+      - ./config/generated/cpu/etc_worker/config.properties:/opt/presto-server/etc/config.properties
+      - ./config/generated/cpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ./config/generated/cpu/etc_worker/jvm.config:/opt/presto-server/etc/jvm.config
+      - ./config/generated/cpu/etc_worker/log.properties:/opt/presto-server/etc/log.properties
+      - ./config/generated/cpu/etc_worker/catalog:/opt/presto-server/etc/catalog
