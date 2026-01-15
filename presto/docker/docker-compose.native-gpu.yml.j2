@@ -64,19 +64,19 @@ services:
       # don't know, leave it for now
       - UCX_TCP_KEEPINTVL=1ms
       - UCX_KEEPALIVE_INTERVAL=1ms
-    devices:
-      # required for GDS
-      - /dev/infiniband/rdma_cm
-      - /dev/infiniband/uverbs0
-      - /dev/infiniband/uverbs1
-      - /dev/infiniband/uverbs2
-      - /dev/infiniband/uverbs3
-      - /dev/infiniband/uverbs4
-      - /dev/infiniband/uverbs5
-      - /dev/infiniband/uverbs6
-      - /dev/infiniband/uverbs7
-      - /dev/infiniband/uverbs8
-      - /dev/infiniband/uverbs9
+    # devices:
+    #   # required for GDS
+    #   - /dev/infiniband/rdma_cm
+    #   - /dev/infiniband/uverbs0
+    #   - /dev/infiniband/uverbs1
+    #   - /dev/infiniband/uverbs2
+    #   - /dev/infiniband/uverbs3
+    #   - /dev/infiniband/uverbs4
+    #   - /dev/infiniband/uverbs5
+    #   - /dev/infiniband/uverbs6
+    #   - /dev/infiniband/uverbs7
+    #   - /dev/infiniband/uverbs8
+    #   - /dev/infiniband/uverbs9
     volumes:
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
