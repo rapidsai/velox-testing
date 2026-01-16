@@ -71,7 +71,7 @@ def process_file(input_file_path, output_dir, input_dir, verbose, convert_decima
                     arr = pc.cast(arr, new_type)
                 casted_arrays.append(arr)
             casted_batch = pa.RecordBatch.from_arrays(casted_arrays, schema=new_schema)
-            writer.write_table(pa.Table.from_batches([casted_batch]))
+            writer.write_table(pa.Table.from_batches([casted_batch]), 64*1024*1024)
     finally:
         writer.close()
 
