@@ -27,6 +27,11 @@ def init_benchmark_tables(benchmark_type, scale_factor):
 
     duckdb.sql(f"INSTALL {benchmark_type}; LOAD {benchmark_type}; CALL {function_name}(sf = {scale_factor});")
 
+def drop_benchmark_tables():
+    tables = duckdb.sql("SHOW TABLES").fetchall()
+    for table, in tables:
+        duckdb.sql(f"DROP TABLE {table}")
+
 def create_table(table_name, data_path):
     duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
     duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet';")
