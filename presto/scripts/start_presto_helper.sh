@@ -41,14 +41,19 @@ if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   exit 1
 fi
 
+# Set IMAGE_TAG with username to avoid conflicts when multiple users build images
+# Falls back to "latest" if USER is not set
+export IMAGE_TAG="${USER:-latest}"
+echo "Using IMAGE_TAG: $IMAGE_TAG"
+
 COORDINATOR_SERVICE="presto-coordinator"
-COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:latest
+COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:${IMAGE_TAG}
 JAVA_WORKER_SERVICE="presto-java-worker"
-JAVA_WORKER_IMAGE=${JAVA_WORKER_SERVICE}:latest
+JAVA_WORKER_IMAGE=${JAVA_WORKER_SERVICE}:${IMAGE_TAG}
 CPU_WORKER_SERVICE="presto-native-worker-cpu"
-CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:latest
+CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:${IMAGE_TAG}
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
-GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:latest
+GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:${IMAGE_TAG}
 
 DEPS_IMAGE="presto/prestissimo-dependency:centos9"
 
