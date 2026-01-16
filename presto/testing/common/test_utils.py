@@ -51,6 +51,9 @@ does not exist in {get_abs_file_path("data")} or $PRESTO_DATA_DIR")
 
 def get_scale_factor(request, presto_cursor):
     schema_name = request.config.getoption("--schema-name")
+    scale_factor = request.config.getoption("--scale-factor")
+    if scale_factor is not None:
+        return float(scale_factor)
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     repository_path = ""
     if bool(schema_name):

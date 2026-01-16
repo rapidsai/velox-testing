@@ -1,11 +1,11 @@
 ARG TARGETARCH
 
 # Install latest ninja
-FROM --platform=$TARGETPLATFORM alpine:latest AS ninja-amd64
+FROM alpine:latest AS ninja-amd64
 RUN apk add --no-cache unzip
 ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux.zip /tmp
 
-FROM --platform=$TARGETPLATFORM alpine:latest AS ninja-arm64
+FROM alpine:latest AS ninja-arm64
 RUN apk add --no-cache unzip
 ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux-aarch64.zip /tmp
 RUN mv /tmp/ninja-linux-aarch64.zip /tmp/ninja-linux.zip
@@ -15,7 +15,6 @@ RUN unzip -d /usr/bin -o /tmp/ninja-linux.zip
 
 FROM ghcr.io/facebookincubator/velox-dev:adapters
 ARG TARGETARCH
-
 
 # Do this separate so changing unrelated build args doesn't invalidate nsys installation layer
 ARG VELOX_ENABLE_BENCHMARKS=ON
@@ -79,7 +78,7 @@ ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     MAKEFLAGS="NUM_THREADS=${NUM_THREADS}" \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     CUDA_COMPILER=/usr/local/cuda-${CUDA_VERSION}/bin/nvcc \
-    CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-12/root/usr/bin" \
+    CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-14/root/usr/bin" \
     BUILD_TYPE=${BUILD_TYPE} \
     EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_BENCHMARKS=${VELOX_ENABLE_BENCHMARKS} \
                       -DVELOX_ENABLE_EXAMPLES=ON \
@@ -145,6 +144,14 @@ RUN \
     --mount=type=bind,source=velox-testing/velox/docker/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
 <<EOF
 set -euxo pipefail;
+
+# Enable gcc-toolset-14 and set compilers
+# Reference: https://github.com/facebookincubator/velox/pull/15427
+source /opt/rh/gcc-toolset-14/enable;
+export CC=gcc CXX=g++;
+# Verify gcc version
+echo "Using GCC version:";
+gcc --version | head -1;
 
 # Install and configure sccache if enabled
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
