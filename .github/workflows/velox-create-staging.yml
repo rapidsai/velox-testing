@@ -302,27 +302,27 @@ jobs:
             echo ""
             
             # Print header row
-            HEADER="        "
+            HEADER=$(printf "%8s" "")
             for pr in "${PR_ARRAY[@]}"; do
-              HEADER+=$(printf " %7s" "$pr")
+              HEADER+=$(printf "%8s" "$pr")
             done
             rapids-echo-stderr "$HEADER"
             
             # Print each row
             for ((i=0; i<$PR_COUNT; i++)); do
               PR_I=${PR_ARRAY[$i]}
-              ROW=$(printf "%-7s" "$PR_I")
+              ROW=$(printf "%-8s" "$PR_I")
               
               for ((j=0; j<$PR_COUNT; j++)); do
                 if [ $j -le $i ]; then
                   # Lower triangle and diagonal
-                  ROW+=$(printf " %7s" "—")
+                  ROW+=$(printf "%8s" "—")
                 else
                   # Upper triangle - show result
                   PR_J=${PR_ARRAY[$j]}
                   PAIR="${PR_I}+${PR_J}"
                   RESULT="${MATRIX[$PAIR]:-?}"
-                  ROW+=$(printf " %7s" "$RESULT")
+                  ROW+=$(printf "%8s" "$RESULT")
                 fi
               done
               
