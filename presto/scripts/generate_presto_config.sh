@@ -45,10 +45,14 @@ function duplicate_worker_configs() {
     cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
 
     # Single node execution needs to be disabled if we are running multiple workers.
+  if [[ ${NUM_WORKERS} -gt 1 ]]; then
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
         ${coord_config}/config_native.properties
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
 	${worker_config}/config_native.properties
+  # make cudf.exchange=true if we are running multiple workers
+    sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
+  fi
   echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
 
     # Each worker node needs to have it's own http-server port.  This isn't used, but
