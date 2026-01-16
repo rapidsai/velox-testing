@@ -192,18 +192,19 @@ jobs:
             # Print summary table
             echo ""
             rapids-echo-stderr "======================================"
-            rapids-echo-stderr "       PR Merge Compatibility Report"
+            rapids-echo-stderr "   PR Merge Compatibility Report"
             rapids-echo-stderr "======================================"
             echo ""
-            rapids-echo-stderr "| Base Branch | PR NO  | Status |"
-            rapids-echo-stderr "|-------------|--------|--------|"
+            rapids-echo-stderr "$(printf "| %-12s | %-7s | %-6s |" "Base Branch" "PR NO" "Status")"
+            rapids-echo-stderr "$(printf "|%s|%s|%s|" "--------------" "---------" "--------")"
             
             for pr_num in $SUCCESSFUL_PRS; do
-              rapids-echo-stderr "| ${BASE_BRANCH} | #$pr_num |   ✅   |"
+              # Emoji is 2 cells wide, so use %-5s (5 chars = 3 spaces + 2-cell emoji = 6 visual)
+              rapids-echo-stderr "$(printf "| %-12s | #%-6s | %-5s |" "${BASE_BRANCH}" "$pr_num" "✅")"
             done
             
             for pr_num in $CONFLICT_PRS; do
-              rapids-echo-stderr "| ${BASE_BRANCH} | #$pr_num |   ❌   |"
+              rapids-echo-stderr "$(printf "| %-12s | #%-6s | %-5s |" "${BASE_BRANCH}" "$pr_num" "❌")"
             done
             
             echo ""
@@ -309,20 +310,21 @@ jobs:
             rapids-echo-stderr "$HEADER"
             
             # Print each row
+            # Note: Emojis are 2 visual cells wide, dashes are 1, so adjust padding
             for ((i=0; i<$PR_COUNT; i++)); do
               PR_I=${PR_ARRAY[$i]}
-              ROW=$(printf "%-8s" "$PR_I")
+              ROW=$(printf "%8s" "$PR_I")
               
               for ((j=0; j<$PR_COUNT; j++)); do
                 if [ $j -le $i ]; then
-                  # Lower triangle and diagonal
+                  # Lower triangle and diagonal (dash is 1 cell, so use %8s)
                   ROW+=$(printf "%8s" "—")
                 else
-                  # Upper triangle - show result
+                  # Upper triangle - show result (emoji is 2 cells, so use %7s)
                   PR_J=${PR_ARRAY[$j]}
                   PAIR="${PR_I}+${PR_J}"
                   RESULT="${MATRIX[$PAIR]:-?}"
-                  ROW+=$(printf "%8s" "$RESULT")
+                  ROW+=$(printf "%7s" "$RESULT")
                 fi
               done
               
