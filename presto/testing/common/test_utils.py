@@ -44,8 +44,9 @@ def get_table_external_location(schema_name, table, presto_cursor):
         if user_match:
             external_dir=f"{os.environ['PRESTO_DATA_DIR']}/{user_match.group(1)}"
     if not os.path.isdir(external_dir):
+        data_dir = get_abs_file_path("data")
         raise Exception(f"external location '{external_dir}' referenced by table hive.{schema_name}.{table} \
-does not exist in {get_abs_file_path("data")} or $PRESTO_DATA_DIR")
+does not exist in {data_dir} or $PRESTO_DATA_DIR")
     return external_dir
 
 def get_scale_factor(request, presto_cursor):
