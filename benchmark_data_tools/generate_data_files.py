@@ -108,12 +108,9 @@ def get_table_sf_ratios(scale_factor, max_rows):
     return tables_sf_ratio
 
 def rearrange_directory(raw_data_path, num_partitions):
-    # When we generate partitioned data it will have the form <data_dir>/<partition>/<table_name>.parquet.
+    # When we generate partitioned data it will have the form <data_dir>/<partition>/<table_name>/<table_name>.parquet.
     # We want to re-arrange it to have the form <data_dir>/<table_name>/<table_name>-<partition>.parquet
-    parquet_files = os.listdir(f"{raw_data_path}/part-1")
-    tables = []
-    for p_file in parquet_files:
-        tables.append(p_file.replace(".parquet", ""))
+    tables = os.listdir(f"{raw_data_path}/part-1")
 
     for table in tables:
         Path(f"{raw_data_path}/{table}").mkdir(parents=True, exist_ok=True)
@@ -121,10 +118,14 @@ def rearrange_directory(raw_data_path, num_partitions):
     # Move the partitioned data into the new directory structure.
     for partition in range(1, num_partitions + 1):
         for table in tables:
-            if os.path.exists(f"{raw_data_path}/part-{partition}/{table}.parquet"):
-                shutil.move(f"{raw_data_path}/part-{partition}/{table}.parquet",
+            part_file_path = f"{raw_data_path}/part-{partition}/{table}/{table}.{partition}.parquet"
+            if os.path.exists(part_file_path):
+                shutil.move(part_file_path,
                             f"{raw_data_path}/{table}/{table}-{partition}.parquet")
-        os.rmdir(f"{raw_data_path}/part-{partition}")
+        part_dir_path = f"{raw_data_path}/part-{partition}"
+        for dir_name in os.listdir(part_dir_path):
+            os.rmdir(f"{part_dir_path}/{dir_name}")
+        os.rmdir(part_dir_path)
 
 def write_metadata(data_dir_path, scale_factor):
     with open(f'{data_dir_path}/metadata.json', 'w') as file:
