@@ -34,6 +34,12 @@ def pytest_addoption(parser):
     parser.addoption("--profile-script-path")
 
 
+def pytest_sessionstart(session):
+    # Always present, even if collection fails
+    if not hasattr(session, "benchmark_results"):
+        session.benchmark_results = {}
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     for benchmark_type, result in terminalreporter._session.benchmark_results.items():
         assert BenchmarkKeys.AGGREGATE_TIMES_KEY in result
