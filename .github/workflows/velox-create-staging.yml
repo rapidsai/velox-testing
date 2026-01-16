@@ -235,6 +235,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
           BASE_BRANCH: ${{ inputs.base_branch }}
+          BASE_REPO: ${{ inputs.base_repository }}
         run: |
           rapids-echo-stderr "Testing pairwise merge compatibility between PRs..."
           
@@ -284,27 +285,77 @@ jobs:
               done
             done
             
-            # Print summary table
-            echo ""
-            rapids-echo-stderr "==========================================="
-            rapids-echo-stderr "     Pairwise PR Merge Compatibility Report"
-            rapids-echo-stderr "==========================================="
-            echo ""
-            rapids-echo-stderr "| PR Pair      | Status |"
-            rapids-echo-stderr "|--------------|--------|"
-            
+            # Build matrix lookup for results
+            declare -A MATRIX
             for pair in $SUCCESSFUL_PAIRS; do
-              rapids-echo-stderr "| #$pair | ✅     |"
+              MATRIX[$pair]="✅"
+            done
+            for pair in $CONFLICT_PAIRS; do
+              MATRIX[$pair]="❌"
             done
             
-            for pair in $CONFLICT_PAIRS; do
-              rapids-echo-stderr "| #$pair | ❌     |"
+            # Print matrix table
+            echo ""
+            rapids-echo-stderr "==========================================="
+            rapids-echo-stderr "  Pairwise PR Merge Compatibility Matrix"
+            rapids-echo-stderr "==========================================="
+            echo ""
+            
+            # Print header row
+            HEADER="        "
+            for pr in "${PR_ARRAY[@]}"; do
+              HEADER+=$(printf " %7s" "$pr")
+            done
+            rapids-echo-stderr "$HEADER"
+            
+            # Print each row
+            for ((i=0; i<$PR_COUNT; i++)); do
+              PR_I=${PR_ARRAY[$i]}
+              ROW=$(printf "%-7s" "$PR_I")
+              
+              for ((j=0; j<$PR_COUNT; j++)); do
+                if [ $j -le $i ]; then
+                  # Lower triangle and diagonal
+                  ROW+=$(printf " %7s" "—")
+                else
+                  # Upper triangle - show result
+                  PR_J=${PR_ARRAY[$j]}
+                  PAIR="${PR_I}+${PR_J}"
+                  RESULT="${MATRIX[$PAIR]:-?}"
+                  ROW+=$(printf " %7s" "$RESULT")
+                fi
+              done
+              
+              rapids-echo-stderr "$ROW"
             done
             
             echo ""
             rapids-echo-stderr "==========================================="
-            rapids-echo-stderr "Successful pairs: $(echo $SUCCESSFUL_PAIRS | wc -w) | Conflict pairs: $(echo $CONFLICT_PAIRS | wc -w)"
+            rapids-echo-stderr "Successful: $(echo $SUCCESSFUL_PAIRS | wc -w) | Conflicts: $(echo $CONFLICT_PAIRS | wc -w)"
             rapids-echo-stderr "==========================================="
+            
+            # Print legend with PR details
+            echo ""
+            rapids-echo-stderr "Legend:"
+            rapids-echo-stderr "------------------------------------------------------------"
+            rapids-echo-stderr "$(printf "| %-7s | %-15s | %-40s | %-50s |" "PR #" "Author" "Title" "Link")"
+            rapids-echo-stderr "$(printf "|%s|%s|%s|%s|" "---------" "-----------------" "------------------------------------------" "----------------------------------------------------")"
+            
+            for pr in "${PR_ARRAY[@]}"; do
+              # Fetch PR details
+              PR_AUTHOR=$(gh pr view $pr --json author --jq '.author.login' 2>/dev/null || echo "N/A")
+              PR_TITLE=$(gh pr view $pr --json title --jq '.title' 2>/dev/null || echo "N/A")
+              # Truncate title if too long
+              if [ ${#PR_TITLE} -gt 40 ]; then
+                PR_TITLE="${PR_TITLE:0:37}..."
+              fi
+              PR_LINK="https://github.com/${BASE_REPO}/pull/$pr"
+              
+              rapids-echo-stderr "$(printf "| #%-6s | %-15s | %-40s | %-50s |" "$pr" "$PR_AUTHOR" "$PR_TITLE" "$PR_LINK")"
+            done
+            
+            rapids-echo-stderr "------------------------------------------------------------"
+            echo ""
             
             # Output results
             echo "successful_pairs=$SUCCESSFUL_PAIRS" >> $GITHUB_OUTPUT
