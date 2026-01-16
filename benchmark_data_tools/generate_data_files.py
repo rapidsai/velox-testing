@@ -87,7 +87,8 @@ def generate_data_files_with_tpchgen(args):
     if args.convert_decimals_to_floats:
         process_dir(raw_data_path, args.data_dir_path, args.num_threads, args.verbose,
                     args.convert_decimals_to_floats)
-        shutil.rmtree(raw_data_path)
+        if not args.keep_original_dataset:
+            shutil.rmtree(raw_data_path)
 
     write_metadata(args.data_dir_path, args.scale_factor)
 
@@ -185,6 +186,8 @@ if __name__ == "__main__":
                         default=False, help="Extra verbose logging")
     parser.add_argument("--max-rows-per-file", type=int, required=False,
                         default=100_000_000, help="Limit number of rows in each file (creates more partitions)")
+    parser.add_argument("-k", "--keep-original-dataset", action="store_true", required=False,
+                        default=False, help="Keep the original dataset that was generated before transformations")
     args = parser.parse_args()
 
     generate_data_files(args)
