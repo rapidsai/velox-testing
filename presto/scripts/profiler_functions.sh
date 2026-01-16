@@ -3,7 +3,8 @@
 set -e
 
 function get_worker_container_id() {
-  local -r image_name="presto-native-worker-gpu:latest"
+  local -r image_tag="${IMAGE_TAG:-latest}"
+  local -r image_name="presto-native-worker-gpu:${image_tag}"
   local -r container_id=$(docker ps -q --filter "ancestor=${image_name}")
   if [[ -z $container_id ]]; then
     echo "Error: no docker container found for image: ${image_name}"
