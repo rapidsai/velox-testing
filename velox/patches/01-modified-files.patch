@@ -1,0 +1,28 @@
+diff --git a/velox/benchmarks/tpch/TpchBenchmark.h b/velox/benchmarks/tpch/TpchBenchmark.h
+index 166af3e9d..c684edc99 100644
+--- a/velox/benchmarks/tpch/TpchBenchmark.h
++++ b/velox/benchmarks/tpch/TpchBenchmark.h
+@@ -38,11 +38,10 @@ class TpchBenchmark : public facebook::velox::QueryBenchmarkBase {
+ 
+  protected:
+   std::unordered_map<std::string, std::string> queryConfigs_;
++  std::shared_ptr<facebook::velox::exec::test::TpchQueryBuilder> queryBuilder_;
+ 
+  private:
+   void initQueryBuilder();
+-
+-  std::shared_ptr<facebook::velox::exec::test::TpchQueryBuilder> queryBuilder_;
+ };
+ 
+ extern std::unique_ptr<TpchBenchmark> benchmark;
+diff --git a/velox/experimental/cudf/benchmarks/CMakeLists.txt b/velox/experimental/cudf/benchmarks/CMakeLists.txt
+index 71e8e80c7..bbcbfd80d 100644
+--- a/velox/experimental/cudf/benchmarks/CMakeLists.txt
++++ b/velox/experimental/cudf/benchmarks/CMakeLists.txt
+@@ -20,3 +20,6 @@ target_link_libraries(
+   velox_cudf_exec_test_lib
+   velox_tpch_benchmark_lib
+ )
++
++# Add Python bindings subdirectory
++add_subdirectory(python)
