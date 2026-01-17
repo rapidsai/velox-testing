@@ -1,6 +1,6 @@
 x-presto-native-worker-gpu: &gpu_worker_base
   extends:
-    file: ../docker-compose.common.yml
+    file: ../../docker-compose.common.yml
     service: presto-base-native-worker
   image: presto-native-worker-gpu:latest
   build:
@@ -28,21 +28,21 @@ x-presto-native-worker-gpu: &gpu_worker_base
   depends_on:
     - presto-coordinator
   volumes:
-    - ../config/generated/gpu/etc_common:/opt/presto-server/etc
-    - ../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
-    - ../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
-    - ../config/generated/gpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+    - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
+    - ../../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+    - ../../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+    - ../../config/generated/gpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
 services:
   presto-coordinator:
     extends:
-      file: ../docker-compose.common.yml
+      file: ../../docker-compose.common.yml
       service: presto-base-coordinator
     volumes:
-      - ../config/generated/gpu/etc_common:/opt/presto-server/etc
-      - ../config/generated/gpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
-      - ../config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-      - ../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
+      - ../../config/generated/gpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
+      - ../../config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ../../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
   # Combined GPU worker - runs {{ workers|length if workers else 1 }} presto servers in parallel, each pinned to a specific GPU
   presto-native-worker-gpu:
@@ -81,18 +81,18 @@ services:
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}
-      - ../config/generated/gpu/etc_common:/opt/presto-server/etc{{ gpu_id }}
+      - ../../config/generated/gpu/etc_common:/opt/presto-server/etc{{ gpu_id }}
 {%- endfor %}
 {%- for gpu_id in workers %}
       # worker {{ gpu_id }} configs
-      - ../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc{{ gpu_id }}/node.properties
-      - ../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc{{ gpu_id }}/config.properties
-      - ../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc{{ gpu_id }}/catalog/hive.properties
+      - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc{{ gpu_id }}/node.properties
+      - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc{{ gpu_id }}/config.properties
+      - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc{{ gpu_id }}/catalog/hive.properties
 {%- endfor %}
 {%- else %}
       # Default single worker configuration
-      - ../config/generated/gpu/etc_common:/opt/presto-server/etc
-      - ../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
-      - ../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
-      - ../config/generated/gpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
+      - ../../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ../../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+      - ../../config/generated/gpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 {%- endif %}

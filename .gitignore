@@ -20,4 +20,4 @@ benchmark_output
 presto/docker/config/generated/
 
 # Generated Presto Docker Compose files
-presto/docker/.generated/
+presto/docker/docker-compose/generated/

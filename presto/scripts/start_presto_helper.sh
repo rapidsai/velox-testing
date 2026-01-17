@@ -117,14 +117,14 @@ fi
 DOCKER_COMPOSE_FILE_PATH=../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml
 # For GPU, the docker-compose file is a Jinja template. Render it before any docker compose operations.
 if [[ "$VARIANT_TYPE" == "gpu" ]]; then
-  TEMPLATE_PATH="../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml.j2"
-  RENDERED_DIR="../docker/.generated"
+  TEMPLATE_PATH="../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
+  RENDERED_DIR="../docker/docker-compose/generated"
   mkdir -p "$RENDERED_DIR"
   RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
   # Default to 0 if not provided, which results in no per-GPU workers being rendered.
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
-  
-  RENDER_SCRIPT_PATH=$(readlink -f ./render_docker_compose_template.py)
+
+  RENDER_SCRIPT_PATH=$(readlink -f ../../template_rendering/render_docker_compose_template.py)
   if [[ -n $GPU_IDS ]]; then
     ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$NUM_WORKERS" "$GPU_IDS"
   else
