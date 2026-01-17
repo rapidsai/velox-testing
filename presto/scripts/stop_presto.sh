@@ -2,7 +2,7 @@
 
 set -e
 
-GPU_FILE="../docker/.generated/docker-compose.native-gpu.rendered.yml"
+GPU_FILE="../docker/docker-compose/generated/docker-compose.native-gpu.rendered.yml"
 JAVA_FILE="../docker/docker-compose.java.yml"
 CPU_FILE="../docker/docker-compose.native-cpu.yml"
 
