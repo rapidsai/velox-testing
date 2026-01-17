@@ -17,4 +17,4 @@ fi
 
 ldconfig
 
-$PROFILE_CMD presto_server --etc-dir=/opt/presto-server/etc
+$PROFILE_CMD bash /opt/launch_presto_servers.sh "$@"
