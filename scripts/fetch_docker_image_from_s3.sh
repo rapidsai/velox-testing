@@ -16,21 +16,16 @@
 
 set -e
 
+# Source common utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common.sh"
+
 #
 # fetch_docker_image_from_s3 <imagename> <subdir> <filename>
 #
 # fetches s3://rapidsai-velox-testing/<subdir>/<filename>
 # and attempts to load it as a Docker image
 # 
-
-validate_docker_image() {
-  local IMAGE_NAME=$1
-  echo "Validating Docker image ${IMAGE_NAME}..."
-  if [[ ! -z $(docker images -q ${IMAGE_NAME}) ]]; then
-    echo "Docker image exists"
-    exit 0
-  fi
-}
 
 fetch_docker_image_from_s3() {
   # validate parameter count
