@@ -58,10 +58,10 @@ def process_file(input_file_path, output_dir, input_dir, verbose, convert_decima
         new_fields.append(pa.field(field.name, new_type))
     new_schema = pa.schema(new_fields)
 
-    # Stream-read and write in small batches to avoid high memory usage
+    # Stream-read and write in big batches to improve parquet decoding performance
     writer = pq.ParquetWriter(output_file_path, new_schema)
     try:
-        for batch in parquet_file.iter_batches(batch_size=65536):
+        for batch in parquet_file.iter_batches(batch_size=1000000):
             names = batch.schema.names
             casted_arrays = []
             for i, name in enumerate(names):
