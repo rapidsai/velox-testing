@@ -50,6 +50,7 @@ All three repositories must be checked out as sibling directories. **Important:*
    ```bash
    export PRESTO_DATA_DIR=/path/to/your/benchmark/data
    ```
+   If the data is on S3, simply define `PRESTO_DATA_DIR` as `s3://YOUR_BUCKET`. Data for a schema must be contained in a directory inside the bucket.
    > **Tip:** Add this export to your `~/.bashrc` to avoid setting it each time.
 
 3. Build dependencies (first time only):
