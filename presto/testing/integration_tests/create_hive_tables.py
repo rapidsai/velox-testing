@@ -17,14 +17,14 @@ import os
 import prestodb
 
 
-def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directory):
+def create_tables(presto_cursor, schema_name, schemas_dir_path, root_directory, data_sub_directory):
     drop_schema(presto_cursor, schema_name)
     presto_cursor.execute(f"CREATE SCHEMA hive.{schema_name}")
 
     schemas = get_table_schemas(schemas_dir_path)
     for table_name, schema in schemas:
         presto_cursor.execute(
-            schema.format(file_path=f"/var/lib/presto/data/hive/data/{data_sub_directory}/{table_name}",
+            schema.format(file_path=f"{root_directory}/{data_sub_directory}/{table_name}",
                           schema=schema_name))
 
 
@@ -54,9 +54,11 @@ if __name__ == "__main__":
                         help="The path to the directory that will contain the schema files.")
     parser.add_argument("--data-dir-name", type=str, required=True,
                         help="The name of the directory that contains the benchmark data.")
+    parser.add_argument("--root-dir-name", type=str, required=False, default="/var/lib/presto/data/hive/data/user_data",
+                        help="The name of the directory that contains the benchmark data. It may be an S3 url.")
     args = parser.parse_args()
 
     conn = prestodb.dbapi.connect(host="localhost", port=8080, user="test_user", catalog="hive")
     cursor = conn.cursor()
-    data_sub_directory = f"user_data/{args.data_dir_name}"
-    create_tables(cursor, args.schema_name, args.schemas_dir_path, data_sub_directory)
+    data_root_directory = f"file:/var/lib/presto/data/hive/data/user_data" if args.root_dir_name.startswith("/") else args.root_dir_name
+    create_tables(cursor, args.schema_name, args.schemas_dir_path, data_root_directory, args.data_dir_name)

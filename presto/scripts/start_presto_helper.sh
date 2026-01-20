@@ -130,4 +130,8 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   ${BUILD_TARGET_ARG[@]}
 fi
 
+if [[ "${PRESTO_DATA_DIR}" =~ ^s3: ]]; then
+  unset PRESTO_DATA_DIR
+fi
+
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d

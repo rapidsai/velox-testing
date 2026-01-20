@@ -15,6 +15,11 @@
 import os
 import json
 import re
+import pytest
+import boto3
+import sys
+from botocore.exceptions import ClientError, NoCredentialsError
+import tempfile
 
 def get_queries(benchmark_type):
     with open(get_abs_file_path(f"./queries/{benchmark_type}/queries.json"), "r") as file:
@@ -34,17 +39,23 @@ def get_table_external_location(schema_name, table, presto_cursor):
     create_table_text = presto_cursor.execute(f"SHOW CREATE TABLE hive.{schema_name}.{table}").fetchone()
     test_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/integration_test/(.*)'"
     user_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/user_data/(.*)'"
+    s3_pattern = r"external_location = '(s3://.*)'"
     assert len(create_table_text) == 1
-    test_match = re.search(test_pattern, create_table_text[0])
     external_dir =""
-    if test_match:
-        external_dir=get_abs_file_path(f"../integration_tests/data/{test_match.group(1)}")
+    s3_match = re.search(s3_pattern, create_table_text[0])
+    if s3_match:
+        external_dir=s3_match.group(1)
     else:
-        user_match = re.search(user_pattern, create_table_text[0])
-        if user_match:
-            external_dir=f"{os.environ['PRESTO_DATA_DIR']}/{user_match.group(1)}"
-    if not os.path.isdir(external_dir):
-        raise Exception(f"external location '{external_dir}' referenced by table hive.{schema_name}.{table} \
+        test_match = re.search(test_pattern, create_table_text[0])
+        
+        if test_match:
+            external_dir=get_abs_file_path(f"../integration_tests/data/{test_match.group(1)}")
+        else:
+            user_match = re.search(user_pattern, create_table_text[0])
+            if user_match:
+                external_dir=f"{os.environ['PRESTO_DATA_DIR']}/{user_match.group(1)}"
+        if not os.path.isdir(external_dir):
+            raise Exception(f"external location '{external_dir}' referenced by table hive.{schema_name}.{table} \
 does not exist in {get_abs_file_path("data")} or $PRESTO_DATA_DIR")
     return external_dir
 
@@ -60,7 +71,16 @@ def get_scale_factor(request, presto_cursor):
         # where the table are fetching data from.
         table = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchone()[0]
         location = get_table_external_location(schema_name, table, presto_cursor)
-        repository_path = get_abs_file_path(f"{location}/../")
+        if (location.startswith('s3:')):
+            try:
+                s3_client = boto3.client('s3')
+                td = tempfile.mkdtemp()
+                s3_client.download_file(location.split("/")[2], "/".join(location.split("/")[3:-1]) + "/metadata.json", td + "/metadata.json")
+                repository_path = f"{td}"
+            except NoCredentialsError:
+                raise Exception("Error: AWS credentials not found. Please configure AWS credentials.")
+        else:
+            repository_path = get_abs_file_path(f"{location}/../")
     else:
         # default assumed location for metadata file.
         repository_path = get_abs_file_path(f"../integration_tests/data/{benchmark_type}")
