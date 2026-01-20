@@ -64,6 +64,7 @@ services:
       # don't know, leave it for now
       - UCX_TCP_KEEPINTVL=1ms
       - UCX_KEEPALIVE_INTERVAL=1ms
+      - KVIKIO_NTHREADS=8
     # devices:
     #   # required for GDS
     #   - /dev/infiniband/rdma_cm
