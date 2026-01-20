@@ -91,8 +91,8 @@ EOF
   fi
 
   if [ -v HIVE_METASTORE_URI ]; then
-    sed -i 's/hive.metastore=file/#hive.metastore=file/' "${CONFIG_DIR}/etc_common/catalog/hive.properties"
-    sed -i "s|hive.metastore.catalog.dir=.*|hive.metastore.uri=${HIVE_METASTORE_URI}|" "${CONFIG_DIR}/etc_common/catalog/hive.properties"
+    sed -i 's/hive.metastore=file/#hive.metastore=file/' "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties" "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
+    sed -i "s|hive.metastore.catalog.dir=.*|hive.metastore.uri=${HIVE_METASTORE_URI}|" "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties" "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
   fi
 
   # now perform other variant-specific modifications to the generated configs
