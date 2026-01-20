@@ -19,6 +19,14 @@ import pyarrow.parquet as pq
 from .common_fixtures import setup_and_teardown, get_all_parquet_relative_file_paths
 
 def test_data_content_match(setup_and_teardown):
+    """Validate data content equality between original and transformed parquet files.
+
+    Verifies that:
+    - File paths match between original and final data directories
+    - Row counts match for each corresponding file
+    - Decimal columns are correctly converted to float64 (values compared after casting)
+    - Non-decimal columns remain identical
+    """
     orig_data_dir_path, final_data_dir_path = setup_and_teardown
     compare_data_content(orig_data_dir_path, final_data_dir_path)
 

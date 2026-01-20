@@ -17,6 +17,13 @@ import pyarrow.parquet as pq
 from .common_fixtures import setup_and_teardown, get_all_parquet_relative_file_paths
 
 def test_row_group_size_match(setup_and_teardown):
+    """Validate row group structure preservation between original and transformed parquet files.
+
+    Verifies that:
+    - File paths match between original and final data directories
+    - Number of row groups match for each corresponding file
+    - Each row group maintains the same number of rows
+    """
     orig_data_dir_path, final_data_dir_path = setup_and_teardown
     compare_row_group_sizes(orig_data_dir_path, final_data_dir_path)
 

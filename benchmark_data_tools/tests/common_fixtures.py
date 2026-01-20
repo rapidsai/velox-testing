@@ -39,6 +39,8 @@ def setup_and_teardown():
         args = DataGenArgs(benchmark_type="tpch",
                            data_dir_path=test_data_dir_path,
                            scale_factor=1.0,
+                           # Setting convert_decimals_to_floats to True ensures that the
+                           # Parquet rewrite path is executed.
                            convert_decimals_to_floats=True,
                            use_duckdb=False,
                            num_threads=4,
