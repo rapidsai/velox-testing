@@ -7,13 +7,6 @@ x-presto-native-worker-gpu: &gpu_worker_base
     args:
       - GPU=ON
   runtime: nvidia
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: all
-            capabilities: [gpu]
   cap_add:
     - IPC_LOCK
   pid: host
@@ -72,6 +65,13 @@ services:
   presto-native-worker-gpu-{{ gpu_id }}:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu-{{ gpu_id }}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["{{ gpu_id }}"]
+              capabilities: [gpu]
     environment:
       - NVIDIA_VISIBLE_DEVICES={{ gpu_id }}
     volumes:
@@ -86,6 +86,21 @@ services:
     container_name: presto-native-worker-gpu
 {%- if workers %}
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: [{%- for gpu_id in workers %}"{{ gpu_id }}" {%- endfor %}]
+              capabilities: [gpu]
+{% else %}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
 {%- endif %}
     volumes:
 {%- if workers %}
