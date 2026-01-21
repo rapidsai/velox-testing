@@ -39,12 +39,13 @@ if [ ! -x ../pbench/pbench ]; then
 fi
 
 function duplicate_worker_configs() {
-    local worker_config="${CONFIG_DIR}/etc_worker_${1}"
-    local coord_config="${CONFIG_DIR}/etc_coordinator"
-    rm -rf ${worker_config}
-    cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
+  echo "Duplicating worker configs for GPU ID $1"
+  local worker_config="${CONFIG_DIR}/etc_worker_${1}"
+  local coord_config="${CONFIG_DIR}/etc_coordinator"
+  rm -rf ${worker_config}
+  cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
 
-    # Single node execution needs to be disabled if we are running multiple workers.
+  # Single node execution needs to be disabled if we are running multiple workers.
   if [[ ${NUM_WORKERS} -gt 1 ]]; then
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
         ${coord_config}/config_native.properties
@@ -55,20 +56,16 @@ function duplicate_worker_configs() {
   fi
   echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
 
-    # Each worker node needs to have it's own http-server port.  This isn't used, but
-    # the cudf.exchange server port is currently hard-coded to be the server port +3
-    # and that needs to be unique for each worker.
-    sed -i "s+http-server\.http\.port.*+http-server\.http\.port=80${1}0+g" \
-         ${worker_config}/config_native.properties
-    sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
-        ${worker_config}/config_native.properties
-    if ! grep -q "^cudf.exchange.server.port=80${1}3" ${worker_config}/config_native.properties; then
-        echo "cudf.exchange.server.port=80${1}3" >> ${worker_config}/config_native.properties
-    fi
-    echo "async-data-cache-enabled=false" >> ${worker_config}/config_native.properties
-
-    # Give each worker a unique id.
-    sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
+  # Each worker node needs to have it's own http-server port.  This isn't used, but
+  # the cudf.exchange server port is currently hard-coded to be the server port +3
+  # and that needs to be unique for each worker.
+  sed -i "s+http-server\.http\.port.*+http-server\.http\.port=80${1}0+g" \
+      ${worker_config}/config_native.properties
+  sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
+      ${worker_config}/config_native.properties
+  echo "async-data-cache-enabled=false" >> ${worker_config}/config_native.properties
+  # Give each worker a unique id.
+  sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
 }
 
 # get host values
@@ -82,11 +79,11 @@ if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo_error "ERROR: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
 fi
 if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
- if [[ -n "$NUM_WORKERS" ]]; then
-   VCPU_PER_WORKER=4
- else
-   VCPU_PER_WORKER=2
- fi
+  if [[ -n "$NUM_WORKERS" ]]; then
+    VCPU_PER_WORKER=4
+  else
+    VCPU_PER_WORKER=2
+  fi
 else
   VCPU_PER_WORKER=${NPROC}
 fi
@@ -156,16 +153,19 @@ EOF
     sed -i 's/parquet\.reader\.pass-read-limit/#parquet\.reader\.pass-read-limit/' ${HIVE_CONFIG}
   fi
 
-  if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" && "$VARIANT_TYPE" == "gpu" ]]; then
-    # Count the number of GPU IDs provided
-    IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
-    for i in "${GPU_ID_ARRAY[@]}"; do
-      duplicate_worker_configs $i
-    done
-  fi
   # success message
   echo_success "Configs were generated successfully"
 else
   # otherwise, reuse existing config
   echo_success "Reusing existing Presto Config files for '${VARIANT_TYPE}'"
+fi
+
+# We want to propagate any changes from the original worker config to the new worker configs even if
+# we did not re-generate the configs.
+if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" && "$VARIANT_TYPE" == "gpu" ]]; then
+  # Count the number of GPU IDs provided
+  IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
+  for i in "${GPU_ID_ARRAY[@]}"; do
+    duplicate_worker_configs $i
+  done
 fi
