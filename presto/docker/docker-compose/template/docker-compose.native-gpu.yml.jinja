@@ -91,7 +91,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["{{ workers|join('", "')}}"]
+              device_ids: ["{{ workers|join('\", \"')}}"]
               capabilities: [gpu]
 {% else %}
     deploy:
