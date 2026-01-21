@@ -14,21 +14,6 @@ x-presto-native-worker-gpu: &gpu_worker_base
     memlock: -1
     stack: 67108864
   shm_size: 1g
-  # If you specify the environment as a list then it will be overwritten rather than extended.
-  # We speficy it not as a list so that it can be extended.
-  environment:
-    NVIDIA_VISIBLE_DEVICES: all
-    PROFILE: ${PROFILE}
-    PROFILE_ARGS: ${PROFILE_ARGS}
-    UCX_LOG_LEVEL: info #debug
-    UCX_RNDV_PIPELINE_ERROR_HANDLING: y
-    UCX_TLS: tcp,cuda_copy,cuda_ipc
-    UCX_TCP_CM_REUSEADDR: y
-    UCX_PROTO_INFO: y
-    # don't know, leave it for now
-    UCX_TCP_KEEPINTVL: 1ms
-    UCX_KEEPALIVE_INTERVAL: 1ms
-    KVIKIO_NTHREADS: {{ kvikio_threads }}
   # UCX needs the containers to be able to see all devices, although we then need to limit which they use.
   deploy:
       resources:
@@ -76,6 +61,18 @@ services:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu-{{ gpu_id }}
     environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      PROFILE: ${PROFILE}
+      PROFILE_ARGS: ${PROFILE_ARGS}
+      UCX_LOG_LEVEL: info #debug
+      UCX_RNDV_PIPELINE_ERROR_HANDLING: y
+      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_TCP_CM_REUSEADDR: y
+      UCX_PROTO_INFO: y
+      # don't know, leave it for now
+      UCX_TCP_KEEPINTVL: 1ms
+      UCX_KEEPALIVE_INTERVAL: 1ms
+      KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
     volumes:
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
@@ -90,9 +87,33 @@ services:
 {%- if workers %}
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      PROFILE: ${PROFILE}
+      PROFILE_ARGS: ${PROFILE_ARGS}
+      UCX_LOG_LEVEL: info #debug
+      UCX_RNDV_PIPELINE_ERROR_HANDLING: y
+      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_TCP_CM_REUSEADDR: y
+      UCX_PROTO_INFO: y
+      # don't know, leave it for now
+      UCX_TCP_KEEPINTVL: 1ms
+      UCX_KEEPALIVE_INTERVAL: 1ms
+      KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: "{% for id in workers %}{{ id }}{% if not loop.last %},{% endif %}{% endfor %}"
 {% else %}
     environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      PROFILE: ${PROFILE}
+      PROFILE_ARGS: ${PROFILE_ARGS}
+      UCX_LOG_LEVEL: info #debug
+      UCX_RNDV_PIPELINE_ERROR_HANDLING: y
+      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_TCP_CM_REUSEADDR: y
+      UCX_PROTO_INFO: y
+      # don't know, leave it for now
+      UCX_TCP_KEEPINTVL: 1ms
+      UCX_KEEPALIVE_INTERVAL: 1ms
+      KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
     volumes:
