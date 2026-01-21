@@ -244,8 +244,6 @@ run_tpch_single_benchmark() {
         --run_query_verbose='"${query_number_padded}"' \
         --num_repeats='"${num_repeats}"' \
         --num_drivers='"${num_drivers}"' \
-        --preferred_output_batch_rows='"${output_batch_rows}"' \
-        --max_output_batch_rows='"${output_batch_rows}"' \
         '"${CUDF_FLAGS}"' 2>&1 | \
         tee \"\$BASE_FILENAME\"
       chown \"${USER_ID}:${GROUP_ID}\" \"\$BASE_FILENAME\"
