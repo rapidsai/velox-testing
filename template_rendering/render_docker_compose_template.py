@@ -16,7 +16,9 @@ def main() -> int:
     gpu_ids_arg = sys.argv[5] if len(sys.argv) > 5 else None
 
     try:
+        print(f"single_container_arg: {single_container_arg}", file=sys.stderr)
         single_container = bool(single_container_arg)
+        print(f"single_container: {single_container}", file=sys.stderr)
     except ValueError:
         print("ERROR: <single_container> must be a boolean", file=sys.stderr)
         return 2
