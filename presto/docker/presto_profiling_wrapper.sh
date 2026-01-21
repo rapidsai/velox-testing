@@ -6,7 +6,7 @@ if [[ "$PROFILE" == "ON" ]]; then
   mkdir /presto_profiles
 
   if [[ -z $PROFILE_ARGS ]]; then
-    PROFILE_ARGS="-t nvtx,cuda,osrt 
+    PROFILE_ARGS="-t nvtx,cuda,osrt,ucx 
                   --cuda-memory-usage=true 
                   --cuda-um-cpu-page-faults=true 
                   --cuda-um-gpu-page-faults=true 
