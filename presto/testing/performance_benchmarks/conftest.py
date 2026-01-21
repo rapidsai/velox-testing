@@ -35,43 +35,75 @@ def pytest_addoption(parser):
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    iterations = config.getoption("--iterations")
     for benchmark_type, result in terminalreporter._session.benchmark_results.items():
         assert BenchmarkKeys.AGGREGATE_TIMES_KEY in result
 
         terminalreporter.write_line("")
         terminalreporter.section(f"{benchmark_type} Benchmark Summary", sep="-", bold=True, yellow=True)
 
-        AGG_HEADERS = ["Avg(ms)", "Min(ms)", "Max(ms)", "Median(ms)", "GMean(ms)"]
+        terminalreporter.write_line("")
+        terminalreporter.write_line(f"Iterations Count: {iterations}")
+        terminalreporter.write_line("")
+
+        if iterations > 1:
+            AGG_HEADERS = ["Avg Hot(ms)", "Min Hot(ms)", "Max Hot(ms)", "Median Hot(ms)", "GMean Hot(ms)",
+                           "Lukewarm(ms)"]
+        else:
+            AGG_HEADERS = ["Lukewarm(ms)"]
         width = max([len(agg_header) for agg_header in AGG_HEADERS])
         width = max(width, result[BenchmarkKeys.FORMAT_WIDTH_KEY]) + 2  # Additional padding on each side
         header = " Query ID "
         for agg_header in AGG_HEADERS:
             header += f"|{agg_header:^{width}}"
+        terminalreporter.write_line("-" * len(header), bold=True, yellow=True)
         terminalreporter.write_line(header)
         terminalreporter.write_line("-" * len(header), bold=True, yellow=True)
         for query_id, agg_timings in result[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
             line = f"{query_id:^10}"
             if agg_timings:
+                assert len(AGG_HEADERS) == len(agg_timings)
                 for agg_timing in agg_timings:
                     line += f"|{agg_timing:^{width}}"
             else:
                 line += (f"|{'NULL':^{width}}" * len(AGG_HEADERS))
             terminalreporter.write_line(line)
+
+        # Print SUM row.
+        terminalreporter.write_line("-" * len(header))
+        agg_sums = result[BenchmarkKeys.AGGREGATE_TIMES_SUM_KEY]
+        line = f"{'SUM':^10}"
+        if agg_sums:
+            assert len(AGG_HEADERS) == len(agg_sums)
+            for agg_sum in agg_sums:
+                line += f"|{agg_sum:^{width}}"
+        else:
+            line += (f"|{'NULL':^{width}}" * len(AGG_HEADERS))
+
+        terminalreporter.write_line(line)
         terminalreporter.write_line("")
 
 
 def pytest_sessionfinish(session, exitstatus):
     bench_output_dir = session.config.getoption("--output-dir")
     tag = session.config.getoption("--tag")
-    json_result = {}
+    iterations = session.config.getoption("--iterations")
+    json_result = {
+        BenchmarkKeys.CONTEXT_KEY: {
+            BenchmarkKeys.ITERATIONS_COUNT_KEY: iterations,
+        },
+    }
 
     if tag:
         bench_output_dir = f"{bench_output_dir}/{tag}"
-        json_result[BenchmarkKeys.TAG_KEY] = tag
+        json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
     Path(bench_output_dir).mkdir(parents=True, exist_ok=True)
 
-    AGG_KEYS = [BenchmarkKeys.AVG_KEY, BenchmarkKeys.MIN_KEY, BenchmarkKeys.MAX_KEY,
-                BenchmarkKeys.MEDIAN_KEY, BenchmarkKeys.GMEAN_KEY]
+    if iterations > 1:
+        AGG_KEYS = [BenchmarkKeys.AVG_KEY, BenchmarkKeys.MIN_KEY, BenchmarkKeys.MAX_KEY,
+                    BenchmarkKeys.MEDIAN_KEY, BenchmarkKeys.GMEAN_KEY, BenchmarkKeys.LUKEWARM_KEY]
+    else:
+        AGG_KEYS = [BenchmarkKeys.LUKEWARM_KEY]
     for benchmark_type, result in session.benchmark_results.items():
         compute_aggregate_timings(result)
         json_result[benchmark_type] = {
@@ -81,8 +113,10 @@ def pytest_sessionfinish(session, exitstatus):
         json_agg_timings = json_result[benchmark_type][BenchmarkKeys.AGGREGATE_TIMES_KEY]
         for agg_key in AGG_KEYS:
             json_agg_timings[agg_key] = {}
+
         for query_id, agg_timings in result[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
             if agg_timings:
+                assert len(AGG_KEYS) == len(agg_timings)
                 for i, agg_key in enumerate(AGG_KEYS):
                     json_agg_timings[agg_key][query_id] = agg_timings[i]
 
@@ -97,10 +131,27 @@ def compute_aggregate_timings(benchmark_results):
     format_width = 0
     for query_id, timings in raw_times.items():
         if timings:
-            stats = (round(statistics.mean(timings), 2), min(timings), max(timings),
-                     statistics.median(timings), round(statistics.geometric_mean(timings), 2))
+            first_iteration = timings[0]
+            if len(timings) > 1:
+                hot_timings = timings[1:]
+                stats = (round(statistics.mean(hot_timings), 2), min(hot_timings), max(hot_timings),
+                         statistics.median(hot_timings), round(statistics.geometric_mean(hot_timings), 2),
+                         first_iteration)
+            else:
+                stats = (first_iteration,)
             format_width = max(format_width, *[len(str(stat)) for stat in stats])
         else:
             stats = None
         benchmark_results[BenchmarkKeys.AGGREGATE_TIMES_KEY][query_id] = stats
+
+    agg_sums = None
+    for _, stats in benchmark_results[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
+        if stats:
+            if agg_sums is None:
+                agg_sums = list(stats)
+            else:
+                assert len(agg_sums) == len(stats)
+                for i, stat in enumerate(stats):
+                    agg_sums[i] = round(agg_sums[i] + stat, 2)
+    benchmark_results[BenchmarkKeys.AGGREGATE_TIMES_SUM_KEY] = agg_sums
     benchmark_results[BenchmarkKeys.FORMAT_WIDTH_KEY] = format_width
