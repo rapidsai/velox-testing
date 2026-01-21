@@ -69,7 +69,7 @@ services:
   {% if workers and not single_container %}
   # Separate GPU workers - runs each worker in a separate container, pinned to a specific GPU
   {% for gpu_id in workers %}
-  presto-native-worker-gpu-{{ gpu_id }}
+  presto-native-worker-gpu-{{ gpu_id }}:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu-{{ gpu_id }}
     environment:
