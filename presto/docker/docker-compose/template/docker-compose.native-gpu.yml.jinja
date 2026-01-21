@@ -67,7 +67,7 @@ services:
       - ../../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
   # Separate GPU workers - runs each worker in a separate container, pinned to a specific GPU
-  {% if workers and not single-container %}
+  {% if workers and not single_container %}
   {% for gpu_id in workers %}
   presto-native-worker-gpu-{{ gpu_id }}
     <<: *gpu_worker_base
