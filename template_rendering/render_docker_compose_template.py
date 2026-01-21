@@ -6,7 +6,7 @@ import sys
 
 def main() -> int:
     if len(sys.argv) < 4:
-        print("Usage: render_docker_compose_template.py <template_path> <output_path> <num_workers> [gpu_ids]", file=sys.stderr)
+        print("Usage: render_docker_compose_template.py <template_path> <output_path> <num_workers> <single_container> [gpu_ids]", file=sys.stderr)
         return 2
 
     template_path = sys.argv[1]
@@ -16,9 +16,7 @@ def main() -> int:
     gpu_ids_arg = sys.argv[5] if len(sys.argv) > 5 else None
 
     try:
-        print(f"single_container_arg: {single_container_arg}", file=sys.stderr)
-        single_container = bool(single_container_arg)
-        print(f"single_container: {single_container}", file=sys.stderr)
+        single_container = (single_container_arg == "true")
     except ValueError:
         print("ERROR: <single_container> must be a boolean", file=sys.stderr)
         return 2
