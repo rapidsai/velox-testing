@@ -61,7 +61,7 @@ EOF
 NUM_THREADS=$(($(nproc) / 2))
 BUILD_TYPE=release
 ALL_CUDA_ARCHS=false
-export SINGLE_CONTAINER=false
+export SINGLE_CONTAINER=""
 export OVERWRITE_CONFIG=false
 export PROFILE=OFF
 export NUM_WORKERS=1

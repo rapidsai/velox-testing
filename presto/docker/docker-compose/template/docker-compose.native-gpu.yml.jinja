@@ -66,8 +66,8 @@ services:
       - ../../config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
       - ../../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
-  # Separate GPU workers - runs each worker in a separate container, pinned to a specific GPU
   {% if workers and not single_container %}
+  # Separate GPU workers - runs each worker in a separate container, pinned to a specific GPU
   {% for gpu_id in workers %}
   presto-native-worker-gpu-{{ gpu_id }}
     <<: *gpu_worker_base
@@ -80,7 +80,6 @@ services:
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
   {% endfor %}
   {% else %}
-
   # Combined GPU worker - runs {{ workers|length if workers else 1 }} presto servers in parallel, each pinned to a specific GPU
   presto-native-worker-gpu:
     <<: *gpu_worker_base
