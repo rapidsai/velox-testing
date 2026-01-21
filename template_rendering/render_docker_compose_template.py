@@ -12,7 +12,14 @@ def main() -> int:
     template_path = sys.argv[1]
     output_path = sys.argv[2]
     num_workers_arg = sys.argv[3]
-    gpu_ids_arg = sys.argv[4] if len(sys.argv) > 4 else None
+    single_container_arg = sys.argv[4]
+    gpu_ids_arg = sys.argv[5] if len(sys.argv) > 5 else None
+
+    try:
+        single_container = bool(single_container_arg)
+    except ValueError:
+        print("ERROR: <single_container> must be a boolean", file=sys.stderr)
+        return 2
 
     try:
         num_workers = int(num_workers_arg)
@@ -51,7 +58,7 @@ def main() -> int:
     else:
         workers = list(range(max(0, num_workers)))
     
-    rendered = template.render(num_workers=num_workers, workers=workers)
+    rendered = template.render(num_workers=num_workers, workers=workers, single_container=single_container)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:

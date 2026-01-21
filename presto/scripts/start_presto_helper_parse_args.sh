@@ -34,7 +34,8 @@ OPTIONS:
     -w, --num-workers    Number of GPU workers to start (GPU variant only).
     -g, --gpu-ids        Comma-delimited list of GPU device IDs to use (e.g., "0,1,3,5").
                          Must be used with --num-workers. If not specified, defaults to "0,1,...,N-1"
-                         where N is the value from --num-workers.
+                         where N is the value from --num-workers (GPU variant only).
+    --single-container   Launch multiple Presto servers in a single container (GPU variant only).
     --build-type         Build type for native CPU and GPU image builds. Possible values are "release",
                          "relwithdebinfo", or "debug". Values are case insensitive. The default value
                          is "release".
@@ -60,6 +61,7 @@ EOF
 NUM_THREADS=$(($(nproc) / 2))
 BUILD_TYPE=release
 ALL_CUDA_ARCHS=false
+export SINGLE_CONTAINER=false
 export OVERWRITE_CONFIG=false
 export PROFILE=OFF
 export NUM_WORKERS=1
@@ -109,6 +111,10 @@ parse_args() {
           echo "Error: --gpu-ids requires a value"
           exit 1
         fi
+        ;;
+      --single-container)
+        export SINGLE_CONTAINER=true
+        shift
         ;;
       --build-type)
         if [[ -n $2 ]]; then

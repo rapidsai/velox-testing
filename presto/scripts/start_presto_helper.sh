@@ -126,9 +126,9 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
 
   RENDER_SCRIPT_PATH=$(readlink -f ../../template_rendering/render_docker_compose_template.py)
   if [[ -n $GPU_IDS ]]; then
-    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$NUM_WORKERS" "$GPU_IDS"
+    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$NUM_WORKERS" "$SINGLE_CONTAINER" "$GPU_IDS"
   else
-    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS"
+    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS" "$SINGLE_CONTAINER"
   fi
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
