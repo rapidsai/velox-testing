@@ -91,7 +91,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["{{ workers|join('\", \"')}}"]
+              device_ids: {{ workers | map('string') | list | tojson }}
               capabilities: [gpu]
 {% else %}
     deploy:
@@ -101,6 +101,8 @@ services:
             - driver: nvidia
               device_ids: ["0"]
               capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
 {%- endif %}
     volumes:
 {%- if workers %}
