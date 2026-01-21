@@ -2,41 +2,45 @@
 
 import os
 import sys
+import argparse
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Render a Docker Compose template")
+
+    # Helper to parse boolean-like strings passed from shell (e.g., "true"/"false")
+    def str_to_bool(value: str) -> bool:
+        truthy = {"1", "true", "t", "yes", "y", "on"}
+        falsy = {"0", "false", "f", "no", "n", "off"}
+        val = value.strip().lower()
+        if val in truthy:
+            return True
+        if val in falsy:
+            return False
+        raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
+
+    parser.add_argument("--template-path", type=str, required=True, dest="template_path",
+                        help="Path to the template file")
+    parser.add_argument("--output-path", type=str, required=True, dest="output_path",
+                        help="Path to the output file")
+    parser.add_argument("--num-workers", type=int, required=True, dest="num_workers",
+                        help="Number of workers")
+    parser.add_argument("--single-container", type=str_to_bool, required=True, dest="single_container",
+                        help="Whether to run in a single container")
+    parser.add_argument("--gpu-ids", type=str, default=None, dest="gpu_ids", required=False,
+                        help="Comma-delimited list of GPU IDs")
+    parser.add_argument("--kvikio-threads", type=int, default=None, dest="kvikio_threads", required=False,
+                        help="Number of KvikIO threads (optional).")
+    return parser.parse_args()
 
 def main() -> int:
-    if len(sys.argv) < 4:
-        print("Usage: render_docker_compose_template.py <template_path> <output_path> <num_workers> <single_container> [gpu_ids]", file=sys.stderr)
-        return 2
-
-    template_path = sys.argv[1]
-    output_path = sys.argv[2]
-    num_workers_arg = sys.argv[3]
-    single_container_arg = sys.argv[4]
-    gpu_ids_arg = sys.argv[5] if len(sys.argv) > 5 else None
-
-    try:
-        single_container = (single_container_arg == "true")
-    except ValueError:
-        print("ERROR: <single_container> must be a boolean", file=sys.stderr)
-        return 2
-
-    try:
-        num_workers = int(num_workers_arg)
-    except ValueError:
-        print("ERROR: <num_workers> must be an integer", file=sys.stderr)
-        return 2
+    parsed_args = parse_args()
 
     # Parse GPU IDs if provided
     gpu_ids = None
-    if gpu_ids_arg:
-        try:
-            gpu_ids = [int(gpu_id.strip()) for gpu_id in gpu_ids_arg.split(',')]
-            if len(gpu_ids) != num_workers:
-                print(f"ERROR: Number of GPU IDs ({len(gpu_ids)}) must match num_workers ({num_workers})", file=sys.stderr)
-                return 2
-        except ValueError:
-            print("ERROR: <gpu_ids> must be a comma-delimited list of integers", file=sys.stderr)
+    if parsed_args.gpu_ids:
+        gpu_ids = [int(gpu_id.strip()) for gpu_id in parsed_args.gpu_ids.split(',')]
+        if len(gpu_ids) != parsed_args.num_workers:
+            print(f"ERROR: Number of GPU IDs ({len(gpu_ids)}) must match num_workers ({parsed_args.num_workers})", file=sys.stderr)
             return 2
 
     try:
@@ -46,22 +50,27 @@ def main() -> int:
         return 1
 
     env = Environment(
-        loader=FileSystemLoader(os.path.dirname(template_path)),
+        loader=FileSystemLoader(os.path.dirname(parsed_args.template_path)),
         autoescape=False,
         keep_trailing_newline=True,
     )
-    template = env.get_template(os.path.basename(template_path))
+    template = env.get_template(os.path.basename(parsed_args.template_path))
     
     # If GPU IDs are provided, use them; otherwise default to range
     if gpu_ids:
         workers = gpu_ids
     else:
-        workers = list(range(max(0, num_workers)))
+        workers = list(range(max(0, parsed_args.num_workers)))
     
-    rendered = template.render(num_workers=num_workers, workers=workers, single_container=single_container)
+    rendered = template.render(
+        num_workers=parsed_args.num_workers,
+        workers=workers,
+        single_container=parsed_args.single_container,
+        kvikio_threads=parsed_args.kvikio_threads
+    )
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w") as f:
+    os.makedirs(os.path.dirname(parsed_args.output_path), exist_ok=True)
+    with open(parsed_args.output_path, "w") as f:
         f.write(rendered)
     return 0
 

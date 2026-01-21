@@ -126,9 +126,9 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
 
   RENDER_SCRIPT_PATH=$(readlink -f ../../template_rendering/render_docker_compose_template.py)
   if [[ -n $GPU_IDS ]]; then
-    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$NUM_WORKERS" "$SINGLE_CONTAINER" "$GPU_IDS"
+    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS"
   else
-    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "$TEMPLATE_PATH" "$RENDERED_PATH" "$LOCAL_NUM_WORKERS" "$SINGLE_CONTAINER"
+    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS"
   fi
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi

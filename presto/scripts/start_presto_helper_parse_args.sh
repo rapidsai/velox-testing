@@ -65,6 +65,8 @@ export SINGLE_CONTAINER=false
 export OVERWRITE_CONFIG=false
 export PROFILE=OFF
 export NUM_WORKERS=1
+export KVIKIO_THREADS=8
+export VCPU_PER_WORKER=""
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -91,6 +93,24 @@ parse_args() {
           shift 2
         else
           echo "Error: --num-threads requires a value"
+          exit 1
+        fi
+        ;;
+      --kvikio-threads)
+        if [[ -n $2 ]]; then
+          export KVIKIO_THREADS=$2
+          shift 2
+        else
+          echo "Error: --kvikio-threads requires a value"
+          exit 1
+        fi
+        ;;
+      --num-drivers)
+        if [[ -n $2 ]]; then
+          export VCPU_PER_WORKER=$2
+          shift 2
+        else
+          echo "Error: --num-drivers requires a value"
           exit 1
         fi
         ;;

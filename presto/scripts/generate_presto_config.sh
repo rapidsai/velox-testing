@@ -63,6 +63,9 @@ function duplicate_worker_configs() {
       ${worker_config}/config_native.properties
   sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
       ${worker_config}/config_native.properties
+  if ! grep -q "^cudf.exchange.server.port=80${1}3" ${worker_config}/config_native.properties; then
+    echo "cudf.exchange.server.port=80${1}3" >> ${worker_config}/config_native.properties
+  fi
   echo "async-data-cache-enabled=false" >> ${worker_config}/config_native.properties
   # Give each worker a unique id.
   sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
@@ -78,14 +81,16 @@ RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo_error "ERROR: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
 fi
-if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
-  if [[ -n "$NUM_WORKERS" ]]; then
-    VCPU_PER_WORKER=4
+if [[ -z ${VCPU_PER_WORKER} ]]; then
+  if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
+    if [[ -n "$NUM_WORKERS" ]]; then
+      VCPU_PER_WORKER=2
+    else
+      VCPU_PER_WORKER=4
+    fi
   else
-    VCPU_PER_WORKER=2
+    VCPU_PER_WORKER=${NPROC}
   fi
-else
-  VCPU_PER_WORKER=${NPROC}
 fi
 
 # move to config directory
