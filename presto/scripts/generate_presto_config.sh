@@ -83,11 +83,7 @@ if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
 fi
 if [[ -z ${VCPU_PER_WORKER} ]]; then
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
-    if [[ -n "$NUM_WORKERS" ]]; then
       VCPU_PER_WORKER=2
-    else
-      VCPU_PER_WORKER=4
-    fi
   else
     VCPU_PER_WORKER=${NPROC}
   fi
