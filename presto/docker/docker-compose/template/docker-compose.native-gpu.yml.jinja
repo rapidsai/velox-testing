@@ -91,7 +91,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: {{ workers | map('string') | list | tojson }}
+              device_ids: [{% for id in workers %}"{{ id }}"{% if not loop.last %}, {% endif %}{% endfor %}]
               capabilities: [gpu]
 {% else %}
     deploy:
