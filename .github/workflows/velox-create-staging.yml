@@ -431,7 +431,7 @@ jobs:
         run: |
             TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             MANIFEST_FILE=".staging-manifest.yaml"
-            TEMPLATE_FILE="${GITHUB_WORKSPACE}/.github/templates/staging-manifest.yaml.template"
+            TEMPLATE_FILE="${GITHUB_WORKSPACE}/velox-testing/.github/templates/staging-manifest.yaml.template"
             
             rapids-echo-stderr "Creating staging manifest at ${MANIFEST_FILE}..."
             
