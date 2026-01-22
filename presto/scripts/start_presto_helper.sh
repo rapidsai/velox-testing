@@ -46,8 +46,6 @@ if [[ "$PROFILE" == "ON" && $(( $NUM_WORKERS > 1 )) && "$SINGLE_CONTAINER" == "f
   exit 1
 fi
 
-exit 2
-
 COORDINATOR_SERVICE="presto-coordinator"
 COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:latest
 JAVA_WORKER_SERVICE="presto-java-worker"
