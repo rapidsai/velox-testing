@@ -24,7 +24,8 @@ sccache --version
 # Increase file descriptor limit for high parallelism (if possible)
 ulimit -n $(ulimit -Hn) || echo "Could not increase file descriptor limit"
 
-# Start sccache server
+# Restart sccache server to avoid stale/duplicate instances
+sccache --stop-server >/dev/null 2>&1 || true
 sccache --start-server
 
 # Test sccache

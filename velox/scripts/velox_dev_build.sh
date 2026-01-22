@@ -29,8 +29,8 @@ gcc --version | head -1;
 
 # Install and configure sccache if enabled
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
-  # Run sccache setup script
-  bash /sccache_setup.sh;
+  # Run sccache setup script (needs root to place binaries/certs)
+  sudo -E bash /sccache_setup.sh;
   # Add sccache CMake flags
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
@@ -44,16 +44,68 @@ if test -n "${MAX_LINK_JOBS:-}"; then
 fi
 
 # Disable sccache-dist for CMake configuration's test compiles
-SCCACHE_NO_DIST_COMPILE=1 \
-make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
+(
+  cd /workspace/velox
+  build_dir="${BUILD_BASE_DIR}/${BUILD_TYPE}"
+  cache_file="${build_dir}/CMakeCache.txt"
 
-# Run the build with timings
-time make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
+  # Skip reconfigure if CMakeCache.txt already exists unless FORCE_CMAKE=1
+  if [[ "${FORCE_CMAKE:-0}" != "1" && -f "${cache_file}" ]]; then
+    echo "CMake cache found at ${cache_file}; skipping configure (set FORCE_CMAKE=1 to reconfigure)"
+  else
+    SCCACHE_NO_DIST_COMPILE=1 \
+    make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
+  fi
+
+  # Run the build with timings
+  time make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
+)
 
 # Show final sccache stats if enabled
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
   echo "Post-build sccache statistics:";
   sccache --show-stats;
+fi
+
+# Rewrite compile_commands.json paths to host-absolute locations for ccls/IDE use
+BUILD_DIR_PATH="${BUILD_BASE_DIR}/${BUILD_TYPE}"
+CCDB="${BUILD_DIR_PATH}/compile_commands.json"
+HOST_SRC_ABS="${HOST_VELOX_ABS:-/workspace/velox}"
+HOST_BUILD_ABS="${BUILD_BASE_DIR}"
+if [ -f "${CCDB}" ]; then
+  CCDB="${CCDB}" HOST_SRC_ABS="${HOST_SRC_ABS}" HOST_BUILD_ABS="${HOST_BUILD_ABS}" python - <<'PYCODE'
+import json, os, sys
+ccdb = os.environ["CCDB"]
+src_abs = os.environ["HOST_SRC_ABS"]
+bld_abs = os.environ["HOST_BUILD_ABS"]
+with open(ccdb, "r", encoding="utf-8") as f:
+    data = json.load(f)
+changed = False
+for entry in data:
+    for k in ("directory", "file", "command", "arguments"):
+        if k in entry:
+            val = entry[k]
+            if isinstance(val, str):
+                new = val.replace("/workspace/velox", src_abs).replace("/opt/velox-build", bld_abs)
+                if new != val:
+                    entry[k] = new
+                    changed = True
+            elif isinstance(val, list):
+                new_list = []
+                for item in val:
+                    if isinstance(item, str):
+                        new_item = item.replace("/workspace/velox", src_abs).replace("/opt/velox-build", bld_abs)
+                        new_list.append(new_item)
+                        if new_item != item:
+                            changed = True
+                    else:
+                        new_list.append(item)
+                entry[k] = new_list
+if changed:
+    with open(ccdb, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+PYCODE
+  echo "Rewrote paths in ${CCDB} to ${HOST_SRC_ABS} and ${HOST_BUILD_ABS}"
 fi
 
 #EOF

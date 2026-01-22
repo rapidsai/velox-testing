@@ -8,6 +8,13 @@ services:
     environment:
       # Mirror the BuildKit secret env mapping for the dist auth token
       SCCACHE_DIST_AUTH_TOKEN: /run/secrets/github_token
+      HOST_UID: ${HOST_UID:-0}
+      HOST_GID: ${HOST_GID:-0}
+      HOST_USER: ${HOST_USER:-hostuser}
+      HOST_HOME: ${HOST_HOME:-/home/hostuser}
+      HOST_VELOX_ABS: ${HOST_VELOX_ABS:-/workspace/velox}
+      BUILD_BASE_DIR: ${BUILD_BASE_DIR:-/workspace/velox/velox-build}
+      ENABLE_CCLS: ${ENABLE_CCLS:-false}
     secrets:
       # Runtime secrets so the files are present inside the container
       - source: github_token

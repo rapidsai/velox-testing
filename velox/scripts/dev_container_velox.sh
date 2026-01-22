@@ -29,6 +29,7 @@ LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-0}"
 LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
+ENABLE_CCLS=true
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
 SCCACHE_VERSION="${SCCACHE_VERSION:-latest}"
@@ -193,6 +194,10 @@ parse_args() {
           exit 1
         fi
         ;;
+      --no-ccls)
+        ENABLE_CCLS=false
+        shift
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -285,6 +290,7 @@ DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ER
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
 DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_VERSION="${SCCACHE_VERSION}")
 DOCKER_BUILD_OPTS+=(--build-arg UPDATE_NINJA="${UPDATE_NINJA}")
+DOCKER_BUILD_OPTS+=(--build-arg ENABLE_CCLS="${ENABLE_CCLS}")
 
 # If these are set (even to empty string), pass them through as-is
 if test -v MAX_HIGH_MEM_JOBS; then
@@ -322,12 +328,18 @@ fi
 
 SELECTED_COMPOSE_FILE=$(compose_file)
 
+# Resolve source/build paths (keep build under source tree for reuse and stable paths)
+HOST_VELOX_ABS=${HOST_VELOX_ABS:-$(realpath "$(dirname "$0")/../../../velox")}
+BUILD_BASE_DIR=${BUILD_BASE_DIR:-${HOST_VELOX_ABS}/velox-build}
+DOCKER_BUILD_OPTS+=(--build-arg BUILD_BASE_DIR="${BUILD_BASE_DIR}")
+
 # Run container as the invoking host user (used by entrypoint to create user + sudo)
 export HOST_UID=$(id -u) HOST_GID=$(id -g)
 export HOST_USER=${HOST_USER:-hostuser}
 export HOST_HOME=${HOST_HOME:-/home/${HOST_USER}}
+export HOST_VELOX_ABS BUILD_BASE_DIR
 
-docker compose -f "$SELECTED_COMPOSE_FILE" down  velox-adapters-dev --remove-orphans
+docker compose  --project-name velox-adapters-dev -f "$SELECTED_COMPOSE_FILE" down  velox-adapters-dev --remove-orphans
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
@@ -339,10 +351,23 @@ else
 fi
 
 
-docker compose -f "$SELECTED_COMPOSE_FILE" up -d velox-adapters-dev
+docker compose --project-name velox-adapters-dev -f "$SELECTED_COMPOSE_FILE" up  -d velox-adapters-dev
 BUILD_EXIT_CODE=$?
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
+  # Wait for entrypoint to finish creating hostuser (avoid race on first exec)
+  echo "Waiting for hostuser to be ready..."
+  READY=0
+  for _ in {1..30}; do
+    if docker exec velox-adapters-dev getent passwd "${HOST_USER}" >/dev/null 2>&1; then
+      READY=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$READY" -ne 1 ]]; then
+    echo "WARNING: hostuser not ready; check container logs: docker logs velox-adapters-dev"
+  fi
   echo "Built dev container. Shell as host user: docker exec -it -u ${HOST_USER} velox-adapters-dev /bin/bash"
   echo ""
 else
