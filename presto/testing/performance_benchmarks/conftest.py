@@ -37,6 +37,8 @@ def pytest_addoption(parser):
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     text_report = []
     iterations = config.getoption("--iterations")
+    schema_name = config.getoption("--schema-name")
+    tag = config.getoption("--tag")
     for benchmark_type, result in terminalreporter._session.benchmark_results.items():
         assert BenchmarkKeys.AGGREGATE_TIMES_KEY in result
 
@@ -46,6 +48,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
         write_line(terminalreporter, text_report, "")
         write_line(terminalreporter, text_report, f"Iterations Count: {iterations}")
+        write_line(terminalreporter, text_report, f"Schema Name: {schema_name}")
+        if tag:
+            write_line(terminalreporter, text_report, f"Tag: {tag}")
         write_line(terminalreporter, text_report, "")
 
         if iterations > 1:
@@ -105,12 +110,14 @@ def write_section(terminalreporter, text_report, content, **kwargs):
 
 def pytest_sessionfinish(session, exitstatus):
     iterations = session.config.getoption("--iterations")
+    schema_name = session.config.getoption("--schema-name")
     json_result = {
         BenchmarkKeys.CONTEXT_KEY: {
             BenchmarkKeys.ITERATIONS_COUNT_KEY: iterations,
+            BenchmarkKeys.SCHEMA_NAME_KEY: schema_name,
         },
     }
-
+    
     tag = session.config.getoption("--tag")
     if tag:
         json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
