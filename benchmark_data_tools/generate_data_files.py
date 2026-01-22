@@ -25,7 +25,8 @@ from pathlib import Path
 from rewrite_parquet import process_dir
 from concurrent.futures import ThreadPoolExecutor
 
-def generate_partition(table, partition, raw_data_path, scale_factor, num_partitions, verbose):
+
+def generate_partition(table, partition, raw_data_path, scale_factor, num_partitions, verbose, approx_row_group_bytes):
     if verbose: print(f"Generating '{table}' partition: {partition}")
     Path(f"{raw_data_path}/part-{partition}").mkdir(parents=True, exist_ok=True)
     command = [
@@ -35,12 +36,14 @@ def generate_partition(table, partition, raw_data_path, scale_factor, num_partit
         "--output-dir", str(f"{raw_data_path}/part-{partition}"),
         "--parts", str(num_partitions),
         "--part", str(partition),
-        "--format", "parquet"
+        "--format", "parquet",
+        "--parquet-row-group-bytes", str(approx_row_group_bytes)
     ]
     try:
         subprocess.run(command, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Error generating TPC-H data: {e}")
+
 
 def generate_data_files(args):
     if os.path.exists(args.data_dir_path):
@@ -54,6 +57,7 @@ def generate_data_files(args):
     else:
         if args.verbose: print("generating with duckdb")
         generate_data_files_with_duckdb(args)
+
 
 def generate_data_files_with_tpchgen(args):
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
@@ -74,7 +78,8 @@ def generate_data_files_with_tpchgen(args):
                 print(f"Generating TPC-H data for table '{table}' with {num_partitions} partitions")
             for partition in range(1, num_partitions + 1):
                 futures.append(executor.submit(generate_partition, table, partition, raw_data_path,
-                                               args.scale_factor, num_partitions, args.verbose))
+                                               args.scale_factor, num_partitions, args.verbose,
+                                               args.approx_row_group_bytes))
             max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
 
         for future in futures:
@@ -90,7 +95,8 @@ def generate_data_files_with_tpchgen(args):
         if not args.keep_original_dataset:
             shutil.rmtree(raw_data_path)
 
-    write_metadata(args.data_dir_path, args.scale_factor)
+    write_metadata(args)
+
 
 # This dictionary maps each table to the number of partitions it should have based on it's
 # expected file size relative to the SF.
@@ -106,6 +112,7 @@ def get_table_sf_ratios(scale_factor, max_rows):
         num_rows = duckdb.sql(f"SELECT COUNT (*) FROM {stripped_table}").fetchall()
         tables_sf_ratio[stripped_table] = math.ceil(int_scale_factor / (max_rows / (int(num_rows[0][0]) * 100)))
     return tables_sf_ratio
+
 
 def rearrange_directory(raw_data_path, num_partitions):
     # When we generate partitioned data it will have the form <data_dir>/<partition>/<table_name>/<table_name>.parquet.
@@ -127,10 +134,16 @@ def rearrange_directory(raw_data_path, num_partitions):
             os.rmdir(f"{part_dir_path}/{dir_name}")
         os.rmdir(part_dir_path)
 
-def write_metadata(data_dir_path, scale_factor):
-    with open(f'{data_dir_path}/metadata.json', 'w') as file:
-        json.dump({"scale_factor": scale_factor}, file, indent=2)
+
+def write_metadata(args):
+    with open(f'{args.data_dir_path}/metadata.json', 'w') as file:
+        metadata = {
+            "scale_factor": args.scale_factor,
+            "approx_row_group_bytes": args.approx_row_group_bytes,
+        }
+        json.dump(metadata, file, indent=2)
         file.write("\n")
+
 
 def generate_data_files_with_duckdb(args):
     init_benchmark_tables(args.benchmark_type, args.scale_factor)
@@ -146,6 +159,7 @@ def generate_data_files_with_duckdb(args):
         duckdb.sql(f"COPY ({get_select_query(table_name, args.convert_decimals_to_floats)}) "
                    f"TO '{table_data_dir}/{table_name}.parquet' (FORMAT parquet)")
 
+
 def get_select_query(table_name, convert_decimals_to_floats):
     if convert_decimals_to_floats:
         column_metadata_rows = duckdb.query(f"DESCRIBE {table_name}").fetchall()
@@ -158,6 +172,7 @@ def get_select_query(table_name, convert_decimals_to_floats):
         query = f"SELECT * FROM {table_name}"
     return query
 
+
 def get_column_projection(column_metadata, convert_decimals_to_floats):
     col_name, col_type, *_ = column_metadata
     if convert_decimals_to_floats and is_decimal_column(col_type):
@@ -165,6 +180,7 @@ def get_column_projection(column_metadata, convert_decimals_to_floats):
     else:
         projection = col_name
     return projection
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -189,6 +205,8 @@ if __name__ == "__main__":
                         default=100_000_000, help="Limit number of rows in each file (creates more partitions)")
     parser.add_argument("-k", "--keep-original-dataset", action="store_true", required=False,
                         default=False, help="Keep the original dataset that was generated before transformations")
+    parser.add_argument("--approx-row-group-bytes", type=int, required=False,
+                        default=128 * 1024 * 1024, help="Approximate row group size in bytes. 128MB by default.")
     args = parser.parse_args()
 
     generate_data_files(args)
