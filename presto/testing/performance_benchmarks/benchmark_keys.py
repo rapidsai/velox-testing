@@ -31,3 +31,4 @@ class BenchmarkKeys(str, Enum):
     TAG_KEY = "tag"
     CONTEXT_KEY = "context"
     ITERATIONS_COUNT_KEY = "iterations_count"
+    SCHEMA_NAME_KEY = "schema_name"
