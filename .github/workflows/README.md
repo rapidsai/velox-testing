@@ -51,24 +51,167 @@ Runs nightly tests against the **staging branch** with cuDF PRs integrated.
 ### Branch Management
 
 #### `velox-create-staging.yml`
-Automates the creation and maintenance of the staging branch by aggregating cuDF-related PRs.
+Automates the creation and maintenance of the staging branch by aggregating cuDF-related PRs from upstream Velox.
+
+**How It Works:**
+
+1. **Sync with Upstream:** Resets the target branch to match `upstream/main` (or specified base branch)
+2. **Fetch PRs:** Auto-discovers non-draft PRs with `cudf` label, or uses manually specified PR numbers
+3. **Pairwise Conflict Check:** Tests all PR combinations for merge conflicts before proceeding
+4. **Merge PRs:** Sequentially merges all PRs into the staging branch
+5. **Create Manifest:** Generates `.staging-manifest.yaml` documenting the branch recipe (base commit, merged PRs)
+6. **Push Branches:** Pushes both `staging` and `staging_MM-DD-YYYY` dated snapshot branches
+7. **Trigger Tests:** Optionally triggers the build and test workflow
 
 **Key Features:**
-- Syncs with upstream `facebookincubator/velox:main`
-- Auto-fetches PRs labeled `ready-to-merge` and `cudf`
-- Merges PRs into staging branch with conflict detection
-- Optionally triggers build and test workflow
+- **Dated Branch Snapshots:** Creates daily snapshots (e.g., `staging_01-22-2026`) for rollback capability
+- **Manifest File:** Each staging branch includes `.staging-manifest.yaml` documenting exactly how it was built
+- **Conflict Detection:** Fails fast on merge conflicts with clear error messages
+- **Pairwise Testing:** Validates all PR pairs can merge cleanly together
+
+**Parameters:**
 
 | Input | Description | Default |
 |-------|-------------|---------|
-| `base_repository` | Base Velox repo | `facebookincubator/velox` |
-| `base_branch` | Base Velox branch to sync from | `main` |
-| `target_repository` | Target repo for staging | `rapidsai/velox` |
-| `target_branch` | Target branch (where cuDF PRs are merged) | `staging` |
-| `auto_fetch_prs` | Auto-fetch labeled PRs | `true` |
-| `manual_pr_numbers` | Manual PR list (space-separated) | `''` |
-| `build_and_run_tests` | Run tests after update | `true` |
-| `force_push` | Force push to target | `false` |
+| `base_repository` | Upstream Velox repository to sync from | `facebookincubator/velox` |
+| `base_branch` | Upstream branch to use as base | `main` |
+| `target_repository` | Target repository to push staging branch | `rapidsai/velox` |
+| `target_branch` | Name of the staging branch | `staging` |
+| `auto_fetch_prs` | Auto-fetch non-draft PRs with `cudf` label | `true` |
+| `manual_pr_numbers` | Space-separated PR numbers (when `auto_fetch_prs=false`) | `''` |
+| `build_and_run_tests` | Trigger test workflow after update | `true` |
+| `force_push` | Force push to override existing branch | `false` |
+
+**Manifest File (`.staging-manifest.yaml`):**
+
+The staging branch includes a manifest file documenting its creation:
+
+```yaml
+metadata:
+  generated_at: "2026-01-22T10:30:00Z"
+  target_repository: "rapidsai/velox"
+  target_branch: "staging"
+  dated_branch: "staging_01-22-2026"
+
+base:
+  repository: "facebookincubator/velox"
+  branch: "main"
+  commit: "abc123..."
+  url: "https://github.com/facebookincubator/velox/tree/abc123..."
+
+merged_prs:
+  - number: 1234
+    commit: "def456..."
+    author: "developer1"
+    title: "Add cuDF support for feature X"
+    url: "https://github.com/facebookincubator/velox/pull/1234"
+```
+
+**Parameter Reference:**
+
+`base_repository` (string)
+:   The upstream Velox repository to sync from. This is the source of truth for the
+    base code before cuDF PRs are applied. This is where the cudf, non-draft PRs are read from. 
+    
+    Default: `facebookincubator/velox`
+
+`base_branch` (string)
+:   The branch in `base_repository` to use as the starting point. The staging branch
+    is reset to this branch's HEAD before any PRs are merged.
+    
+    Default: `main`
+
+`target_repository` (string)
+:   The repository where the staging branch will be pushed. Must have write access
+    configured via `GITHUB_TOKEN` or a PAT with appropriate permissions.
+    
+    Default: `rapidsai/velox`
+
+`target_branch` (string)
+:   The name of the staging branch to create or update. A dated snapshot branch
+    (`<target_branch>_MM-DD-YYYY`) is also created alongside it for historical
+    reference and rollback capability.
+    
+    Default: `staging`
+
+`auto_fetch_prs` (boolean)
+:   When `true`, automatically discovers and fetches all non-draft PRs from
+    `facebookincubator/velox` that have the `cudf` label. When `false`, only PRs
+    specified in `manual_pr_numbers` are used.
+    
+    Default: `true`
+
+`manual_pr_numbers` (string)
+:   Space-separated list of PR numbers to merge into the staging branch. Only used
+    when `auto_fetch_prs` is `false`. PRs are merged in the order specified.
+    
+    Example: `"11443 11567 11892"`
+    
+    Default: `''` (empty)
+
+`build_and_run_tests` (boolean)
+:   When `true`, triggers the `velox-test.yml` workflow after successfully updating
+    the staging branch. This validates the merged code builds and passes tests.
+    Set to `false` to skip testing (useful for quick iterations).
+    
+    Default: `true`
+
+`force_push` (boolean)
+:   When `true`, force pushes to the target branch, overwriting any existing content.
+    When `false`, the push may fail if the remote branch has diverged. Scheduled runs
+    always use force push regardless of this setting.
+    
+    **Warning:** Use with caution as this can overwrite commits on the target branch.
+    
+    Default: `false`
+
+**CLI Examples:**
+
+```bash
+# Basic: Create staging with auto-fetched cuDF PRs
+gh workflow run velox-create-staging.yml \
+  -R rapidsai/velox-testing
+
+# Specify target branch name
+gh workflow run velox-create-staging.yml \
+  -R rapidsai/velox-testing \
+  -f target_branch=test-staging
+
+# Manual PR selection (disable auto-fetch)
+gh workflow run velox-create-staging.yml \
+  -R rapidsai/velox-testing \
+  -f auto_fetch_prs=false \
+  -f manual_pr_numbers="11443 11567 11892"
+
+# Skip tests after staging creation
+gh workflow run velox-create-staging.yml \
+  -R rapidsai/velox-testing \
+  -f build_and_run_tests=false
+
+# Force push to override existing branch
+gh workflow run velox-create-staging.yml \
+  -R rapidsai/velox-testing \
+  -f force_push=true
+
+# Full custom configuration
+gh workflow run velox-create-staging.yml \
+  -R rapidsai/velox-testing \
+  -f base_repository=facebookincubator/velox \
+  -f base_branch=main \
+  -f target_repository=rapidsai/velox \
+  -f target_branch=staging \
+  -f auto_fetch_prs=true \
+  -f build_and_run_tests=false \
+  -f force_push=false
+```
+
+**Scheduled Runs:**
+
+The workflow can be scheduled (currently commented out) to run periodically:
+```yaml
+schedule:
+  - cron: '0 */6 * * *'  # Run every 6 hours
+```
 
 ### Benchmarking
 
