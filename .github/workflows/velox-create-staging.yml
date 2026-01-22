@@ -79,13 +79,21 @@ jobs:
           git remote add upstream https://github.com/${BASE_REPO}.git
           rapids-echo-stderr "Fetching upstream ${BASE_BRANCH}..."
           rapids-retry git fetch upstream ${BASE_BRANCH}
+          
+          # Generate dated branch name and set as env var for later steps
+          CURRENT_DATE=$(date -u +%m-%d-%Y)
+          DATED_BRANCH="${{ inputs.target_branch }}_${CURRENT_DATE}"
+          echo "DATED_BRANCH=${DATED_BRANCH}" >> $GITHUB_ENV
+          rapids-echo-stderr "Dated branch will be: ${DATED_BRANCH}"
 
       - name: 🔄 Reset ${{ inputs.target_branch }} Branch to Upstream ${{ inputs.base_branch }}
         working-directory: velox
         run: |
           rapids-echo-stderr "Resetting ${{ inputs.target_branch }} branch to match upstream/${{ inputs.base_branch }}..."
           git checkout -B ${{ inputs.target_branch }} upstream/${{ inputs.base_branch }}
-          echo "${{ inputs.target_branch }} branch reset to upstream/${{ inputs.base_branch }} at $(git rev-parse HEAD)"
+          BASE_COMMIT=$(git rev-parse HEAD)
+          echo "BASE_COMMIT=${BASE_COMMIT}" >> $GITHUB_ENV
+          rapids-echo-stderr "${{ inputs.target_branch }} branch reset to upstream/${{ inputs.base_branch }} at ${BASE_COMMIT}"
 
       - name: 🔍 Auto-fetch PRs with 'cudf' Label (non-draft)
         id: auto-fetch-prs
@@ -317,8 +325,8 @@ jobs:
               
               for ((j=0; j<$PR_COUNT; j++)); do
                 if [ $j -le $i ]; then
-                  # Lower triangle and diagonal (dash is 1 cell, so use %8s)
-                  ROW+=$(printf "%8s" "—")
+                  # Lower triangle and diagonal (emoji is 2 cells, so use %7s)
+                  ROW+=$(printf "%7s" "➖")
                 else
                   # Upper triangle - show result (emoji is 2 cells, so use %7s)
                   PR_J=${PR_ARRAY[$j]}
@@ -411,7 +419,68 @@ jobs:
             echo "merged_prs=${MERGED_PRS}" >> $GITHUB_OUTPUT
             echo "merged_count=$MERGED_COUNT" >> $GITHUB_OUTPUT
 
-      - name: 🚀 Push ${{ inputs.target_branch }} Branch
+      - name: 📝 Create Staging Manifest
+        working-directory: velox
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REPO: ${{ inputs.base_repository }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          TARGET_REPO: ${{ inputs.target_repository }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          MERGED_PRS: ${{ steps.merge-prs.outputs.merged_prs }}
+        run: |
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            MANIFEST_FILE=".staging-manifest.yaml"
+            TEMPLATE_FILE="${GITHUB_WORKSPACE}/.github/templates/staging-manifest.yaml.template"
+            
+            rapids-echo-stderr "Creating staging manifest at ${MANIFEST_FILE}..."
+            
+            # Copy template and replace placeholders
+            cp ${TEMPLATE_FILE} ${MANIFEST_FILE}
+            sed -i "s|{{TIMESTAMP}}|${TIMESTAMP}|g" ${MANIFEST_FILE}
+            sed -i "s|{{TARGET_REPO}}|${TARGET_REPO}|g" ${MANIFEST_FILE}
+            sed -i "s|{{TARGET_BRANCH}}|${TARGET_BRANCH}|g" ${MANIFEST_FILE}
+            sed -i "s|{{DATED_BRANCH}}|${DATED_BRANCH}|g" ${MANIFEST_FILE}
+            sed -i "s|{{BASE_REPO}}|${BASE_REPO}|g" ${MANIFEST_FILE}
+            sed -i "s|{{BASE_BRANCH}}|${BASE_BRANCH}|g" ${MANIFEST_FILE}
+            sed -i "s|{{BASE_COMMIT}}|${BASE_COMMIT}|g" ${MANIFEST_FILE}
+            
+            # Add each PR with its details
+            if [ -n "${MERGED_PRS}" ]; then
+              for pr_num in ${MERGED_PRS}; do
+                # Get PR commit SHA (the head of the PR branch we merged)
+                PR_COMMIT=$(git rev-parse pr-${pr_num} 2>/dev/null || echo "unknown")
+                PR_TITLE=$(gh pr view ${pr_num} --repo ${BASE_REPO} --json title --jq '.title' 2>/dev/null || echo "N/A")
+                PR_AUTHOR=$(gh pr view ${pr_num} --repo ${BASE_REPO} --json author --jq '.author.login' 2>/dev/null || echo "N/A")
+                
+                # Escape special characters in title for YAML
+                PR_TITLE_ESCAPED=$(echo "${PR_TITLE}" | sed 's/"/\\"/g')
+                
+                # Append PR entry with proper YAML indentation (2 spaces for list items)
+                echo "  - number: ${pr_num}" >> ${MANIFEST_FILE}
+                echo "    commit: \"${PR_COMMIT}\"" >> ${MANIFEST_FILE}
+                echo "    author: \"${PR_AUTHOR}\"" >> ${MANIFEST_FILE}
+                echo "    title: \"${PR_TITLE_ESCAPED}\"" >> ${MANIFEST_FILE}
+                echo "    url: \"https://github.com/${BASE_REPO}/pull/${pr_num}\"" >> ${MANIFEST_FILE}
+              done
+            else
+              echo "  []  # No PRs merged" >> ${MANIFEST_FILE}
+            fi
+            
+            rapids-echo-stderr "Manifest contents:"
+            cat ${MANIFEST_FILE}
+            
+            # Configure git for commit
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            
+            # Stage and commit the manifest
+            git add ${MANIFEST_FILE}
+            git commit -m "${TIMESTAMP}" -m "Staging branch manifest for ${DATED_BRANCH}"
+            
+            rapids-echo-stderr "✅ Manifest committed."
+
+      - name: 🚀 Push ${{ inputs.target_branch }} and ${{ env.DATED_BRANCH }}
         id: push-staging
         working-directory: velox
         env:
@@ -419,16 +488,22 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           TARGET_REPO: ${{ inputs.target_repository }}
         run: |
-            rapids-echo-stderr "Pushing ${{ inputs.target_branch }} branch to ${TARGET_REPO}..."
+            rapids-echo-stderr "Pushing ${{ inputs.target_branch }} and ${DATED_BRANCH} to ${TARGET_REPO}..."
             
             # For scheduled runs, always force push since we're resetting to upstream base
             # For manual dispatch, respect the force_push input (defaults to false)
+            # Push both branches in a single command (same commit, more efficient)
             if [ "$EVENT_NAME" == "schedule" ] || [ "$FORCE_PUSH" == "true" ]; then
-              rapids-echo-stderr "Force push enabled. Overwriting target branch..."
-              rapids-retry git push origin ${{ inputs.target_branch }} --force-with-lease
+              rapids-echo-stderr "Force push enabled. Overwriting target branches..."
+              rapids-retry git push origin \
+                HEAD:${{ inputs.target_branch }} \
+                HEAD:${DATED_BRANCH} \
+                --force
             else
               rapids-echo-stderr "Force push disabled. Attempting normal push..."
-              if ! rapids-retry git push origin ${{ inputs.target_branch }}; then
+              if ! rapids-retry git push origin \
+                HEAD:${{ inputs.target_branch }} \
+                HEAD:${DATED_BRANCH}; then
                 rapids-echo-stderr "❌ Push failed! Target branch may have diverged."
                 rapids-echo-stderr "   Enable 'force_push' to override, or manually resolve conflicts."
                 exit 1
@@ -436,9 +511,11 @@ jobs:
             fi
             
             FINAL_COMMIT=$(git rev-parse HEAD)
-            rapids-echo-stderr "✅ Done! ${{ inputs.target_branch }} branch updated successfully."
-            echo "Final commit: $FINAL_COMMIT"
+            rapids-echo-stderr "✅ Done! Both branches updated successfully."
+            rapids-echo-stderr "   - ${{ inputs.target_branch }}: ${FINAL_COMMIT}"
+            rapids-echo-stderr "   - ${DATED_BRANCH}: ${FINAL_COMMIT}"
             echo "commit_sha=$FINAL_COMMIT" >> $GITHUB_OUTPUT
+            echo "dated_branch=${DATED_BRANCH}" >> $GITHUB_OUTPUT
 
     outputs:
       staging_commit: ${{ steps.push-staging.outputs.commit_sha }}
