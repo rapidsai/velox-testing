@@ -49,6 +49,8 @@ on:
 jobs:
   sync-and-aggregate:
     runs-on: linux-amd64-cpu4
+    permissions:
+      contents: write
     steps:
       - name: 📦 Checkout velox-testing
         uses: actions/checkout@v4
@@ -469,10 +471,6 @@ jobs:
             
             rapids-echo-stderr "Manifest contents:"
             cat ${MANIFEST_FILE}
-            
-            # Configure git for commit
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
             
             # Stage and commit the manifest
             git add ${MANIFEST_FILE}
