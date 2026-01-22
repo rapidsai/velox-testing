@@ -6,7 +6,7 @@ if [[ "$PROFILE" == "ON" ]]; then
   mkdir /presto_profiles
 
   if [[ -z $PROFILE_ARGS ]]; then
-    PROFILE_ARGS="-t nvtx,cuda,osrt 
+    PROFILE_ARGS="-t nvtx,cuda,osrt,ucx 
                   --cuda-memory-usage=true 
                   --cuda-um-cpu-page-faults=true 
                   --cuda-um-gpu-page-faults=true 
@@ -17,4 +17,4 @@ fi
 
 ldconfig
 
-$PROFILE_CMD presto_server --etc-dir=/opt/presto-server/etc
+$PROFILE_CMD bash /opt/launch_presto_servers.sh "$@"
