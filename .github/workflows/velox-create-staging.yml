@@ -487,6 +487,7 @@ jobs:
           FORCE_PUSH: ${{ inputs.force_push }}
           EVENT_NAME: ${{ github.event_name }}
           TARGET_REPO: ${{ inputs.target_repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
             rapids-echo-stderr "Pushing ${{ inputs.target_branch }} and ${DATED_BRANCH} to ${TARGET_REPO}..."
             
