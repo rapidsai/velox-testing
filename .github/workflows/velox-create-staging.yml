@@ -70,12 +70,21 @@ jobs:
 
       - name: 📥 Clone Target Repository and Setup Remotes
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.VELOX_FORK_PAT || secrets.GITHUB_TOKEN }}
+          VELOX_FORK_PAT_SET: ${{ secrets.VELOX_FORK_PAT != '' }}
           TARGET_REPO: ${{ inputs.target_repository }}
           BASE_REPO: ${{ inputs.base_repository }}
           BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
+          # Warn if VELOX_FORK_PAT is not set (push may fail for cross-repo targets)
+          if [ "${VELOX_FORK_PAT_SET}" != "true" ]; then
+            rapids-echo-stderr "⚠️  WARNING: VELOX_FORK_PAT secret is not set!"
+            rapids-echo-stderr "   Push to ${TARGET_REPO} may fail if it's not the workflow's repo."
+            rapids-echo-stderr "   Set it with: gh secret set VELOX_FORK_PAT --repo <this-repo> --body \"\$TOKEN\""
+          fi
+          
           rapids-echo-stderr "Cloning ${TARGET_REPO}..."
+          # Use VELOX_FORK_PAT for clone as we'll push to this repo later
           rapids-retry git clone https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git velox
           cd velox
           git remote add upstream https://github.com/${BASE_REPO}.git
@@ -484,10 +493,8 @@ jobs:
         env:
           FORCE_PUSH: ${{ inputs.force_push }}
           EVENT_NAME: ${{ github.event_name }}
-          TARGET_REPO: ${{ inputs.target_repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-            rapids-echo-stderr "Pushing ${{ inputs.target_branch }} and ${DATED_BRANCH} to ${TARGET_REPO}..."
+            rapids-echo-stderr "Pushing ${{ inputs.target_branch }} and ${DATED_BRANCH} to ${{ inputs.target_repository }}..."
             
             # For scheduled runs, always force push since we're resetting to upstream base
             # For manual dispatch, respect the force_push input (defaults to false)

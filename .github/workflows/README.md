@@ -165,6 +165,18 @@ merged_prs:
     
     Default: `false`
 
+**Setup Secret:**
+
+Before triggering the workflow, ensure the `VELOX_FORK_PAT` secret is configured in the
+repository where the workflow runs (e.g., `rapidsai/velox-testing`). The PAT should have
+write access to the `target_repository`.
+
+```bash
+# Set the PAT secret in the workflow repo for push access to target repo
+# Example: Setting secret in velox-testing to push to avinashraj/velox
+gh secret set VELOX_FORK_PAT --repo rapidsai/velox-testing --body "$TOKEN_VAR"
+```
+
 **CLI Examples:**
 
 ```bash
@@ -196,13 +208,15 @@ gh workflow run velox-create-staging.yml \
 # Full custom configuration
 gh workflow run velox-create-staging.yml \
   -R rapidsai/velox-testing \
+  --ref ci-staging-branch-creation-followup \
   -f base_repository=facebookincubator/velox \
   -f base_branch=main \
   -f target_repository=rapidsai/velox \
   -f target_branch=staging \
   -f auto_fetch_prs=true \
+  -f manual_pr_numbers="" \
   -f build_and_run_tests=false \
-  -f force_push=false
+  -f force_push=true
 ```
 
 **Scheduled Runs:**
@@ -356,10 +370,12 @@ The workflows use the following repository variables for configuration:
 
 | Secret | Purpose |
 |--------|---------|
-| `VELOX_TEST_PAT` | GitHub PAT for cross-repo operations |
+| `VELOX_FORK_PAT` | GitHub PAT with write access to the target repository (default: `rapidsai/velox`) for staging branch push |
 | `AWS_ARN_STRING` | AWS ARN for S3 access |
 | `AWS_ACCESS_KEY_ID` | AWS access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
+
+> **Note:** `VELOX_FORK_PAT` requires `repo` scope (or fine-grained token with Contents: Read and Write permission). This is used by `velox-create-staging.yml` to push the staging branch. If you set `target_repository` to your own fork, use a PAT with write access to that fork.
 
 ---
 
