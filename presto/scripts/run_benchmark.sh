@@ -156,9 +156,9 @@ parse_args() {
         shift
         ;;
       --skip-drop-cache)
-	SKIP_DROP_CACHE=true
-	shift
-	;;
+        SKIP_DROP_CACHE=true
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -169,7 +169,7 @@ parse_args() {
 }
 
 dropcache() {
-    docker run --rm --privileged --gpus all alpine:latest sh -c "free; echo drop_caches; echo 3 > /proc/sys/vm/drop_caches; free"
+  docker run --rm --privileged --gpus all alpine:latest sh -c "free; echo drop_caches; echo 3 > /proc/sys/vm/drop_caches; free"
 }
 
 parse_args "$@"
