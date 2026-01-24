@@ -155,6 +155,8 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
+  --build-arg CPM_GIT_SHALLOW=${CPM_GIT_SHALLOW:-FALSE} \
+  --build-arg CPM_PACKAGE_rapids_logger_GIT_TAG=${CPM_PACKAGE_rapids_logger_GIT_TAG:-main} \
   ${BUILD_TARGET_ARG[@]}
 fi
 
