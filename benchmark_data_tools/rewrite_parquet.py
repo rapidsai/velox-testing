@@ -61,17 +61,17 @@ def process_file(input_file_path, output_dir, input_dir, verbose, convert_decima
     # Stream-read and write in small batches to avoid high memory usage
     writer = pq.ParquetWriter(output_file_path, new_schema)
     try:
-        for batch in parquet_file.iter_batches(batch_size=65536):
-            names = batch.schema.names
+        for row_group_index in range(parquet_file.num_row_groups):
+            row_group = parquet_file.read_row_group(row_group_index)
+            names = row_group.schema.names
             casted_arrays = []
             for i, name in enumerate(names):
-                arr = batch.column(i)
+                arr = row_group.column(i)
                 if convert_decimal_to_float and pa.types.is_decimal(arr.type):
                     new_type = pa.field(name, pa.float64()).type
                     arr = pc.cast(arr, new_type)
                 casted_arrays.append(arr)
-            casted_batch = pa.RecordBatch.from_arrays(casted_arrays, schema=new_schema)
-            writer.write_table(pa.Table.from_batches([casted_batch]))
+            writer.write_table(pa.table(casted_arrays, schema=new_schema))
     finally:
         writer.close()
 

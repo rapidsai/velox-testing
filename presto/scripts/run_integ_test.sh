@@ -162,7 +162,18 @@ trap delete_python_virtual_env EXIT
 init_python_virtual_env
 
 TEST_DIR=$(readlink -f ../testing)
-pip install -q -r ${TEST_DIR}/requirements.txt
+# PyPI can occasionally be slow/flaky on GitHub-hosted runners; harden pip with retries/timeouts.
+# You can override these if needed:
+#   PIP_TIMEOUT=180 PIP_RETRIES=12 ./run_integ_test.sh ...
+PIP_TIMEOUT="${PIP_TIMEOUT:-120}"
+PIP_RETRIES="${PIP_RETRIES:-8}"
+python -m pip install \
+  --disable-pip-version-check \
+  --no-input \
+  --progress-bar off \
+  --retries "${PIP_RETRIES}" \
+  --timeout "${PIP_TIMEOUT}" \
+  -q -r "${TEST_DIR}/requirements.txt"
 
 source ./common_functions.sh
 

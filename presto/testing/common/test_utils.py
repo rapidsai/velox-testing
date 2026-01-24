@@ -15,6 +15,7 @@
 import os
 import json
 import re
+import pytest
 
 def get_queries(benchmark_type):
     with open(get_abs_file_path(f"./queries/{benchmark_type}/queries.json"), "r") as file:
