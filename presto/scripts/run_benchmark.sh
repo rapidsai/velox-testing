@@ -41,6 +41,7 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
+    --skip-drop-cache	    Skip cache dropping (will drop cache by default).
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -154,6 +155,10 @@ parse_args() {
         PROFILE=true
         shift
         ;;
+      --skip-drop-cache)
+	SKIP_DROP_CACHE=true
+	shift
+	;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -161,6 +166,10 @@ parse_args() {
         ;;
     esac
   done
+}
+
+dropcache() {
+    docker run --rm --privileged --gpus all alpine:latest sh -c "free; echo drop_caches; echo 3 > /proc/sys/vm/drop_caches; free"
 }
 
 parse_args "$@"
@@ -233,5 +242,11 @@ source ./common_functions.sh
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
+echo "Dropping cache"
+if [[ -z ${SKIP_DROP_CACHE} ]]; then
+    dropcache;
+fi
+
+echo "Running bench"
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}

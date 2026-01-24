@@ -51,8 +51,17 @@ function duplicate_worker_configs() {
         ${coord_config}/config_native.properties
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
 	${worker_config}/config_native.properties
-  # make cudf.exchange=true if we are running multiple workers
+    # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
+    if [[ -n ${MEMORY_PERCENT} ]]; then
+	if ! grep -q "^cudf.memory_resource=.*" ${worker_config}/config_native.properties; then
+	    echo "cudf.memory_resource=async" >> ${worker_config}/config_native.properties
+	    echo "cudf.memory_percent=${MEMORY_PERCENT}" >> ${worker_config}/config_native.properties
+	else
+	    sed -i "s+cudf.memory_resource=.*+cudf.memory_resource=async+g" ${worker_config}/config_native.properties
+	    sed -i "s+cudf.memory_percent=.*+cudf.memory_percent=${MEMORY_PERCENT}+g" ${worker_config}/config_native.properties
+	fi
+    fi
   fi
   echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
 
