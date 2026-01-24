@@ -92,11 +92,7 @@ if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
 fi
 if [[ -z ${VCPU_PER_WORKER} ]]; then
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
-    if [[ -n "$NUM_WORKERS" ]]; then
-      VCPU_PER_WORKER=2
-    else
-      VCPU_PER_WORKER=4
-    fi
+    VCPU_PER_WORKER=2
   else
     VCPU_PER_WORKER=${NPROC}
   fi
@@ -138,26 +134,28 @@ EOF
     echo_error "ERROR: Errors reported by pbench genconfig. Configs were not generated successfully."
   fi
 
+  if [ -n "${HIVE_METASTORE_URI:-}" ]; then
+    sed -i 's/hive.metastore=file/#hive.metastore=file/' "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties" "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
+    sed -i "s|hive.metastore.catalog.dir=.*|hive.metastore.uri=${HIVE_METASTORE_URI}|" "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties" "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
+  fi
+
+  COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
   # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
     # for GPU variant, uncomment these optimizer settings
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
-    COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
-    
     if [[ ${NUM_WORKERS} -eq 1 ]]; then
-    # Adds a cluster tag for gpu variant
-    WORKER_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
-    echo "cluster-tag=native-gpu" >> ${WORKER_CONFIG}
+      # Adds a cluster tag for gpu variant
+      echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
     fi
   fi
 
   # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
     # Adds a cluster tag for cpu variant
-    WORKER_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
-    echo "cluster-tag=native-cpu" >> ${WORKER_CONFIG}
+    echo "cluster-tag=native-cpu" >> ${COORD_CONFIG}
   fi
   
   # for Java variant, disable some Parquet properties which are now rejected
@@ -165,6 +163,7 @@ EOF
     HIVE_CONFIG="${CONFIG_DIR}/etc_worker/catalog/hive.properties"
     sed -i 's/parquet\.reader\.chunk-read-limit/#parquet\.reader\.chunk-read-limit/' ${HIVE_CONFIG}
     sed -i 's/parquet\.reader\.pass-read-limit/#parquet\.reader\.pass-read-limit/' ${HIVE_CONFIG}
+    sed -i 's/^cudf/#cudf/' ${HIVE_CONFIG}
   fi
 
   # success message
