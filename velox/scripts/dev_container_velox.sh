@@ -330,7 +330,7 @@ SELECTED_COMPOSE_FILE=$(compose_file)
 
 # Resolve source/build paths (keep build under source tree for reuse and stable paths)
 HOST_VELOX_ABS=${HOST_VELOX_ABS:-$(realpath "$(dirname "$0")/../../../velox")}
-BUILD_BASE_DIR=${BUILD_BASE_DIR:-${HOST_VELOX_ABS}/velox-build}
+BUILD_BASE_DIR=${BUILD_BASE_DIR:-/workspace/velox/velox-build}
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_BASE_DIR="${BUILD_BASE_DIR}")
 
 # Run container as the invoking host user (used by entrypoint to create user + sudo)

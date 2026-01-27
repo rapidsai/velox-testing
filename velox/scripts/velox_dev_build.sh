@@ -31,6 +31,43 @@ gcc --version | head -1;
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
   # Run sccache setup script (needs root to place binaries/certs)
   sudo -E bash /sccache_setup.sh;
+  # Ensure sccache cache and temp dirs are writable
+  export SCCACHE_DIR="${SCCACHE_DIR:-${HOME}/.cache/sccache}";
+  export SCCACHE_TMPDIR="${SCCACHE_TMPDIR:-/tmp/.sccache_temp}";
+  export SCCACHE_TEMPDIR="${SCCACHE_TEMPDIR:-${SCCACHE_TMPDIR}}";
+  mkdir -p "${SCCACHE_DIR}";
+  if [ ! -w "${SCCACHE_TMPDIR}" ]; then
+    sudo mkdir -p "${SCCACHE_TMPDIR}";
+    sudo chown -R "$(id -u):$(id -g)" "${SCCACHE_TMPDIR}";
+  fi
+  # Enable verbose sccache logging if requested
+  if [ -n "${SCCACHE_LOG:-}" ] || [ -n "${SCCACHE_LOG_FILE:-}" ] || [ "${SCCACHE_DEBUG:-0}" = "1" ]; then
+    export SCCACHE_LOG="${SCCACHE_LOG:-trace}";
+    export SCCACHE_LOG_FILE="${SCCACHE_LOG_FILE:-/tmp/sccache.log}";
+    log_dir="$(dirname "${SCCACHE_LOG_FILE}")";
+    if [ ! -d "${log_dir}" ]; then
+      mkdir -p "${log_dir}" || sudo mkdir -p "${log_dir}";
+      sudo chown -R "$(id -u):$(id -g)" "${log_dir}" || true;
+    fi
+    if [ -e "${SCCACHE_LOG_FILE}" ] && [ ! -w "${SCCACHE_LOG_FILE}" ]; then
+      sudo rm -f "${SCCACHE_LOG_FILE}";
+    fi
+    # Restart server so it picks up env vars. Prefer running as root for S3 creds.
+    sccache_cmd="sccache";
+    if [ -n "${SCCACHE_BUCKET:-}" ] && [ "${SCCACHE_S3_NO_CREDENTIALS:-false}" != "true" ]; then
+      export AWS_SHARED_CREDENTIALS_FILE="${AWS_SHARED_CREDENTIALS_FILE:-/root/.aws/credentials}";
+      sccache_cmd="sudo -E sccache";
+      export SCCACHE_DIR="/root/.cache/sccache";
+      sudo mkdir -p "${SCCACHE_DIR}" "${SCCACHE_TMPDIR}";
+      export SCCACHE_LOG_FILE="${SCCACHE_DIR}/sccache.log";
+    fi
+    if ! touch "${SCCACHE_LOG_FILE}" 2>/dev/null; then
+      sudo touch "${SCCACHE_LOG_FILE}";
+      sudo chown "$(id -u):$(id -g)" "${SCCACHE_LOG_FILE}" || true;
+    fi
+    ${sccache_cmd} --stop-server || true;
+    ${sccache_cmd} --start-server;
+  fi
   # Add sccache CMake flags
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
