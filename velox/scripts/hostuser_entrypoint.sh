@@ -19,12 +19,24 @@ if [ ${#cmd[@]} -eq 0 ]; then
   cmd=(tail -f /dev/null)
 fi
 
-# Ensure sudo is available
+# Ensure base tools are available (should already be in image)
+missing_pkgs=()
 if ! command -v sudo >/dev/null 2>&1; then
-  dnf install -y sudo
+  missing_pkgs+=(sudo)
+fi
+if ! command -v cmake >/dev/null 2>&1; then
+  missing_pkgs+=(cmake)
+fi
+if ! command -v ninja >/dev/null 2>&1; then
+  missing_pkgs+=(ninja-build)
+fi
+if ! command -v git >/dev/null 2>&1; then
+  missing_pkgs+=(git)
+fi
+if [ "${#missing_pkgs[@]}" -gt 0 ]; then
+  dnf install -y "${missing_pkgs[@]}" || true
 fi
 # Ensure cmake is available system-wide and point /usr/local/bin/cmake to it
-dnf install -y cmake ninja-build git || true
 if [ -x /usr/bin/cmake ]; then
   rm -f /usr/local/bin/cmake
   ln -s /usr/bin/cmake /usr/local/bin/cmake

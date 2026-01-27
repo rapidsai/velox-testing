@@ -15,6 +15,7 @@ services:
       HOST_VELOX_ABS: ${HOST_VELOX_ABS:-/workspace/velox}
       BUILD_BASE_DIR: ${BUILD_BASE_DIR:-/workspace/velox/velox-build}
       ENABLE_CCLS: ${ENABLE_CCLS:-false}
+      FORCE_CXX_STANDARD: ${FORCE_CXX_STANDARD:-}
     secrets:
       # Runtime secrets so the files are present inside the container
       - source: github_token

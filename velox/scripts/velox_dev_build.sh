@@ -111,38 +111,106 @@ HOST_SRC_ABS="${HOST_VELOX_ABS:-/workspace/velox}"
 HOST_BUILD_ABS="${BUILD_BASE_DIR}"
 if [ -f "${CCDB}" ]; then
   CCDB="${CCDB}" HOST_SRC_ABS="${HOST_SRC_ABS}" HOST_BUILD_ABS="${HOST_BUILD_ABS}" python - <<'PYCODE'
-import json, os, sys
+import json
+import os
+import shlex
+import sys
 ccdb = os.environ["CCDB"]
 src_abs = os.environ["HOST_SRC_ABS"]
 bld_abs = os.environ["HOST_BUILD_ABS"]
+force_std_raw = os.environ.get("FORCE_CXX_STANDARD", "").strip()
+std_flag = None
+if force_std_raw:
+    if force_std_raw.startswith("-std="):
+        std_flag = force_std_raw
+    elif force_std_raw.startswith("c++") or force_std_raw.startswith("gnu++"):
+        std_flag = f"-std={force_std_raw}"
+    else:
+        std_flag = f"-std=c++{force_std_raw}"
+
+def replace_paths(value: str) -> str:
+    return value.replace("/workspace/velox", src_abs).replace("/opt/velox-build", bld_abs)
+
+def ensure_std(args):
+    if not std_flag:
+        return args, False
+    changed = False
+    has_std = False
+    new_args = []
+    for arg in args:
+        if isinstance(arg, str) and arg.startswith("-std="):
+            has_std = True
+            if arg != std_flag:
+                new_args.append(std_flag)
+                changed = True
+            else:
+                new_args.append(arg)
+        else:
+            new_args.append(arg)
+    if not has_std:
+        new_args.append(std_flag)
+        changed = True
+    return new_args, changed
+
 with open(ccdb, "r", encoding="utf-8") as f:
     data = json.load(f)
 changed = False
 for entry in data:
-    for k in ("directory", "file", "command", "arguments"):
-        if k in entry:
-            val = entry[k]
-            if isinstance(val, str):
-                new = val.replace("/workspace/velox", src_abs).replace("/opt/velox-build", bld_abs)
-                if new != val:
-                    entry[k] = new
-                    changed = True
-            elif isinstance(val, list):
-                new_list = []
-                for item in val:
-                    if isinstance(item, str):
-                        new_item = item.replace("/workspace/velox", src_abs).replace("/opt/velox-build", bld_abs)
-                        new_list.append(new_item)
-                        if new_item != item:
-                            changed = True
-                    else:
-                        new_list.append(item)
-                entry[k] = new_list
+    if "directory" in entry and isinstance(entry["directory"], str):
+        new = replace_paths(entry["directory"])
+        if new != entry["directory"]:
+            entry["directory"] = new
+            changed = True
+    if "file" in entry and isinstance(entry["file"], str):
+        new = replace_paths(entry["file"])
+        if new != entry["file"]:
+            entry["file"] = new
+            changed = True
+    if "command" in entry and isinstance(entry["command"], str):
+        cmd = entry["command"]
+        cmd_replaced = replace_paths(cmd)
+        cmd_changed = cmd_replaced != cmd
+        cmd = cmd_replaced
+        std_changed = False
+        if std_flag:
+            try:
+                args = shlex.split(cmd)
+            except ValueError:
+                args = None
+            if args is not None:
+                args, std_changed = ensure_std(args)
+                if std_changed:
+                    cmd = shlex.join(args)
+            elif "-std=" not in cmd and std_flag not in cmd:
+                cmd = f"{cmd} {std_flag}"
+                std_changed = True
+        if cmd_changed or std_changed:
+            entry["command"] = cmd
+            changed = True
+    if "arguments" in entry and isinstance(entry["arguments"], list):
+        new_args = []
+        args_changed = False
+        for arg in entry["arguments"]:
+            if isinstance(arg, str):
+                new_arg = replace_paths(arg)
+                if new_arg != arg:
+                    args_changed = True
+                new_args.append(new_arg)
+            else:
+                new_args.append(arg)
+        new_args, std_changed = ensure_std(new_args)
+        if args_changed or std_changed:
+            entry["arguments"] = new_args
+            changed = True
 if changed:
     with open(ccdb, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 PYCODE
-  echo "Rewrote paths in ${CCDB} to ${HOST_SRC_ABS} and ${HOST_BUILD_ABS}"
+  if [ -n "${FORCE_CXX_STANDARD:-}" ]; then
+    echo "Rewrote paths in ${CCDB} and enforced -std=c++${FORCE_CXX_STANDARD}"
+  else
+    echo "Rewrote paths in ${CCDB} to ${HOST_SRC_ABS} and ${HOST_BUILD_ABS}"
+  fi
 fi
 
 #EOF

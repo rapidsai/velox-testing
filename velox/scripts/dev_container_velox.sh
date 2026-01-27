@@ -30,6 +30,7 @@ TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-0}"
 LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
 ENABLE_CCLS=true
+FORCE_CXX_STANDARD=""
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
 SCCACHE_VERSION="${SCCACHE_VERSION:-latest}"
@@ -54,6 +55,7 @@ Options:
   --sccache-version           Install a specific version of rapidsai/sccache, e.g. "0.12.0-rapids.1" (default: latest)
   --sccache-enable-dist       Enable distributed compilation (WARNING: may cause compilation differences like additional warnings that could lead to build failures).
   --update-ninja true|false   Update ninja build tool during build (default: true).
+  --force-cxx20               Force C++20 in compile_commands.json (default: off).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
   -h, --help                  Show this help message and exit.
 
@@ -174,6 +176,10 @@ parse_args() {
           echo "ERROR: --update-ninja requires a value: 'true' or 'false'" >&2
           exit 1
         fi
+        ;;
+      --force-cxx20)
+        FORCE_CXX_STANDARD="20"
+        shift
         ;;
       --build-type)
         if [[ -n "${2:-}" && ! "${2}" =~ ^- ]]; then
@@ -338,6 +344,7 @@ export HOST_UID=$(id -u) HOST_GID=$(id -g)
 export HOST_USER=${HOST_USER:-hostuser}
 export HOST_HOME=${HOST_HOME:-/home/${HOST_USER}}
 export HOST_VELOX_ABS BUILD_BASE_DIR
+export FORCE_CXX_STANDARD
 
 docker compose  --project-name velox-adapters-dev -f "$SELECTED_COMPOSE_FILE" down  velox-adapters-dev --remove-orphans
 
@@ -359,14 +366,15 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   echo "Waiting for hostuser to be ready..."
   READY=0
   for _ in {1..30}; do
-    if docker exec velox-adapters-dev getent passwd "${HOST_USER}" >/dev/null 2>&1; then
+    if docker exec velox-adapters-dev getent passwd "${HOST_USER}" >/dev/null 2>&1 \
+      && docker exec -u "${HOST_USER}" velox-adapters-dev sudo -n true >/dev/null 2>&1; then
       READY=1
       break
     fi
     sleep 1
   done
   if [[ "$READY" -ne 1 ]]; then
-    echo "WARNING: hostuser not ready; check container logs: docker logs velox-adapters-dev"
+    echo "WARNING: hostuser sudo not ready; check container logs: docker logs velox-adapters-dev"
   fi
   echo "Built dev container. Shell as host user: docker exec -it -u ${HOST_USER} velox-adapters-dev /bin/bash"
   echo ""

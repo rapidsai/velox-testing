@@ -19,6 +19,11 @@ ARG TARGETARCH
 # Do this separate so changing unrelated build args doesn't invalidate nsys installation layer
 ARG VELOX_ENABLE_BENCHMARKS=ON
 
+# Base packages for dev container runtime
+RUN dnf install -y sudo cmake ninja-build git \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
 # Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
 RUN \ 
 <<EOF
