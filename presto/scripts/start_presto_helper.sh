@@ -96,6 +96,11 @@ fi
 
 ./stop_presto.sh
 
+# For GPU, we embed the Java coordinator into the worker container(s)
+if [[ "$VARIANT_TYPE" == "gpu" ]]; then
+  export EMBEDDED_COORDINATOR=true
+fi
+
 ./generate_presto_config.sh
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
@@ -131,9 +136,9 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
 
   RENDER_SCRIPT_PATH=$(readlink -f ../../template_rendering/render_docker_compose_template.py)
   if [[ -n $GPU_IDS ]]; then
-    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS"
+    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS" "--embedded-coordinator true"
   else
-    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS"
+    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS" "--embedded-coordinator true"
   fi
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi

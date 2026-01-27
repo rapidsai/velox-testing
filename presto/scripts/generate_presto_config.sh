@@ -45,6 +45,21 @@ function duplicate_worker_configs() {
   rm -rf ${worker_config}
   cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
 
+  # If embedding the coordinator, adjust discovery.uri for workers
+  if [[ "${EMBEDDED_COORDINATOR:-false}" == "true" ]]; then
+    if [[ "${SINGLE_CONTAINER:-false}" == "true" ]]; then
+      # All workers in the same container talk to 127.0.0.1 to avoid IPv6 ::1 resolution
+      sed -i "s|^discovery\.uri=.*|discovery.uri=http://127.0.0.1:8080|g" ${worker_config}/config_native.properties
+    else
+      # Multi-container: only the first worker container hosts the coordinator
+      if [[ "$1" == "${COORDINATOR_GPU_ID:-$1}" ]]; then
+        sed -i "s|^discovery\.uri=.*|discovery.uri=http://127.0.0.1:8080|g" ${worker_config}/config_native.properties
+      else
+        sed -i "s|^discovery\.uri=.*|discovery.uri=http://presto-native-worker-gpu-${COORDINATOR_GPU_ID}:8080|g" ${worker_config}/config_native.properties
+      fi
+    fi
+  fi
+
   # Single node execution needs to be disabled if we are running multiple workers.
   if [[ ${NUM_WORKERS} -gt 1 ]]; then
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
@@ -165,12 +180,40 @@ else
   echo_success "Reusing existing Presto Config files for '${VARIANT_TYPE}'"
 fi
 
+# If embedding the Java coordinator inside a worker container, ensure its discovery.uri points to loopback
+if [[ "$VARIANT_TYPE" == "gpu" && "${EMBEDDED_COORDINATOR:-false}" == "true" ]]; then
+  COORD_JAVA_CONFIG="${CONFIG_DIR}/etc_coordinator/config_java.properties"
+  if [[ -f "${COORD_JAVA_CONFIG}" ]]; then
+    sed -i "s|^discovery\.uri=.*|discovery.uri=http://127.0.0.1:8080|g" "${COORD_JAVA_CONFIG}"
+    # Ensure required native execution settings exist for Java coordinator
+    grep -q "^native-execution-enabled=" "${COORD_JAVA_CONFIG}" || echo "native-execution-enabled=true" >> "${COORD_JAVA_CONFIG}"
+    grep -q "^optimizer\.optimize-hash-generation=" "${COORD_JAVA_CONFIG}" || echo "optimizer.optimize-hash-generation=false" >> "${COORD_JAVA_CONFIG}"
+    grep -q "^regex-library=" "${COORD_JAVA_CONFIG}" || echo "regex-library=RE2J" >> "${COORD_JAVA_CONFIG}"
+    grep -q "^use-alternative-function-signatures=" "${COORD_JAVA_CONFIG}" || echo "use-alternative-function-signatures=true" >> "${COORD_JAVA_CONFIG}"
+    # Ensure matching presto.version for native worker compatibility
+    grep -q "^presto\.version=" "${COORD_JAVA_CONFIG}" || echo "presto.version=testversion" >> "${COORD_JAVA_CONFIG}"
+    # Increase wait for workers to become active
+    if grep -q "^query-manager\.required-workers-max-wait=" "${COORD_JAVA_CONFIG}"; then
+      sed -i "s|^query-manager\.required-workers-max-wait=.*|query-manager.required-workers-max-wait=60s|g" "${COORD_JAVA_CONFIG}"
+    else
+      echo "query-manager.required-workers-max-wait=60s" >> "${COORD_JAVA_CONFIG}"
+    fi
+  fi
+fi
+
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
 if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" && "$VARIANT_TYPE" == "gpu" ]]; then
   # Count the number of GPU IDs provided
   IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
+  # First GPU ID will host the embedded coordinator if enabled
+  if [[ "${#GPU_ID_ARRAY[@]}" -gt 0 ]]; then
+    COORDINATOR_GPU_ID="${GPU_ID_ARRAY[0]}"
+  fi
   for i in "${GPU_ID_ARRAY[@]}"; do
     duplicate_worker_configs $i
   done
+elif [[ "$VARIANT_TYPE" == "gpu" && "${EMBEDDED_COORDINATOR:-false}" == "true" ]]; then
+  # Single worker (no explicit GPU IDS): adjust base worker config to localhost
+  sed -i "s|^discovery\.uri=.*|discovery.uri=http://127.0.0.1:8080|g" "${CONFIG_DIR}/etc_worker/config_native.properties"
 fi

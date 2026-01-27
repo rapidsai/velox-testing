@@ -30,6 +30,9 @@ def parse_args():
                         help="Comma-delimited list of GPU IDs")
     parser.add_argument("--kvikio-threads", type=int, default=None, dest="kvikio_threads", required=False,
                         help="Number of KvikIO threads (optional).")
+    parser.add_argument("--embedded-coordinator", type=str_to_bool, required=False, default=True,
+                        dest="embedded_coordinator",
+                        help="If true, first worker container will also run the Java coordinator and the separate coordinator service is omitted.")
     return parser.parse_args()
 
 def main() -> int:
@@ -66,7 +69,8 @@ def main() -> int:
         num_workers=parsed_args.num_workers,
         workers=workers,
         single_container=parsed_args.single_container,
-        kvikio_threads=parsed_args.kvikio_threads
+        kvikio_threads=parsed_args.kvikio_threads,
+        embedded_coordinator=parsed_args.embedded_coordinator,
     )
 
     os.makedirs(os.path.dirname(parsed_args.output_path), exist_ok=True)

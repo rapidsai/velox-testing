@@ -35,8 +35,10 @@ x-presto-native-worker-gpu: &gpu_worker_base
     #   - /dev/infiniband/uverbs7
     #   - /dev/infiniband/uverbs8
     #   - /dev/infiniband/uverbs9
+  {% if not embedded_coordinator %}
   depends_on:
     - presto-coordinator
+  {% endif %}
   volumes:
     - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
     - ../../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
@@ -44,6 +46,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
     - ../../config/generated/gpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
 services:
+  {% if not embedded_coordinator %}
   presto-coordinator:
     extends:
       file: ../../docker-compose.common.yml
@@ -53,6 +56,7 @@ services:
       - ../../config/generated/gpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
       - ../../config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
       - ../../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+  {% endif %}
 
   {% if workers|length > 1 and not single_container %}
   # Separate GPU workers - runs each worker in a separate container, pinned to a specific GPU
@@ -64,6 +68,7 @@ services:
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE}
       PROFILE_ARGS: ${PROFILE_ARGS}
+      START_COORDINATOR: "{% if embedded_coordinator and loop.first %}on{% else %}off{% endif %}"
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
@@ -74,7 +79,16 @@ services:
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
+    {% if embedded_coordinator and loop.first %}
+    ports:
+      - 8080:8080
+    {% endif %}
     volumes:
+      # Coordinator (Java) configs mounted separately under /opt/presto-server-java/etc
+      - ../../config/generated/gpu/etc_common:/opt/presto-server-java/etc
+      - ../../config/generated/gpu/etc_coordinator/config_java.properties:/opt/presto-server-java/etc/config.properties
+      - ../../config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server-java/etc/node.properties
+      - ../../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server-java/etc/catalog/hive.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc/config.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
@@ -90,6 +104,7 @@ services:
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE}
       PROFILE_ARGS: ${PROFILE_ARGS}
+      START_COORDINATOR: "{% if embedded_coordinator %}on{% else %}${START_COORDINATOR}{% endif %}"
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
@@ -100,11 +115,16 @@ services:
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: "{% for id in workers %}{{ id }}{% if not loop.last %},{% endif %}{% endfor %}"
+    {% if embedded_coordinator %}
+    ports:
+      - 8080:8080
+    {% endif %}
 {% else %}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE}
       PROFILE_ARGS: ${PROFILE_ARGS}
+      START_COORDINATOR: "{% if embedded_coordinator %}on{% else %}${START_COORDINATOR}{% endif %}"
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
@@ -115,8 +135,17 @@ services:
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: 0
+    {% if embedded_coordinator %}
+    ports:
+      - 8080:8080
+    {% endif %}
 {%- endif %}
     volumes:
+      # Coordinator (Java) configs mounted separately under /opt/presto-server-java/etc
+      - ../../config/generated/gpu/etc_common:/opt/presto-server-java/etc
+      - ../../config/generated/gpu/etc_coordinator/config_java.properties:/opt/presto-server-java/etc/config.properties
+      - ../../config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server-java/etc/node.properties
+      - ../../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server-java/etc/catalog/hive.properties
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}
