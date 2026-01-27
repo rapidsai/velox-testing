@@ -32,11 +32,16 @@ def pytest_addoption(parser):
     parser.addoption("--tag")
     parser.addoption("--profile", action="store_true", default=False)
     parser.addoption("--profile-script-path")
+    parser.addoption("--explain-analyze", action="store_true", default=False)
+    parser.addoption("--explain-analyze-save", choices=["last", "all"], default="last")
+    parser.addoption("--explain", action="store_true", default=False)
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     text_report = []
     iterations = config.getoption("--iterations")
+    if config.getoption("--explain"):
+        iterations = 1
     schema_name = config.getoption("--schema-name")
     tag = config.getoption("--tag")
     for benchmark_type, result in terminalreporter._session.benchmark_results.items():
@@ -110,6 +115,8 @@ def write_section(terminalreporter, text_report, content, **kwargs):
 
 def pytest_sessionfinish(session, exitstatus):
     iterations = session.config.getoption("--iterations")
+    if session.config.getoption("--explain"):
+        iterations = 1
     schema_name = session.config.getoption("--schema-name")
     json_result = {
         BenchmarkKeys.CONTEXT_KEY: {

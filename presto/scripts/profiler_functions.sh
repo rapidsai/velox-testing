@@ -26,7 +26,7 @@ function start_profiler() {
   local -r profile_output_file_path=$1
 
   check_profile_output_directory
-  $(get_docker_exec_command) nsys start --gpu-metrics-devices=all -o /presto_profiles/$(basename $profile_output_file_path).nsys-rep
+  $(get_docker_exec_command) nsys start --gpu-metrics-devices=cuda-visible -o /presto_profiles/$(basename $profile_output_file_path).nsys-rep
 }
 
 function stop_profiler() {

@@ -7,6 +7,7 @@ if [[ "$PROFILE" == "ON" ]]; then
 
   if [[ -z $PROFILE_ARGS ]]; then
     PROFILE_ARGS="-t nvtx,cuda,osrt,ucx 
+                  --gds-metrics=true
                   --cuda-memory-usage=true 
                   --cuda-um-cpu-page-faults=true 
                   --cuda-um-gpu-page-faults=true 

@@ -41,6 +41,13 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
+    --explain-analyze       Run queries as EXPLAIN ANALYZE and write the explain output files into --output-dir.
+    --explain-analyze-save  When --explain-analyze is set and --iterations > 1, choose whether to save explain output
+                            for "all" iterations or only the "last" iteration (default: last).
+    --explain               Run queries as EXPLAIN (no execution) and write explain output files into --output-dir.
+                            Output includes multiple PrestoDB EXPLAIN variants in a single file:
+                            EXPLAIN, EXPLAIN (TYPE DISTRIBUTED), and other supported TYPE variants.
+                            Note: --iterations is ignored in this mode.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -48,6 +55,9 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -i 10 -o ~/tpch_benchmark_output
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
+    $0 -b tpch -s bench_sf100 --explain-analyze
+    $0 -b tpch -s bench_sf100 -i 3 --explain-analyze --explain-analyze-save all
+    $0 -b tpch -s bench_sf100 --explain
     $0 -h
 
 EOF
@@ -154,6 +164,23 @@ parse_args() {
         PROFILE=true
         shift
         ;;
+      --explain-analyze)
+        EXPLAIN_ANALYZE=true
+        shift
+        ;;
+      --explain-analyze-save)
+        if [[ -n $2 ]]; then
+          EXPLAIN_ANALYZE_SAVE_MODE=$2
+          shift 2
+        else
+          echo "Error: --explain-analyze-save requires a value"
+          exit 1
+        fi
+        ;;
+      --explain)
+        EXPLAIN_ONLY=true
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -218,6 +245,22 @@ fi
 
 if [[ "${PROFILE}" == "true" ]]; then
   PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
+fi
+
+if [[ "${EXPLAIN_ANALYZE}" == "true" ]]; then
+  PYTEST_ARGS+=("--explain-analyze")
+  if [[ -n ${EXPLAIN_ANALYZE_SAVE_MODE} ]]; then
+    if [[ ! ${EXPLAIN_ANALYZE_SAVE_MODE} =~ ^(last|all)$ ]]; then
+      echo "Error: Invalid --explain-analyze-save value. Allowed values are: last, all."
+      print_help
+      exit 1
+    fi
+    PYTEST_ARGS+=("--explain-analyze-save ${EXPLAIN_ANALYZE_SAVE_MODE}")
+  fi
+fi
+
+if [[ "${EXPLAIN_ONLY}" == "true" ]]; then
+  PYTEST_ARGS+=("--explain")
 fi
 
 source ../../scripts/py_env_functions.sh
