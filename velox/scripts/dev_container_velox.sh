@@ -31,6 +31,7 @@ LOGFILE="./build_velox.log"
 ENABLE_SCCACHE=false
 ENABLE_CCLS=true
 FORCE_CXX_STANDARD=""
+INSTALL_CCLS="OFF"
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
 SCCACHE_VERSION="${SCCACHE_VERSION:-latest}"
@@ -55,6 +56,7 @@ Options:
   --sccache-version           Install a specific version of rapidsai/sccache, e.g. "0.12.0-rapids.1" (default: latest)
   --sccache-enable-dist       Enable distributed compilation (WARNING: may cause compilation differences like additional warnings that could lead to build failures).
   --update-ninja true|false   Update ninja build tool during build (default: true).
+  --install-ccls              Build ccls into the dev image (cached, default: off).
   --force-cxx20               Force C++20 in compile_commands.json (default: off).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
   -h, --help                  Show this help message and exit.
@@ -177,6 +179,10 @@ parse_args() {
           exit 1
         fi
         ;;
+      --install-ccls)
+        INSTALL_CCLS="ON"
+        shift
+        ;;
       --force-cxx20)
         FORCE_CXX_STANDARD="20"
         shift
@@ -294,6 +300,7 @@ DOCKER_BUILD_OPTS+=(--build-arg NUM_THREADS="${NUM_THREADS}")
 DOCKER_BUILD_OPTS+=(--build-arg VELOX_ENABLE_BENCHMARKS="${VELOX_ENABLE_BENCHMARKS}")
 DOCKER_BUILD_OPTS+=(--build-arg TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS}")
 DOCKER_BUILD_OPTS+=(--build-arg BUILD_TYPE="${BUILD_TYPE}")
+DOCKER_BUILD_OPTS+=(--build-arg INSTALL_CCLS="${INSTALL_CCLS}")
 DOCKER_BUILD_OPTS+=(--build-arg SCCACHE_VERSION="${SCCACHE_VERSION}")
 DOCKER_BUILD_OPTS+=(--build-arg UPDATE_NINJA="${UPDATE_NINJA}")
 DOCKER_BUILD_OPTS+=(--build-arg ENABLE_CCLS="${ENABLE_CCLS}")

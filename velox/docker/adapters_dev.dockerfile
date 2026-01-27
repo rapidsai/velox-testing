@@ -18,6 +18,7 @@ ARG TARGETARCH
 
 # Do this separate so changing unrelated build args doesn't invalidate nsys installation layer
 ARG VELOX_ENABLE_BENCHMARKS=ON
+ARG INSTALL_CCLS=OFF
 
 # Base packages for dev container runtime
 RUN dnf install -y sudo cmake ninja-build git \
@@ -49,6 +50,36 @@ if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then
       echo "Skipping nsys installation (VELOX_ENABLE_BENCHMARKS=OFF)"
     fi
 EOF
+
+# Optional ccls build (cached in image)
+RUN if [ "$INSTALL_CCLS" = "ON" ]; then \
+      set -eux; \
+      dnf install -y clang clang-devel clang-tools-extra llvm-devel llvm-static; \
+      CCLS_DIR=/opt/ccls; \
+      git clone --recursive https://github.com/MaskRay/ccls.git "${CCLS_DIR}"; \
+      cd "${CCLS_DIR}"; \
+      git submodule update --init --recursive; \
+      CLANG_DIR=$(rpm -ql clang clang-devel 2>/dev/null | grep -m1 'ClangConfig.cmake' | xargs dirname || true); \
+      if [ -z "${CLANG_DIR}" ]; then \
+        if [ -f /usr/lib64/cmake/clang/ClangConfig.cmake ]; then \
+          CLANG_DIR=/usr/lib64/cmake/clang; \
+        elif [ -f /usr/lib/cmake/clang/ClangConfig.cmake ]; then \
+          CLANG_DIR=/usr/lib/cmake/clang; \
+        fi; \
+      fi; \
+      cmake -S . -B Release \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_PREFIX_PATH=/usr/lib/llvm-18 \
+        -DLLVM_INCLUDE_DIR=/usr/lib/llvm-18/include \
+        -DLLVM_BUILD_INCLUDE_DIR=/usr/include/llvm-18/ \
+        ${CLANG_DIR:+-DClang_DIR=${CLANG_DIR}}; \
+      cmake --build Release; \
+      ln -sf "${CCLS_DIR}/Release/ccls" /usr/local/bin/ccls; \
+      dnf clean all; \
+      rm -rf /var/cache/dnf; \
+    else \
+      echo "Skipping ccls install (INSTALL_CCLS=${INSTALL_CCLS})"; \
+    fi
 
 # Build-time configuration, these may be overridden in the docker compose yaml,
 # environment variables, or via the docker build command
