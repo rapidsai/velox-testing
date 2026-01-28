@@ -87,7 +87,7 @@ elif [[ ! $BENCHMARK_TYPE =~ ^tpc(h|ds)$ ]]; then
   print_help
   exit 1
 else
-  BENCHMARK_TYPES_TO_GENERATE=($BENCHMARK_TYPE)
+  BENCHMARK_TYPES_TO_GENERATE=("$BENCHMARK_TYPE")
 fi
 
 rm -rf .venv
