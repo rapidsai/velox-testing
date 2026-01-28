@@ -251,7 +251,7 @@ function setup_benchmark {
 
     # Create tables and run ANALYZE
     # ANALYZE may fail on very large datasets due to resource constraints, but tables will still be usable
-    run_coord_image "export PORT=$PORT; export COORD=${COORD}; export PRESTO_DATA_DIR=/data; yum install python3.12 -y; yum install jq -y; cd /workspace/velox-testing/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; ./analyze_tables.sh --port $PORT --hostname $COORD -s tpchsf${scale_factor}" "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/data; yum install python3.12 -y; yum install jq -y; cd /workspace/velox-testing/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli" 
 
     # Alternative: Use register_benchmark.sh which creates tables WITHOUT running ANALYZE
     #run_coord_image "export COORD=${COORD}:${PORT}; export SCHEMA=tpchsf${scale_factor}; cd /workspace/velox-testing/presto/scripts; ./register_benchmark.sh register -l ${data_path} -s tpchsf${scale_factor} -c ${COORD}:${PORT}" "cli"
