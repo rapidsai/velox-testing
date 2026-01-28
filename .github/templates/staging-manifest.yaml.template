@@ -1,0 +1,16 @@
+# Staging Branch Manifest
+# This file describes how this staging branch was created
+
+metadata:
+  generated_at: "{{TIMESTAMP}}"
+  target_repository: "{{TARGET_REPO}}"
+  target_branch: "{{TARGET_BRANCH}}"
+  dated_branch: "{{DATED_BRANCH}}"
+
+base:
+  repository: "{{BASE_REPO}}"
+  branch: "{{BASE_BRANCH}}"
+  commit: "{{BASE_COMMIT}}"
+  url: "https://github.com/{{BASE_REPO}}/tree/{{BASE_COMMIT}}"
+
+merged_prs:
