@@ -120,7 +120,6 @@ for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
   echo "Benchmark data files generated for $BENCHMARK_TYPE"
 
   SCHEMAS_DIR=../../common/schemas/$BENCHMARK_TYPE
-  SCHEMA_NAME=${BENCHMARK_TYPE}_test
   rm -rf "$SCHEMAS_DIR"
   echo "Generating table schema files for $BENCHMARK_TYPE..."
   python "$BENCHMARK_DATA_TOOLS_DIR"/generate_table_schemas.py \

@@ -5,11 +5,11 @@
 
 set -e
 
-SCRIPT_DESCRIPTION="This script sets up benchmark tables under the given schema name. The benchmark data
+export SCRIPT_DESCRIPTION="This script sets up benchmark tables under the given schema name. The benchmark data
 is expected to already exist under the PRESTO_DATA_DIR path in a directory with name
 that matches the value set for the --data-dir-name argument."
 
-SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100"
+export SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100"
 
 source ./setup_benchmark_helper_check_instance_and_parse_args.sh
 

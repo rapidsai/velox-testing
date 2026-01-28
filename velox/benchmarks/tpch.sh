@@ -194,9 +194,6 @@ run_tpch_single_benchmark() {
       ;;
   esac
 
-  # Common benchmark settings
-  output_batch_rows=${BATCH_SIZE_ROWS:-100000}
-
   echo "Running query ${query_number_padded} on ${device_type} with ${num_drivers} drivers."
 
   # Set up profiling if requested

@@ -115,8 +115,6 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   RENDERED_DIR="../docker/docker-compose/generated"
   mkdir -p "$RENDERED_DIR"
   RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
-  # Default to 0 if not provided, which results in no per-GPU workers being rendered.
-  LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
   RENDER_SCRIPT_PATH=$(readlink -f ../../template_rendering/render_docker_compose_template.py)
   if [[ -n $GPU_IDS ]]; then
