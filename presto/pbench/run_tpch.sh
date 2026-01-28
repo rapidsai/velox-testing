@@ -1,7 +1,6 @@
+#!/bin/bash
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-
-#!/bin/bash
 
 BASE_DIR="$(dirname "$(realpath "$0")")"/../..
 OUTPUT_DIR="$BASE_DIR/pbench_output/tpch"
