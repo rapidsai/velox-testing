@@ -29,8 +29,8 @@ export CONFIGS=${WORKSPACE}/config/generated/cpu
 # Coordinator: ${IMAGE_DIR}/presto-coordinator.sqsh
 # Worker: ${IMAGE_DIR}/${WORKER_IMAGE}.sqsh (CPU workers required for ANALYZE)
 export WORKER_IMAGE=presto-native-worker-cpu
-export NUM_NODES=1
-export NUM_GPUS_PER_NODE=1
+export NUM_NODES=${SLURM_JOB_NUM_NODES}
+export NUM_GPUS_PER_NODE=${SLURM_GPUS_ON_NODE:-1}
 
 # Presto Configuration
 export PORT=9200
