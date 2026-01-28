@@ -12,10 +12,10 @@ def get_abs_file_path(relative_path):
 sys.path.append(get_abs_file_path("../../../benchmark_data_tools"))
 
 
-import duckdb
-import pytest
-import sqlglot
-from duckdb_utils import create_table
+import duckdb  # noqa: E402
+import pytest  # noqa: E402
+import sqlglot  # noqa: E402
+from duckdb_utils import create_table  # noqa: E402
 
 
 def execute_query_and_compare_results(presto_cursor, queries, query_id):

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .common_fixtures import *
+from .common_fixtures import *  # noqa: F403
 
 BENCHMARK_TYPE = "tpch"
 

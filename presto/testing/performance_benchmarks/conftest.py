@@ -5,7 +5,7 @@ import json
 import statistics
 from pathlib import Path
 
-from ..common.conftest import *
+from ..common.conftest import *  # noqa: F403
 from .benchmark_keys import BenchmarkKeys
 
 
@@ -89,7 +89,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     bench_output_dir = get_output_dir(config)
     assert bench_output_dir.is_dir()
     with open(f"{bench_output_dir}/benchmark_result.txt", "w") as file:
-        file.write(f"{'\n'.join(text_report)}\n")
+        file.write("\n".join(text_report) + "\n")
 
 
 def write_line(terminalreporter, text_report, content, **kwargs):
