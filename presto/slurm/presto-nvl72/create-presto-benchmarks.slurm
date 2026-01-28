@@ -3,7 +3,7 @@
 #SBATCH --output=/mnt/data/%u/velox-testing/presto/slurm/presto-nvl72/%x_%j.out
 #SBATCH --error=/mnt/data/%u/velox-testing/presto/slurm/presto-nvl72/%x_%j.err
 #SBATCH --time=01:00:00
-#SBATCH --nodes=1
+#SBATCH --nodes=10
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=144
 #SBATCH --mem=0
