@@ -19,7 +19,7 @@ OPTIONS:
                          "coordinator" or "c", "worker" or "w", and "all" or "a".
                          By default, services will be lazily built i.e. a build
                          will only occur if there is no local image for the service.
-    -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
+    -j, --num-threads    Number of threads to use when building the image (default is 'nproc' / 2).
     -w, --num-workers    Number of GPU workers to start (GPU variant only).
     -g, --gpu-ids        Comma-delimited list of GPU device IDs to use (e.g., "0,1,3,5").
                          Must be used with --num-workers. If not specified, defaults to "0,1,...,N-1"

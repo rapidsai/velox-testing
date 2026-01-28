@@ -61,7 +61,7 @@ function duplicate_worker_configs() {
 }
 
 # get host values
-NPROC=`nproc`
+NPROC=$(nproc)
 # lsmem will report in SI.  Make sure we get values in GB.
 RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024*1024)); }')
 
