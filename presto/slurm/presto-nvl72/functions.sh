@@ -185,13 +185,6 @@ function run_worker {
     local worker_id=$4
     local worker_two_digit=$(printf "%02d\n" "$worker_id")
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id}"
-    if [ "$image" == "presto-native-worker-cpu" ]; then
-	NUM_DRIVERS=64
-    elif (( $NUM_WORKERS > 1 )); then
-	NUM_DRIVERS=1
-    else
-	NUM_DRIVERS=2
-    fi
 
     local worker_image="${IMAGE_DIR}/${image}.sqsh"
     [ ! -f "${worker_image}" ] && echo_error "worker image does not exist at ${worker_image}"
@@ -212,7 +205,6 @@ function run_worker {
     # Update discovery based on which node the coordinator is running on.
     sed -i "s+discovery\.uri.*+discovery\.uri=http://${COORD}:${PORT}+g" ${worker_config}
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=${SINGLE_NODE_EXECUTION}+g" ${worker_config}
-    sed -i "s+task.max-drivers-per-task.*+task.max-drivers-per-task=${NUM_DRIVERS}+g" ${worker_config}
     # Give each worker a unique id.
     sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_node}
 
