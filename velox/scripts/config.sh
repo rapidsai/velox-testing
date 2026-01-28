@@ -1,3 +1,4 @@
+#!/bin/bash
 # script which shares common variables and functions for the velox build and test scripts
 
 # container name
