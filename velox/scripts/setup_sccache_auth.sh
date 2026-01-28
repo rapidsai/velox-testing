@@ -32,7 +32,7 @@ if [[ -f "$OUTPUT_DIR/github_token" || -f "$OUTPUT_DIR/aws_credentials" ]]; then
   echo -e "${YELLOW}Warning: Existing authentication files detected in $OUTPUT_DIR.${NC}"
   echo -e "${YELLOW}Continuing will overwrite your current GitHub and AWS credentials.${NC}"
   echo -e "${YELLOW}Press Enter to continue or Ctrl+C to abort.${NC}"
-  read
+  read -r
   rm -f "$OUTPUT_DIR/github_token" "$OUTPUT_DIR/aws_credentials"
 fi
 
