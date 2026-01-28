@@ -28,7 +28,8 @@ repos:
         args: ["--toml", "pyproject.toml"]
         exclude: |
           (?x)^(
-            ^pyproject.toml
+            ^pyproject.toml$|
+            ^presto/testing/common/queries/tpcds/queries.json$
           )
   - repo: https://github.com/rapidsai/pre-commit-hooks
     rev: v1.2.1

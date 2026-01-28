@@ -73,7 +73,7 @@ def process_file(input_file_path, output_dir, input_dir, verbose, convert_decima
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Alter an exising directory of parquet files", formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Alter an existing directory of parquet files", formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
     parser.add_argument("-i", "--input-dir", type=Path, required=True, help="Path to input Parquet files")
