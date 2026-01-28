@@ -25,9 +25,7 @@ echo "Velox dependencies/run-time container image not found"
 # try to pull container image from our S3 bucket
 #
 
-fetch_docker_image_from_s3 "${IMAGE_NAME}" "${BUCKET_SUBDIR}" "${IMAGE_FILE}"
-
-if [[ $? -eq 0 ]]; then
+if fetch_docker_image_from_s3 "${IMAGE_NAME}" "${BUCKET_SUBDIR}" "${IMAGE_FILE}"; then
   echo "Successfully fetched pre-built Velox dependencies/run-time container image"
   exit 0
 else
