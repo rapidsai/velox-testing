@@ -68,6 +68,21 @@ fi
 echo "${HOST_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${HOST_USER}
 chmod 440 /etc/sudoers.d/${HOST_USER}
 
+# If ccls was built into the image, mirror the bootstrap layout
+if [ -x /opt/ccls/Release/ccls ]; then
+  ccls_root="${HOST_HOME}/software/ccls"
+  if [ ! -d "${ccls_root}" ]; then
+    mkdir -p "${HOST_HOME}/software"
+    cp -a /opt/ccls "${ccls_root}"
+    chown -R "${HOST_UID}:${HOST_GID}" "${HOST_HOME}/software"
+  fi
+  if [ ! -x "${ccls_root}/Release/ccls" ]; then
+    mkdir -p "${ccls_root}/Release"
+    ln -sf /opt/ccls/Release/ccls "${ccls_root}/Release/ccls"
+    chown -h "${HOST_UID}:${HOST_GID}" "${ccls_root}/Release/ccls" || true
+  fi
+fi
+
 # Path setup: mirror host absolute paths and build dir symlink
 if [ -n "${HOST_VELOX_ABS:-}" ] && [ "${HOST_VELOX_ABS}" != "/workspace/velox" ]; then
   mkdir -p "$(dirname "${HOST_VELOX_ABS}")"
