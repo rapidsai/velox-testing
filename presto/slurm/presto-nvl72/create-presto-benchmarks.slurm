@@ -1,34 +1,36 @@
 #!/bin/bash
 #SBATCH --job-name=presto-tpch-create
-#SBATCH --output=/mnt/home/misiug/veloxtesting/presto-nvl72/%x_%j.out
-#SBATCH --error=/mnt/home/misiug/veloxtesting/presto-nvl72/%x_%j.err
+#SBATCH --output=/mnt/data/%u/velox-testing/presto/slurm/presto-nvl72/%x_%j.out
+#SBATCH --error=/mnt/data/%u/velox-testing/presto/slurm/presto-nvl72/%x_%j.err
 #SBATCH --time=01:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=144
 #SBATCH --mem=0
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --exclusive
 
 # ==============================================================================
 # User Configuration - Edit these values directly
 # ==============================================================================
 # TPC-H Configuration
-export SCALE_FACTOR=10000
+export SCALE_FACTOR=3000
 
 # Directory Configuration
-export WORKSPACE=/mnt/home/misiug
+# Assumes velox-testing is at /mnt/data/$USER/velox-testing
+export WORKSPACE=/mnt/data/$USER
+export VELOX_TESTING_ROOT=${WORKSPACE}/velox-testing
 export DATA=/mnt/data/tpch-rs
 export IMAGE_DIR=/mnt/home/misiug/images
-export LOGS=/mnt/home/misiug/veloxtesting/presto-nvl72/logs
+export LOGS=${VELOX_TESTING_ROOT}/presto/slurm/presto-nvl72/logs
 export CONFIGS=${WORKSPACE}/config/generated/cpu
 
 # Container Images
-# Coordinator: ${IMAGE_DIR}/presto-coordinator-test.sqsh
+# Coordinator: ${IMAGE_DIR}/presto-coordinator.sqsh
 # Worker: ${IMAGE_DIR}/${WORKER_IMAGE}.sqsh (CPU workers required for ANALYZE)
 export WORKER_IMAGE=presto-native-worker-cpu
-export NUM_NODES=1
-export NUM_GPUS_PER_NODE=1
+export NUM_NODES=${SLURM_JOB_NUM_NODES}
+export NUM_GPUS_PER_NODE=${SLURM_GPUS_ON_NODE:-1}
 
 # Presto Configuration
 export PORT=9200
@@ -70,4 +72,4 @@ mkdir -p ${DATA}
 mkdir -p ${WORKSPACE}/.hive_metastore
 
 # Launch the job script
-bash ${WORKSPACE}/veloxtesting/presto-nvl72/create-presto-benchmarks.sh
+bash ${VELOX_TESTING_ROOT}/presto/slurm/presto-nvl72/create-presto-benchmarks.sh
