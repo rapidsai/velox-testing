@@ -2,10 +2,22 @@ import subprocess
 
 
 def start_profiler(profile_script_path, profile_output_file_path):
+    """Start profiling on all worker containers.
+    
+    Args:
+        profile_script_path: Path to the profiler_functions.sh script
+        profile_output_file_path: Base path for profile files (without .nsys-rep extension)
+    """
     execute_profiler_function(profile_script_path, profile_output_file_path, "start_profiler")
 
 
 def stop_profiler(profile_script_path, profile_output_file_path):
+    """Stop profiling on all worker containers and copy profile files.
+    
+    Args:
+        profile_script_path: Path to the profiler_functions.sh script
+        profile_output_file_path: Base path for profile files (without .nsys-rep extension)
+    """
     execute_profiler_function(profile_script_path, profile_output_file_path, "stop_profiler")
 
 

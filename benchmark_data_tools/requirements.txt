@@ -7,5 +7,6 @@ presto-python-client==0.8.4
 requests==2.32.4
 six==1.17.0
 urllib3==2.5.0
-tpchgen-cli==1.1.1
+tpchgen-cli==2.0.1
 pyarrow==21.0.0
+pytest==9.0.2
