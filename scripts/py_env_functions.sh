@@ -12,7 +12,7 @@ function install_miniforge3() {
 
   pushd "$TEMP_DIR"
   curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
-  bash Miniforge3-$(uname)-$(uname -m).sh -b -p "$MINIFORGE_HOME"
+  bash "Miniforge3-$(uname)-$(uname -m).sh" -b -p "$MINIFORGE_HOME"
   popd
   echo "miniforge3 installation completed"
 }
