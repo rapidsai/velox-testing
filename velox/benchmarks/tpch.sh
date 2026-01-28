@@ -248,7 +248,7 @@ run_tpch_single_benchmark() {
 }
 
 get_tpch_default_queries() {
-  echo "$(seq 1 22)"
+  seq 1 22
 }
 
 check_tpch_benchmark_executable_with_path() {
