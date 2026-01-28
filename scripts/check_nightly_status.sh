@@ -24,15 +24,17 @@ set -euo pipefail
 #   REPO=owner/repo              (default: current gh repo)
 #   TODAY_UTC=YYYY-MM-DD         (default: today's UTC date)
 #   LOG_TAIL_LINES=N             (default: 150) - number of log lines to print
+#   STATUS_FILE=path/to/file     (default: status.txt) - output file for status report
 #
 # AI-powered cause/fix analysis (requires --cause or --fix):
 #   LLM_API_KEY or NVIDIA_API_KEY  (required for AI analysis)
 #   LLM_API_URL                    (default: https://integrate.api.nvidia.com/v1/chat/completions)
 #   LLM_MODEL                      (default: nvdev/nvidia/llama-3.3-nemotron-super-49b-v1)
+#   LLM_TIMEOUT                    (default: 30) - timeout in seconds for each LLM API call
 
 # --- Argument parsing ---
 PRINT_LOGS="false"
-SLACK_FORMAT="false"
+SLACK_FORMAT="true"
 ANALYZE_CAUSE="false"
 ANALYZE_FIX="false"
 
@@ -285,14 +287,80 @@ cell_for_run() {
   esac
 }
 
+# Cache for jobs JSON to avoid redundant API calls
+declare -A JOBS_CACHE
+
+# Get status cell for a specific job filter within a workflow run
+# Args: run_json job_filter
+# Returns emoji based on filtered jobs' status
+cell_for_filtered_jobs() {
+  local run_json="$1"
+  local job_filter="$2"
+  
+  # Emoji definitions
+  local EMOJI_DASH=$'\xe2\x9e\x96'      # ➖ heavy minus sign
+  local EMOJI_HOURGLASS=$'\xe2\x8f\xb3' # ⏳ hourglass
+  local EMOJI_CHECK=$'\xe2\x9c\x85'     # ✅ check mark
+  local EMOJI_CROSS=$'\xe2\x9d\x8c'     # ❌ cross mark
+  
+  if [[ "${run_json}" == "null" || -z "${run_json}" ]]; then
+    echo "${EMOJI_DASH}"
+    return 0
+  fi
+  
+  local run_id
+  run_id="$(jq -r '.databaseId' <<<"${run_json}")"
+  
+  # Fetch jobs for this run (use cache if available)
+  local jobs_json
+  if [[ -n "${JOBS_CACHE[${run_id}]:-}" ]]; then
+    jobs_json="${JOBS_CACHE[${run_id}]}"
+  else
+    jobs_json="$(gh_retry gh run view -R "${REPO}" "${run_id}" --json jobs 2>/dev/null)" || {
+      echo "${EMOJI_DASH}"
+      return 0
+    }
+    JOBS_CACHE[${run_id}]="${jobs_json}"
+  fi
+  
+  # Filter jobs by pattern (case-insensitive) and get their statuses
+  local filtered_status
+  filtered_status=$(jq -r --arg filter "${job_filter}" '
+    .jobs[]
+    | select(.name | ascii_downcase | contains($filter | ascii_downcase))
+    | {status: .status, conclusion: .conclusion}
+  ' <<<"${jobs_json}")
+  
+  if [[ -z "${filtered_status}" ]]; then
+    # No matching jobs found
+    echo "${EMOJI_DASH}"
+    return 0
+  fi
+  
+  # Check if any filtered job is still in progress
+  if echo "${filtered_status}" | jq -e 'select(.status != "completed")' >/dev/null 2>&1; then
+    echo "${EMOJI_HOURGLASS}"
+    return 0
+  fi
+  
+  # Check if any filtered job failed
+  if echo "${filtered_status}" | jq -e 'select(.conclusion != "success" and .conclusion != "skipped")' >/dev/null 2>&1; then
+    echo "${EMOJI_CROSS}"
+    return 0
+  fi
+  
+  echo "${EMOJI_CHECK}"
+}
+
 print_table_header() {
-  printf "%-4s | %-16s | %-8s | %-8s | %-8s\n" "SNO" "Job Name" "Upstream" "Staging" "Stable"
-  printf "%-4s-|-%-16s-|-%-8s-|-%-8s-|-%-8s\n" "----" "----------------" "--------" "--------" "--------"
+  printf "%-4s | %-18s | %-8s | %-8s | %-8s\n" "SNO" "Job Name" "Upstream" "Staging" "Stable"
+  printf "%-4s-|-%-18s-|-%-8s-|-%-8s-|-%-8s\n" "----" "------------------" "--------" "--------" "--------"
 }
 
 print_failure_details() {
   local label="$1"  # e.g. "Velox Build / Upstream"
   local run_json="$2"
+  local job_filter="${3:-}"  # optional: filter jobs by name pattern (e.g. "cpu", "gpu")
 
   local run_id run_url wf_name title conclusion
   run_id="$(jq -r '.databaseId' <<<"${run_json}")"
@@ -319,13 +387,22 @@ print_failure_details() {
   # Get failed jobs and process each one
   local jobs_json
   if jobs_json="$(gh_retry gh run view -R "${REPO}" "${run_id}" --json jobs)"; then
-    # Get list of failed job names
+    # Get list of failed job names (filtered by job_filter if provided)
     local failed_jobs
-    failed_jobs=$(jq -r '
-          .jobs[]
-          | select((.conclusion // "") | IN("success", "skipped") | not)
-          | .name
-        ' <<<"${jobs_json}")
+    if [[ -n "${job_filter}" ]]; then
+      failed_jobs=$(jq -r --arg filter "${job_filter}" '
+            .jobs[]
+            | select((.name | ascii_downcase | contains($filter | ascii_downcase)))
+            | select((.conclusion // "") | IN("success", "skipped") | not)
+            | .name
+          ' <<<"${jobs_json}")
+    else
+      failed_jobs=$(jq -r '
+            .jobs[]
+            | select((.conclusion // "") | IN("success", "skipped") | not)
+            | .name
+          ' <<<"${jobs_json}")
+    fi
     
     # Process each failed job
     while IFS= read -r job_name; do
@@ -363,19 +440,26 @@ print_failure_details() {
       
       # Analyze this job's logs with AI (only if --cause flag is set)
       if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
-        local ai_response cause fix
+        local ai_response cause fix stacktrace
         if [[ -n "${job_log_content}" ]]; then
           ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
         else
-          ai_response="CAUSE:Unable to fetch logs for this job
+          ai_response="STACKTRACE:Unable to fetch logs for this job
+END_STACKTRACE
+CAUSE:Unable to fetch logs for this job
 FIX:Check the run link above for details"
         fi
         
+        # Parse STACKTRACE (multiline, between STACKTRACE: and END_STACKTRACE)
+        stacktrace="$(echo "${ai_response}" | sed -n '/^STACKTRACE:/,/^END_STACKTRACE/p' | sed '1s/^STACKTRACE:[[:space:]]*//' | sed '/^END_STACKTRACE/d')"
         # Parse CAUSE and FIX from response
         cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1)"
         fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1)"
         
         # Fallback if parsing failed
+        if [[ -z "${stacktrace}" ]]; then
+          stacktrace="Unable to extract stacktrace"
+        fi
         if [[ -z "${cause}" ]]; then
           cause="Unable to determine cause"
         fi
@@ -383,6 +467,11 @@ FIX:Check the run link above for details"
           fix="Pending investigation"
         fi
 
+        # Print stacktrace (LLM-extracted relevant error portion)
+        echo "    - Stacktrace:"
+        echo '```'
+        echo "${stacktrace}"
+        echo '```'
         echo "    - Cause: ${cause}"
         if [[ "${ANALYZE_FIX}" == "true" ]]; then
           echo "    - Fix: ${fix}"
@@ -473,6 +562,7 @@ analyze_logs_with_ai() {
   # Check for API key
   local api_key="${LLM_API_KEY:-${NVIDIA_API_KEY:-}}"
   if [[ -z "${api_key}" ]]; then
+    echo "STACKTRACE:Unable to extract - API key not set"
     echo "CAUSE:Unable to analyze - LLM_API_KEY or NVIDIA_API_KEY not set"
     echo "FIX:Set API key to enable AI-powered log analysis"
     return
@@ -513,19 +603,23 @@ Log output:
 ${truncated_logs}
 
 Based on your analysis, provide:
-1. CAUSE: The specific root cause (mention file/class/function names, exact error like type mismatch, missing symbol, failed test names, etc.)
-2. FIX: A concrete suggested fix or investigation step
+1. STACKTRACE: Extract the relevant error stacktrace or error messages from the log (the actual error output, compiler errors, test failures, or exception traces - NOT the entire log, just the key error portion)
+2. CAUSE: The specific root cause (mention file/class/function names, exact error like type mismatch, missing symbol, failed test names, etc.)
+3. FIX: A concrete suggested fix or investigation step
 
-Respond in exactly this format (no markdown, no extra text, keep each on one line):
-CAUSE:<your specific root cause description>
-FIX:<your fix suggestion>"
+Respond in exactly this format (no markdown except for STACKTRACE which can be multiline):
+STACKTRACE:<the relevant error stacktrace or error messages, can span multiple lines, end with END_STACKTRACE on its own line>
+END_STACKTRACE
+CAUSE:<your specific root cause description - single line>
+FIX:<your fix suggestion - single line>"
 
   local escaped_prompt
   escaped_prompt=$(echo "${prompt}" | jq -Rs '.')
   
   # Make API request (using NVIDIA API parameters)
+  local llm_timeout="${LLM_TIMEOUT:-30}"
   local response
-  response=$(curl -s --max-time 60 "${api_url}" \
+  response=$(curl -s --max-time "${llm_timeout}" "${api_url}" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${api_key}" \
     -d "{
@@ -537,8 +631,9 @@ FIX:<your fix suggestion>"
     }" 2>/dev/null)
   
   if [[ -z "${response}" ]]; then
+    echo "STACKTRACE:Unable to extract - API request failed or timed out (${llm_timeout}s)"
     echo "CAUSE:Unable to analyze - API request failed"
-    echo "FIX:Check network connectivity and API key"
+    echo "FIX:Check network connectivity and API key, or increase LLM_TIMEOUT"
     return
   fi
   
@@ -551,9 +646,11 @@ FIX:<your fix suggestion>"
     local error_msg
     error_msg=$(echo "${response}" | jq -r '.error.message // empty' 2>/dev/null)
     if [[ -n "${error_msg}" ]]; then
+      echo "STACKTRACE:Unable to extract - API error"
       echo "CAUSE:API error - ${error_msg}"
       echo "FIX:Check API key and quota"
     else
+      echo "STACKTRACE:Unable to extract - API response parse error"
       echo "CAUSE:Unable to parse API response"
       echo "FIX:Check API configuration"
     fi
@@ -575,13 +672,15 @@ print_slack_header() {
 }
 
 print_slack_table_header() {
-  echo "*SNO* | *Job Name* | *Upstream* | *Staging* | *Stable*"
+  echo "| *NO* | *Job Name*         | *Upstream* | *Staging* | *Stable* |"
+  echo "|------|--------------------|-----------:|----------:|---------:|"
 }
 
 print_slack_failure_details() {
   local idx="$1"        # e.g., "1"
   local label="$2"      # e.g., "Velox Build / Upstream"
   local run_json="$3"
+  local job_filter="${4:-}"  # optional: filter jobs by name pattern (e.g. "cpu", "gpu")
 
   local run_id run_url wf_name conclusion
   run_id="$(jq -r '.databaseId' <<<"${run_json}")"
@@ -591,9 +690,9 @@ print_slack_failure_details() {
 
   echo ""
   echo "*${idx}. ${label}*"
-  echo "� *Workflow:* ${wf_name}"
-  echo "� *Run:* ${run_url}"
-  echo "� *Conclusion:* ${conclusion}"
+  echo "• *Workflow:* ${wf_name}"
+  echo "• *Run:* ${run_url}"
+  echo "• *Conclusion:* ${conclusion}"
 
   # Fetch logs if needed for printing or AI analysis
   local log_out=""
@@ -606,13 +705,22 @@ print_slack_failure_details() {
   # Get failed jobs and process each one
   local jobs_json
   if jobs_json="$(gh_retry gh run view -R "${REPO}" "${run_id}" --json jobs)"; then
-    # Get list of failed job names
+    # Get list of failed job names (filtered by job_filter if provided)
     local failed_jobs
-    failed_jobs=$(jq -r '
-          .jobs[]
-          | select((.conclusion // "") | IN("success", "skipped") | not)
-          | .name
-        ' <<<"${jobs_json}")
+    if [[ -n "${job_filter}" ]]; then
+      failed_jobs=$(jq -r --arg filter "${job_filter}" '
+            .jobs[]
+            | select((.name | ascii_downcase | contains($filter | ascii_downcase)))
+            | select((.conclusion // "") | IN("success", "skipped") | not)
+            | .name
+          ' <<<"${jobs_json}")
+    else
+      failed_jobs=$(jq -r '
+            .jobs[]
+            | select((.conclusion // "") | IN("success", "skipped") | not)
+            | .name
+          ' <<<"${jobs_json}")
+    fi
     
     # Process each failed job
     while IFS= read -r job_name; do
@@ -649,19 +757,26 @@ print_slack_failure_details() {
       
       # Analyze this job's logs with AI (only if --cause flag is set)
       if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
-        local ai_response cause fix
+        local ai_response cause fix stacktrace
         if [[ -n "${job_log_content}" ]]; then
           ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
         else
-          ai_response="CAUSE:Unable to fetch logs for this job
+          ai_response="STACKTRACE:Unable to fetch logs for this job
+END_STACKTRACE
+CAUSE:Unable to fetch logs for this job
 FIX:Check the run link above for details"
         fi
         
+        # Parse STACKTRACE (multiline, between STACKTRACE: and END_STACKTRACE)
+        stacktrace="$(echo "${ai_response}" | sed -n '/^STACKTRACE:/,/^END_STACKTRACE/p' | sed '1s/^STACKTRACE:[[:space:]]*//' | sed '/^END_STACKTRACE/d')"
         # Parse CAUSE and FIX from response
         cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1)"
         fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1)"
         
         # Fallback if parsing failed
+        if [[ -z "${stacktrace}" ]]; then
+          stacktrace="_Unable to extract stacktrace_"
+        fi
         if [[ -z "${cause}" ]]; then
           cause="_Unable to determine cause_"
         fi
@@ -669,9 +784,17 @@ FIX:Check the run link above for details"
           fix="_Pending investigation_"
         fi
 
-        echo "    *Cause:* ${cause}"
+        # Print stacktrace (LLM-extracted relevant error portion)
+        # Strip any backticks the LLM may have included
+        local clean_stacktrace
+        clean_stacktrace="$(echo "${stacktrace}" | sed 's/^```[a-z]*//; s/```$//' | sed '/^$/d')"
+        echo "    *Stacktrace:*"
+        echo '```'
+        echo "${clean_stacktrace}"
+        echo '```'
+        echo "    *Cause:* _${cause}_"
         if [[ "${ANALYZE_FIX}" == "true" ]]; then
-          echo "    *Fix:* ${fix}"
+          echo "    *Fix:* _${fix}_"
         fi
       fi
       
@@ -712,9 +835,9 @@ print_slack_in_progress_details() {
 
   echo ""
   echo "*${idx}. ${label} (in progress)*"
-  echo "� *Workflow:* ${wf_name}"
-  echo "� *Run:* ${run_url}"
-  echo "� *Status:* ${status} (attempt: ${attempt})"
+  echo "• *Workflow:* ${wf_name}"
+  echo "• *Run:* ${run_url}"
+  echo "• *Status:* ${status} (attempt: ${attempt})"
 
   # If this is a rerun attempt (>1), show attempt=1 status/log tail.
   if [[ "${attempt}" -gt 1 && -n "${run_number}" ]]; then
@@ -727,9 +850,9 @@ print_slack_in_progress_details() {
       first_id="$(jq -r '.databaseId' <<<"${first_json}")"
       echo ""
       echo "  _First attempt details:_"
-      echo "  � *Run:* ${first_url}"
-      echo "  � *Status:* ${first_status}"
-      echo "  � *Conclusion:* ${first_conclusion:-n/a}"
+      echo "  • *Run:* ${first_url}"
+      echo "  • *Status:* ${first_status}"
+      echo "  • *Conclusion:* ${first_conclusion:-n/a}"
 
       # Print first attempt failed logs if enabled.
       if [[ "${first_status}" == "completed" && "${first_conclusion}" != "success" && "${PRINT_LOGS}" == "true" ]]; then
@@ -755,6 +878,10 @@ print_slack_in_progress_details() {
 # Convert DISPLAY_DATE (YYYY-MM-DD) to MM-DD-YYYY for display
 DISPLAY_DATE_MMDDYYYY="$(date -d "${DISPLAY_DATE}" '+%m-%d-%Y' 2>/dev/null || echo "${DISPLAY_DATE}")"
 
+# Output file for status report (write to both stdout and file)
+STATUS_FILE="${STATUS_FILE:-status.txt}"
+exec > >(tee "${STATUS_FILE}") 2>&1
+
 if [[ "${SLACK_FORMAT}" == "true" ]]; then
   print_slack_header
   print_slack_table_header
@@ -766,10 +893,17 @@ fi
 
 # Row definitions (workflow files live under .github/workflows/)
 # "Stable" for Presto refers to presto-nightly-pinned.yml per request.
-declare -A WF_UPSTREAM WF_STAGING WF_STABLE
-WF_UPSTREAM["Velox Build"]="velox-nightly-upstream.yml"
-WF_STAGING["Velox Build"]="velox-nightly-staging.yml"
-WF_STABLE["Velox Build"]=""  # no stable variant defined
+# Note: velox-nightly-*.yml workflows contain both CPU and GPU jobs
+declare -A WF_UPSTREAM WF_STAGING WF_STABLE JOB_FILTER
+WF_UPSTREAM["Velox Build CPU"]="velox-nightly-upstream.yml"
+WF_STAGING["Velox Build CPU"]="velox-nightly-staging.yml"
+WF_STABLE["Velox Build CPU"]=""  # no stable variant defined
+JOB_FILTER["Velox Build CPU"]="cpu"  # filter jobs containing "cpu" (case-insensitive)
+
+WF_UPSTREAM["Velox Build GPU"]="velox-nightly-upstream.yml"
+WF_STAGING["Velox Build GPU"]="velox-nightly-staging.yml"
+WF_STABLE["Velox Build GPU"]=""  # no stable variant defined
+JOB_FILTER["Velox Build GPU"]="gpu"  # filter jobs containing "gpu" (case-insensitive)
 
 WF_UPSTREAM["Velox Benchmark"]=""  # none
 WF_STAGING["Velox Benchmark"]="velox-benchmark-nightly-staging.yml"
@@ -779,19 +913,27 @@ WF_UPSTREAM["Presto"]="presto-nightly-upstream.yml"
 WF_STAGING["Presto"]="presto-nightly-staging.yml"
 WF_STABLE["Presto"]="presto-nightly-pinned.yml"
 
-rows=("Velox Build" "Velox Benchmark" "Presto")
+rows=("Velox Build CPU" "Velox Build GPU" "Velox Benchmark" "Presto")
+
+# Display names for the table (with parentheses for better formatting)
+declare -A DISPLAY_NAME
+DISPLAY_NAME["Velox Build CPU"]="Velox Build (CPU)"
+DISPLAY_NAME["Velox Build GPU"]="Velox Build (GPU)"
 
 fail_labels=()
 fail_runs=()
+fail_filters=()
 inprog_labels=()
 inprog_wfs=()
 inprog_runs=()
+inprog_filters=()
 
 row_no=1
 for row in "${rows[@]}"; do
   up_wf="${WF_UPSTREAM[$row]}"
   st_wf="${WF_STAGING[$row]}"
   sb_wf="${WF_STABLE[$row]}"
+  job_filter="${JOB_FILTER[$row]:-}"
 
   up_run="null"
   st_run="null"
@@ -807,33 +949,46 @@ for row in "${rows[@]}"; do
   if [[ "${st_run}" == "null" && -n "${st_wf}" ]]; then st_run="$(get_latest_run_json "${st_wf}")"; fi
   if [[ "${sb_run}" == "null" && -n "${sb_wf}" ]]; then sb_run="$(get_latest_run_json "${sb_wf}")"; fi
 
-  up_cell="$(cell_for_run <<<"${up_run}")"
-  st_cell="$(cell_for_run <<<"${st_run}")"
-  sb_cell="$(cell_for_run <<<"${sb_run}")"
-
-  if [[ "${SLACK_FORMAT}" == "true" ]]; then
-    echo "${row_no} | ${row} | ${up_cell} | ${st_cell} | ${sb_cell}"
+  # Get status cell - use job-level filtering if JOB_FILTER is defined
+  if [[ -n "${job_filter}" ]]; then
+    up_cell="$(cell_for_filtered_jobs "${up_run}" "${job_filter}")"
+    st_cell="$(cell_for_filtered_jobs "${st_run}" "${job_filter}")"
+    sb_cell="$(cell_for_filtered_jobs "${sb_run}" "${job_filter}")"
   else
-    printf "%-4s | %-16s | %-8s | %-8s | %-8s\n" "${row_no}" "${row}" "${up_cell}" "${st_cell}" "${sb_cell}"
+    up_cell="$(cell_for_run <<<"${up_run}")"
+    st_cell="$(cell_for_run <<<"${st_run}")"
+    sb_cell="$(cell_for_run <<<"${sb_run}")"
+  fi
+
+  # Use display name if available, otherwise use row name
+  display_row="${DISPLAY_NAME[$row]:-$row}"
+  
+  if [[ "${SLACK_FORMAT}" == "true" ]]; then
+    printf "| %-2s | %-18s | %-10s | %-8s | %-8s |\n" "${row_no}" "${display_row}" "${up_cell}" "${st_cell}" "${sb_cell}"
+  else
+    printf "%-4s | %-18s | %-8s | %-8s | %-8s\n" "${row_no}" "${display_row}" "${up_cell}" "${st_cell}" "${sb_cell}"
   fi
 
   # Collect failure details (completed + non-success).
+  # Use the cell status which already accounts for job filtering
+  EMOJI_CROSS=$'\xe2\x9d\x8c'     # ❌ cross mark
+  EMOJI_HOURGLASS=$'\xe2\x8f\xb3' # ⏳ hourglass
   for col in upstream staging stable; do
     case "${col}" in
       upstream) wf="${up_wf}"; run="${up_run}"; cell="${up_cell}";;
       staging)  wf="${st_wf}"; run="${st_run}"; cell="${st_cell}";;
       stable)   wf="${sb_wf}"; run="${sb_run}"; cell="${sb_cell}";;
     esac
-    if [[ "${run}" != "null" ]]; then
-      status="$(jq -r '.status // ""' <<<"${run}")"
-      conclusion="$(jq -r '.conclusion // ""' <<<"${run}")"
-      if [[ "${status}" == "completed" && "${conclusion}" != "success" ]]; then
+    if [[ "${run}" != "null" && -n "${wf}" ]]; then
+      if [[ "${cell}" == "${EMOJI_CROSS}" ]]; then
         fail_labels+=("${row} / ${col^}")
         fail_runs+=("${run}")
-      elif [[ "${status}" != "completed" ]]; then
+        fail_filters+=("${job_filter}")
+      elif [[ "${cell}" == "${EMOJI_HOURGLASS}" ]]; then
         inprog_labels+=("${row} / ${col^}")
         inprog_wfs+=("${wf}")
         inprog_runs+=("${run}")
+        inprog_filters+=("${job_filter}")
       fi
     fi
   done
@@ -855,7 +1010,7 @@ if [[ "${SLACK_FORMAT}" == "true" ]]; then
 
   fail_idx=1
   for i in "${!fail_runs[@]}"; do
-    print_slack_failure_details "${fail_idx}" "${fail_labels[$i]}" "${fail_runs[$i]}"
+    print_slack_failure_details "${fail_idx}" "${fail_labels[$i]}" "${fail_runs[$i]}" "${fail_filters[$i]}"
     if [[ $((i + 1)) -lt "${#fail_runs[@]}" ]]; then
       echo ""
       echo "---"
@@ -885,7 +1040,7 @@ else
   fi
 
   for i in "${!fail_runs[@]}"; do
-    print_failure_details "${fail_labels[$i]}" "${fail_runs[$i]}"
+    print_failure_details "${fail_labels[$i]}" "${fail_runs[$i]}" "${fail_filters[$i]}"
   done
 
   if [[ "${#inprog_runs[@]}" -gt 0 ]]; then
