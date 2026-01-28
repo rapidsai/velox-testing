@@ -71,7 +71,9 @@ def process_file(input_file_path, output_dir, input_dir, verbose, convert_decima
                     new_type = pa.field(name, pa.float64()).type
                     arr = pc.cast(arr, new_type)
                 casted_arrays.append(arr)
-            writer.write_table(pa.table(casted_arrays, schema=new_schema))
+            orig_row_group_size=parquet_file.metadata.row_group(row_group_index).num_rows
+            writer.write_table(pa.table(casted_arrays, schema=new_schema),
+                               row_group_size=orig_row_group_size)
     finally:
         writer.close()
 

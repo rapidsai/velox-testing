@@ -16,7 +16,12 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from .common_fixtures import setup_and_teardown, get_all_parquet_relative_file_paths
+from .common_fixtures import (
+    setup_and_teardown,
+    get_all_parquet_relative_file_paths,
+    generate_data_files
+)
+
 
 def test_data_content_match(setup_and_teardown):
     """Validate data content equality between original and transformed parquet files.
@@ -27,8 +32,10 @@ def test_data_content_match(setup_and_teardown):
     - Decimal columns are correctly converted to float64 (values compared after casting)
     - Non-decimal columns remain identical
     """
-    orig_data_dir_path, final_data_dir_path = setup_and_teardown
+    orig_data_dir_path, final_data_dir_path, args = setup_and_teardown
+    generate_data_files(args)
     compare_data_content(orig_data_dir_path, final_data_dir_path)
+
 
 def compare_data_content(orig_data_dir_path, final_data_dir_path):
     orig_file_paths = get_all_parquet_relative_file_paths(orig_data_dir_path)
