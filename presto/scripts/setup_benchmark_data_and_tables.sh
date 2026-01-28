@@ -30,13 +30,11 @@ function extra_options_parser() {
         echo "Error: --scale-factor requires a value"
         return 1
       fi
-      shift 2
       ;;
     -c|--convert-decimals-to-floats)
       CONVERT_DECIMALS_TO_FLOATS_ARG="--convert-decimals-to-floats"
       SCRIPT_EXTRA_OPTIONS_SHIFTS=1
       SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=false
-      shift
       ;;
     *)
       return 0
