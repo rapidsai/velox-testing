@@ -18,7 +18,7 @@ OPTIONS:
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
     -k, --keep-tables       If this argument is specified, created benchmark tables will not be dropped.
-    -h, --hostname          Hostname of the Presto coordinator.
+    -H, --hostname          Hostname of the Presto coordinator.
     -p, --port              Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried (if unspecified a default schema is auto-generated).
@@ -28,7 +28,7 @@ EXAMPLES:
     $0 -b tpch
     $0 -b tpch -q "1,2" --keep-tables
     $0 -b tpch -q "1,2" -s my_sf1_schema
-    $0 -b tpch -q "1,2" -h myhostname.com -p 8081 -s my_sf1_schema
+    $0 -b tpch -q "1,2" -H myhostname.com -p 8081 -s my_sf1_schema
     $0 -h
 
 EOF
@@ -65,7 +65,7 @@ parse_args() {
         KEEP_TABLES=true
         shift
         ;;
-      -h|--hostname)
+      -H|--hostname)
         if [[ -n $2 ]]; then
           HOST_NAME=$2
           shift 2

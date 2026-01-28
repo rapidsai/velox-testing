@@ -17,7 +17,7 @@ OPTIONS:
     -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
-    -h, --hostname          Hostname of the Presto coordinator.
+    -H, --hostname          Hostname of the Presto coordinator.
     --port                  Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
@@ -67,7 +67,7 @@ parse_args() {
           exit 1
         fi
         ;;
-      -h|--hostname)
+      -H|--hostname)
         if [[ -n $2 ]]; then
           HOST_NAME=$2
           shift 2
