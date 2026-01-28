@@ -16,7 +16,10 @@
 
 set -euo pipefail
 
-source "config.sh"
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/config.sh"
 
 # Helper function to get BUILD_TYPE from container environment
 get_build_type_from_container() {

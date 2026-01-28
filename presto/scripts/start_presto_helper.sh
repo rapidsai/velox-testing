@@ -26,14 +26,20 @@ if [[ -z ${SCRIPT_NAME} ]]; then
   exit 1
 fi
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Get the root of the git repository
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+
 # Validate sibling repos
 if [[ "$VARIANT_TYPE" == "java" ]]; then
-  ../../scripts/validate_directories_exist.sh "../../../presto"
+  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
 else
-  ../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
+  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
 fi
 
-source ./start_presto_helper_parse_args.sh
+source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
 
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
@@ -94,9 +100,9 @@ if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
   export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
 fi
 
-./stop_presto.sh
+"${SCRIPT_DIR}/stop_presto.sh"
 
-./generate_presto_config.sh
+"${SCRIPT_DIR}/generate_presto_config.sh"
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
@@ -119,21 +125,21 @@ elif [[ "$ALL_CUDA_ARCHS" == "true" ]]; then
   exit 1
 fi
 
-DOCKER_COMPOSE_FILE_PATH=../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml
+DOCKER_COMPOSE_FILE_PATH="${SCRIPT_DIR}/../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml"
 # For GPU, the docker-compose file is a Jinja template. Render it before any docker compose operations.
 if [[ "$VARIANT_TYPE" == "gpu" ]]; then
-  TEMPLATE_PATH="../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
-  RENDERED_DIR="../docker/docker-compose/generated"
+  TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
+  RENDERED_DIR="${SCRIPT_DIR}/../docker/docker-compose/generated"
   mkdir -p "$RENDERED_DIR"
   RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
   # Default to 0 if not provided, which results in no per-GPU workers being rendered.
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
-  RENDER_SCRIPT_PATH=$(readlink -f ../../template_rendering/render_docker_compose_template.py)
+  RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
   if [[ -n $GPU_IDS ]]; then
-    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS"
+    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS"
   else
-    ../../scripts/run_py_script.sh -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS"
+    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS"
   fi
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
@@ -147,7 +153,7 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
 
   PRESTO_VERSION=testing
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($COORDINATOR_SERVICE|$JAVA_WORKER_SERVICE) ]]; then
-    PRESTO_VERSION=$PRESTO_VERSION ./build_presto_java_package.sh
+    PRESTO_VERSION=$PRESTO_VERSION "${SCRIPT_DIR}/build_presto_java_package.sh"
   fi
 
   echo "Building services: ${BUILD_TARGET_ARG[@]}"

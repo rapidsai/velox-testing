@@ -220,16 +220,19 @@ if [[ "${PROFILE}" == "true" ]]; then
   PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
 fi
 
-source ../../scripts/py_env_functions.sh
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
 trap delete_python_virtual_env EXIT
 
 init_python_virtual_env
 
-TEST_DIR=$(readlink -f ../testing)
+TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
 pip install -q -r ${TEST_DIR}/requirements.txt
 
-source ./common_functions.sh
+source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 

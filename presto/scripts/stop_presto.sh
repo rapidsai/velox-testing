@@ -2,9 +2,12 @@
 
 set -e
 
-GPU_FILE="../docker/docker-compose/generated/docker-compose.native-gpu.rendered.yml"
-JAVA_FILE="../docker/docker-compose.java.yml"
-CPU_FILE="../docker/docker-compose.native-cpu.yml"
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+GPU_FILE="${SCRIPT_DIR}/../docker/docker-compose/generated/docker-compose.native-gpu.rendered.yml"
+JAVA_FILE="${SCRIPT_DIR}/../docker/docker-compose.java.yml"
+CPU_FILE="${SCRIPT_DIR}/../docker/docker-compose.native-cpu.yml"
 
 # Bring down each variant independently to avoid path resolution issues when combining files
 docker compose -f "$JAVA_FILE" down

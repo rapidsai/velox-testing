@@ -101,11 +101,14 @@ else
   BENCHMARK_TYPES_TO_GENERATE=($BENCHMARK_TYPE)
 fi
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 rm -rf .venv
 python3 -m venv .venv
 source .venv/bin/activate
 
-BENCHMARK_DATA_TOOLS_DIR=$(readlink -f ../../../../benchmark_data_tools)
+BENCHMARK_DATA_TOOLS_DIR=$(readlink -f "${SCRIPT_DIR}/../../../../benchmark_data_tools")
 
 pip install -q -r $BENCHMARK_DATA_TOOLS_DIR/requirements.txt
 
@@ -116,21 +119,21 @@ fi
 
 echo "Generating required test files for ${BENCHMARK_TYPES_TO_GENERATE[@]} benchmark(s)..."
 for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
-  QUERIES_DIR=../../common/queries/$BENCHMARK_TYPE
+  QUERIES_DIR="${SCRIPT_DIR}/../../common/queries/$BENCHMARK_TYPE"
   rm -rf $QUERIES_DIR
   echo "Generating benchmark queries file for $BENCHMARK_TYPE..."
   python $BENCHMARK_DATA_TOOLS_DIR/generate_query_file.py --benchmark-type $BENCHMARK_TYPE \
          --queries-dir-path $QUERIES_DIR
   echo "Benchmark queries file generated for $BENCHMARK_TYPE"
 
-  DATA_DIR=../data/$BENCHMARK_TYPE
+  DATA_DIR="${SCRIPT_DIR}/../data/$BENCHMARK_TYPE"
   rm -rf $DATA_DIR
   echo "Generating benchmark data files for $BENCHMARK_TYPE..."
   python $BENCHMARK_DATA_TOOLS_DIR/generate_data_files.py --benchmark-type $BENCHMARK_TYPE \
          --data-dir-path $DATA_DIR --scale-factor $SCALE_FACTOR $CONVERT_DECIMALS_TO_FLOATS_ARG $VERBOSE
   echo "Benchmark data files generated for $BENCHMARK_TYPE"
 
-  SCHEMAS_DIR=../../common/schemas/$BENCHMARK_TYPE
+  SCHEMAS_DIR="${SCRIPT_DIR}/../../common/schemas/$BENCHMARK_TYPE"
   SCHEMA_NAME=${BENCHMARK_TYPE}_test
   rm -rf $SCHEMAS_DIR
   echo "Generating table schema files for $BENCHMARK_TYPE..."

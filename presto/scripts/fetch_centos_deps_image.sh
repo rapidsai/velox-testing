@@ -2,7 +2,10 @@
 
 set -e
 
-source ../../scripts/fetch_docker_image_from_s3.sh
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/../../scripts/fetch_docker_image_from_s3.sh"
 
 IMAGE_NAME="presto/prestissimo-dependency:centos9"
 
