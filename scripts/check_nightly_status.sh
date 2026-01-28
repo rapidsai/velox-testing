@@ -452,9 +452,9 @@ FIX:Check the run link above for details"
         
         # Parse STACKTRACE (multiline, between STACKTRACE: and END_STACKTRACE)
         stacktrace="$(echo "${ai_response}" | sed -n '/^STACKTRACE:/,/^END_STACKTRACE/p' | sed '1s/^STACKTRACE:[[:space:]]*//' | sed '/^END_STACKTRACE/d')"
-        # Parse CAUSE and FIX from response
-        cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1)"
-        fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1)"
+        # Parse CAUSE and FIX from response (guard against no matches)
+        cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1 || true)"
+        fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1 || true)"
         
         # Fallback if parsing failed
         if [[ -z "${stacktrace}" ]]; then
@@ -468,13 +468,20 @@ FIX:Check the run link above for details"
         fi
 
         # Print stacktrace (LLM-extracted relevant error portion)
-        echo "    - Stacktrace:"
-        echo '```'
-        echo "${stacktrace}"
-        echo '```'
-        echo "    - Cause: ${cause}"
+        # Strip any backticks the LLM may have included
+        local clean_stacktrace
+        clean_stacktrace="$(echo "${stacktrace}" | sed '/^```/d; /```$/d' | sed '/^$/d')"
+        if [[ -n "${clean_stacktrace}" ]]; then
+          echo "    - Stacktrace:"
+          echo '```'
+          echo "${clean_stacktrace}"
+          echo '```'
+        else
+          echo "    - Stacktrace: _Unavailable_"
+        fi
+        echo "    - Cause: _${cause}_"
         if [[ "${ANALYZE_FIX}" == "true" ]]; then
-          echo "    - Fix: ${fix}"
+          echo "    - Fix: _${fix}_"
         fi
       fi
       
@@ -769,9 +776,9 @@ FIX:Check the run link above for details"
         
         # Parse STACKTRACE (multiline, between STACKTRACE: and END_STACKTRACE)
         stacktrace="$(echo "${ai_response}" | sed -n '/^STACKTRACE:/,/^END_STACKTRACE/p' | sed '1s/^STACKTRACE:[[:space:]]*//' | sed '/^END_STACKTRACE/d')"
-        # Parse CAUSE and FIX from response
-        cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1)"
-        fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1)"
+        # Parse CAUSE and FIX from response (guard against no matches)
+        cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1 || true)"
+        fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1 || true)"
         
         # Fallback if parsing failed
         if [[ -z "${stacktrace}" ]]; then
@@ -787,11 +794,15 @@ FIX:Check the run link above for details"
         # Print stacktrace (LLM-extracted relevant error portion)
         # Strip any backticks the LLM may have included
         local clean_stacktrace
-        clean_stacktrace="$(echo "${stacktrace}" | sed 's/^```[a-z]*//; s/```$//' | sed '/^$/d')"
-        echo "    *Stacktrace:*"
-        echo '```'
-        echo "${clean_stacktrace}"
-        echo '```'
+        clean_stacktrace="$(echo "${stacktrace}" | sed '/^```/d; /```$/d' | sed '/^$/d')"
+        if [[ -n "${clean_stacktrace}" ]]; then
+          echo "    *Stacktrace:*"
+          echo '```'
+          echo "${clean_stacktrace}"
+          echo '```'
+        else
+          echo "    *Stacktrace:* _Unavailable_"
+        fi
         echo "    *Cause:* _${cause}_"
         if [[ "${ANALYZE_FIX}" == "true" ]]; then
           echo "    *Fix:* _${fix}_"
