@@ -116,7 +116,10 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
-ANALYZE_TABLES_SCRIPT_PATH=../testing/integration_tests/analyze_tables.py
-REQUIREMENTS_PATH=../testing/requirements.txt
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-../../scripts/run_py_script.sh -p "$ANALYZE_TABLES_SCRIPT_PATH" -r "$REQUIREMENTS_PATH" "${SCRIPT_ARGS[@]}"
+ANALYZE_TABLES_SCRIPT_PATH="${SCRIPT_DIR}/../testing/integration_tests/analyze_tables.py"
+REQUIREMENTS_PATH="${SCRIPT_DIR}/../testing/requirements.txt"
+
+"${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$ANALYZE_TABLES_SCRIPT_PATH" -r "$REQUIREMENTS_PATH" "${SCRIPT_ARGS[@]}"

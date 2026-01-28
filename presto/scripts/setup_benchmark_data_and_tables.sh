@@ -52,12 +52,15 @@ function extra_options_parser() {
 }
 SCRIPT_EXTRA_OPTIONS_PARSER=extra_options_parser
 
-source ./setup_benchmark_helper_check_instance_and_parse_args.sh
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DATA_GEN_SCRIPT_PATH=$(readlink -f ../../benchmark_data_tools/generate_data_files.py)
+source "${SCRIPT_DIR}/setup_benchmark_helper_check_instance_and_parse_args.sh"
 
-../../scripts/run_py_script.sh -p $DATA_GEN_SCRIPT_PATH --benchmark-type $BENCHMARK_TYPE \
+DATA_GEN_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../benchmark_data_tools/generate_data_files.py")
+
+"${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p $DATA_GEN_SCRIPT_PATH --benchmark-type $BENCHMARK_TYPE \
 --data-dir-path ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} --scale-factor $SCALE_FACTOR \
 $CONVERT_DECIMALS_TO_FLOATS_ARG
 
-./setup_benchmark_tables.sh -b $BENCHMARK_TYPE -s $SCHEMA_NAME -d $DATA_DIR_NAME
+"${SCRIPT_DIR}/setup_benchmark_tables.sh" -b $BENCHMARK_TYPE -s $SCHEMA_NAME -d $DATA_DIR_NAME
