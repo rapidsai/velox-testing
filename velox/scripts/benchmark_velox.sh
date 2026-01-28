@@ -294,7 +294,8 @@ echo ""
 create_docker_env_file
 
 # Get BUILD_TYPE from container environment
-export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
+BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
+export BUILD_TYPE
 
 # Check benchmark data
 check_benchmark_data

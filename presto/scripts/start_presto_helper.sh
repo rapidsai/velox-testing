@@ -80,7 +80,8 @@ fi
 # Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
 if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
   # Generate default GPU IDs: 0,1,2,...,N-1
-  export GPU_IDS=$(seq -s, 0 "$((NUM_WORKERS - 1))")
+  GPU_IDS=$(seq -s, 0 "$((NUM_WORKERS - 1))")
+  export GPU_IDS
 fi
 
 ./stop_presto.sh

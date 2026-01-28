@@ -238,7 +238,8 @@ detect_cuda_architecture() {
   local compute_cap
   if compute_cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1); then
     if [[ -n "$compute_cap" && "$compute_cap" =~ ^[0-9]+\.[0-9]+$ ]]; then
-      local cuda_arch=$(echo "$compute_cap" | tr -d '.')
+      local cuda_arch
+      cuda_arch=$(echo "$compute_cap" | tr -d '.')
       DOCKER_BUILD_OPTS+=(--build-arg CUDA_ARCHITECTURES="${cuda_arch}")
       echo "Using CUDA architecture: ${cuda_arch}"
     fi

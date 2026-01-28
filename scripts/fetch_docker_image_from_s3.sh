@@ -57,16 +57,20 @@ fetch_docker_image_from_s3() {
   if [ ! -z "${AWS_ARN_STRING}" ]; then
     # ask for temporary credentials for file access
     echo "Requesting temporary S3 credentials..."
-    local TEMP_CREDS_JSON=$(aws sts assume-role \
+    local TEMP_CREDS_JSON
+    TEMP_CREDS_JSON=$(aws sts assume-role \
       --role-arn "${AWS_ARN_STRING}" \
       --role-session-name "GetPrestoContainerImage" \
       --query "Credentials" \
       --output json)
 
     # override environment with full temporary credentials
-    export AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
-    export AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
-    export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
+    AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
+    export AWS_ACCESS_KEY_ID
+    AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
+    export AWS_SECRET_ACCESS_KEY
+    AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
+    export AWS_SESSION_TOKEN
   fi
 
   # pull the repo image
