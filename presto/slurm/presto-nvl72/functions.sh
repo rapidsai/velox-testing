@@ -12,7 +12,9 @@ export UCX_KEEPALIVE_INTERVAL=1ms
 IMAGE_DIR="${IMAGE_DIR:-${WORKSPACE}/images}"
 
 # Logs directory for presto execution logs (can be overridden via environment)
-LOGS="${LOGS:-/mnt/home/misiug/veloxtesting/presto-nvl72/logs}"
+# Default to logs/ in the same directory as this script
+SCRIPT_DIR_FUNCS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOGS="${LOGS:-${SCRIPT_DIR_FUNCS}/logs}"
 
 # Validates job preconditions and assigns default values for presto execution.
 function setup {
@@ -200,7 +202,7 @@ function run_worker {
     local worker_config="${CONFIGS}/etc_worker_${worker_id}/config_native.properties"
     local worker_node="${CONFIGS}/etc_worker_${worker_id}/node.properties"
     local worker_hive="${CONFIGS}/etc_worker_${worker_id}/catalog/hive.properties"
-    local worker_data="/mnt/home/misiug/veloxtesting/presto-nvl72/worker_data_${worker_id}"
+    local worker_data="${SCRIPT_DIR_FUNCS}/worker_data_${worker_id}"
 
     # Create unique configuration/data files for each worker:
     # Give each worker a unique port.
@@ -241,13 +243,17 @@ ${WORKSPACE}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 -- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; nvidia-smi -L; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
-#./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
 function setup_benchmark {
     echo "setting up benchmark"
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
     local scale_factor=$1
     local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/data; yum install python3.12 -y; yum install jq -y; cd /workspace/velox-testing/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
+
+    # Create tables and run ANALYZE
+    # ANALYZE may fail on very large datasets due to resource constraints, but tables will still be usable
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/data; yum install python3.12 -y; yum install jq -y; cd /workspace/velox-testing/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; ./analyze_tables.sh --port $PORT --hostname $COORD -s tpchsf${scale_factor}" "cli"
+
+    # Alternative: Use register_benchmark.sh which creates tables WITHOUT running ANALYZE
     #run_coord_image "export COORD=${COORD}:${PORT}; export SCHEMA=tpchsf${scale_factor}; cd /workspace/velox-testing/presto/scripts; ./register_benchmark.sh register -l ${data_path} -s tpchsf${scale_factor} -c ${COORD}:${PORT}" "cli"
 }
 
@@ -409,7 +415,7 @@ function create_output_prefix() {
 
 # Push results to gitlab.
 function push_csv() {
-    local results_dir="/mnt/home/misiug/veloxtesting/presto-nvl72/results_dir"
+    local results_dir="${SCRIPT_DIR_FUNCS}/results_dir"
     local timestamp="$(date +%Y%m%d_%H%M%S)"
     local run_dir="${results_dir}/run_${timestamp}_scale${SCALE_FACTOR}"
 
@@ -417,8 +423,8 @@ function push_csv() {
     mkdir -p ${run_dir}
 
     # Copy result_dir if it exists
-    if [ -d "/mnt/home/misiug/veloxtesting/presto-nvl72/result_dir" ]; then
-        cp -r /mnt/home/misiug/veloxtesting/presto-nvl72/result_dir ${run_dir}/
+    if [ -d "${SCRIPT_DIR_FUNCS}/result_dir" ]; then
+        cp -r ${SCRIPT_DIR_FUNCS}/result_dir ${run_dir}/
     fi
 
     # Copy logs
@@ -428,8 +434,8 @@ function push_csv() {
 
     # Copy slurm output files from the job directory
     if [ -n "${SLURM_JOB_ID}" ]; then
-        cp /mnt/home/misiug/veloxtesting/presto-nvl72/presto-tpch-run_${SLURM_JOB_ID}.out ${run_dir}/ 2>/dev/null || true
-        cp /mnt/home/misiug/veloxtesting/presto-nvl72/presto-tpch-run_${SLURM_JOB_ID}.err ${run_dir}/ 2>/dev/null || true
+        cp ${SCRIPT_DIR_FUNCS}/presto-tpch-run_${SLURM_JOB_ID}.out ${run_dir}/ 2>/dev/null || true
+        cp ${SCRIPT_DIR_FUNCS}/presto-tpch-run_${SLURM_JOB_ID}.err ${run_dir}/ 2>/dev/null || true
     fi
 
     # Copy configs
