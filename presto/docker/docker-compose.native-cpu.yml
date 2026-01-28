@@ -13,7 +13,7 @@ services:
     extends:
       file: docker-compose.common.yml
       service: presto-base-native-worker
-    container_name: presto-native-worker-cpu
+    container_name: presto-native-worker-cpu-${IMAGE_TAG:-latest}
     image: presto-native-worker-cpu:${IMAGE_TAG:-latest}
     build:
       args:
