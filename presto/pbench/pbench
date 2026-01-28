@@ -3,7 +3,7 @@
 OS=$(uname | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
-SCRIPT_DIR="$(readlink ${BASH_SOURCE[0]})"
+SCRIPT_DIR="$(readlink "${BASH_SOURCE[0]}")"
 if [[ "$SCRIPT_DIR" == "" ]]; then
     SCRIPT_DIR="${BASH_SOURCE[0]}"
 fi

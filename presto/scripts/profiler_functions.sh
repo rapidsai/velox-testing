@@ -11,7 +11,7 @@ function get_worker_container_id() {
     echo "Error: no docker container found for image: ${image_name}"
     exit 1
   fi
-  echo $container_id
+  echo "$container_id"
 }
 
 function get_docker_exec_command() {
@@ -28,17 +28,17 @@ function start_profiler() {
   local -r profile_output_file_path=$1
 
   check_profile_output_directory
-  $(get_docker_exec_command) nsys start --gpu-metrics-devices=all -o /presto_profiles/$(basename $profile_output_file_path).nsys-rep
+  $(get_docker_exec_command) nsys start --gpu-metrics-devices=all -o /presto_profiles/"$(basename "$profile_output_file_path")".nsys-rep
 }
 
 function stop_profiler() {
   local -r profile_output_file_path=$1.nsys-rep
-  local -r container_file_path="/presto_profiles/$(basename $profile_output_file_path)"
+  local -r container_file_path="/presto_profiles/$(basename "$profile_output_file_path")"
   local -r docker_exec_command=$(get_docker_exec_command)
 
   check_profile_output_directory
-  $docker_exec_command nsys stop
-  $docker_exec_command chown -R $(id -u):$(id -g) /presto_profiles
-  docker cp $(get_worker_container_id):${container_file_path} $profile_output_file_path
-  $docker_exec_command rm ${container_file_path}
+  "$docker_exec_command" nsys stop
+  "$docker_exec_command" chown -R "$(id -u):$(id -g)" /presto_profiles
+  docker cp "$(get_worker_container_id):${container_file_path}" "$profile_output_file_path"
+  "$docker_exec_command" rm "${container_file_path}"
 }

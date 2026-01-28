@@ -56,7 +56,7 @@ parse_args() {
         fi
         ;;
       *)
-        SCRIPT_ARGS+=($1)
+        SCRIPT_ARGS+=("$1")
         shift
         ;;
     esac
@@ -72,10 +72,10 @@ if [[ -z $SCRIPT_PATH ]]; then
 fi
 
 if [[ -z $REQUIREMENTS_FILE_PATH ]]; then
-  REQUIREMENTS_FILE_PATH="$(dirname $SCRIPT_PATH)/requirements.txt"
+  REQUIREMENTS_FILE_PATH="$(dirname "$SCRIPT_PATH")/requirements.txt"
 fi
 
-source "$(dirname $(readlink -f $0))/py_env_functions.sh"
+source "$(dirname "$(readlink -f "$0")")/py_env_functions.sh"
 
 trap delete_python_virtual_env EXIT
 
@@ -83,8 +83,8 @@ init_python_virtual_env
 
 
 echo "Running pip install for requirements file: $REQUIREMENTS_FILE_PATH"
-pip install -q -r $REQUIREMENTS_FILE_PATH
+pip install -q -r "$REQUIREMENTS_FILE_PATH"
 
-echo -e "\nRunning python script with args:\n$SCRIPT_PATH ${SCRIPT_ARGS[@]}\n"
-python $SCRIPT_PATH ${SCRIPT_ARGS[@]}
+echo -e "\nRunning python script with args:\n$SCRIPT_PATH ${SCRIPT_ARGS[*]}\n"
+python "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}"
 echo "Finished running python script"

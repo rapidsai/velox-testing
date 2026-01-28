@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -107,37 +96,37 @@ source .venv/bin/activate
 
 BENCHMARK_DATA_TOOLS_DIR=$(readlink -f ../../../../benchmark_data_tools)
 
-pip install -q -r $BENCHMARK_DATA_TOOLS_DIR/requirements.txt
+pip install -q -r "$BENCHMARK_DATA_TOOLS_DIR"/requirements.txt
 
 CONVERT_DECIMALS_TO_FLOATS_ARG=""
 if [[ "$CONVERT_DECIMALS_TO_FLOATS" == "true" ]]; then
   CONVERT_DECIMALS_TO_FLOATS_ARG="--convert-decimals-to-floats"
 fi
 
-echo "Generating required test files for ${BENCHMARK_TYPES_TO_GENERATE[@]} benchmark(s)..."
+echo "Generating required test files for ${BENCHMARK_TYPES_TO_GENERATE[*]} benchmark(s)..."
 for BENCHMARK_TYPE in "${BENCHMARK_TYPES_TO_GENERATE[@]}"; do
   QUERIES_DIR=../../common/queries/$BENCHMARK_TYPE
-  rm -rf $QUERIES_DIR
+  rm -rf "$QUERIES_DIR"
   echo "Generating benchmark queries file for $BENCHMARK_TYPE..."
-  python $BENCHMARK_DATA_TOOLS_DIR/generate_query_file.py --benchmark-type $BENCHMARK_TYPE \
-         --queries-dir-path $QUERIES_DIR
+  python "$BENCHMARK_DATA_TOOLS_DIR"/generate_query_file.py --benchmark-type "$BENCHMARK_TYPE" \
+         --queries-dir-path "$QUERIES_DIR"
   echo "Benchmark queries file generated for $BENCHMARK_TYPE"
 
   DATA_DIR=../data/$BENCHMARK_TYPE
-  rm -rf $DATA_DIR
+  rm -rf "$DATA_DIR"
   echo "Generating benchmark data files for $BENCHMARK_TYPE..."
-  python $BENCHMARK_DATA_TOOLS_DIR/generate_data_files.py --benchmark-type $BENCHMARK_TYPE \
-         --data-dir-path $DATA_DIR --scale-factor $SCALE_FACTOR $CONVERT_DECIMALS_TO_FLOATS_ARG $VERBOSE
+  python "$BENCHMARK_DATA_TOOLS_DIR"/generate_data_files.py --benchmark-type "$BENCHMARK_TYPE" \
+         --data-dir-path "$DATA_DIR" --scale-factor "$SCALE_FACTOR" "$CONVERT_DECIMALS_TO_FLOATS_ARG" "$VERBOSE"
   echo "Benchmark data files generated for $BENCHMARK_TYPE"
 
   SCHEMAS_DIR=../../common/schemas/$BENCHMARK_TYPE
   SCHEMA_NAME=${BENCHMARK_TYPE}_test
-  rm -rf $SCHEMAS_DIR
+  rm -rf "$SCHEMAS_DIR"
   echo "Generating table schema files for $BENCHMARK_TYPE..."
-  python $BENCHMARK_DATA_TOOLS_DIR/generate_table_schemas.py \
-         --benchmark-type $BENCHMARK_TYPE \
-         --schemas-dir-path $SCHEMAS_DIR \
-         --data-dir-name $DATA_DIR
+  python "$BENCHMARK_DATA_TOOLS_DIR"/generate_table_schemas.py \
+         --benchmark-type "$BENCHMARK_TYPE" \
+         --schemas-dir-path "$SCHEMAS_DIR" \
+         --data-dir-name "$DATA_DIR"
   echo "Table schema files generated for $BENCHMARK_TYPE"
 
 done

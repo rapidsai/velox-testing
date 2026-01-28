@@ -24,18 +24,18 @@ CREATE_TABLES_REQUIREMENTS_PATH=$(readlink -f ../../presto/testing/requirements.
 TEMP_SCHEMA_DIR=$(readlink -f temp-schema-dir)
 
 function cleanup() {
-  rm -rf $TEMP_SCHEMA_DIR
+  rm -rf "$TEMP_SCHEMA_DIR"
 }
 
 trap cleanup EXIT
 
-../../scripts/run_py_script.sh -p $SCHEMA_GEN_SCRIPT_PATH \
-                               --benchmark-type $BENCHMARK_TYPE \
-                               --schemas-dir-path $TEMP_SCHEMA_DIR \
+../../scripts/run_py_script.sh -p "$SCHEMA_GEN_SCRIPT_PATH" \
+                               --benchmark-type "$BENCHMARK_TYPE" \
+                               --schemas-dir-path "$TEMP_SCHEMA_DIR" \
                                --data-dir-name "${PRESTO_DATA_DIR}/${DATA_DIR_NAME}"
 
-../../scripts/run_py_script.sh -p $CREATE_TABLES_SCRIPT_PATH \
-                               -r $CREATE_TABLES_REQUIREMENTS_PATH \
-                               --schema-name $SCHEMA_NAME \
-                               --schemas-dir-path $TEMP_SCHEMA_DIR \
-                               --data-dir-name $DATA_DIR_NAME
+../../scripts/run_py_script.sh -p "$CREATE_TABLES_SCRIPT_PATH" \
+                               -r "$CREATE_TABLES_REQUIREMENTS_PATH" \
+                               --schema-name "$SCHEMA_NAME" \
+                               --schemas-dir-path "$TEMP_SCHEMA_DIR" \
+                               --data-dir-name "$DATA_DIR_NAME"

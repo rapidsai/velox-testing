@@ -45,8 +45,8 @@ source ./setup_benchmark_helper_check_instance_and_parse_args.sh
 
 DATA_GEN_SCRIPT_PATH=$(readlink -f ../../benchmark_data_tools/generate_data_files.py)
 
-../../scripts/run_py_script.sh -p $DATA_GEN_SCRIPT_PATH --benchmark-type $BENCHMARK_TYPE \
---data-dir-path ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} --scale-factor $SCALE_FACTOR \
-$CONVERT_DECIMALS_TO_FLOATS_ARG
+../../scripts/run_py_script.sh -p "$DATA_GEN_SCRIPT_PATH" --benchmark-type "$BENCHMARK_TYPE" \
+--data-dir-path "${PRESTO_DATA_DIR}"/"${DATA_DIR_NAME}" --scale-factor "$SCALE_FACTOR" \
+"$CONVERT_DECIMALS_TO_FLOATS_ARG"
 
-./setup_benchmark_tables.sh -b $BENCHMARK_TYPE -s $SCHEMA_NAME -d $DATA_DIR_NAME
+./setup_benchmark_tables.sh -b "$BENCHMARK_TYPE" -s "$SCHEMA_NAME" -d "$DATA_DIR_NAME"

@@ -216,11 +216,11 @@ trap delete_python_virtual_env EXIT
 init_python_virtual_env
 
 TEST_DIR=$(readlink -f ../testing)
-pip install -q -r ${TEST_DIR}/requirements.txt
+pip install -q -r "${TEST_DIR}"/requirements.txt
 
 source ./common_functions.sh
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+pytest -q "${BENCHMARK_TEST_DIR}"/"${BENCHMARK_TYPE}"_test.py "${PYTEST_ARGS[@]}"

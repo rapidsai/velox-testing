@@ -15,7 +15,7 @@ set -e
 validate_docker_image() {
   local IMAGE_NAME=$1
   echo "Validating Docker image ${IMAGE_NAME}..."
-  if [[ ! -z $(docker images -q ${IMAGE_NAME}) ]]; then
+  if [[ ! -z $(docker images -q "${IMAGE_NAME}") ]]; then
     echo "Docker image exists"
     exit 0
   fi
@@ -58,7 +58,7 @@ fetch_docker_image_from_s3() {
     # ask for temporary credentials for file access
     echo "Requesting temporary S3 credentials..."
     local TEMP_CREDS_JSON=$(aws sts assume-role \
-      --role-arn ${AWS_ARN_STRING} \
+      --role-arn "${AWS_ARN_STRING}" \
       --role-session-name "GetPrestoContainerImage" \
       --query "Credentials" \
       --output json)
@@ -71,17 +71,17 @@ fetch_docker_image_from_s3() {
 
   # pull the repo image
   echo "Fetching image file from S3..."
-  aws s3 cp --no-progress ${IMAGE_FILE_PATH} /tmp/${IMAGE_FILE_NAME}
+  aws s3 cp --no-progress "${IMAGE_FILE_PATH}" /tmp/"${IMAGE_FILE_NAME}"
 
   # load the image into docker
   echo "Loading image file into Docker..."
-  docker load < /tmp/${IMAGE_FILE_NAME}
+  docker load < /tmp/"${IMAGE_FILE_NAME}"
 
   # clean up
-  rm -f /tmp/${IMAGE_FILE_NAME}
+  rm -f /tmp/"${IMAGE_FILE_NAME}"
 
   # validate image
-  validate_docker_image ${IMAGE_NAME}
+  validate_docker_image "${IMAGE_NAME}"
 }
 
 # if executed directly, run with provided args

@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 
 # Default output directory
@@ -53,7 +56,7 @@ docker run --rm -it \
     echo "GitHub is authenticating with required scopes: gist, repo, read:org, read:enterprise"
     echo
 
-    echo -e "'${YELLOW}'Note: Browser opening will fail expectedly, please open the URL in your browser.'${NC}'"
+    echo -e "'"${YELLOW}"'Note: Browser opening will fail expectedly, please open the URL in your browser.'"${NC}"'"
     BROWSER="false" gh auth login --git-protocol ssh --skip-ssh-key --web --scopes gist --scopes repo --scopes read:org --scopes read:enterprise
 
     echo
@@ -61,7 +64,7 @@ docker run --rm -it \
     gh auth status
 
     gh auth token | tr -d "\n\r " > /output/github_token
-    echo "GitHub token saved to '$OUTPUT_DIR'/github_token"
+    echo "GitHub token saved to '"$OUTPUT_DIR"'/github_token"
   '
 
 if [[ ! -f "$OUTPUT_DIR/github_token" ]]; then

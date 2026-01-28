@@ -88,7 +88,7 @@ parse_args() {
         if [[ -n $SCRIPT_EXTRA_OPTIONS_PARSER ]]; then
           $SCRIPT_EXTRA_OPTIONS_PARSER "$@"
           if [[ "$SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG" == "false" ]]; then
-            shift $SCRIPT_EXTRA_OPTIONS_SHIFTS
+            shift "$SCRIPT_EXTRA_OPTIONS_SHIFTS"
           fi
         fi
 
