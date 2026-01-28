@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 
 # Install RAPIDS sccache fork
@@ -20,7 +23,7 @@ sccache --version
 
 # Configure sccache for high parallelism
 # Increase file descriptor limit for high parallelism (if possible)
-ulimit -n $(ulimit -Hn) || echo "Could not increase file descriptor limit"
+ulimit -n "$(ulimit -Hn)" || echo "Could not increase file descriptor limit"
 
 # Start sccache server
 sccache --start-server

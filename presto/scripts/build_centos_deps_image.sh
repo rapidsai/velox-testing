@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -62,9 +64,9 @@ if [[ ! -d "../../../presto/presto-native-execution" || ! -d "../../../velox" ]]
 fi
 
 # remove any existing image?
-if [[ ! -z $(docker images -q ${IMAGE_NAME}) ]]; then
+if [[ ! -z $(docker images -q "${IMAGE_NAME}") ]]; then
 	echo "Removing existing Presto dependencies/run-time image..."
-	docker rmi -f ${IMAGE_NAME}
+	docker rmi -f "${IMAGE_NAME}"
 fi
 
 # restore original Presto Velox on exit

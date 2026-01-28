@@ -1,24 +1,13 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+
+from pathlib import Path
 
 import prestodb
 import pytest
 
-from pathlib import Path
 from .benchmark_keys import BenchmarkKeys
 from .profiler_utils import start_profiler, stop_profiler
-from ..common.fixtures import tpch_queries, tpcds_queries
 
 
 @pytest.fixture(scope="module")
@@ -27,8 +16,7 @@ def presto_cursor(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema = request.config.getoption("--schema-name")
-    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive",
-                                  schema=schema)
+    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
     return conn.cursor()
 
 
@@ -82,9 +70,9 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
                 start_profiler(profile_script_path, profile_output_file_path)
             result = [
-                presto_cursor.execute("--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" +
-                                      benchmark_queries[query_id])
-                .stats["elapsedTimeMillis"]
+                presto_cursor.execute(
+                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
+                ).stats["elapsedTimeMillis"]
                 for _ in range(iterations)
             ]
             raw_times_dict[query_id] = result
