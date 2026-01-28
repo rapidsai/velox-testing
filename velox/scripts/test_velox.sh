@@ -16,6 +16,7 @@ get_build_type_from_container() {
 }
 
 # Get BUILD_TYPE from container environment
+# shellcheck disable=SC2153  # COMPOSE_FILE and CONTAINER_NAME are defined in config.sh
 BUILD_TYPE=$(get_build_type_from_container "$COMPOSE_FILE" "$CONTAINER_NAME")
 
 # expected output directory
