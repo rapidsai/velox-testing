@@ -30,7 +30,7 @@ if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   exit 1
 fi
 
-if [[ "$PROFILE" == "ON" && $(( $NUM_WORKERS > 1 )) && "$SINGLE_CONTAINER" == "false" ]]; then
+if [[ "$PROFILE" == "ON" && $(( NUM_WORKERS > 1 )) && "$SINGLE_CONTAINER" == "false" ]]; then
   echo "Error: multi-worker --profile argument is only currently supported with the --single-container option"
   exit 1
 fi

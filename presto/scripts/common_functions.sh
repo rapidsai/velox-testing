@@ -15,7 +15,7 @@ function wait_for_worker_node_registration() {
   local retry_count=0
   until curl -s -f -o node_response.json "${COORDINATOR_URL}"/v1/node && \
         (( $(jq length node_response.json) > 0 )); do
-    if (( $retry_count >= $MAX_RETRIES )); then
+    if (( retry_count >= MAX_RETRIES )); then
       echo "Error: Worker node not registered after 60s. Exiting."
       exit 1
     fi
