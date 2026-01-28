@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -21,15 +10,15 @@ print_help() {
 
 Usage: $0 [OPTIONS]
 
-This script runs ANALYZE TABLE on all tables in a given schema to collect 
-statistics for query optimization. This helps Presto create better query plans 
+This script runs ANALYZE TABLE on all tables in a given schema to collect
+statistics for query optimization. This helps Presto create better query plans
 with lower peak memory usage.
 
 NOTE: This script assumes a Presto server is already running and the schema is
 pre-created.
 
-IMPORTANT: Currently, you should run this with CPU Presto (start_java_presto.sh 
-or start_native_cpu_presto.sh) rather than GPU Presto, as ANALYZE TABLE may not 
+IMPORTANT: Currently, you should run this with CPU Presto (start_java_presto.sh
+or start_native_cpu_presto.sh) rather than GPU Presto, as ANALYZE TABLE may not
 be fully supported on GPU Presto.
 
 OPTIONS:
