@@ -51,488 +51,85 @@ jobs:
     runs-on: linux-amd64-cpu4
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ secrets.VELOX_FORK_PAT || secrets.GITHUB_TOKEN }}
+      TARGET_REPO: ${{ inputs.target_repository }}
+      BASE_REPO: ${{ inputs.base_repository }}
+      BASE_BRANCH: ${{ inputs.base_branch }}
+      TARGET_BRANCH: ${{ inputs.target_branch }}
+      AUTO_FETCH_PRS: ${{ inputs.auto_fetch_prs }}
+      MANUAL_PR_NUMBERS: ${{ inputs.manual_pr_numbers }}
+      BUILD_AND_RUN_TESTS: ${{ inputs.build_and_run_tests }}
+      FORCE_PUSH: ${{ inputs.force_push }}
+      BUILD_TARGET: gpu
+      SCRIPT_PATH: ./velox-testing/velox/scripts/create_staging_branch.sh
+      BASE_ARGS: >-
+        --mode ci
+        --target-path "velox"
+        --target-repository "${{ inputs.target_repository }}"
+        --base-repository "${{ inputs.base_repository }}"
+        --base-branch "${{ inputs.base_branch }}"
+        --target-branch "${{ inputs.target_branch }}"
+        --auto-fetch-prs "${{ inputs.auto_fetch_prs }}"
+        --manual-pr-numbers "${{ inputs.manual_pr_numbers }}"
+        --force-push "${{ inputs.force_push }}"
     steps:
       - name: 📦 Checkout velox-testing
         uses: actions/checkout@v4
         with:
           path: velox-testing
 
-      - name: 🔧 Download gha-tools
-        run: |
-          git clone https://github.com/rapidsai/gha-tools.git -b main /tmp/gha-tools
-          # Add gha-tools command-line scripts to PATH for subsequent steps
-          echo "/tmp/gha-tools/tools" >> "${GITHUB_PATH}"
-
       - name: ⚙️ Setup Git Configuration
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: 📥 Clone Target Repository and Setup Remotes
-        env:
-          GH_TOKEN: ${{ secrets.VELOX_FORK_PAT || secrets.GITHUB_TOKEN }}
-          VELOX_FORK_PAT_SET: ${{ secrets.VELOX_FORK_PAT != '' }}
-          TARGET_REPO: ${{ inputs.target_repository }}
-          BASE_REPO: ${{ inputs.base_repository }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
+      - name: 📥 Clone target repository
         run: |
-          # Warn if VELOX_FORK_PAT is not set (push may fail for cross-repo targets)
-          if [ "${VELOX_FORK_PAT_SET}" != "true" ]; then
-            rapids-echo-stderr "⚠️  WARNING: VELOX_FORK_PAT secret is not set!"
-            rapids-echo-stderr "   Push to ${TARGET_REPO} may fail if it's not the workflow's repo."
-            rapids-echo-stderr "   Set it with: gh secret set VELOX_FORK_PAT --repo <this-repo> --body \"\$TOKEN\""
-          fi
-          
-          rapids-echo-stderr "Cloning ${TARGET_REPO}..."
-          # Use VELOX_FORK_PAT for clone as we'll push to this repo later
-          rapids-retry git clone https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git velox
-          cd velox
-          git remote add upstream https://github.com/${BASE_REPO}.git
-          rapids-echo-stderr "Fetching upstream ${BASE_BRANCH}..."
-          rapids-retry git fetch upstream ${BASE_BRANCH}
-          
-          # Generate dated branch name and set as env var for later steps
-          CURRENT_DATE=$(date -u +%m-%d-%Y)
-          DATED_BRANCH="${{ inputs.target_branch }}_${CURRENT_DATE}"
-          echo "DATED_BRANCH=${DATED_BRANCH}" >> $GITHUB_ENV
-          rapids-echo-stderr "Dated branch will be: ${DATED_BRANCH}"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" velox
 
-      - name: 🔄 Reset ${{ inputs.target_branch }} Branch to Upstream ${{ inputs.base_branch }}
-        working-directory: velox
+      - name: 🔄 Reset target branch
         run: |
-          rapids-echo-stderr "Resetting ${{ inputs.target_branch }} branch to match upstream/${{ inputs.base_branch }}..."
-          git checkout -B ${{ inputs.target_branch }} upstream/${{ inputs.base_branch }}
-          BASE_COMMIT=$(git rev-parse HEAD)
-          echo "BASE_COMMIT=${BASE_COMMIT}" >> $GITHUB_ENV
-          rapids-echo-stderr "${{ inputs.target_branch }} branch reset to upstream/${{ inputs.base_branch }} at ${BASE_COMMIT}"
+          ${SCRIPT_PATH} ${BASE_ARGS} --step reset
 
-      - name: 🔍 Auto-fetch PRs with 'cudf' Label (non-draft)
-        id: auto-fetch-prs
-        if: inputs.auto_fetch_prs == true  # Defaults to true for scheduled runs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 📋 Fetch PR list
         run: |
-          rapids-echo-stderr "Auto-fetch enabled. Scanning for non-draft PRs with 'cudf' label..."
-          
-          PR_LIST=$(rapids-retry --quiet gh pr list \
-            --repo facebookincubator/velox \
-            --label "cudf" \
-            --state open \
-            --json number,isDraft \
-            --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs)
+          ${SCRIPT_PATH} ${BASE_ARGS} --step fetch-prs
 
-          if [ -z "$PR_LIST" ]; then
-            rapids-echo-stderr "No non-draft PRs found with 'cudf' label."
-            echo "pr_list=" >> $GITHUB_OUTPUT
-            echo "has_prs=false" >> $GITHUB_OUTPUT
-          else
-            rapids-echo-stderr "Found PRs: $PR_LIST"
-            echo "pr_list=$PR_LIST" >> $GITHUB_OUTPUT
-            echo "has_prs=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: ✏️ Use Manual PR Numbers
-        id: manual-prs
-        if: inputs.auto_fetch_prs == false
-        run: |  # This step is only executed if auto_fetch_prs is false
-          # Trim whitespace from input
-          MANUAL_PRS=$(echo "${{ inputs.manual_pr_numbers }}" | xargs)
-
-          if [ -z "$MANUAL_PRS" ]; then
-            rapids-echo-stderr "No manual PR numbers provided."
-            echo "has_prs=false" >> $GITHUB_OUTPUT
-            echo "pr_list=" >> $GITHUB_OUTPUT
-          else
-            rapids-echo-stderr "Auto-fetch disabled. Using manual PR numbers: $MANUAL_PRS"
-            echo "pr_list=$MANUAL_PRS" >> $GITHUB_OUTPUT
-            echo "has_prs=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: 📋 Determine PR List to Process
-        id: prs-to-process
+      - name: 🧪 Test merge compatibility
         run: |
-          if [ "${{ inputs.auto_fetch_prs }}" != "false" ]; then
-            PR_LIST="${{ steps.auto-fetch-prs.outputs.pr_list }}"
-            HAS_PRS="${{ steps.auto-fetch-prs.outputs.has_prs }}"
-          else
-            PR_LIST="${{ steps.manual-prs.outputs.pr_list }}"
-            HAS_PRS="${{ steps.manual-prs.outputs.has_prs }}"
-          fi
-          PR_COUNT=$(echo $PR_LIST | wc -w)
-          echo "pr_list=$PR_LIST" >> $GITHUB_OUTPUT
-          echo "has_prs=${HAS_PRS:-false}" >> $GITHUB_OUTPUT
-          echo "pr_count=$PR_COUNT" >> $GITHUB_OUTPUT
-          rapids-echo-stderr "PRs to process: $PR_LIST (count: $PR_COUNT)"
+          ${SCRIPT_PATH} ${BASE_ARGS} --step test-merge
 
-      - name: ❌ Exit if No PRs Found
-        if: steps.prs-to-process.outputs.has_prs != 'true'
+      - name: 🧪 Test pairwise merge compatibility
         run: |
-          rapids-echo-stderr "No PRs found to merge. Exiting workflow."
-          exit 1
+          ${SCRIPT_PATH} ${BASE_ARGS} --step test-pairwise
 
-      - name: 🧪 Test PR Merge Compatibility with ${{ inputs.base_branch }}
-        id: test-merge
-        if: steps.prs-to-process.outputs.has_prs == 'true'
-        working-directory: velox
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
-          BASE_REPO: ${{ inputs.base_repository }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
+      - name: 🔀 Merge PRs
         run: |
-            rapids-echo-stderr "Testing merge compatibility for each PR against $BASE_REPO/$BASE_BRANCH..."
-            
-            # Store the base commit to reset after each test
-            BASE_COMMIT=$(git rev-parse HEAD)
-            
-            # Arrays to track results
-            SUCCESSFUL_PRS=""
-            CONFLICT_PRS=""
-            
-            for pr_num in $PR_LIST; do
-              rapids-echo-stderr "Testing PR #$pr_num..."
-              
-              # Fetch the specific PR head
-              rapids-retry git fetch upstream pull/$pr_num/head:pr-$pr_num
-              
-              # Try to merge (test only)
-              if git merge --no-commit --no-ff pr-$pr_num 2>/dev/null; then
-                SUCCESSFUL_PRS="$SUCCESSFUL_PRS $pr_num"
-              else
-                CONFLICT_PRS="$CONFLICT_PRS $pr_num"
-              fi
-              
-              # Abort merge and reset to base for next test
-              git merge --abort 2>/dev/null || true
-              git reset --hard $BASE_COMMIT
-              git clean -fd
-            done
-            
-            # Print summary table
-            echo ""
-            rapids-echo-stderr "======================================"
-            rapids-echo-stderr "   PR Merge Compatibility Report"
-            rapids-echo-stderr "======================================"
-            echo ""
-            rapids-echo-stderr "$(printf "| %-12s | %-7s | %-6s |" "Base Branch" "PR NO" "Status")"
-            rapids-echo-stderr "$(printf "|%s|%s|%s|" "--------------" "---------" "--------")"
-            
-            for pr_num in $SUCCESSFUL_PRS; do
-              # Emoji is 2 cells wide, so use %-5s (5 chars = 3 spaces + 2-cell emoji = 6 visual)
-              rapids-echo-stderr "$(printf "| %-12s | #%-6s | %-5s |" "${BASE_BRANCH}" "$pr_num" "✅")"
-            done
-            
-            for pr_num in $CONFLICT_PRS; do
-              rapids-echo-stderr "$(printf "| %-12s | #%-6s | %-5s |" "${BASE_BRANCH}" "$pr_num" "❌")"
-            done
-            
-            echo ""
-            rapids-echo-stderr "======================================"
-            rapids-echo-stderr "Successful: $(echo $SUCCESSFUL_PRS | wc -w) | Conflicts: $(echo $CONFLICT_PRS | wc -w)"
-            rapids-echo-stderr "======================================"
-            
-            # Output results
-            echo "successful_prs=$SUCCESSFUL_PRS" >> $GITHUB_OUTPUT
-            echo "conflict_prs=$CONFLICT_PRS" >> $GITHUB_OUTPUT
-            
-            # Fail if any conflicts
-            if [ -n "$(echo $CONFLICT_PRS | xargs)" ]; then
-              rapids-echo-stderr ""
-              rapids-echo-stderr "❌ Some PRs have merge conflicts with $BASE_BRANCH. Please resolve before proceeding."
-              for pr_num in $CONFLICT_PRS; do
-                rapids-echo-stderr "   PR #$pr_num: https://github.com/${BASE_REPO}/pull/$pr_num"
-              done
-              exit 1
-            fi
-            
-            rapids-echo-stderr "✅ All PRs can merge cleanly with $BASE_BRANCH."
+          ${SCRIPT_PATH} ${BASE_ARGS} --step merge
 
-      - name: 🧪 Test Pairwise PR Merge Compatibility
-        id: test-pairwise
-        if: steps.prs-to-process.outputs.has_prs == 'true' && steps.prs-to-process.outputs.pr_count >= 2
-        working-directory: velox
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
-          BASE_REPO: ${{ inputs.base_repository }}
+      - name: 📝 Create staging manifest
         run: |
-          rapids-echo-stderr "Testing pairwise merge compatibility between PRs..."
-          
-          # Convert PR list to array
-          PR_ARRAY=($PR_LIST)
-          PR_COUNT=${#PR_ARRAY[@]}
-          
-          # Store the base commit to reset after each test
-            BASE_COMMIT=$(git rev-parse HEAD)
-            
-            # Track pairwise results
-            SUCCESSFUL_PAIRS=""
-            CONFLICT_PAIRS=""
-            
-            # Test each pair of PRs
-            for ((i=0; i<$PR_COUNT; i++)); do
-              for ((j=i+1; j<$PR_COUNT; j++)); do
-                PR1=${PR_ARRAY[$i]}
-                PR2=${PR_ARRAY[$j]}
-                
-                rapids-echo-stderr "Testing PR #$PR1 + PR #$PR2..."
-                
-                # Reset to base
-                git reset --hard $BASE_COMMIT
-                git clean -fd
-                
-                # First merge PR1
-                if ! git merge --no-edit pr-$PR1 2>/dev/null; then
-                  # PR1 alone has conflict (shouldn't happen if base test passed)
-                  git merge --abort 2>/dev/null || true
-                  git reset --hard $BASE_COMMIT
-                  CONFLICT_PAIRS="$CONFLICT_PAIRS ${PR1}+${PR2}"
-                  continue
-                fi
-                
-                # Then try to merge PR2 on top
-                if git merge --no-commit --no-ff pr-$PR2 2>/dev/null; then
-                  SUCCESSFUL_PAIRS="$SUCCESSFUL_PAIRS ${PR1}+${PR2}"
-                else
-                  CONFLICT_PAIRS="$CONFLICT_PAIRS ${PR1}+${PR2}"
-                fi
-                
-                # Reset for next test
-                git merge --abort 2>/dev/null || true
-                git reset --hard $BASE_COMMIT
-                git clean -fd
-              done
-            done
-            
-            # Build matrix lookup for results
-            declare -A MATRIX
-            for pair in $SUCCESSFUL_PAIRS; do
-              MATRIX[$pair]="✅"
-            done
-            for pair in $CONFLICT_PAIRS; do
-              MATRIX[$pair]="❌"
-            done
-            
-            # Print matrix table
-            echo ""
-            rapids-echo-stderr "==========================================="
-            rapids-echo-stderr "  Pairwise PR Merge Compatibility Matrix"
-            rapids-echo-stderr "==========================================="
-            echo ""
-            
-            # Print header row
-            HEADER=$(printf "%8s" "")
-            for pr in "${PR_ARRAY[@]}"; do
-              HEADER+=$(printf "%8s" "$pr")
-            done
-            rapids-echo-stderr "$HEADER"
-            
-            # Print each row
-            # Note: Emojis are 2 visual cells wide, dashes are 1, so adjust padding
-            for ((i=0; i<$PR_COUNT; i++)); do
-              PR_I=${PR_ARRAY[$i]}
-              ROW=$(printf "%8s" "$PR_I")
-              
-              for ((j=0; j<$PR_COUNT; j++)); do
-                if [ $j -le $i ]; then
-                  # Lower triangle and diagonal (emoji is 2 cells, so use %7s)
-                  ROW+=$(printf "%7s" "➖")
-                else
-                  # Upper triangle - show result (emoji is 2 cells, so use %7s)
-                  PR_J=${PR_ARRAY[$j]}
-                  PAIR="${PR_I}+${PR_J}"
-                  RESULT="${MATRIX[$PAIR]:-?}"
-                  ROW+=$(printf "%7s" "$RESULT")
-                fi
-              done
-              
-              rapids-echo-stderr "$ROW"
-            done
-            
-            echo ""
-            rapids-echo-stderr "==========================================="
-            rapids-echo-stderr "Successful: $(echo $SUCCESSFUL_PAIRS | wc -w) | Conflicts: $(echo $CONFLICT_PAIRS | wc -w)"
-            rapids-echo-stderr "==========================================="
-            
-            # Print legend with PR details
-            echo ""
-            rapids-echo-stderr "Legend:"
-            rapids-echo-stderr "------------------------------------------------------------"
-            rapids-echo-stderr "$(printf "| %-7s | %-15s | %-40s | %-50s |" "PR #" "Author" "Title" "Link")"
-            rapids-echo-stderr "$(printf "|%s|%s|%s|%s|" "---------" "-----------------" "------------------------------------------" "----------------------------------------------------")"
-            
-            for pr in "${PR_ARRAY[@]}"; do
-              # Fetch PR details
-              PR_AUTHOR=$(gh pr view $pr --json author --jq '.author.login' 2>/dev/null || echo "N/A")
-              PR_TITLE=$(gh pr view $pr --json title --jq '.title' 2>/dev/null || echo "N/A")
-              # Truncate title if too long
-              if [ ${#PR_TITLE} -gt 40 ]; then
-                PR_TITLE="${PR_TITLE:0:37}..."
-              fi
-              PR_LINK="https://github.com/${BASE_REPO}/pull/$pr"
-              
-              rapids-echo-stderr "$(printf "| #%-6s | %-15s | %-40s | %-50s |" "$pr" "$PR_AUTHOR" "$PR_TITLE" "$PR_LINK")"
-            done
-            
-            rapids-echo-stderr "------------------------------------------------------------"
-            echo ""
-            
-            # Output results
-            echo "successful_pairs=$SUCCESSFUL_PAIRS" >> $GITHUB_OUTPUT
-            echo "conflict_pairs=$CONFLICT_PAIRS" >> $GITHUB_OUTPUT
-            
-            # Fail if any pairwise conflicts
-            if [ -n "$(echo $CONFLICT_PAIRS | xargs)" ]; then
-              rapids-echo-stderr ""
-              rapids-echo-stderr "❌ Some PR pairs have merge conflicts. Please resolve before proceeding."
-              exit 1
-            fi
-            
-            rapids-echo-stderr "✅ All PR pairs can merge cleanly together."
+          ${SCRIPT_PATH} ${BASE_ARGS} --step manifest
 
-      - name: 🔀 Filter and Merge cuDF PRs
-        id: merge-prs
-        if: steps.prs-to-process.outputs.has_prs == 'true'
-        working-directory: velox
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_LIST: ${{ steps.prs-to-process.outputs.pr_list }}
-          BASE_REPO: ${{ inputs.base_repository }}
+      - name: 🚀 Push branches
         run: |
-            rapids-echo-stderr "Processing PRs: $PR_LIST"
-            MERGED_COUNT=0
-            MERGED_PRS=""
+          ${SCRIPT_PATH} ${BASE_ARGS} --step push
 
-            for pr_num in $PR_LIST; do
-              rapids-echo-stderr " -> PR #$pr_num: Attempting merge..."
-              
-              # Fetch the specific PR head
-              rapids-retry git fetch upstream pull/$pr_num/head:pr-$pr_num
-              
-              # Try to merge pr-$pr_num into staging - FAIL IMMEDIATELY on conflict
-              if ! git merge pr-$pr_num --no-edit; then
-                rapids-echo-stderr "❌ MERGE CONFLICT in PR #$pr_num!"
-                rapids-echo-stderr "   PR URL: https://github.com/${BASE_REPO}/pull/$pr_num"
-                rapids-echo-stderr "   Please resolve the conflict manually or remove this PR from the merge list."
-                git merge --abort
-                exit 1
-              fi
-              
-              rapids-echo-stderr " -> ✅ Merged PR #$pr_num successfully."
-              MERGED_COUNT=$((MERGED_COUNT + 1))
-              MERGED_PRS="$MERGED_PRS $pr_num"
-            done
-
-            rapids-echo-stderr "Summary: Merged $MERGED_COUNT PRs"
-            
-            # Output the list of successfully merged PRs
-            echo "merged_prs=${MERGED_PRS}" >> $GITHUB_OUTPUT
-            echo "merged_count=$MERGED_COUNT" >> $GITHUB_OUTPUT
-
-      - name: 📝 Create Staging Manifest
-        working-directory: velox
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BASE_REPO: ${{ inputs.base_repository }}
-          BASE_BRANCH: ${{ inputs.base_branch }}
-          TARGET_REPO: ${{ inputs.target_repository }}
-          TARGET_BRANCH: ${{ inputs.target_branch }}
-          MERGED_PRS: ${{ steps.merge-prs.outputs.merged_prs }}
+      - name: 🧱 Build Velox
+        if: inputs.build_and_run_tests != false
         run: |
-            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            MANIFEST_FILE=".staging-manifest.yaml"
-            TEMPLATE_FILE="${GITHUB_WORKSPACE}/velox-testing/.github/templates/staging-manifest.yaml.template"
-            
-            rapids-echo-stderr "Creating staging manifest at ${MANIFEST_FILE}..."
-            
-            # Copy template and replace placeholders
-            cp ${TEMPLATE_FILE} ${MANIFEST_FILE}
-            sed -i "s|{{TIMESTAMP}}|${TIMESTAMP}|g" ${MANIFEST_FILE}
-            sed -i "s|{{TARGET_REPO}}|${TARGET_REPO}|g" ${MANIFEST_FILE}
-            sed -i "s|{{TARGET_BRANCH}}|${TARGET_BRANCH}|g" ${MANIFEST_FILE}
-            sed -i "s|{{DATED_BRANCH}}|${DATED_BRANCH}|g" ${MANIFEST_FILE}
-            sed -i "s|{{BASE_REPO}}|${BASE_REPO}|g" ${MANIFEST_FILE}
-            sed -i "s|{{BASE_BRANCH}}|${BASE_BRANCH}|g" ${MANIFEST_FILE}
-            sed -i "s|{{BASE_COMMIT}}|${BASE_COMMIT}|g" ${MANIFEST_FILE}
-            
-            # Add each PR with its details
-            if [ -n "${MERGED_PRS}" ]; then
-              for pr_num in ${MERGED_PRS}; do
-                # Get PR commit SHA (the head of the PR branch we merged)
-                PR_COMMIT=$(git rev-parse pr-${pr_num} 2>/dev/null || echo "unknown")
-                PR_TITLE=$(gh pr view ${pr_num} --repo ${BASE_REPO} --json title --jq '.title' 2>/dev/null || echo "N/A")
-                PR_AUTHOR=$(gh pr view ${pr_num} --repo ${BASE_REPO} --json author --jq '.author.login' 2>/dev/null || echo "N/A")
-                
-                # Escape special characters in title for YAML
-                PR_TITLE_ESCAPED=$(echo "${PR_TITLE}" | sed 's/"/\\"/g')
-                
-                # Append PR entry with proper YAML indentation (2 spaces for list items)
-                echo "  - number: ${pr_num}" >> ${MANIFEST_FILE}
-                echo "    commit: \"${PR_COMMIT}\"" >> ${MANIFEST_FILE}
-                echo "    author: \"${PR_AUTHOR}\"" >> ${MANIFEST_FILE}
-                echo "    title: \"${PR_TITLE_ESCAPED}\"" >> ${MANIFEST_FILE}
-                echo "    url: \"https://github.com/${BASE_REPO}/pull/${pr_num}\"" >> ${MANIFEST_FILE}
-              done
-            else
-              echo "  []  # No PRs merged" >> ${MANIFEST_FILE}
-            fi
-            
-            rapids-echo-stderr "Manifest contents:"
-            cat ${MANIFEST_FILE}
-            
-            # Stage and commit the manifest
-            git add ${MANIFEST_FILE}
-            git commit -m "${TIMESTAMP}" -m "Staging branch manifest for ${DATED_BRANCH}"
-            
-            rapids-echo-stderr "✅ Manifest committed."
+          ${SCRIPT_PATH} \
+            ${BASE_ARGS} \
+            --build-and-run-tests "${BUILD_AND_RUN_TESTS}" \
+            --build-target "${BUILD_TARGET}" \
+            --step build
 
-      - name: 🚀 Push ${{ inputs.target_branch }} and ${{ env.DATED_BRANCH }}
-        id: push-staging
-        working-directory: velox
-        env:
-          FORCE_PUSH: ${{ inputs.force_push }}
-          EVENT_NAME: ${{ github.event_name }}
+      - name: 🧪 Run Velox tests
+        if: inputs.build_and_run_tests != false
         run: |
-            rapids-echo-stderr "Pushing ${{ inputs.target_branch }} and ${DATED_BRANCH} to ${{ inputs.target_repository }}..."
-            
-            # For scheduled runs, always force push since we're resetting to upstream base
-            # For manual dispatch, respect the force_push input (defaults to false)
-            # Push both branches in a single command (same commit, more efficient)
-            if [ "$EVENT_NAME" == "schedule" ] || [ "$FORCE_PUSH" == "true" ]; then
-              rapids-echo-stderr "Force push enabled. Overwriting target branches..."
-              rapids-retry git push origin \
-                HEAD:${{ inputs.target_branch }} \
-                HEAD:${DATED_BRANCH} \
-                --force
-            else
-              rapids-echo-stderr "Force push disabled. Attempting normal push..."
-              if ! rapids-retry git push origin \
-                HEAD:${{ inputs.target_branch }} \
-                HEAD:${DATED_BRANCH}; then
-                rapids-echo-stderr "❌ Push failed! Target branch may have diverged."
-                rapids-echo-stderr "   Enable 'force_push' to override, or manually resolve conflicts."
-                exit 1
-              fi
-            fi
-            
-            FINAL_COMMIT=$(git rev-parse HEAD)
-            rapids-echo-stderr "✅ Done! Both branches updated successfully."
-            rapids-echo-stderr "   - ${{ inputs.target_branch }}: ${FINAL_COMMIT}"
-            rapids-echo-stderr "   - ${DATED_BRANCH}: ${FINAL_COMMIT}"
-            echo "commit_sha=$FINAL_COMMIT" >> $GITHUB_OUTPUT
-            echo "dated_branch=${DATED_BRANCH}" >> $GITHUB_OUTPUT
-
-    outputs:
-      staging_commit: ${{ steps.push-staging.outputs.commit_sha }}
-
-  # Build and run tests on the updated staging branch
-  build-and-run-tests:
-    needs: sync-and-aggregate
-    if: inputs.build_and_run_tests != false  # Defaults to true for scheduled runs
-    uses: ./.github/workflows/velox-test.yml
-    with:
-      repository: ${{ inputs.target_repository }}
-      velox_commit: ${{ inputs.target_branch }}
-      build_target: 'gpu'
-    secrets: inherit
+          ${SCRIPT_PATH} \
+            ${BASE_ARGS} \
+            --build-and-run-tests "${BUILD_AND_RUN_TESTS}" \
+            --build-target "${BUILD_TARGET}" \
+            --step test
