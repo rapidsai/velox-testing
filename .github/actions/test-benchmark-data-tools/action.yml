@@ -1,0 +1,23 @@
+name: Test Benchmark Data Tools
+description: Run pytest for benchmark_data_tools
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout velox-testing
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r benchmark_data_tools/requirements.txt
+      shell: bash
+
+    - name: Run pytest
+      run: |
+        pytest benchmark_data_tools/tests
+      shell: bash
