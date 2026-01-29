@@ -124,7 +124,7 @@ EOF
 
   # run pbench to generate the config files
   # hide default pbench logging which goes to stderr so we only see any errors
-  if "${SCRIPT_DIR}/../../pbench/pbench" genconfig -p params.json -t template ${CONFIG_DIR} 2>&1 | grep '\{\"level":"error"'; then
+  if "${SCRIPT_DIR}/../pbench/pbench" genconfig -p params.json -t template ${CONFIG_DIR} 2>&1 | grep '\{\"level":"error"'; then
     echo_error "ERROR: Errors reported by pbench genconfig. Configs were not generated successfully."
   fi
 
