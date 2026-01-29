@@ -34,7 +34,7 @@ python3 -m venv .venv
 
 source .venv/bin/activate
 
-pip install -r "${SCRIPT_DIR}/../testing/integration_tests/requirements.txt"
+pip install -r "${SCRIPT_DIR}/../testing/requirements.txt"
 
 startup_scripts=(start_java_presto.sh start_native_cpu_presto.sh start_native_gpu_presto.sh)
 for startup_script in ${startup_scripts[@]}; do
