@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # ==============================================================================
 # Presto TPC-H Benchmark Launcher
 # ==============================================================================
@@ -16,7 +19,7 @@ set -e
 cd "$(dirname "$0")"
 
 # Clean up old output files
-rm -f result_dir/* logs/* *.out *.err 2>/dev/null || true
+rm -f result_dir/* logs/* ./*.out ./*.err 2>/dev/null || true
 mkdir -p result_dir logs
 
 echo "Submitting Presto TPC-H benchmark job..."
@@ -36,7 +39,7 @@ echo ""
 echo "Waiting for job to complete..."
 
 # Wait for job to finish
-while squeue -j $JOB_ID 2>/dev/null | grep -q $JOB_ID; do
+while squeue -j "$JOB_ID" 2>/dev/null | grep -q "$JOB_ID"; do
     sleep 5
 done
 
@@ -44,8 +47,8 @@ echo ""
 echo "Job completed!"
 echo ""
 echo "Output files:"
-ls -lh presto-tpch-run_${JOB_ID}.{out,err} 2>/dev/null || echo "No output files found"
+ls -lh "presto-tpch-run_${JOB_ID}.out" "presto-tpch-run_${JOB_ID}.err" 2>/dev/null || echo "No output files found"
 echo ""
 echo "Showing job output:"
 echo "========================================"
-cat presto-tpch-run_${JOB_ID}.out 2>/dev/null || echo "No output available"
+cat "presto-tpch-run_${JOB_ID}.out" 2>/dev/null || echo "No output available"

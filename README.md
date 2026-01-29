@@ -48,7 +48,7 @@ Authentication files are stored in `~/.sccache-auth/` by default and credentials
 A Docker-based benchmarking infrastructure has been added to facilitate running Velox benchmarks with support for CPU/GPU execution engines and profiling capabilities. The infrastructure uses a dedicated `velox-benchmark` Docker service with pre-configured volume mounts that automatically sync benchmark data and results. The data follows Hive directory structure, making it compatible with Presto. Currently, only TPC-H is implemented, but the infrastructure is designed to be easily extended to support additional benchmarks in the future.
 
 ### Prerequisites
-The benchmarking infrastructure requires the same directory structure as Velox Testing, plus benchmark data using Hive directory structure. For TPC-H, the required data layout is shown below. 
+The benchmarking infrastructure requires the same directory structure as Velox Testing, plus benchmark data using Hive directory structure. For TPC-H, the required data layout is shown below.
 
 ```
   velox-benchmark-data/
@@ -63,7 +63,7 @@ The benchmarking infrastructure requires the same directory structure as Velox T
     └─ supplier/
 ```
 
-By default, the data directory is named `velox-benchmark-data`, but you can specify a different directory using a command-line option. The data must follow the Hive-style partition layout backed by Parquet files. 
+By default, the data directory is named `velox-benchmark-data`, but you can specify a different directory using a command-line option. The data must follow the Hive-style partition layout backed by Parquet files.
 
 ### Building for Benchmarks
 Before running benchmarks, Velox must be built with benchmarking support enabled:
@@ -122,7 +122,7 @@ A number of docker image build and container services infrastructure (using dock
   ├─ velox-testing
   ├─ presto
   ├─ velox
-``` 
+```
 Specifically, the `velox-testing`, `presto`, and `velox` repositories have to be checked out as sibling directories under the same parent directory. Once that is done, navigate (`cd`) into the `velox-testing/presto/scripts` directory and execute the start up script for the needed presto deployment variant. The following scripts: `start_java_presto.sh`, `start_native_cpu_presto.sh`, and `start_native_gpu_presto.sh` can be used to build/deploy "Presto Java Coordinator + Presto Java Worker", "Presto Java Coordinator + Presto Native CPU Worker", and "Presto Java Coordinator + Presto Native GPU Worker" variants respectively. The presto server can then be accessed at http://localhost:8080.
 
 Note that CPU and GPU builds require a local dependencies/run-time base Docker image (`presto/prestissimo-dependency:centos9`). The `start` scripts will not create this automatically. It must be obtained manually. Use the `build_centos_deps_image.sh` script to build an image locally, or the `fetch_centos_deps_image.sh` script to fetch a pre-built image from an external source. Note that the latter script currently requires additional credentials not available to third-parties.

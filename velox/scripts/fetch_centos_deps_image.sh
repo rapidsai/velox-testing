@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -18,7 +20,7 @@ IMAGE_FILE="velox_adapters_deps_image_centos9_${ARCH}.tar.gz"
 # check for existing container image
 #
 
-validate_docker_image ${IMAGE_NAME}
+validate_docker_image "${IMAGE_NAME}"
 
 echo "Velox dependencies/run-time container image not found"
 
@@ -26,9 +28,7 @@ echo "Velox dependencies/run-time container image not found"
 # try to pull container image from our S3 bucket
 #
 
-fetch_docker_image_from_s3 ${IMAGE_NAME} ${BUCKET_SUBDIR} ${IMAGE_FILE}
-
-if [[ $? -eq 0 ]]; then
+if fetch_docker_image_from_s3 "${IMAGE_NAME}" "${BUCKET_SUBDIR}" "${IMAGE_FILE}"; then
   echo "Successfully fetched pre-built Velox dependencies/run-time container image"
   exit 0
 else

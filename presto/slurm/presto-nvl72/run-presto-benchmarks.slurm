@@ -48,7 +48,8 @@ export UCX_KEEPALIVE_INTERVAL=1ms
 # Computed Values
 # ==============================================================================
 # Get the head node (coordinator node) - export for use inside container
-export COORD=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+COORD=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+export COORD
 export NUM_WORKERS=$((NUM_NODES * NUM_GPUS_PER_NODE))
 
 # Single node execution mode
@@ -76,8 +77,8 @@ echo "Single node execution: $SINGLE_NODE_EXECUTION"
 echo "========================================"
 
 # Create necessary directories
-mkdir -p ${LOGS}
-mkdir -p ${DATA}
+mkdir -p "${LOGS}"
+mkdir -p "${DATA}"
 
 # Launch the job script
 bash /mnt/home/misiug/veloxtesting/presto-nvl72/run-presto-benchmarks.sh

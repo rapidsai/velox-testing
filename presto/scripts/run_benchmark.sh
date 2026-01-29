@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -28,7 +17,7 @@ OPTIONS:
     -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
-    -h, --hostname          Hostname of the Presto coordinator.
+    -H, --hostname          Hostname of the Presto coordinator.
     --port                  Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
@@ -53,7 +42,7 @@ EXAMPLES:
 EOF
 }
 
-parse_args() { 
+parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -h|--help)
@@ -78,7 +67,7 @@ parse_args() {
           exit 1
         fi
         ;;
-      -h|--hostname)
+      -H|--hostname)
         if [[ -n $2 ]]; then
           HOST_NAME=$2
           shift 2
@@ -230,11 +219,11 @@ trap delete_python_virtual_env EXIT
 init_python_virtual_env
 
 TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
-pip install -q -r ${TEST_DIR}/requirements.txt
+pip install -q -r "${TEST_DIR}/requirements.txt"
 
 source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+pytest -q "${BENCHMARK_TEST_DIR}"/"${BENCHMARK_TYPE}"_test.py "${PYTEST_ARGS[@]}"

@@ -1,18 +1,7 @@
 #!/usr/bin/env bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -21,12 +10,12 @@ set -e
 #
 # fetches s3://rapidsai-velox-testing/<subdir>/<filename>
 # and attempts to load it as a Docker image
-# 
+#
 
 validate_docker_image() {
   local IMAGE_NAME=$1
   echo "Validating Docker image ${IMAGE_NAME}..."
-  if [[ ! -z $(docker images -q ${IMAGE_NAME}) ]]; then
+  if [[ ! -z $(docker images -q "${IMAGE_NAME}") ]]; then
     echo "Docker image exists"
     exit 0
   fi
@@ -68,31 +57,35 @@ fetch_docker_image_from_s3() {
   if [ ! -z "${AWS_ARN_STRING}" ]; then
     # ask for temporary credentials for file access
     echo "Requesting temporary S3 credentials..."
-    local TEMP_CREDS_JSON=$(aws sts assume-role \
-      --role-arn ${AWS_ARN_STRING} \
+    local TEMP_CREDS_JSON
+    TEMP_CREDS_JSON=$(aws sts assume-role \
+      --role-arn "${AWS_ARN_STRING}" \
       --role-session-name "GetPrestoContainerImage" \
       --query "Credentials" \
       --output json)
 
     # override environment with full temporary credentials
-    export AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
-    export AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
-    export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
+    AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
+    export AWS_ACCESS_KEY_ID
+    AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
+    export AWS_SECRET_ACCESS_KEY
+    AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
+    export AWS_SESSION_TOKEN
   fi
 
   # pull the repo image
   echo "Fetching image file from S3..."
-  aws s3 cp --no-progress ${IMAGE_FILE_PATH} /tmp/${IMAGE_FILE_NAME}
+  aws s3 cp --no-progress "${IMAGE_FILE_PATH}" /tmp/"${IMAGE_FILE_NAME}"
 
   # load the image into docker
   echo "Loading image file into Docker..."
-  docker load < /tmp/${IMAGE_FILE_NAME}
+  docker load < /tmp/"${IMAGE_FILE_NAME}"
 
   # clean up
-  rm -f /tmp/${IMAGE_FILE_NAME}
+  rm -f /tmp/"${IMAGE_FILE_NAME}"
 
   # validate image
-  validate_docker_image ${IMAGE_NAME}
+  validate_docker_image "${IMAGE_NAME}"
 }
 
 # if executed directly, run with provided args

@@ -1,16 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 import os
 import sys
@@ -19,14 +8,14 @@ import sys
 def get_abs_file_path(relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
 
+
 sys.path.append(get_abs_file_path("../../../benchmark_data_tools"))
 
-import duckdb
-import json
-import pytest
-import sqlglot
 
-from duckdb_utils import create_table
+import duckdb  # noqa: E402
+import pytest  # noqa: E402
+import sqlglot  # noqa: E402
+from duckdb_utils import create_table  # noqa: E402
 
 
 def execute_query_and_compare_results(presto_cursor, queries, query_id):
@@ -85,7 +74,7 @@ def get_orderby_indices(query, column_names):
     indices = []
     for ordered in order.expressions:
         key = ordered.this
-        
+
         # Handle numeric literals (e.g., ORDER BY 1, 2)
         if isinstance(key, sqlglot.exp.Literal):
             try:
@@ -95,20 +84,21 @@ def get_orderby_indices(query, column_names):
                     continue
             except (ValueError, TypeError):
                 pass
-        
+
         # Handle simple column references
         if isinstance(key, sqlglot.exp.Column):
             name = key.name
             if name in column_names:
                 indices.append(column_names.index(name))
                 continue
-        
+
         # For complex expressions (CASE, SUM, etc.), skip ORDER BY validation
         # We still validate overall result correctness with full sorting
         # Just don't validate the specific ORDER BY column ordering
         pass
-    
+
     return indices
+
 
 def create_duckdb_table(table_name, data_path):
     create_table(table_name, get_abs_file_path(data_path))

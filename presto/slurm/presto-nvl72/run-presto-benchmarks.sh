@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -e
 set -x
 
@@ -45,7 +48,7 @@ done
 # Wait for Workers to Register
 # ==============================================================================
 echo "Waiting for ${NUM_WORKERS} workers to register with coordinator..."
-wait_for_workers_to_register $NUM_WORKERS
+wait_for_workers_to_register "$NUM_WORKERS"
 
 # ==============================================================================
 # Create Schema and Register Tables
@@ -57,7 +60,7 @@ wait_for_workers_to_register $NUM_WORKERS
 # Run Queries
 # ==============================================================================
 echo "Running TPC-H queries (${NUM_ITERATIONS} iterations, scale factor ${SCALE_FACTOR})..."
-run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
+run_queries "${NUM_ITERATIONS}" "${SCALE_FACTOR}"
 
 # ==============================================================================
 # Process Results

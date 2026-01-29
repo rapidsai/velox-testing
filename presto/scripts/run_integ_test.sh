@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -29,7 +18,7 @@ OPTIONS:
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
     -k, --keep-tables       If this argument is specified, created benchmark tables will not be dropped.
-    -h, --hostname          Hostname of the Presto coordinator.
+    -H, --hostname          Hostname of the Presto coordinator.
     -p, --port              Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried (if unspecified a default schema is auto-generated).
@@ -39,7 +28,7 @@ EXAMPLES:
     $0 -b tpch
     $0 -b tpch -q "1,2" --keep-tables
     $0 -b tpch -q "1,2" -s my_sf1_schema
-    $0 -b tpch -q "1,2" -h myhostname.com -p 8081 -s my_sf1_schema
+    $0 -b tpch -q "1,2" -H myhostname.com -p 8081 -s my_sf1_schema
     $0 -h
 
 EOF
@@ -76,7 +65,7 @@ parse_args() {
         KEEP_TABLES=true
         shift
         ;;
-      -h|--hostname)
+      -H|--hostname)
         if [[ -n $2 ]]; then
           HOST_NAME=$2
           shift 2
@@ -183,4 +172,4 @@ source "${SCRIPT_DIR}/common_functions.sh"
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 INTEGRATION_TEST_DIR=${TEST_DIR}/integration_tests
-pytest -v --durations=0 ${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+pytest -v --durations=0 "${INTEGRATION_TEST_DIR}"/"${BENCHMARK_TYPE}"_test.py "${PYTEST_ARGS[@]}"

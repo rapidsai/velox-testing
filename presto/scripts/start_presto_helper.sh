@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -47,7 +36,7 @@ if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   exit 1
 fi
 
-if [[ "$PROFILE" == "ON" && $(( $NUM_WORKERS > 1 )) && "$SINGLE_CONTAINER" == "false" ]]; then
+if [[ "$PROFILE" == "ON" && $(( NUM_WORKERS > 1 )) && "$SINGLE_CONTAINER" == "false" ]]; then
   echo "Error: multi-worker --profile argument is only currently supported with the --single-container option"
   exit 1
 fi
@@ -71,30 +60,30 @@ DEPS_IMAGE="presto/prestissimo-dependency:centos9"
 BUILD_TARGET_ARG=()
 
 function is_image_missing() {
-  [[ -z "$(docker images -q $1)" ]]
+  [[ -z "$(docker images -q "$1")" ]]
 }
 
 function conditionally_add_build_target() {
-  if is_image_missing $1; then
+  if is_image_missing "$1"; then
     echo "Added $2 to the list of services to build because the $1 image is missing"
-    BUILD_TARGET_ARG+=($2)
+    BUILD_TARGET_ARG+=("$2")
   elif [[ ${BUILD_TARGET} =~ ^($3|all|a)$ ]]; then
     echo "Added $2 to the list of services to build because the '$BUILD_TARGET' build target was specified"
-    BUILD_TARGET_ARG+=($2)
+    BUILD_TARGET_ARG+=("$2")
   fi
 }
 
-conditionally_add_build_target $COORDINATOR_IMAGE $COORDINATOR_SERVICE "coordinator|c"
+conditionally_add_build_target "$COORDINATOR_IMAGE" "$COORDINATOR_SERVICE" "coordinator|c"
 
 if [[ "$VARIANT_TYPE" == "java" ]]; then
   DOCKER_COMPOSE_FILE="java"
-  conditionally_add_build_target $JAVA_WORKER_IMAGE $JAVA_WORKER_SERVICE "worker|w"
+  conditionally_add_build_target "$JAVA_WORKER_IMAGE" "$JAVA_WORKER_SERVICE" "worker|w"
 elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
   DOCKER_COMPOSE_FILE="native-cpu"
-  conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
+  conditionally_add_build_target "$CPU_WORKER_IMAGE" "$CPU_WORKER_SERVICE" "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
-  conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
+  conditionally_add_build_target "$GPU_WORKER_IMAGE" "$GPU_WORKER_SERVICE" "worker|w"
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
@@ -102,7 +91,8 @@ fi
 # Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
 if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
   # Generate default GPU IDs: 0,1,2,...,N-1
-  export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
+  GPU_IDS=$(seq -s, 0 "$((NUM_WORKERS - 1))")
+  export GPU_IDS
 fi
 
 "${SCRIPT_DIR}/stop_presto.sh"
@@ -137,8 +127,6 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   RENDERED_DIR="${SCRIPT_DIR}/../docker/docker-compose/generated"
   mkdir -p "$RENDERED_DIR"
   RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
-  # Default to 0 if not provided, which results in no per-GPU workers being rendered.
-  LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
   if [[ -n $GPU_IDS ]]; then
@@ -149,7 +137,7 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
 if (( ${#BUILD_TARGET_ARG[@]} )); then
-  if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
+  if [[ "${BUILD_TARGET_ARG[*]}" =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing "${DEPS_IMAGE}"; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
     echo "Either build a local image using build_centos9_deps_image.sh or fetch a pre-built"
     echo "image using fetch_centos9_deps_image.sh (credentials may be required)."
@@ -157,17 +145,17 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   fi
 
   PRESTO_VERSION=testing
-  if [[ ${BUILD_TARGET_ARG[@]} =~ ($COORDINATOR_SERVICE|$JAVA_WORKER_SERVICE) ]]; then
-    PRESTO_VERSION=$PRESTO_VERSION "${SCRIPT_DIR}/build_presto_java_package.sh"
+  if [[ "${BUILD_TARGET_ARG[*]}" =~ ($COORDINATOR_SERVICE|$JAVA_WORKER_SERVICE) ]]; then
+    PRESTO_VERSION="$PRESTO_VERSION" "${SCRIPT_DIR}/build_presto_java_package.sh"
   fi
 
-  echo "Building services: ${BUILD_TARGET_ARG[@]}"
-  docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
-  $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
-  --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
-  --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
-  ${BUILD_TARGET_ARG[@]}
+  echo "Building services: ${BUILD_TARGET_ARG[*]}"
+  docker compose --progress plain -f "$DOCKER_COMPOSE_FILE_PATH" build \
+  "$SKIP_CACHE_ARG" --build-arg PRESTO_VERSION="$PRESTO_VERSION" \
+  --build-arg NUM_THREADS="$NUM_THREADS" --build-arg BUILD_TYPE="$BUILD_TYPE" \
+  --build-arg CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" \
+  "${BUILD_TARGET_ARG[@]}"
 fi
 
 # Start all services defined in the rendered docker-compose file.
-docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
+docker compose -f "$DOCKER_COMPOSE_FILE_PATH" up -d
