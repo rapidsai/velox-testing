@@ -220,6 +220,7 @@ run_tpch_single_benchmark() {
 
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
   set +e
+  # shellcheck disable=SC2016  # Single quotes are intentional for deferred expansion in container
   $run_in_container_func 'bash -c "
       set -exuo pipefail
       BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"

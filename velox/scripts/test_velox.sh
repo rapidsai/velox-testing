@@ -89,6 +89,7 @@ parse_args "$@"
 echo "Running tests on Velox adapters..."
 echo ""
 echo "Device type: ${DEVICE_TYPE}"
+# shellcheck disable=SC2016  # Single quotes are intentional for deferred expansion in container
 TEST_PREAMBLE='if [ -f "/opt/miniforge/etc/profile.d/conda.sh" ]; then
     source "/opt/miniforge/etc/profile.d/conda.sh"
     conda activate adapters
