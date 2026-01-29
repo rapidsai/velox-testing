@@ -5,8 +5,14 @@
 
 set -euo pipefail
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Get the root of the git repository
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+
 # Source benchmark-specific libraries
-source "../benchmarks/tpch.sh"
+source "${SCRIPT_DIR}/../benchmarks/tpch.sh"
 
 # Default values
 BENCHMARK_TYPE="tpch"
@@ -14,11 +20,11 @@ QUERIES=""  # Will be set to benchmark-specific defaults if not provided
 DEVICE_TYPE="cpu gpu"
 BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
 PROFILE="false"
-DATA_DIR="../../../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
+DATA_DIR="${REPO_ROOT}/../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
 NUM_REPEATS=2
 
 # Docker compose configuration
-COMPOSE_FILE="../docker/docker-compose.adapters.benchmark.yml"
+COMPOSE_FILE="${SCRIPT_DIR}/../docker/docker-compose.adapters.benchmark.yml"
 CONTAINER_NAME="velox-benchmark"  # Uses dedicated benchmark service with pre-configured volumes
 
 
@@ -165,7 +171,7 @@ parse_args() {
 run_in_container() {
   local cmd="$1"
 
-  docker compose -f "$COMPOSE_FILE" --env-file ./.env run --rm \
+  docker compose -f "$COMPOSE_FILE" --env-file "${SCRIPT_DIR}/.env" run --rm \
     --cap-add=SYS_ADMIN \
     "$CONTAINER_NAME" bash -c "$cmd"
 }
@@ -173,7 +179,7 @@ run_in_container() {
 
 # Helper function to create/update environment file for Docker Compose
 create_docker_env_file() {
-  local env_file="./.env"
+  local env_file="${SCRIPT_DIR}/.env"
 
   # Always override the environment file
   cat > "$env_file" << EOF
@@ -288,7 +294,7 @@ echo "Results output: $BENCHMARK_RESULTS_OUTPUT"
 echo ""
 
 # Validate repo layout
-../../scripts/validate_directories_exist.sh "../../../velox"
+"${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../velox"
 
 # Create environment file for Docker Compose
 create_docker_env_file

@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Default output directory
 DEFAULT_OUTPUT_DIR="$HOME/.sccache-auth"
 
@@ -38,7 +41,7 @@ fi
 
 # Build the authentication container
 echo -e "${YELLOW}Building sccache authentication container...${NC}"
-docker build -f ../docker/sccache_auth.dockerfile -t sccache-auth .
+docker build -f "${SCRIPT_DIR}/../docker/sccache_auth.dockerfile" -t sccache-auth "${SCRIPT_DIR}"
 
 echo -e "${GREEN}Authentication container built successfully${NC}"
 echo
