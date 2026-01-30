@@ -64,8 +64,8 @@ jobs:
         --base-branch ${{ inputs.base_branch }}
         --target-branch ${{ inputs.target_branch }}
         --auto-fetch-prs ${{ inputs.auto_fetch_prs }}
-        --pr-label ${{ inputs.pr_label }}
-        --manual-pr-numbers ${{ inputs.manual_pr_numbers }}
+        ${{ inputs.pr_label && format('--pr-label {0}', inputs.pr_label) || '' }}
+        ${{ inputs.manual_pr_numbers && format('--manual-pr-numbers {0}', inputs.manual_pr_numbers) || '' }}
         --force-push ${{ inputs.force_push }}
     steps:
       - name: 📦 Checkout velox-testing

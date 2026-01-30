@@ -1,7 +1,6 @@
 name: Presto Create Staging Branch
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       base_repository:
@@ -24,10 +23,21 @@ on:
         type: string
         required: false
         default: 'staging'
+      auto_fetch_prs:
+        description: Auto-fetch non-draft PRs with specified label
+        type: boolean
+        required: false
+        default: false
+      pr_label:
+        description: Comma-separated PR labels to auto-fetch
+        type: string
+        required: false
+        default: ''
       manual_pr_numbers:
         description: "Comma-separated PR numbers to merge (e.g., '12345,12346')"
         type: string
-        required: true
+        required: false
+        default: ''
       force_push:
         description: Force push to override existing target branch
         type: boolean
@@ -42,8 +52,8 @@ jobs:
       base_branch: ${{ inputs.base_branch }}
       target_repository: ${{ inputs.target_repository }}
       target_branch: ${{ inputs.target_branch }}
-      auto_fetch_prs: false
-      pr_label: ''
+      auto_fetch_prs: ${{ inputs.auto_fetch_prs }}
+      pr_label: ${{ inputs.pr_label }}
       manual_pr_numbers: ${{ inputs.manual_pr_numbers }}
       force_push: ${{ inputs.force_push }}
       script_path: ./velox-testing/presto/scripts/create_staging.sh
