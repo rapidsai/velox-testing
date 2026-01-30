@@ -443,7 +443,8 @@ create_manifest() {
   if [[ -n "${MERGED_PRS}" ]]; then
     for pr_num in ${MERGED_PRS}; do
       local pr_commit pr_title pr_author pr_title_escaped
-      pr_commit="${PR_SHA[$pr_num]:-unknown}"
+      # Fetch PR details from GitHub API (PR_SHA array may be empty in step-by-step CI mode)
+      pr_commit="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json headRefOid --jq '.headRefOid' 2>/dev/null || echo "${PR_SHA[$pr_num]:-unknown}")"
       pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "N/A")"
       pr_author="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json author --jq '.author.login' 2>/dev/null || echo "N/A")"
       pr_title_escaped="$(echo "${pr_title}" | sed 's/"/\\"/g')"

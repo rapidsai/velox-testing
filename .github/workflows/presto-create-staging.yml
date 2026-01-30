@@ -1,6 +1,7 @@
 name: Presto Create Staging Branch
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       base_repository:
