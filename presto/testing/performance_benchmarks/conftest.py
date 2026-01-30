@@ -32,6 +32,7 @@ def pytest_addoption(parser):
     parser.addoption("--tag")
     parser.addoption("--profile", action="store_true", default=False)
     parser.addoption("--profile-script-path")
+    parser.addoption("--metrics", action="store_true", default=False)
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
