@@ -135,7 +135,7 @@ EOF
 
   COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
   # now perform other variant-specific modifications to the generated configs
-  if is_gpu_variant; then
+  if [[ "$VARIANT_TYPE" == "gpu" || "$VARIANT_TYPE" == "gpu-dev" ]]; then
     # for GPU variant, uncomment these optimizer settings
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
