@@ -2,7 +2,6 @@ name: Velox Dependencies Upload to S3
 description: Upload Velox Dependencies Image to S3
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       repository:
