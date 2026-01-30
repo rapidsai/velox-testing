@@ -144,7 +144,7 @@ EOF
       # Adds a cluster tag for gpu variant
       echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
     else
-      sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${WORKER_CONFIG}/config_native.properties
+      sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${WORKER_CONFIG}
     fi
   fi
 
