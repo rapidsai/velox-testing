@@ -131,6 +131,7 @@ EOF
   fi
 
   COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
+  WORKER_CONFIG="${CONFIG_DIR}/etc_worker/config_native.properties"
   # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
     # for GPU variant, uncomment these optimizer settings
