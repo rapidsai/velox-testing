@@ -1,9 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=presto-tpch-create
-#SBATCH --output=/mnt/home/misiug/veloxtesting/presto-nvl72/%x_%j.out
-#SBATCH --error=/mnt/home/misiug/veloxtesting/presto-nvl72/%x_%j.err
 #SBATCH --time=01:00:00
-#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=144
 #SBATCH --mem=0
@@ -14,14 +11,18 @@
 # User Configuration - Edit these values directly
 # ==============================================================================
 # TPC-H Configuration
-export SCALE_FACTOR=10000
+if [ -z "${SCALE_FACTOR:-}" ]; then
+    echo "Error: SCALE_FACTOR is required. Set via launcher: -s|--scale-factor" >&2
+    exit 1
+fi
+export SCALE_FACTOR
 
 # Directory Configuration
-export WORKSPACE=/mnt/home/misiug
+export REPO_ROOT=/mnt/home/misiug
 export DATA=/mnt/data/tpch-rs
 export IMAGE_DIR=/mnt/home/misiug/images
 export LOGS=/mnt/home/misiug/veloxtesting/presto-nvl72/logs
-export CONFIGS=${WORKSPACE}/config/generated/cpu
+export CONFIGS=${REPO_ROOT}/veloxtesting/config/generated/cpu
 
 # Container Images
 # Coordinator: ${IMAGE_DIR}/presto-coordinator-test.sqsh
@@ -67,7 +68,7 @@ echo "========================================"
 # Create necessary directories
 mkdir -p ${LOGS}
 mkdir -p ${DATA}
-mkdir -p ${WORKSPACE}/.hive_metastore
+mkdir -p ${REPO_ROOT}/.hive_metastore
 
 # Launch the job script
-bash ${WORKSPACE}/veloxtesting/presto-nvl72/create-presto-benchmarks.sh
+bash ${REPO_ROOT}/veloxtesting/presto-nvl72/create-presto-benchmarks.sh

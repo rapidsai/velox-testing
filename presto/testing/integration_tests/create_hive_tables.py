@@ -56,7 +56,12 @@ if __name__ == "__main__":
                         help="The name of the directory that contains the benchmark data.")
     args = parser.parse_args()
 
-    conn = prestodb.dbapi.connect(host="localhost", port=8080, user="test_user", catalog="hive")
+    conn = prestodb.dbapi.connect(
+        host=os.environ.get("HOSTNAME", "localhost"),
+        port=int(os.environ.get("PORT", "8080")),
+        user="test_user",
+        catalog="hive",
+    )
     cursor = conn.cursor()
     data_sub_directory = f"user_data/{args.data_dir_name}"
     create_tables(cursor, args.schema_name, args.schemas_dir_path, data_sub_directory)

@@ -9,16 +9,14 @@ set -x
 # by the slurm launcher script. All configuration is passed via environment vars.
 
 # Source helper functions
-source /mnt/home/misiug/veloxtesting/presto-nvl72/echo_helpers.sh
-source /mnt/home/misiug/veloxtesting/presto-nvl72/functions.sh
+source $SCRIPT_DIR/echo_helpers.sh
+source $SCRIPT_DIR/functions.sh
 
 # ==============================================================================
 # Setup and Validation
 # ==============================================================================
 echo "Setting up Presto environment..."
-export VARIANT_TYPE=gpu
 setup
-echo "Environment setup"
 
 # ==============================================================================
 # Start Coordinator
@@ -63,12 +61,11 @@ run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
 # Process Results
 # ==============================================================================
 echo "Processing results..."
-mkdir -p /mnt/home/misiug/veloxtesting/presto-nvl72/result_dir
-#tpch_summary_to_csv ${LOGS}/cli.log /mnt/home/misiug/veloxtesting/presto-nvl72/result_dir/summary.csv
-#push_csv
+mkdir -p ${SCRIPT_DIR}/result_dir
+cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
 
 echo "========================================"
 echo "Benchmark complete!"
-echo "Results saved to: /mnt/home/misiug/veloxtesting/presto-nvl72/results_dir"
+echo "Results saved to: ${SCRIPT_DIR}/results_dir"
 echo "Logs available at: ${LOGS}"
 echo "========================================"

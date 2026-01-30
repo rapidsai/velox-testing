@@ -19,16 +19,16 @@ export VARIANT_TYPE=cpu
 setup
 
 worker_config="${CONFIGS}/etc_worker/config_native.properties"
-sed -i "s/system-memory-gb.*/system-memory-gb=400/g" ${worker_config}
-sed -i "s/query-memory-gb.*/query-memory-gb=400/g" ${worker_config}
-sed -i "s/query\.max-memory-per-node.*/query\.max-memory-per-node=400GB/g" ${worker_config}
+#sed -i "s/system-memory-gb.*/system-memory-gb=400/g" ${worker_config}
+#sed -i "s/query-memory-gb.*/query-memory-gb=400/g" ${worker_config}
+#sed -i "s/query\.max-memory-per-node.*/query\.max-memory-per-node=400GB/g" ${worker_config}
 
 coord_config="${CONFIGS}/etc_coordinator/config_native.properties"
-sed -i "s/memory\.heap-headroom-per-node.*/memory\.heap-headroom-per-node=120GB/g" ${coord_config}
-sed -i "s/query\.max-total-memory-per-node.*/query\.max-total-memory-per-node=300GB/g" ${coord_config}
-sed -i "s/query\.max-total-memory.*/query\.max-total-memory=300GB/g" ${coord_config}
-sed -i "s/query\.max-memory-per-node.*/query\.max-memory-per-node=250GB/g" ${coord_config}
-sed -i "s/query\.max-memory.*/query\.max-memory=250GB/g" ${coord_config}
+#sed -i "s/memory\.heap-headroom-per-node.*/memory\.heap-headroom-per-node=120GB/g" ${coord_config}
+#sed -i "s/query\.max-total-memory-per-node.*/query\.max-total-memory-per-node=300GB/g" ${coord_config}
+#sed -i "s/query\.max-total-memory.*/query\.max-total-memory=300GB/g" ${coord_config}
+#sed -i "s/query\.max-memory-per-node.*/query\.max-memory-per-node=250GB/g" ${coord_config}
+#sed -i "s/query\.max-memory.*/query\.max-memory=250GB/g" ${coord_config}
 sed -i "s/cluster-tag.*//g" ${coord_config}
 
 # ==============================================================================

@@ -5,7 +5,7 @@
 # Simple launcher script to submit the presto benchmark job to slurm
 #
 # Usage:
-#   ./launch-run.sh [additional sbatch options]
+#   ./launch-run.sh -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]
 #
 # To change configuration, edit run-presto-benchmarks.slurm directly
 # ==============================================================================
@@ -23,15 +23,97 @@ echo "Submitting Presto TPC-H benchmark job..."
 echo "Configuration is set in run-presto-benchmarks.slurm"
 echo ""
 
-# Submit job
-JOB_ID=$(sbatch "$@" run-presto-benchmarks.slurm | awk '{print $NF}')
-#JOB_ID=$(sbatch "$@" create-presto-benchmarks.slurm | awk '{print $NF}')
+# Parse required -n/--nodes and -s/--scale-factor, optional -i/--iterations, and collect extra sbatch args
+NODES_COUNT=""
+SCALE_FACTOR=""
+NUM_ITERATIONS="1"
+EXTRA_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n|--nodes)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                NODES_COUNT="$2"
+                shift 2
+            else
+                echo "Error: -n|--nodes requires a value"
+                echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [additional sbatch options]"
+                exit 1
+            fi
+            ;;
+        -s|--scale-factor)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                SCALE_FACTOR="$2"
+                shift 2
+            else
+                echo "Error: -s|--scale-factor requires a value"
+                echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [additional sbatch options]"
+                exit 1
+            fi
+            ;;
+        -i|--iterations)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                NUM_ITERATIONS="$2"
+                shift 2
+            else
+                echo "Error: -i|--iterations requires a value"
+                echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]"
+                exit 1
+            fi
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "${NODES_COUNT}" ]]; then
+    echo "Error: -n|--nodes is required"
+    echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]"
+    exit 1
+fi
+if [[ -z "${SCALE_FACTOR}" ]]; then
+    echo "Error: -s|--scale-factor is required"
+    echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]"
+    exit 1
+fi
+
+# Submit job (include nodes/SF/iterations in file names)
+OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
+ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
+JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS}" \
+ --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" \
+ run-presto-benchmarks.slurm | awk '{print $NF}')
+OUT_FILE="${OUT_FMT//%j/${JOB_ID}}"
+ERR_FILE="${ERR_FMT//%j/${JOB_ID}}"
+
+# Resolve and print first node IP once nodes are allocated
+echo "Resolving first node IP..."
+for i in {1..60}; do
+    STATE=$(squeue -j "$JOB_ID" -h -o "%T" 2>/dev/null || true)
+    NODELIST=$(squeue -j "$JOB_ID" -h -o "%N" 2>/dev/null || true)
+    if [[ -n "${NODELIST:-}" && "${NODELIST}" != "(null)" ]]; then
+        FIRST_NODE=$(scontrol show hostnames "$NODELIST" | head -n 1)
+        if [[ -n "${FIRST_NODE:-}" ]]; then
+            FIRST_IP=$(scontrol getaddrs "$FIRST_NODE" 2>/dev/null | awk 'NR==1{print $1}')
+            echo "Run this command on a machine to get access to the webUI:
+                ssh -N -L 9200:$FIRST_IP:9200 sunk.pocf62-use13a.coreweave.app
+            The UI will be available at http://localhost:9200"
+            break
+        fi
+    fi
+    sleep 5
+done
 
 echo "Job submitted with ID: $JOB_ID"
 echo ""
 echo "Monitor job with:"
 echo "  squeue -j $JOB_ID"
-echo "  tail -f presto-tpch-run_${JOB_ID}.out"
+echo "  tail -f ${OUT_FILE}"
 echo ""
 echo "Waiting for job to complete..."
 
@@ -44,8 +126,8 @@ echo ""
 echo "Job completed!"
 echo ""
 echo "Output files:"
-ls -lh presto-tpch-run_${JOB_ID}.{out,err} 2>/dev/null || echo "No output files found"
+ls -lh "${OUT_FILE}" "${ERR_FILE}" 2>/dev/null || echo "No output files found"
 echo ""
 echo "Showing job output:"
 echo "========================================"
-cat presto-tpch-run_${JOB_ID}.out 2>/dev/null || echo "No output available"
+cat "${OUT_FILE}" 2>/dev/null || echo "No output available"
