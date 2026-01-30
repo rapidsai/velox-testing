@@ -58,4 +58,4 @@ jobs:
       force_push: ${{ inputs.force_push }}
       script_path: ./velox-testing/presto/scripts/create_staging.sh
     secrets:
-      fork_pat: ${{ secrets.PRESTO_FORK_PAT || secrets.GITHUB_TOKEN }}
+      fork_pat: ${{ secrets.VELOX_FORK_PAT || secrets.GITHUB_TOKEN }}
