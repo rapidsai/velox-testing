@@ -1,0 +1,109 @@
+name: Create Staging Branch (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        description: 'Project name (velox or presto)'
+        type: string
+        required: true
+      base_repository:
+        description: 'Base repository (e.g., facebookincubator/velox)'
+        type: string
+        required: true
+      base_branch:
+        description: 'Base branch to sync from'
+        type: string
+        required: true
+      target_repository:
+        description: 'Target repository (e.g., rapidsai/velox)'
+        type: string
+        required: true
+      target_branch:
+        description: 'Target branch name'
+        type: string
+        required: true
+        default: 'staging'
+      auto_fetch_prs:
+        description: 'Auto-fetch non-draft PRs with specified label'
+        type: boolean
+        required: false
+        default: true
+      pr_label:
+        description: 'Comma-separated PR labels to auto-fetch'
+        type: string
+        required: false
+        default: ''
+      manual_pr_numbers:
+        description: 'Comma-separated PR numbers to merge'
+        type: string
+        required: false
+        default: ''
+      force_push:
+        description: 'Force push to target branch'
+        type: boolean
+        required: false
+        default: false
+      script_path:
+        description: 'Path to the staging script (e.g., ./velox-testing/velox/scripts/create_staging.sh)'
+        type: string
+        required: true
+    secrets:
+      fork_pat:
+        description: 'GitHub PAT for target repository'
+        required: true
+
+jobs:
+  create-staging:
+    runs-on: linux-amd64-cpu4
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.fork_pat }}
+      TARGET_REPO: ${{ inputs.target_repository }}
+      SCRIPT_PATH: ${{ inputs.script_path }}
+      BASE_ARGS: >-
+        --mode ci
+        --project-name "${{ inputs.project_name }}"
+        --base-repository "${{ inputs.base_repository }}"
+        --base-branch "${{ inputs.base_branch }}"
+        --target-branch "${{ inputs.target_branch }}"
+        --auto-fetch-prs "${{ inputs.auto_fetch_prs }}"
+        --pr-label "${{ inputs.pr_label }}"
+        --manual-pr-numbers "${{ inputs.manual_pr_numbers }}"
+        --force-push "${{ inputs.force_push }}"
+    steps:
+      - name: 📦 Checkout velox-testing
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
+      - name: ⚙️ Setup Git Configuration
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: 📥 Clone target repository
+        run: |
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" "${{ inputs.project_name }}"
+
+      - name: 🔄 Reset target branch
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step reset
+
+      - name: 📋 Fetch PR list
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step fetch-prs
+
+      - name: 🧪 Test merge compatibility
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step test-merge
+
+      - name: 🧪 Test pairwise merge compatibility
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step test-pairwise
+
+      - name: 🔀 Merge PRs
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge
+
+      - name: 📝 Create staging manifest
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step manifest
+
+      - name: 🚀 Push branches
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step push

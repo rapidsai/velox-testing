@@ -1,43 +1,32 @@
-name: Velox Create Staging Branch
+name: Presto Create Staging Branch
 
 on:
   workflow_dispatch:
     inputs:
       base_repository:
-        description: Base Velox repository
+        description: Base Presto repository
         type: string
         required: false
-        default: 'facebookincubator/velox'
+        default: 'prestodb/presto'
       base_branch:
-        description: Base Velox branch
+        description: Base Presto branch
         type: string
         required: false
-        default: 'main'
+        default: 'master'
       target_repository:
-        description: Target Velox repository
+        description: Target Presto repository
         type: string
         required: true
-        default: 'rapidsai/velox'
+        default: 'rapidsai/presto'
       target_branch:
-        description: Target Velox branch
+        description: Target Presto branch
         type: string
         required: false
         default: 'staging'
-      auto_fetch_prs:
-        description: Auto-fetch non-draft PRs with 'cudf' label
-        type: boolean
-        required: false
-        default: true
-      pr_label:
-        description: Comma-separated PR labels to auto-fetch
-        type: string
-        required: false
-        default: 'cudf'
       manual_pr_numbers:
         description: "Comma-separated PR numbers to merge (e.g., '12345,12346')"
         type: string
-        required: false
-        default: ''
+        required: true
       force_push:
         description: Force push to override existing target branch
         type: boolean
@@ -48,15 +37,15 @@ jobs:
   create-staging:
     uses: ./.github/workflows/create-staging-composite.yml
     with:
-      project_name: velox
+      project_name: presto
       base_repository: ${{ inputs.base_repository }}
       base_branch: ${{ inputs.base_branch }}
       target_repository: ${{ inputs.target_repository }}
       target_branch: ${{ inputs.target_branch }}
-      auto_fetch_prs: ${{ inputs.auto_fetch_prs }}
-      pr_label: ${{ inputs.pr_label }}
+      auto_fetch_prs: false
+      pr_label: ''
       manual_pr_numbers: ${{ inputs.manual_pr_numbers }}
       force_push: ${{ inputs.force_push }}
-      script_path: ./velox-testing/velox/scripts/create_staging.sh
+      script_path: ./velox-testing/presto/scripts/create_staging.sh
     secrets:
-      fork_pat: ${{ secrets.VELOX_FORK_PAT || secrets.GITHUB_TOKEN }}
+      fork_pat: ${{ secrets.PRESTO_FORK_PAT || secrets.GITHUB_TOKEN }}

@@ -2,39 +2,48 @@
 set -euo pipefail
 
 # Examples:
-#   # Local fork path
-#   ./velox/scripts/create_staging_branch.sh \
+#
+#   # Using child scripts (recommended for local development):
+#   ./velox/scripts/create_staging.sh --target-path ../velox
+#   ./presto/scripts/create_staging.sh --target-path ../presto
+#
+#   # Using parent script directly with Velox defaults:
+#   ./scripts/create_staging_branch.sh \
 #     --target-path ../velox \
 #     --base-repository facebookincubator/velox \
 #     --base-branch main \
-#     --target-branch staging
+#     --target-branch staging \
+#     --pr-label "cudf"
 #
-#   # Manual PR list (no auto-fetch)
-#   ./velox/scripts/create_staging_branch.sh \
-#     --target-repository rapidsai/velox \
-#     --auto-fetch-prs false \
-#     --manual-pr-numbers "12345 12346 12347"
-#
-#   # CI mode (no prompt)
-#   GH_TOKEN=... ./velox/scripts/create_staging_branch.sh \
-#     --mode ci \
-#     --target-repository rapidsai/velox \
+#   # Manual PR list (auto-fetch disabled automatically):
+#   ./scripts/create_staging_branch.sh \
+#     --target-path ../velox \
 #     --base-repository facebookincubator/velox \
-#     --base-branch main \
-#     --target-branch staging
+#     --manual-pr-numbers "12345,12346,12347"
 #
-#   # Force push
-#   ./velox/scripts/create_staging_branch.sh \
-#     --target-repository rapidsai/velox \
+#   # Multiple PR labels (comma-separated):
+#   ./scripts/create_staging_branch.sh \
+#     --target-path ../velox \
+#     --base-repository facebookincubator/velox \
+#     --pr-label "cudf,gpu-support"
+#
+#   # CI mode (no interactive prompt, pushes to remote):
+#   GH_TOKEN=... ./scripts/create_staging_branch.sh \
+#     --mode ci \
+#     --target-path ./velox \
+#     --base-repository facebookincubator/velox \
 #     --force-push true
 #
-#   # Build CPU only
-#   ./velox/scripts/create_staging_branch.sh \
-#     --target-repository rapidsai/velox \
-#     --build-target cpu
+#   # Step-by-step execution (for CI debugging):
+#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step reset
+#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step fetch-prs
+#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step test-merge
+#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step merge
+#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step manifest
+#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step push
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 BASE_REPO="facebookincubator/velox"
 BASE_BRANCH="main"
@@ -44,8 +53,8 @@ TARGET_PATH=""
 WORK_DIR="velox"
 AUTO_FETCH_PRS="true"
 MANUAL_PR_NUMBERS=""
-BUILD_AND_RUN_TESTS="false"
-BUILD_TARGET="gpu"
+PR_LABEL="cudf"
+MANIFEST_TEMPLATE=""
 FORCE_PUSH="false"
 GH_TOKEN="${GH_TOKEN:-}"
 USE_LOCAL_PATH="false"
@@ -69,13 +78,13 @@ normalize_repo_url() {
 }
 
 ensure_sibling_layout() {
-  local velox_dir="$1"
+  local target_dir="$1"
   local parent_dir
-  parent_dir="$(cd "${velox_dir}/.." && pwd)"
+  parent_dir="$(cd "${target_dir}/.." && pwd)"
   local velox_testing_dir="${parent_dir}/velox-testing"
 
-  if [[ ! -d "${velox_dir}" ]]; then
-    die "Velox directory not found: ${velox_dir}"
+  if [[ ! -d "${target_dir}" ]]; then
+    die "Target directory not found: ${target_dir}"
   fi
   if [[ ! -d "${velox_testing_dir}" ]]; then
     die "Expected velox-testing sibling directory not found: ${velox_testing_dir}"
@@ -121,19 +130,20 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
 
-Required (one of):
-  --target-repository owner/repo   Target GitHub repository (e.g. rapidsai/velox)
+Required:
   --target-path /path/to/velox     Local path to a Velox fork
+
+Optional:
 
 Options:
   --base-repository owner/repo     Base repository (default: ${BASE_REPO})
   --base-branch branch             Base branch (default: ${BASE_BRANCH})
   --target-branch branch           Target branch (default: ${TARGET_BRANCH})
   --work-dir path                  Directory to clone target repo (default: ${WORK_DIR})
-  --auto-fetch-prs true|false      Auto-fetch non-draft PRs with "cudf" label (default: ${AUTO_FETCH_PRS})
-  --manual-pr-numbers "1 2 3"      PR numbers to merge (used when auto-fetch is false)
-  --build-and-run-tests true|false Build and run tests after update (default: ${BUILD_AND_RUN_TESTS})
-  --build-target all|cpu|gpu       Test build target (default: ${BUILD_TARGET})
+  --auto-fetch-prs true|false      Auto-fetch non-draft PRs with label (default: ${AUTO_FETCH_PRS})
+  --manual-pr-numbers "1,2,3"      Comma-separated PR numbers to merge (disables auto-fetch)
+  --pr-label labels                Comma-separated PR labels to auto-fetch (default: ${PR_LABEL})
+  --manifest-template path         Manifest template path (default: repo template)
   --force-push true|false          Force push to target branch (default: ${FORCE_PUSH})
   --mode local|ci                  Execution mode (default: ${MODE})
   --step name                      Run a single step (see below)
@@ -144,7 +154,7 @@ Env:
 Notes:
   - If --target-path is provided, the script will prompt before resetting
     ${TARGET_BRANCH} to ${BASE_REPO}/${BASE_BRANCH}.
-  - Steps: clone, reset, fetch-prs, test-merge, test-pairwise, merge, manifest, push, build, test, all
+  - Steps: reset, fetch-prs, test-merge, test-pairwise, merge, manifest, push, all
 EOF
 }
 
@@ -155,7 +165,6 @@ require_cmd() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --target-repository) TARGET_REPO="$2"; shift 2 ;;
       --target-path) TARGET_PATH="$2"; shift 2 ;;
       --base-repository) BASE_REPO="$2"; shift 2 ;;
       --base-branch) BASE_BRANCH="$2"; shift 2 ;;
@@ -163,8 +172,8 @@ parse_args() {
       --work-dir) WORK_DIR="$2"; shift 2 ;;
       --auto-fetch-prs) AUTO_FETCH_PRS="$2"; shift 2 ;;
       --manual-pr-numbers) MANUAL_PR_NUMBERS="$2"; AUTO_FETCH_PRS="false"; shift 2 ;;
-      --build-and-run-tests) BUILD_AND_RUN_TESTS="$2"; shift 2 ;;
-      --build-target) BUILD_TARGET="$2"; shift 2 ;;
+      --pr-label) PR_LABEL="$2"; shift 2 ;;
+      --manifest-template) MANIFEST_TEMPLATE="$2"; shift 2 ;;
       --force-push) FORCE_PUSH="$2"; shift 2 ;;
       --mode) MODE="$2"; shift 2 ;;
       --step) STEP_NAME="$2"; shift 2 ;;
@@ -175,11 +184,8 @@ parse_args() {
 }
 
 ensure_repo_inputs() {
-  if [[ -z "${TARGET_REPO}" && -z "${TARGET_PATH}" ]]; then
-    die "Must specify --target-repository or --target-path"
-  fi
-  if [[ -n "${TARGET_REPO}" && -n "${TARGET_PATH}" ]]; then
-    die "Specify only one of --target-repository or --target-path"
+  if [[ -z "${TARGET_PATH}" ]]; then
+    die "Missing --target-path (repo should already be cloned)."
   fi
   if [[ "${MODE}" == "local" && -z "${TARGET_PATH}" ]]; then
     die "Local mode requires --target-path (repo should already be cloned locally)."
@@ -263,15 +269,23 @@ reset_target_branch() {
 fetch_pr_list() {
   local pr_list=""
   if [[ "${AUTO_FETCH_PRS}" == "true" ]]; then
-    step "Auto-fetch PRs with 'cudf' label"
+    step "Auto-fetch PRs with labels: ${PR_LABEL}"
+    local label_args=()
+    local labels=()
+    IFS=',' read -r -a labels <<< "${PR_LABEL}"
+    for label in "${labels[@]}"; do
+      label="$(echo "${label}" | xargs)"
+      [[ -z "${label}" ]] && continue
+      label_args+=(--label "${label}")
+    done
     pr_list="$(gh pr list \
       --repo "${BASE_REPO}" \
-      --label "cudf" \
+      "${label_args[@]}" \
       --state open \
       --json number,isDraft \
       --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs || true)"
   else
-    pr_list="$(echo "${MANUAL_PR_NUMBERS}" | xargs || true)"
+    pr_list="$(echo "${MANUAL_PR_NUMBERS}" | tr ',' ' ' | xargs || true)"
   fi
 
   if [[ -z "${pr_list}" ]]; then
@@ -388,7 +402,9 @@ merge_prs() {
   step "Merging PRs: ${pr_list}"
   for pr_num in ${pr_list}; do
     fetch_pr_head "${repo_dir}" "${pr_num}"
-    if ! git -C "${repo_dir}" merge "${PR_SHA[$pr_num]}" --no-edit >/dev/null 2>&1; then
+    local pr_title
+    pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "PR #${pr_num}")"
+    if ! git -C "${repo_dir}" merge "${PR_SHA[$pr_num]}" --log -m "Merge PR #${pr_num}: ${pr_title}" 2>&1; then
       log "Merge conflict in PR #${pr_num}. Aborting."
       git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
       exit 1
@@ -407,7 +423,7 @@ merge_prs() {
 
 create_manifest() {
   local repo_dir="$1"
-  local template_file="${PROJECT_ROOT}/.github/templates/staging-manifest.yaml.template"
+  local template_file="${MANIFEST_TEMPLATE:-${PROJECT_ROOT}/.github/templates/staging-manifest.yaml.template}"
   local manifest_file="${repo_dir}/.staging-manifest.yaml"
   local timestamp
   timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -473,68 +489,11 @@ push_branches() {
   fi
 }
 
-build_velox() {
-  if [[ "${BUILD_AND_RUN_TESTS}" != "true" ]]; then
-    log "Skipping build."
-    return 0
-  fi
-
-  local scripts_dir="${PROJECT_ROOT}/velox/scripts"
-  if [[ ! -d "${scripts_dir}" ]]; then
-    die "velox scripts directory not found: ${scripts_dir}"
-  fi
-
-  step "Build Velox (${BUILD_TARGET})"
-  case "${BUILD_TARGET}" in
-    cpu)
-      (cd "${scripts_dir}" && TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --cpu --log build_velox_cpu.log)
-      ;;
-    gpu)
-      (cd "${scripts_dir}" && TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --gpu --log build_velox_gpu.log)
-      ;;
-    all)
-      (cd "${scripts_dir}" && TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --cpu --log build_velox_cpu.log)
-      (cd "${scripts_dir}" && TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --gpu --log build_velox_gpu.log)
-      ;;
-    *)
-      die "invalid build target: ${BUILD_TARGET} (expected: all|cpu|gpu)"
-      ;;
-  esac
-}
-
-run_tests() {
-  if [[ "${BUILD_AND_RUN_TESTS}" != "true" ]]; then
-    log "Skipping tests."
-    return 0
-  fi
-
-  local scripts_dir="${PROJECT_ROOT}/velox/scripts"
-  if [[ ! -d "${scripts_dir}" ]]; then
-    die "velox scripts directory not found: ${scripts_dir}"
-  fi
-
-  step "Run Velox tests (${BUILD_TARGET})"
-  case "${BUILD_TARGET}" in
-    cpu)
-      (cd "${scripts_dir}" && ./test_velox.sh --device-type cpu)
-      ;;
-    gpu)
-      (cd "${scripts_dir}" && ./test_velox.sh --device-type gpu)
-      ;;
-    all)
-      (cd "${scripts_dir}" && ./test_velox.sh --device-type cpu)
-      (cd "${scripts_dir}" && ./test_velox.sh --device-type gpu)
-      ;;
-    *)
-      die "invalid build target: ${BUILD_TARGET} (expected: all|cpu|gpu)"
-      ;;
-  esac
-}
 
 init_repo() {
   init_target_repo
   if [[ -z "${TARGET_REPO}" ]]; then
-    die "Could not determine target repository. Provide --target-repository."
+    die "Could not determine target repository from origin remote."
   fi
   ensure_sibling_layout "${WORK_DIR}"
   setup_git_config "${WORK_DIR}"
@@ -596,12 +555,6 @@ main() {
       push)
         push_branches "${WORK_DIR}"
         ;;
-      build)
-        build_velox
-        ;;
-      test)
-        run_tests
-        ;;
       *)
         die "Unknown step: ${STEP_NAME}"
         ;;
@@ -618,8 +571,6 @@ main() {
   merge_prs "${WORK_DIR}" "${PR_LIST}"
   create_manifest "${WORK_DIR}"
   push_branches "${WORK_DIR}"
-  build_velox
-  run_tests
   log "Done."
 }
 
