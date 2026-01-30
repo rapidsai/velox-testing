@@ -64,7 +64,6 @@ jobs:
       SCRIPT_PATH: ${{ inputs.script_path }}
       BASE_ARGS: >-
         --mode ci
-        --project-name "${{ inputs.project_name }}"
         --base-repository "${{ inputs.base_repository }}"
         --base-branch "${{ inputs.base_branch }}"
         --target-branch "${{ inputs.target_branch }}"

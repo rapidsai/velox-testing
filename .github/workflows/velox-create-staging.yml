@@ -45,7 +45,7 @@ on:
         default: false
 
 jobs:
-  create-staging:
+  velox-create-staging:
     uses: ./.github/workflows/create-staging-composite.yml
     with:
       project_name: velox

@@ -34,7 +34,7 @@ on:
         default: false
 
 jobs:
-  create-staging:
+  presto-create-staging:
     uses: ./.github/workflows/create-staging-composite.yml
     with:
       project_name: presto
