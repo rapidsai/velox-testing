@@ -262,7 +262,7 @@ reset_target_branch() {
   fi
   BASE_COMMIT="$(git -C "${repo_dir}" rev-parse HEAD)"
   export BASE_COMMIT
-  emit_output base_commit "${BASE_COMMIT}"
+  emit_output BASE_COMMIT "${BASE_COMMIT}"
   log "Base commit: ${BASE_COMMIT}"
 }
 
@@ -293,8 +293,8 @@ fetch_pr_list() {
   fi
   PR_LIST="${pr_list}"
   export PR_LIST
-  emit_output pr_list "${PR_LIST}"
-  emit_output pr_count "$(echo "${PR_LIST}" | wc -w | xargs)"
+  emit_output PR_LIST "${PR_LIST}"
+  emit_output PR_COUNT "$(echo "${PR_LIST}" | wc -w | xargs)"
   log "PRs to process: ${PR_LIST}"
 }
 
@@ -416,8 +416,8 @@ merge_prs() {
   MERGED_PRS="${merged}"
   MERGED_COUNT="${count}"
   export MERGED_PRS MERGED_COUNT
-  emit_output merged_prs "${MERGED_PRS}"
-  emit_output merged_count "${MERGED_COUNT}"
+  emit_output MERGED_PRS "${MERGED_PRS}"
+  emit_output MERGED_COUNT "${MERGED_COUNT}"
   log "Merged ${MERGED_COUNT} PRs."
 }
 
