@@ -34,7 +34,7 @@ def get_scale_factor_from_file(file):
 def get_table_external_location(schema_name, table, presto_cursor):
     create_table_text = presto_cursor.execute(f"SHOW CREATE TABLE hive.{schema_name}.{table}").fetchone()
     test_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/integration_test/(.*)'"
-    user_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/user_data/(.*)'"
+    user_pattern = r"external_location = 'file:/data/(.*)'"
     assert len(create_table_text) == 1
     test_match = re.search(test_pattern, create_table_text[0])
     external_dir =""

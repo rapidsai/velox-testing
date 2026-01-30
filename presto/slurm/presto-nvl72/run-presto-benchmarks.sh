@@ -48,8 +48,8 @@ wait_for_workers_to_register $NUM_WORKERS
 # ==============================================================================
 # Create Schema and Register Tables
 # ==============================================================================
-#echo "Creating TPC-H schema and registering tables for scale factor ${SCALE_FACTOR}..."
-#setup_benchmark ${SCALE_FACTOR}
+echo "Creating TPC-H schema and registering tables for scale factor ${SCALE_FACTOR}..."
+setup_benchmark ${SCALE_FACTOR}
 
 # ==============================================================================
 # Run Queries

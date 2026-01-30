@@ -21,9 +21,12 @@ if [ -z "${NUM_ITERATIONS:-}" ]; then
     exit 1
 fi
 export NUM_ITERATIONS
+if [ -z "${SCRIPT_DIR:-}" ]; then
+    echo "Error: SCRIPT_DIR is required."
+    exit 1
+fi
+export SCRIPT_DIR
 
-# Directory Configuration
-export SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd -P)"
 # Assumes the repo root is four steps up from the script directory.  This should refer to velox-testing.
 export REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 export DATA=/mnt/data/tpch-rs

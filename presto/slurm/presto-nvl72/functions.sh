@@ -9,7 +9,7 @@ function setup {
     [ -z "$IMAGE_DIR" ] && echo "IMAGE_DIR must be set" && exit 1
     [ -z "$LOGS" ] && echo "LOGS must be set" && exit 1
     [ -z "$CONFIGS" ] && echo "CONFIGS must be set" && exit 1
-    [ -z "$NUM_NODES" ] && echo "NUM_WORKERS must be set" && exit 1
+    [ -z "$NUM_NODES" ] && echo "NUM_NODES must be set" && exit 1
     [ -z "$NUM_GPUS_PER_NODE" ] && echo "NUM_GPUS_PER_NODE env variable must be set" && exit 1
     [ ! -d "$REPO_ROOT" ] && echo "REPO_ROOT must be a valid directory" && exit 1
     [ ! -d "$DATA" ] && echo "DATA must be a valid directory" && exit 1
@@ -21,7 +21,7 @@ function setup {
 function generate_configs {
     echo "GENERATING NEW CONFIGS"
     mkdir -p ${CONFIGS}
-    pushd ${REPO_ROOT}/velox-testing/presto/scripts
+    pushd ${REPO_ROOT}/presto/scripts
     OVERWRITE_CONFIG=true ./generate_presto_config.sh
     popd
     echo "--add-modules=java.management,jdk.management" >> ${CONFIGS}/etc_common/jvm.config
@@ -65,12 +65,12 @@ function run_coord_image {
 --container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${REPO_ROOT}:/workspace,\
+${DATA}:/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
-${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
-${DATA}:/var/lib/presto/data/hive/data/user_data \
+${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
@@ -79,12 +79,12 @@ ${DATA}:/var/lib/presto/data/hive/data/user_data \
 --container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${REPO_ROOT}:/workspace,\
+${DATA}:/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
-${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
-${DATA}:/var/lib/presto/data/hive/data/user_data \
+${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
     fi
 }
@@ -99,20 +99,7 @@ function run_coordinator {
     sed -i "s+http-server\.http\.port=.*+http-server\.http\.port=${PORT}+g" ${coord_config}
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=${SINGLE_NODE_EXECUTION}+g" ${coord_config}
 
-    # Copy the hive metastore from the source of truth to the container.  This means we don't have to create
-    # or analyze the tables.
     mkdir -p ${REPO_ROOT}/.hive_metastore
-    for dataset in $(ls /mnt/data/tpch-rs/HIVE_METASTORE-BZ-MG-KN); do
-        if [[ ! -d ${REPO_ROOT}/.hive_metastore/${dataset} ]]; then
-            cp -r /mnt/data/tpch-rs/HIVE_METASTORE-BZ-MG-KN/${dataset} ${REPO_ROOT}/.hive_metastore/${dataset}
-            for table in $(ls ${REPO_ROOT}/.hive_metastore/${dataset}); do
-                if [[ -d ${REPO_ROOT}/.hive_metastore/${dataset}/${table} ]]; then
-                    echo "Updating .prestoSchema for ${dataset}.${table}"
-                    sed -i "s+/data/+/var/lib/presto/data/hive/data/user_data/+g" ${REPO_ROOT}/.hive_metastore/${dataset}/${table}/.prestoSchema
-                fi
-            done
-        fi
-    done
 
 read -r -d '' COORD_SCRIPT <<'EOS' || true
 set -euo pipefail
@@ -160,13 +147,6 @@ function run_worker {
     local worker_id=$4
     local worker_two_digit=$(printf "%02d\n" "$worker_id")
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id}"
-    if [ "$image" == "presto-native-worker-cpu" ]; then
-	NUM_DRIVERS=64
-    elif (( $NUM_WORKERS > 1 )); then
-	NUM_DRIVERS=1
-    else
-	NUM_DRIVERS=2
-    fi
 
     local worker_image="${IMAGE_DIR}/${image}.sqsh"
     [ ! -f "${worker_image}" ] && echo_error "worker image does not exist at ${worker_image}"
@@ -187,7 +167,6 @@ function run_worker {
     # Update discovery based on which node the coordinator is running on.
     sed -i "s+discovery\.uri.*+discovery\.uri=http://${COORD}:${PORT}+g" ${worker_config}
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=${SINGLE_NODE_EXECUTION}+g" ${worker_config}
-    sed -i "s+task.max-drivers-per-task.*+task.max-drivers-per-task=${NUM_DRIVERS}+g" ${worker_config}
     # Give each worker a unique id.
     sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_node}
 
@@ -205,17 +184,17 @@ function run_worker {
 --export=ALL \
 --container-env=LD_LIBRARY_PATH="/usr/lib64/presto-native-libs:/usr/local/lib:/usr/lib64" \
 --container-mounts=${REPO_ROOT}:/workspace,\
+${DATA}:/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${worker_node}:/opt/presto-server/etc/node.properties,\
 ${worker_config}:/opt/presto-server/etc/config.properties,\
 ${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
-${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
-${DATA}:/var/lib/presto/data/hive/data/user_data \
+${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 --container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
 --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
 --container-env=GLOG_logtostderr=1 \
--- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; nvidia-smi -L; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+-- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; nvidia-smi -L; ls -l /data/date-scale-3000/orders/part0*; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 #./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
@@ -224,7 +203,15 @@ function setup_benchmark {
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
     local scale_factor=$1
     local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 -y; yum install jq -y; cd /workspace/velox-testing/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/data; yum install python3.12 -y; yum install jq -y; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
+
+    # Copy the hive metastore from the source of truth to the container.  This means we don't have to create
+    # or analyze the tables.
+    for dataset in $(ls /mnt/data/tpch-rs/HIVE_METASTORE-BZ-MG-KN); do
+        if [[ -d ${REPO_ROOT}/.hive_metastore/${dataset} ]]; then
+            cp -r /mnt/data/tpch-rs/HIVE_METASTORE-BZ-MG-KN/${dataset} ${REPO_ROOT}/.hive_metastore/${dataset}
+        fi
+    done
 }
 
 # Run a cli node that will connect to the coordinator and run queries from queries.sql
@@ -234,7 +221,7 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 jq -y > /dev/null; cd /workspace/velox-testing/presto/scripts; ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} --hostname ${COORD} --port $PORT -o /workspace/veloxtesting/slurm_scripts/result_dir" "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/data; yum install python3.12 jq -y > /dev/null; cd /workspace/presto/scripts; ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.

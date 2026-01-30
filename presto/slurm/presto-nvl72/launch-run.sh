@@ -1,3 +1,5 @@
+
+
 #!/bin/bash
 # ==============================================================================
 # Presto TPC-H Benchmark Launcher
@@ -85,9 +87,10 @@ fi
 # Submit job (include nodes/SF/iterations in file names)
 OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
 ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
-JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS}" \
- --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" \
- run-presto-benchmarks.slurm | awk '{print $NF}')
+SCRIPT_DIR="$PWD"
+JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR}" \
+--output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" \
+run-presto-benchmarks.slurm | awk '{print $NF}')
 OUT_FILE="${OUT_FMT//%j/${JOB_ID}}"
 ERR_FILE="${ERR_FMT//%j/${JOB_ID}}"
 
@@ -99,10 +102,12 @@ for i in {1..60}; do
     if [[ -n "${NODELIST:-}" && "${NODELIST}" != "(null)" ]]; then
         FIRST_NODE=$(scontrol show hostnames "$NODELIST" | head -n 1)
         if [[ -n "${FIRST_NODE:-}" ]]; then
-            FIRST_IP=$(scontrol getaddrs "$FIRST_NODE" 2>/dev/null | awk 'NR==1{print $1}')
+            part=$(scontrol getaddrs "$FIRST_NODE" 2>/dev/null | awk 'NR==1{print $2}')
+	    FIRST_IP="${part%%:*}"
             echo "Run this command on a machine to get access to the webUI:
-                ssh -N -L 9200:$FIRST_IP:9200 sunk.pocf62-use13a.coreweave.app
-            The UI will be available at http://localhost:9200"
+  ssh -N -L 9200:$FIRST_IP:9200 sunk.pocf62-use13a.coreweave.app
+The UI will be available at http://localhost:9200"
+	    echo ""
             break
         fi
     fi
@@ -114,6 +119,9 @@ echo ""
 echo "Monitor job with:"
 echo "  squeue -j $JOB_ID"
 echo "  tail -f ${OUT_FILE}"
+echo "  tail -f logs/coord.log"
+echo "  tail -f logs/worker_*.log"
+echo "  tail -f logs/cli.log"
 echo ""
 echo "Waiting for job to complete..."
 

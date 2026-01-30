@@ -49,7 +49,7 @@ function init_conda() {
 function init_python_virtual_env() {
   rm -rf .venv
 
-  if python3.12 -m venv .venv &>/dev/null; then
+  if python3.12 -m venv .venv; then
     echo "Created virtual environment using the venv module"
 
     echo "Activating venv environment"

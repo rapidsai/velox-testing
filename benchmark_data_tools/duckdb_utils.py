@@ -15,6 +15,9 @@
 import duckdb
 import re
 
+def quote_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
 def init_benchmark_tables(benchmark_type, scale_factor):
     tables = duckdb.sql("SHOW TABLES").fetchall()
     assert len(tables) == 0
@@ -30,25 +33,25 @@ def init_benchmark_tables(benchmark_type, scale_factor):
 def drop_benchmark_tables():
     tables = duckdb.sql("SHOW TABLES").fetchall()
     for table, in tables:
-        duckdb.sql(f"DROP TABLE {table}")
+        duckdb.sql(f"DROP TABLE {quote_ident(table)}")
 
 def create_table(table_name, data_path):
-    duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
-    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet';")
+    duckdb.sql(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
+    duckdb.sql(f"CREATE TABLE {quote_ident(table_name)} AS SELECT * FROM '{data_path}/*.parquet';")
 
 # Generates a sample table with a small limit.
 # This is mainly used to extract the schema from the parquet files.
 def create_not_null_table_from_sample(table_name, data_path):
-    duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
-    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
-    ret = duckdb.sql(f"DESCRIBE TABLE {table_name}").fetchall()
+    duckdb.sql(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
+    duckdb.sql(f"CREATE TABLE {quote_ident(table_name)} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
+    ret = duckdb.sql(f"DESCRIBE TABLE {quote_ident(table_name)}").fetchall()
     for row in ret:
-        duckdb.sql(f"ALTER TABLE {table_name} ALTER COLUMN {row[0]} SET NOT NULL;")
+        duckdb.sql(f"ALTER TABLE {quote_ident(table_name)} ALTER COLUMN {row[0]} SET NOT NULL;")
 
 
 def create_table_from_sample(table_name, data_path):
-    duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
-    duckdb.sql(f"CREATE TABLE {table_name} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
+    duckdb.sql(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
+    duckdb.sql(f"CREATE TABLE {quote_ident(table_name)} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
 
 
 def is_decimal_column(column_type):
