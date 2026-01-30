@@ -3,10 +3,6 @@ name: Create Staging Branch (Reusable)
 on:
   workflow_call:
     inputs:
-      project_name:
-        description: 'Project name (velox or presto)'
-        type: string
-        required: true
       base_repository:
         description: 'Base repository (e.g., facebookincubator/velox)'
         type: string
@@ -64,13 +60,13 @@ jobs:
       SCRIPT_PATH: ${{ inputs.script_path }}
       BASE_ARGS: >-
         --mode ci
-        --base-repository "${{ inputs.base_repository }}"
-        --base-branch "${{ inputs.base_branch }}"
-        --target-branch "${{ inputs.target_branch }}"
-        --auto-fetch-prs "${{ inputs.auto_fetch_prs }}"
-        --pr-label "${{ inputs.pr_label }}"
-        --manual-pr-numbers "${{ inputs.manual_pr_numbers }}"
-        --force-push "${{ inputs.force_push }}"
+        --base-repository ${{ inputs.base_repository }}
+        --base-branch ${{ inputs.base_branch }}
+        --target-branch ${{ inputs.target_branch }}
+        --auto-fetch-prs ${{ inputs.auto_fetch_prs }}
+        --pr-label ${{ inputs.pr_label }}
+        --manual-pr-numbers ${{ inputs.manual_pr_numbers }}
+        --force-push ${{ inputs.force_push }}
     steps:
       - name: 📦 Checkout velox-testing
         uses: actions/checkout@v4
@@ -84,7 +80,9 @@ jobs:
 
       - name: 📥 Clone target repository
         run: |
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" "${{ inputs.project_name }}"
+          # Extract project name from script path (e.g., velox from ./velox-testing/velox/scripts/...)
+          TARGET_DIR=$(echo "${SCRIPT_PATH}" | sed 's|.*/velox-testing/||' | cut -d'/' -f1)
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" "${TARGET_DIR}"
 
       - name: 🔄 Reset target branch
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step reset

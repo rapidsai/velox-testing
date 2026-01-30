@@ -37,7 +37,6 @@ jobs:
   presto-create-staging:
     uses: ./.github/workflows/create-staging-composite.yml
     with:
-      project_name: presto
       base_repository: ${{ inputs.base_repository }}
       base_branch: ${{ inputs.base_branch }}
       target_repository: ${{ inputs.target_repository }}
