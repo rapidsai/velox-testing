@@ -1,0 +1,4518 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Presto Query Profiler</title>
+    <link
+      rel="stylesheet"
+      crossorigin="anonymous"
+      href="https://cdn.jsdelivr.net/npm/@finos/perspective-viewer@2.10.1/dist/css/themes.css"
+    />
+    <style>
+      :root {
+        /* Dark mode colors (default) */
+        --bg-primary: #1a1a1a;
+        --bg-secondary: #2a2a2a;
+        --bg-tertiary: #333;
+        --bg-header: #000000;
+        --bg-panel-dark: #0d0d0d;
+        --text-primary: #eee;
+        --text-secondary: #aaa;
+        --text-tertiary: #888;
+        --text-muted: #555;
+        --text-inactive: #444;
+        --accent-primary: #76b900;
+        --accent-hover: #8fd400;
+        --accent-secondary: #0d9488;
+        --accent-link: #0891b2;
+        --accent-link-hover: #06b6d4;
+        --border-primary: #333;
+        --border-accent: #76b900;
+        --border-subtle: rgba(255, 255, 255, 0.2);
+        --tooltip-bg: #2a2a2a;
+        --dag-legend-bg: rgba(0, 0, 0, 0.8);
+        --highlight-bg: rgba(8, 145, 178, 0.3);
+      }
+
+      body.light-mode {
+        /* Light mode colors */
+        --bg-primary: #ffffff;
+        --bg-secondary: #f5f5f5;
+        --bg-tertiary: #e0e0e0;
+        --bg-header: #f9f9f9;
+        --bg-panel-dark: #fafafa;
+        --text-primary: #1a1a1a;
+        --text-secondary: #555555;
+        --text-tertiary: #666666;
+        --text-muted: #999999;
+        --text-inactive: #bbbbbb;
+        --accent-primary: #76b900;
+        --accent-hover: #609600;
+        --accent-secondary: #0f766e;
+        --accent-link: #0e7490;
+        --accent-link-hover: #0284c7;
+        --border-primary: #d0d0d0;
+        --border-accent: #76b900;
+        --border-subtle: rgba(0, 0, 0, 0.15);
+        --tooltip-bg: #ffffff;
+        --dag-legend-bg: rgba(255, 255, 255, 0.95);
+        --highlight-bg: rgba(8, 145, 178, 0.2);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+          sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        min-height: 100vh;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+      .header {
+        background: var(--bg-header);
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--border-primary);
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .header h1 {
+        font-size: 1.4em;
+        color: var(--accent-primary);
+      }
+      .header input[type="file"] {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-accent);
+        border-radius: 4px;
+        padding: 8px 12px;
+        color: var(--text-primary);
+        cursor: pointer;
+      }
+      .header select {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-accent);
+        border-radius: 4px;
+        padding: 8px 12px;
+        color: var(--text-primary);
+        cursor: pointer;
+        min-width: 200px;
+      }
+      /* Theme Toggle Switch */
+      .theme-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+      .theme-toggle-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .theme-switch {
+        position: relative;
+        display: inline-block;
+        width: 50px;
+        height: 24px;
+      }
+      .theme-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .theme-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--bg-tertiary);
+        transition: 0.3s;
+        border-radius: 24px;
+        border: 1px solid var(--border-primary);
+      }
+      .theme-slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 2px;
+        bottom: 2px;
+        background-color: var(--accent-primary);
+        transition: 0.3s;
+        border-radius: 50%;
+      }
+      input:checked + .theme-slider:before {
+        transform: translateX(26px);
+      }
+      .theme-slider:hover {
+        border-color: var(--accent-primary);
+      }
+      .query-info {
+        background: var(--bg-header);
+        padding: 10px 20px;
+        border-bottom: 1px solid var(--border-primary);
+        font-size: 0.9em;
+      }
+      .query-info span {
+        margin-right: 20px;
+        color: var(--text-secondary);
+      }
+      .query-info span strong {
+        color: var(--accent-primary);
+      }
+      .container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        gap: 10px;
+        padding: 10px;
+        height: calc(100vh - 120px);
+      }
+      .panel {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 8px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .panel-header {
+        background: var(--bg-secondary);
+        padding: 10px 15px;
+        font-weight: 600;
+        color: var(--accent-primary);
+        font-size: 0.9em;
+      }
+      .panel-content {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+      }
+      perspective-viewer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+      .full-width {
+        grid-column: 1 / -1;
+      }
+      .full-height {
+        grid-row: 1 / -1;
+      }
+
+      /* Timeline styles */
+      .timeline-container {
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+      .timeline-svg {
+        display: block;
+        max-width: 100%;
+      }
+      .pipeline-group {
+        margin-bottom: 10px;
+      }
+      .pipeline-label {
+        font-size: 12px;
+        fill: var(--accent-primary);
+        font-weight: bold;
+      }
+      .operator-bar {
+        cursor: pointer;
+        transition: opacity 0.2s;
+      }
+      .operator-bar:hover {
+        opacity: 0.8;
+      }
+      .operator-label {
+        font-size: 10px;
+        fill: var(--text-primary);
+        pointer-events: none;
+      }
+      .axis text {
+        fill: var(--text-secondary);
+        font-size: 10px;
+      }
+      .axis line,
+      .axis path {
+        stroke: var(--text-inactive);
+      }
+      .grid line {
+        stroke: var(--border-primary);
+        stroke-dasharray: 2, 2;
+      }
+      .tooltip {
+        position: absolute;
+        background: var(--tooltip-bg);
+        border: 1px solid var(--border-accent);
+        border-radius: 4px;
+        padding: 10px;
+        font-size: 12px;
+        pointer-events: none;
+        z-index: 1000;
+        max-width: 300px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      }
+      .tooltip strong {
+        color: var(--accent-primary);
+      }
+      .legend {
+        display: flex;
+        gap: 15px;
+        padding: 10px 15px;
+        background: var(--bg-secondary);
+        flex-wrap: wrap;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+      }
+      .legend-color {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+      }
+
+      /* DAG styles */
+      .dag-container {
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        padding: 20px;
+        background: var(--bg-panel-dark);
+      }
+      .dag-svg {
+        display: block;
+        margin: 0 auto;
+      }
+      .dag-node {
+        cursor: pointer;
+      }
+      .dag-node rect {
+        transition: all 0.2s;
+        stroke: var(--border-subtle);
+        stroke-width: 1;
+      }
+      .dag-node:hover rect {
+        filter: brightness(1.2);
+        stroke: var(--accent-primary);
+        stroke-width: 2;
+      }
+      .dag-node text {
+        fill: var(--text-primary);
+        font-size: 11px;
+        pointer-events: none;
+      }
+      .dag-edge {
+        fill: none;
+        stroke: var(--text-muted);
+        stroke-width: 2;
+        marker-end: url(#arrowhead);
+      }
+      .dag-edge-label {
+        fill: var(--text-secondary);
+        font-size: 10px;
+      }
+      .dag-close-btn {
+        background: var(--accent-primary);
+        border: none;
+        color: #000;
+        padding: 5px 15px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .dag-close-btn:hover {
+        background: var(--accent-hover);
+      }
+      .dag-header-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .dag-color-label {
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: normal;
+      }
+      #dagColorMode {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-accent);
+        border-radius: 4px;
+        padding: 5px 10px;
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .dag-toggle-btn {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-accent);
+        color: var(--accent-primary);
+        padding: 5px 15px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .dag-toggle-btn:hover {
+        background: var(--bg-tertiary);
+      }
+      .dag-toggle-btn.active {
+        background: var(--accent-primary);
+        color: #000;
+      }
+      .text-plan-container {
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        padding: 20px;
+        background: var(--bg-panel-dark);
+      }
+      .text-plan-container pre {
+        font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--text-primary);
+        white-space: pre;
+        margin: 0;
+      }
+      .plan-node {
+        color: var(--accent-primary);
+        font-weight: bold;
+      }
+      .plan-id {
+        color: var(--text-tertiary);
+      }
+      .plan-detail {
+        color: var(--text-secondary);
+      }
+      .plan-stats {
+        color: var(--accent-secondary);
+      }
+      .plan-operator {
+        color: var(--text-tertiary);
+        font-family: monospace;
+        font-size: 0.9em;
+      }
+      .plan-source-ref {
+        color: var(--accent-link);
+        cursor: pointer;
+        font-size: 10px;
+        text-decoration: none;
+      }
+      .plan-source-ref:hover {
+        text-decoration: underline;
+        color: var(--accent-link-hover);
+      }
+      .query-highlight {
+        background: var(--highlight-bg);
+        border-radius: 4px;
+        transition: background 0.3s ease;
+      }
+      .query-section {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      .dag-legend {
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        background: var(--dag-legend-bg);
+        border: 1px solid var(--border-primary);
+        border-radius: 8px;
+        padding: 12px 16px;
+        font-size: 11px;
+        color: var(--text-primary);
+        z-index: 10;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      }
+      .dag-legend-title {
+        font-weight: bold;
+        margin-bottom: 8px;
+        color: var(--accent-primary);
+      }
+      .dag-legend-gradient {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+      .dag-legend-bar {
+        width: 120px;
+        height: 12px;
+        border-radius: 2px;
+      }
+      .dag-legend-labels {
+        display: flex;
+        justify-content: space-between;
+        width: 120px;
+        font-size: 10px;
+        color: var(--text-tertiary);
+      }
+      .dag-legend-items {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .dag-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .dag-legend-color {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+      }
+      /* Worker Metrics Styles */
+      .worker-metrics-container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        padding: 20px;
+        overflow-y: auto;
+        height: 100%;
+      }
+      .worker-summary {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .worker-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-primary);
+        border-radius: 8px;
+        padding: 15px;
+        min-width: 280px;
+        flex: 1;
+      }
+      .worker-card h3 {
+        color: var(--accent-primary);
+        margin-bottom: 10px;
+        font-size: 1.1em;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .worker-card .worker-status {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent-primary);
+      }
+      .worker-metric {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border-primary);
+      }
+      .worker-metric:last-child {
+        border-bottom: none;
+      }
+      .worker-metric-label {
+        color: var(--text-secondary);
+      }
+      .worker-metric-value {
+        color: var(--text-primary);
+        font-weight: 500;
+      }
+      .worker-comparison-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--bg-secondary);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .worker-comparison-table th {
+        background: var(--bg-tertiary);
+        padding: 12px;
+        text-align: left;
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+      .worker-comparison-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border-primary);
+      }
+      .worker-comparison-table tr:last-child td {
+        border-bottom: none;
+      }
+      .worker-comparison-table tr:hover {
+        background: var(--bg-tertiary);
+      }
+      .metric-bar {
+        height: 8px;
+        background: var(--accent-primary);
+        border-radius: 4px;
+        margin-top: 4px;
+      }
+      .metric-diff {
+        font-size: 0.85em;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .metric-diff.higher {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+      }
+      .metric-diff.lower {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+      }
+      .worker-section-title {
+        color: var(--text-primary);
+        font-size: 1.2em;
+        margin-bottom: 15px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid var(--accent-primary);
+      }
+      .no-worker-data {
+        text-align: center;
+        padding: 40px;
+        color: var(--text-secondary);
+      }
+      .driver-info {
+        font-size: 0.85em;
+        color: var(--text-secondary);
+        margin-left: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Presto Query Profiler</h1>
+      <input type="file" id="fileInput" accept=".json" />
+      <select id="viewSelect">
+        <option value="dag">Query Plan DAG</option>
+        <option value="textplan">Query Plan (Text)</option>
+        <option value="timeline">Pipeline Timeline</option>
+        <option value="operators">Operator Time Breakdown</option>
+        <option value="timePhases">
+          Time Phases (addInput/getOutput/blocked)
+        </option>
+        <option value="throughput">Data Throughput</option>
+        <option value="batches">Batch Statistics</option>
+        <option value="memory">Memory Usage</option>
+        <option value="pipeline">Pipeline View</option>
+        <option value="runtime">Runtime Stats</option>
+        <option value="workers">Worker Metrics</option>
+      </select>
+      <div class="theme-toggle">
+        <span class="theme-toggle-label">Light</span>
+        <label class="theme-switch">
+          <input type="checkbox" id="themeToggle" />
+          <span class="theme-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="query-info" id="queryInfo">
+      <span>Load a JSON file to see query execution details</span>
+    </div>
+    <div class="container" id="mainContainer">
+      <div
+        class="panel full-width full-height"
+        id="dagPanel"
+        style="display: none"
+      >
+        <div class="panel-header">
+          <span>Query Plan DAG - Data Flow</span>
+          <div class="dag-header-controls">
+            <label class="dag-color-label">Color by:</label>
+            <select id="dagColorMode" onchange="updateDAGColors()">
+              <option value="type">Node Type</option>
+              <option value="time">Execution Time</option>
+              <option value="rows">Rows Processed</option>
+              <option value="memory">Memory Usage</option>
+              <option value="selectivity">Selectivity</option>
+            </select>
+          </div>
+        </div>
+        <div class="panel-content" style="flex: 1; overflow: hidden;">
+          <div class="dag-container" id="dagContainer"></div>
+          <div class="dag-legend" id="dagLegend"></div>
+        </div>
+      </div>
+      <div
+        class="panel full-width full-height"
+        id="textPlanPanel"
+        style="display: none"
+      >
+        <div class="panel-header">Query Plan (Text)</div>
+        <div class="panel-content" style="flex: 1; overflow: auto;">
+          <div class="text-plan-container" id="textPlanContainer">
+            <pre id="textPlanContent"></pre>
+          </div>
+        </div>
+      </div>
+      <div
+        class="panel full-width full-height"
+        id="timelinePanel"
+        style="display: none"
+      >
+        <div class="panel-header">Pipeline Timeline - Operator Execution</div>
+        <div class="panel-content" style="display: flex">
+          <div
+            class="timeline-container"
+            id="timelineContainer"
+            style="flex: 1"
+          ></div>
+          <div
+            class="legend"
+            id="timelineLegend"
+            style="width: 180px; padding: 10px; overflow-y: auto"
+          ></div>
+        </div>
+      </div>
+      <div class="panel full-width" id="mainPanel">
+        <div class="panel-header" id="mainPanelHeader">
+          Operator Execution Times
+        </div>
+        <div class="panel-content">
+          <perspective-viewer
+            id="operatorViewer"
+            theme="Pro Dark"
+          ></perspective-viewer>
+        </div>
+      </div>
+      <div class="panel" id="secondaryPanel1">
+        <div class="panel-header" id="secondaryPanel1Header">
+          Time Distribution by Operator Type
+        </div>
+        <div class="panel-content">
+          <perspective-viewer
+            id="typeViewer"
+            theme="Pro Dark"
+          ></perspective-viewer>
+        </div>
+      </div>
+      <div class="panel" id="secondaryPanel2">
+        <div class="panel-header" id="secondaryPanel2Header">
+          Input/Output Positions
+        </div>
+        <div class="panel-content">
+          <perspective-viewer
+            id="ioViewer"
+            theme="Pro Dark"
+          ></perspective-viewer>
+        </div>
+      </div>
+      <div
+        class="panel full-width full-height"
+        id="workersPanel"
+        style="display: none"
+      >
+        <div class="panel-header">Worker Metrics Comparison</div>
+        <div class="panel-content">
+          <div class="worker-metrics-container" id="workerMetricsContainer">
+            <div class="no-worker-data">Load a metrics file to see worker information</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tooltip" id="tooltip" style="display: none"></div>
+
+    <script type="module">
+      import perspective from "https://cdn.jsdelivr.net/npm/@finos/perspective@2.10.1/dist/cdn/perspective.js";
+      import "https://cdn.jsdelivr.net/npm/@finos/perspective-viewer@2.10.1/dist/cdn/perspective-viewer.js";
+      import "https://cdn.jsdelivr.net/npm/@finos/perspective-viewer-datagrid@2.10.1/dist/cdn/perspective-viewer-datagrid.js";
+      import "https://cdn.jsdelivr.net/npm/@finos/perspective-viewer-d3fc@2.10.1/dist/cdn/perspective-viewer-d3fc.js";
+
+      // Theme Management
+      function initTheme() {
+        const savedTheme = localStorage.getItem('theme');
+        const themeToggle = document.getElementById('themeToggle');
+
+        // Default to dark mode
+        if (savedTheme === 'light') {
+          document.body.classList.add('light-mode');
+          themeToggle.checked = true;
+        } else {
+          // Ensure dark mode is default
+          document.body.classList.remove('light-mode');
+          themeToggle.checked = false;
+        }
+      }
+
+      function toggleTheme() {
+        const body = document.body;
+        const themeToggle = document.getElementById('themeToggle');
+
+        if (themeToggle.checked) {
+          body.classList.add('light-mode');
+          localStorage.setItem('theme', 'light');
+        } else {
+          body.classList.remove('light-mode');
+          localStorage.setItem('theme', 'dark');
+        }
+      }
+
+      // Initialize theme on page load
+      initTheme();
+      document.getElementById('themeToggle').addEventListener('change', toggleTheme);
+
+      let currentData = null;
+      let worker = null;
+      let workerReady = null;
+
+      // Color palette for operators - NVIDIA themed
+      const operatorColors = {
+        TableScanOperator: "#76B900",
+        CudfFilterProject: "#5a9400",
+        CudfPartialAggregation: "#8fd400",
+        CudfAggregation: "#a3e635",
+        CudfOrderBy: "#4d7c0f",
+        CudfLocalPartition: "#65a30d",
+        CudfToVelox: "#84cc16",
+        LocalExchangeSinkOperator: "#4ade80",
+        LocalMerge: "#22c55e",
+        PartitionedOutput: "#15803d",
+        CallbackSink: "#059669",
+        default: "#4a4a4a",
+      };
+
+      function getOperatorColor(opType) {
+        return operatorColors[opType] || operatorColors["default"];
+      }
+
+      async function initPerspective() {
+        worker = await perspective.worker();
+        return worker;
+      }
+
+      workerReady = initPerspective();
+
+      function parseDuration(str) {
+        if (!str || typeof str !== "string") return 0;
+        const match = str.match(/([\d.]+)(ns|us|ms|s|m|h)/);
+        if (!match) return 0;
+        const value = parseFloat(match[1]);
+        const unit = match[2];
+        const multipliers = {
+          ns: 1,
+          us: 1000,
+          ms: 1000000,
+          s: 1000000000,
+          m: 60000000000,
+          h: 3600000000000,
+        };
+        return value * (multipliers[unit] || 1);
+      }
+
+      function nsToMs(ns) {
+        return ns / 1000000;
+      }
+
+      function formatBytes(bytes) {
+        if (bytes === 0) return "0 B";
+        const k = 1024;
+        const sizes = ["B", "KB", "MB", "GB", "TB"];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+      }
+
+      function formatDuration(ms) {
+        if (ms < 1) return ms.toFixed(3) + " ms";
+        if (ms < 1000) return ms.toFixed(2) + " ms";
+        if (ms < 60000) return (ms / 1000).toFixed(2) + " s";
+        return (ms / 60000).toFixed(2) + " min";
+      }
+
+      function extractOperatorData(data) {
+        const operators = [];
+        let operatorSummaries = [];
+
+        if (data.query_info?.queryStats?.operatorSummaries) {
+          operatorSummaries = data.query_info.queryStats.operatorSummaries;
+        } else if (data.tasks_info && Array.isArray(data.tasks_info)) {
+          data.tasks_info.forEach((task) => {
+            if (task.stats?.pipelines) {
+              task.stats.pipelines.forEach((pipeline) => {
+                if (pipeline.operatorSummaries) {
+                  operatorSummaries = operatorSummaries.concat(
+                    pipeline.operatorSummaries,
+                  );
+                }
+              });
+            }
+          });
+        }
+
+        operatorSummaries.forEach((op, index) => {
+          const addInputWallNs = parseDuration(op.addInputWall);
+          const getOutputWallNs = parseDuration(op.getOutputWall);
+          const blockedWallNs = parseDuration(op.blockedWall);
+          const finishWallNs = parseDuration(op.finishWall);
+          const totalWallNs =
+            addInputWallNs + getOutputWallNs + blockedWallNs + finishWallNs;
+
+          let cpuTimeNs = 0;
+          if (op.runtimeStats) {
+            Object.keys(op.runtimeStats).forEach((key) => {
+              if (key.includes("driverCpuTimeNanos")) {
+                cpuTimeNs += op.runtimeStats[key].sum || 0;
+              }
+            });
+          }
+
+          // Extract batch statistics from runtimeStats
+          let inputBatches = 0;
+          let outputBatches = 0;
+          let queuedWallNs = 0;
+          if (op.runtimeStats) {
+            Object.keys(op.runtimeStats).forEach((key) => {
+              const stat = op.runtimeStats[key];
+              if (key.includes("inputBatches")) {
+                inputBatches += stat.sum || 0;
+              }
+              if (key.includes("outputBatches")) {
+                outputBatches += stat.sum || 0;
+              }
+              if (key.includes("queuedWallNanos")) {
+                queuedWallNs += stat.sum || 0;
+              }
+            });
+          }
+
+          // Calculate throughput metrics
+          const activeTimeMs = nsToMs(totalWallNs) || 1; // Avoid division by zero
+          const inputRowsPerSec =
+            ((op.inputPositions || 0) / activeTimeMs) * 1000;
+          const outputRowsPerSec =
+            ((op.outputPositions || 0) / activeTimeMs) * 1000;
+          const inputBytesPerSec =
+            ((op.inputDataSizeInBytes || 0) / activeTimeMs) * 1000;
+          const outputBytesPerSec =
+            ((op.outputDataSizeInBytes || 0) / activeTimeMs) * 1000;
+
+          // Calculate average rows per batch
+          const avgRowsPerInputBatch =
+            inputBatches > 0 ? (op.inputPositions || 0) / inputBatches : 0;
+          const avgRowsPerOutputBatch =
+            outputBatches > 0 ? (op.outputPositions || 0) / outputBatches : 0;
+
+          operators.push({
+            index: index,
+            stageId: op.stageId || 0,
+            pipelineId: op.pipelineId || 0,
+            operatorId: op.operatorId || 0,
+            planNodeId: op.planNodeId || "",
+            operatorType: op.operatorType || "Unknown",
+            totalDrivers: op.totalDrivers || 0,
+            addInputWallMs: nsToMs(addInputWallNs),
+            getOutputWallMs: nsToMs(getOutputWallNs),
+            blockedWallMs: nsToMs(blockedWallNs),
+            finishWallMs: nsToMs(finishWallNs),
+            totalWallMs: nsToMs(totalWallNs),
+            cpuTimeMs: nsToMs(cpuTimeNs),
+            queuedWallMs: nsToMs(queuedWallNs),
+            inputDataSizeBytes: op.inputDataSizeInBytes || 0,
+            outputDataSizeBytes: op.outputDataSizeInBytes || 0,
+            inputPositions: op.inputPositions || 0,
+            outputPositions: op.outputPositions || 0,
+            peakUserMemoryBytes: op.peakUserMemoryReservationInBytes || 0,
+            peakTotalMemoryBytes: op.peakTotalMemoryReservationInBytes || 0,
+            spilledDataBytes: op.spilledDataSizeInBytes || 0,
+            addInputCalls: op.addInputCalls || 0,
+            getOutputCalls: op.getOutputCalls || 0,
+            inputBatches: inputBatches,
+            outputBatches: outputBatches,
+            inputDataSizeMB: (op.inputDataSizeInBytes || 0) / (1024 * 1024),
+            outputDataSizeMB: (op.outputDataSizeInBytes || 0) / (1024 * 1024),
+            peakTotalMemoryMB:
+              (op.peakTotalMemoryReservationInBytes || 0) / (1024 * 1024),
+            // Throughput metrics
+            inputRowsPerSec: inputRowsPerSec,
+            outputRowsPerSec: outputRowsPerSec,
+            inputMBPerSec: inputBytesPerSec / (1024 * 1024),
+            outputMBPerSec: outputBytesPerSec / (1024 * 1024),
+            // Batch statistics
+            avgRowsPerInputBatch: avgRowsPerInputBatch,
+            avgRowsPerOutputBatch: avgRowsPerOutputBatch,
+            // Selectivity (output/input ratio)
+            selectivity:
+              (op.inputPositions || 0) > 0
+                ? (op.outputPositions || 0) / op.inputPositions
+                : 1,
+            operatorLabel: `S${op.stageId || 0}.P${op.pipelineId || 0}.${op.operatorType || "Unknown"}`,
+            pipelineLabel: `Stage ${op.stageId || 0} - Pipeline ${op.pipelineId || 0}`,
+          });
+        });
+
+        return operators;
+      }
+
+      function extractRuntimeStats(data) {
+        const stats = [];
+        let runtimeStats = {};
+        if (data.query_info?.queryStats?.runtimeStats) {
+          runtimeStats = data.query_info.queryStats.runtimeStats;
+        }
+
+        Object.keys(runtimeStats).forEach((key) => {
+          const stat = runtimeStats[key];
+          stats.push({
+            name: key,
+            displayName: key.replace(/S\d+-/, "").replace(/\.\d+\./, "."),
+            unit: stat.unit || "NONE",
+            sum: stat.sum || 0,
+            count: stat.count || 0,
+            max: stat.max || 0,
+            min: stat.min || 0,
+            avg: stat.count > 0 ? stat.sum / stat.count : 0,
+            category: key.startsWith("S") ? "Stage" : "Query",
+            isTime:
+              stat.unit === "NANO" ||
+              key.includes("Time") ||
+              key.includes("Nanos"),
+            sumMs: stat.unit === "NANO" ? nsToMs(stat.sum) : stat.sum,
+            maxMs: stat.unit === "NANO" ? nsToMs(stat.max) : stat.max,
+            avgMs:
+              stat.unit === "NANO"
+                ? nsToMs(stat.count > 0 ? stat.sum / stat.count : 0)
+                : stat.count > 0
+                  ? stat.sum / stat.count
+                  : 0,
+          });
+        });
+
+        return stats;
+      }
+
+      function extractWorkerMetrics(data) {
+        const workers = [];
+        if (!data.worker_metrics || !Array.isArray(data.worker_metrics)) {
+          return workers;
+        }
+
+        data.worker_metrics.forEach((workerData) => {
+          const metrics = workerData.metrics || {};
+          const workerName = workerData.worker || "Unknown Worker";
+          const nodeId = workerData.nodeId || "unknown";
+          const internalAddress = workerData.internalAddress || "unknown";
+
+          // Extract key metrics from Prometheus format
+          const worker = {
+            name: workerName,
+            shortName: nodeId !== "unknown" ? nodeId : workerName.replace("presto-native-worker-", ""),
+            nodeId: nodeId,
+            internalAddress: internalAddress,
+            metrics: {},
+          };
+
+          // Key metrics to extract
+          const keyMetrics = [
+            { key: "presto_cpp_driver_cpu_executor_latency_ms", label: "Driver CPU Latency (ms)" },
+            { key: "presto_cpp_driver_cpu_executor_num_threads", label: "CPU Executor Threads" },
+            { key: "presto_cpp_memory_cache_num_entries", label: "Memory Cache Entries" },
+            { key: "presto_cpp_memory_cache_total_tiny", label: "Cache Tiny Entries" },
+            { key: "presto_cpp_memory_cache_total_large", label: "Cache Large Entries" },
+            { key: "presto_cpp_memory_cache_total_age_secs", label: "Cache Age (secs)" },
+            { key: "presto_cpp_http_request_latency_ms", label: "HTTP Latency (ms)" },
+            { key: "presto_cpp_num_tasks_running", label: "Tasks Running" },
+            { key: "presto_cpp_num_drivers_on_cpu", label: "Drivers on CPU" },
+            { key: "presto_cpp_num_drivers_blocked", label: "Drivers Blocked" },
+          ];
+
+          keyMetrics.forEach(({ key, label }) => {
+            if (metrics[key] !== undefined) {
+              worker.metrics[label] = metrics[key];
+            }
+          });
+
+          // Also extract summary stats
+          Object.keys(metrics).forEach((key) => {
+            if (key.endsWith("_sum") && !key.includes("bucket")) {
+              const baseName = key.replace("_sum", "").replace("presto_cpp_", "");
+              const countKey = key.replace("_sum", "_count");
+              if (metrics[countKey]) {
+                const avg = metrics[key] / metrics[countKey];
+                worker.metrics[`${baseName} (avg)`] = avg.toFixed(2);
+              }
+            }
+          });
+
+          workers.push(worker);
+        });
+
+        return workers;
+      }
+
+      // Extract per-worker task distribution from query_info
+      function extractWorkerTaskDistribution(data) {
+        const workerTasks = {};
+
+        // Build IP to worker name/nodeId mapping from worker_metrics
+        const ipToWorker = {};
+        if (data.worker_metrics && Array.isArray(data.worker_metrics)) {
+          data.worker_metrics.forEach((w) => {
+            if (w.internalAddress) {
+              ipToWorker[w.internalAddress] = {
+                name: w.worker || w.nodeId || "unknown",
+                nodeId: w.nodeId || "unknown"
+              };
+            }
+          });
+        }
+
+        // Recursively extract tasks from stages
+        function extractTasksFromStage(stage) {
+          if (!stage) return;
+
+          const executionInfo = stage.latestAttemptExecutionInfo;
+          if (executionInfo?.tasks) {
+            executionInfo.tasks.forEach((task) => {
+              const selfUrl = task.taskStatus?.self || "";
+              // Extract IP from URL like "http://172.18.0.4:8080/v1/task/..."
+              const ipMatch = selfUrl.match(/\/\/([^:]+):/);
+              const workerIp = ipMatch ? ipMatch[1] : "unknown";
+
+              const workerInfo = ipToWorker[workerIp] || { name: workerIp, nodeId: workerIp };
+              const workerKey = workerInfo.nodeId;
+
+              if (!workerTasks[workerKey]) {
+                workerTasks[workerKey] = {
+                  nodeId: workerInfo.nodeId,
+                  workerName: workerInfo.name,
+                  workerIp: workerIp,
+                  tasks: [],
+                  totalDrivers: 0,
+                  totalCpuNanos: 0,
+                  totalRawInputBytes: 0,
+                  totalOutputBytes: 0,
+                  totalOutputPositions: 0
+                };
+              }
+
+              const stats = task.stats || {};
+              workerTasks[workerKey].tasks.push({
+                taskId: task.taskId,
+                stageId: task.taskId?.split('.')[0] + '.' + task.taskId?.split('.')[1],
+                totalDrivers: stats.totalDrivers || 0,
+                cpuNanos: stats.totalCpuTimeInNanos || 0,
+                rawInputBytes: stats.rawInputDataSizeInBytes || 0,
+                outputBytes: stats.outputDataSizeInBytes || 0,
+                outputPositions: stats.outputPositions || 0
+              });
+
+              workerTasks[workerKey].totalDrivers += stats.totalDrivers || 0;
+              workerTasks[workerKey].totalCpuNanos += stats.totalCpuTimeInNanos || 0;
+              workerTasks[workerKey].totalRawInputBytes += stats.rawInputDataSizeInBytes || 0;
+              workerTasks[workerKey].totalOutputBytes += stats.outputDataSizeInBytes || 0;
+              workerTasks[workerKey].totalOutputPositions += stats.outputPositions || 0;
+            });
+          }
+
+          // Recurse into substages
+          if (stage.subStages) {
+            stage.subStages.forEach(extractTasksFromStage);
+          }
+        }
+
+        if (data.query_info?.outputStage) {
+          extractTasksFromStage(data.query_info.outputStage);
+        }
+
+        return workerTasks;
+      }
+
+      function displayWorkerMetrics(data) {
+        const container = document.getElementById("workerMetricsContainer");
+        const workers = extractWorkerMetrics(data);
+        const workerTasks = extractWorkerTaskDistribution(data);
+        const queryStats = extractQueryStats(data);
+
+        if (workers.length === 0 && Object.keys(workerTasks).length === 0) {
+          container.innerHTML = '<div class="no-worker-data">No worker metrics available in this file</div>';
+          return;
+        }
+
+        let html = '';
+
+        // Query Stats Overview section
+        html += '<div class="worker-section-title">Query Execution Summary</div>';
+        html += '<div class="worker-summary">';
+
+        // Timing card
+        html += `
+          <div class="worker-card">
+            <h3>Timing</h3>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Elapsed Time</span>
+              <span class="worker-metric-value">${queryStats.elapsedTime}</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">CPU Time</span>
+              <span class="worker-metric-value">${queryStats.totalCpuTime}</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Scheduled Time</span>
+              <span class="worker-metric-value">${queryStats.totalScheduledTime}</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Execution Time</span>
+              <span class="worker-metric-value">${queryStats.executionTime}</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Planning Time</span>
+              <span class="worker-metric-value">${queryStats.totalPlanningTime}</span>
+            </div>
+          </div>
+        `;
+
+        // Data Volumes card
+        html += `
+          <div class="worker-card">
+            <h3>Data Volumes</h3>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Raw Input</span>
+              <span class="worker-metric-value">${queryStats.rawInputDataSize} (${queryStats.rawInputPositions.toLocaleString()} rows)</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Processed Input</span>
+              <span class="worker-metric-value">${queryStats.processedInputDataSize} (${queryStats.processedInputPositions.toLocaleString()} rows)</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Shuffle (Exchange)</span>
+              <span class="worker-metric-value">${queryStats.shuffledDataSize} (${queryStats.shuffledPositions.toLocaleString()} rows)</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Output</span>
+              <span class="worker-metric-value">${queryStats.outputDataSize} (${queryStats.outputPositions.toLocaleString()} rows)</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Spilled</span>
+              <span class="worker-metric-value" style="${queryStats.spilledDataSize !== '0B' ? 'color: #ef4444;' : ''}">${queryStats.spilledDataSize}</span>
+            </div>
+          </div>
+        `;
+
+        // Memory & Parallelism card
+        html += `
+          <div class="worker-card">
+            <h3>Resources</h3>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Peak User Memory</span>
+              <span class="worker-metric-value">${queryStats.peakUserMemoryReservation}</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Peak Total Memory</span>
+              <span class="worker-metric-value">${queryStats.peakTotalMemoryReservation}</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Peak Node Memory</span>
+              <span class="worker-metric-value">${queryStats.peakNodeTotalMemory}</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Total Tasks</span>
+              <span class="worker-metric-value">${queryStats.totalTasks}</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Total Drivers</span>
+              <span class="worker-metric-value">${queryStats.totalDrivers}</span>
+            </div>
+            <div class="worker-metric">
+              <span class="worker-metric-label">Total Splits</span>
+              <span class="worker-metric-value">${queryStats.totalSplits}</span>
+            </div>
+          </div>
+        `;
+
+        html += '</div>';
+
+        // Work Distribution section - show how tasks/data were distributed
+        const workerTaskList = Object.values(workerTasks);
+        if (workerTaskList.length > 0) {
+          html += '<div class="worker-section-title">Work Distribution Across Workers</div>';
+          html += '<div class="worker-summary">';
+
+          // Calculate totals for percentage bars
+          const totalCpu = workerTaskList.reduce((sum, w) => sum + w.totalCpuNanos, 0);
+          const totalInput = workerTaskList.reduce((sum, w) => sum + w.totalRawInputBytes, 0);
+          const totalTasks = workerTaskList.reduce((sum, w) => sum + w.tasks.length, 0);
+          const totalDrivers = workerTaskList.reduce((sum, w) => sum + w.totalDrivers, 0);
+
+          workerTaskList.forEach((worker) => {
+            const cpuPct = totalCpu > 0 ? (worker.totalCpuNanos / totalCpu * 100) : 0;
+            const inputPct = totalInput > 0 ? (worker.totalRawInputBytes / totalInput * 100) : 0;
+
+            html += `
+              <div class="worker-card">
+                <h3><span class="worker-status"></span>${worker.nodeId}</h3>
+                <div class="worker-metric">
+                  <span class="worker-metric-label">Container</span>
+                  <span class="worker-metric-value">${worker.workerName}</span>
+                </div>
+                <div class="worker-metric">
+                  <span class="worker-metric-label">IP Address</span>
+                  <span class="worker-metric-value">${worker.workerIp}</span>
+                </div>
+                <div class="worker-metric">
+                  <span class="worker-metric-label">Tasks</span>
+                  <span class="worker-metric-value">${worker.tasks.length}</span>
+                </div>
+                <div class="worker-metric">
+                  <span class="worker-metric-label">Total Drivers</span>
+                  <span class="worker-metric-value">${worker.totalDrivers}</span>
+                </div>
+                <div class="worker-metric">
+                  <span class="worker-metric-label">CPU Time</span>
+                  <span class="worker-metric-value">${formatDuration(worker.totalCpuNanos / 1000000)}</span>
+                </div>
+                <div class="worker-metric">
+                  <span class="worker-metric-label">CPU Share</span>
+                  <span class="worker-metric-value">${cpuPct.toFixed(1)}%</span>
+                  <div class="metric-bar" style="width: ${cpuPct}%; max-width: 100%;"></div>
+                </div>
+                <div class="worker-metric">
+                  <span class="worker-metric-label">Input Data</span>
+                  <span class="worker-metric-value">${formatBytes(worker.totalRawInputBytes)}</span>
+                </div>
+                <div class="worker-metric">
+                  <span class="worker-metric-label">Input Share</span>
+                  <span class="worker-metric-value">${inputPct.toFixed(1)}%</span>
+                  <div class="metric-bar" style="width: ${inputPct}%; max-width: 100%;"></div>
+                </div>
+              </div>
+            `;
+          });
+
+          html += '</div>';
+
+          // Summary stats
+          html += `
+            <div class="worker-card" style="max-width: 500px; margin-top: 15px;">
+              <h3>Distribution Summary</h3>
+              <div class="worker-metric">
+                <span class="worker-metric-label">Total Workers</span>
+                <span class="worker-metric-value">${workerTaskList.length}</span>
+              </div>
+              <div class="worker-metric">
+                <span class="worker-metric-label">Total Tasks</span>
+                <span class="worker-metric-value">${totalTasks}</span>
+              </div>
+              <div class="worker-metric">
+                <span class="worker-metric-label">Total Drivers</span>
+                <span class="worker-metric-value">${totalDrivers}</span>
+              </div>
+              <div class="worker-metric">
+                <span class="worker-metric-label">Total CPU Time</span>
+                <span class="worker-metric-value">${formatDuration(totalCpu / 1000000)}</span>
+              </div>
+              <div class="worker-metric">
+                <span class="worker-metric-label">Total Input Data</span>
+                <span class="worker-metric-value">${formatBytes(totalInput)}</span>
+              </div>
+            </div>
+          `;
+
+          // Per-stage task distribution table
+          html += '<div class="worker-section-title" style="margin-top: 20px;">Per-Stage Task Distribution</div>';
+
+          // Group tasks by stage across all workers
+          const stageData = {};
+          workerTaskList.forEach((worker) => {
+            worker.tasks.forEach((task) => {
+              const stageId = task.stageId || "unknown";
+              if (!stageData[stageId]) {
+                stageData[stageId] = { workers: {} };
+              }
+              if (!stageData[stageId].workers[worker.nodeId]) {
+                stageData[stageId].workers[worker.nodeId] = {
+                  tasks: 0,
+                  drivers: 0,
+                  cpuNanos: 0,
+                  inputBytes: 0
+                };
+              }
+              stageData[stageId].workers[worker.nodeId].tasks++;
+              stageData[stageId].workers[worker.nodeId].drivers += task.totalDrivers;
+              stageData[stageId].workers[worker.nodeId].cpuNanos += task.cpuNanos;
+              stageData[stageId].workers[worker.nodeId].inputBytes += task.rawInputBytes;
+            });
+          });
+
+          const workerIds = workerTaskList.map(w => w.nodeId).sort();
+          const stageIds = Object.keys(stageData).sort((a, b) => {
+            const aNum = parseInt(a.split('.')[1]) || 0;
+            const bNum = parseInt(b.split('.')[1]) || 0;
+            return aNum - bNum;
+          });
+
+          if (stageIds.length > 0) {
+            html += '<table class="worker-comparison-table">';
+            html += '<thead><tr><th>Stage</th>';
+            workerIds.forEach(wid => {
+              html += `<th>${wid}<br><small>Tasks / Drivers / CPU</small></th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            stageIds.forEach((stageId) => {
+              html += `<tr><td><strong>${stageId}</strong></td>`;
+              workerIds.forEach((wid) => {
+                const ws = stageData[stageId].workers[wid];
+                if (ws) {
+                  const cpuMs = ws.cpuNanos / 1000000;
+                  html += `<td>${ws.tasks} / ${ws.drivers} / ${formatDuration(cpuMs)}</td>`;
+                } else {
+                  html += '<td>-</td>';
+                }
+              });
+              html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+          }
+        }
+
+        // Prometheus Metrics Comparison section
+        if (workers.length > 0) {
+          html += '<div class="worker-section-title" style="margin-top: 20px;">Worker Prometheus Metrics</div>';
+
+          // Collect key metrics to compare
+          const keyMetricsToShow = [
+            "presto_cpp_num_tasks",
+            "presto_cpp_num_tasks_bytes_processed",
+            "velox_table_scan_batch_bytes",
+            "velox_exchange_data_bytes",
+            "velox_driver_exec_time_ms_sum",
+            "presto_cpp_os_user_cpu_time_micros",
+            "velox_task_splits_count"
+          ];
+
+          html += '<table class="worker-comparison-table">';
+          html += '<thead><tr><th>Metric</th>';
+          workers.forEach((w) => {
+            html += `<th>${w.shortName}</th>`;
+          });
+          if (workers.length > 1) html += '<th>Diff</th>';
+          html += '</tr></thead><tbody>';
+
+          keyMetricsToShow.forEach((metric) => {
+            const values = workers.map((w) => w.metrics[metric]);
+            const hasData = values.some(v => v !== undefined);
+            if (!hasData) return;
+
+            const numericValues = values.filter((v) => typeof v === "number" && !isNaN(v));
+
+            let diffHtml = "";
+            if (numericValues.length > 1) {
+              const max = Math.max(...numericValues);
+              const min = Math.min(...numericValues);
+              if (max > 0 && min > 0) {
+                const diffPct = ((max - min) / min * 100).toFixed(1);
+                const diffClass = parseFloat(diffPct) > 10 ? "higher" : "";
+                diffHtml = `<span class="metric-diff ${diffClass}">${diffPct}%</span>`;
+              }
+            }
+
+            // Format metric name nicely
+            const displayName = metric
+              .replace("presto_cpp_", "")
+              .replace("velox_", "")
+              .replace(/_/g, " ");
+
+            html += '<tr>';
+            html += `<td>${displayName}</td>`;
+            workers.forEach((w) => {
+              const val = w.metrics[metric];
+              let displayVal = "-";
+              if (val !== undefined) {
+                if (metric.includes("bytes") || metric.includes("Bytes")) {
+                  displayVal = formatBytes(val);
+                } else if (metric.includes("time") || metric.includes("Time")) {
+                  displayVal = formatDuration(val / 1000); // micros to ms
+                } else {
+                  displayVal = formatMetricValue(val);
+                }
+              }
+              html += `<td>${displayVal}</td>`;
+            });
+            if (workers.length > 1) html += `<td>${diffHtml}</td>`;
+            html += '</tr>';
+          });
+
+          html += '</tbody></table>';
+        }
+
+        container.innerHTML = html;
+      }
+
+      function formatMetricValue(value) {
+        if (typeof value === "number") {
+          if (Number.isInteger(value)) {
+            return value.toLocaleString();
+          }
+          return value.toFixed(2);
+        }
+        return value;
+      }
+
+      function updateQueryInfo(data) {
+        const queryInfo = document.getElementById("queryInfo");
+        const qs = data.query_info?.queryStats || {};
+
+        let queryId = data.query_info?.queryId || "Unknown";
+        let state = data.query_info?.state || "Unknown";
+        let totalCpuTime = qs.totalCpuTime || "0.00s";
+        let elapsedTime = qs.elapsedTime || "0.00s";
+        let rawInputPositions = qs.rawInputPositions || 0;
+        let rawInputDataSize = qs.rawInputDataSize || "0B";
+        let peakMemory = qs.peakNodeTotalMemory || "0B";
+        let shuffledDataSize = qs.shuffledDataSize || "0B";
+        let spilledDataSize = qs.spilledDataSize || "0B";
+
+        // Get worker count
+        let workerCount = 0;
+        if (data.worker_metrics && Array.isArray(data.worker_metrics)) {
+          workerCount = data.worker_metrics.length;
+        }
+
+        // Get total drivers and tasks
+        let totalDrivers = qs.totalDrivers || 0;
+        let totalTasks = qs.totalTasks || 0;
+
+        let workerInfo = "";
+        if (workerCount > 0) {
+          workerInfo = `<span><strong>Workers:</strong> ${workerCount}</span>`;
+          workerInfo += `<span class="driver-info">(${totalTasks} tasks, ${totalDrivers} drivers)</span>`;
+        }
+
+        // Show shuffle info if present
+        let shuffleInfo = "";
+        if (shuffledDataSize && shuffledDataSize !== "0B") {
+          shuffleInfo = `<span><strong>Shuffle:</strong> ${shuffledDataSize}</span>`;
+        }
+
+        // Show spill info if present
+        let spillInfo = "";
+        if (spilledDataSize && spilledDataSize !== "0B") {
+          spillInfo = `<span style="color: #ef4444;"><strong>Spilled:</strong> ${spilledDataSize}</span>`;
+        }
+
+        queryInfo.innerHTML = `
+          <span><strong>Query ID:</strong> ${queryId}</span>
+          <span><strong>State:</strong> ${state}</span>
+          <span><strong>Elapsed:</strong> ${elapsedTime}</span>
+          <span><strong>CPU Time:</strong> ${totalCpuTime}</span>
+          ${workerInfo}
+          <span><strong>Input:</strong> ${rawInputDataSize} (${rawInputPositions.toLocaleString()} rows)</span>
+          ${shuffleInfo}
+          ${spillInfo}
+          <span><strong>Peak Memory:</strong> ${peakMemory}</span>
+        `;
+      }
+
+      // Extract query-level stats for display
+      function extractQueryStats(data) {
+        const qs = data.query_info?.queryStats || {};
+        return {
+          // Timing
+          elapsedTime: qs.elapsedTime || "0s",
+          totalCpuTime: qs.totalCpuTime || "0s",
+          totalScheduledTime: qs.totalScheduledTime || "0s",
+          analysisTime: qs.analysisTime || "0s",
+          totalPlanningTime: qs.totalPlanningTime || "0s",
+          executionTime: qs.executionTime || "0s",
+          queuedTime: qs.queuedTime || "0s",
+
+          // Data volumes
+          rawInputDataSize: qs.rawInputDataSize || "0B",
+          rawInputPositions: qs.rawInputPositions || 0,
+          processedInputDataSize: qs.processedInputDataSize || "0B",
+          processedInputPositions: qs.processedInputPositions || 0,
+          shuffledDataSize: qs.shuffledDataSize || "0B",
+          shuffledPositions: qs.shuffledPositions || 0,
+          outputDataSize: qs.outputDataSize || "0B",
+          outputPositions: qs.outputPositions || 0,
+          spilledDataSize: qs.spilledDataSize || "0B",
+
+          // Memory
+          peakUserMemoryReservation: qs.peakUserMemoryReservation || "0B",
+          peakTotalMemoryReservation: qs.peakTotalMemoryReservation || "0B",
+          peakNodeTotalMemory: qs.peakNodeTotalMemory || "0B",
+          peakTaskTotalMemory: qs.peakTaskTotalMemory || "0B",
+
+          // Parallelism
+          totalTasks: qs.totalTasks || 0,
+          totalDrivers: qs.totalDrivers || 0,
+          totalSplits: qs.totalSplits || 0,
+        };
+      }
+
+      // Extract plan DAG from query_info
+      function extractPlanDAG(data) {
+        const outputStage = data?.query_info?.outputStage;
+        if (!outputStage?.plan?.root) return { nodes: [], edges: [] };
+
+        const nodes = [];
+        const edges = [];
+        const operatorStats = {};
+
+        // Build a map of stages by fragmentId for RemoteSourceNode linking
+        const stagesByFragmentId = {};
+        function buildStageMap(stage) {
+          if (!stage) return;
+          // Extract fragment ID from stageId (e.g., "20260128_094212_00005_5qr2m.1" -> "1")
+          const stageId = stage.stageId || "";
+          const fragmentId = stageId.split(".").pop();
+          if (fragmentId && stage.plan?.root) {
+            stagesByFragmentId[fragmentId] = stage;
+          }
+          // Recurse into subStages
+          if (stage.subStages) {
+            stage.subStages.forEach(buildStageMap);
+          }
+        }
+        buildStageMap(outputStage);
+
+        // Build a map of operator stats by planNodeId
+        // For joins, we track build and probe separately since build rows
+        // shouldn't be added to the probe row count.
+        // For other nodes with multiple operators (e.g., exchanges), we use max
+        // since they represent pipeline stages processing the same data.
+        const operatorSummaries =
+          data?.query_info?.queryStats?.operatorSummaries || [];
+        operatorSummaries.forEach((op) => {
+          const key = op.planNodeId;
+          const opType = op.operatorType || "";
+          const isBuildOp = opType.includes("Build");
+
+          if (!operatorStats[key]) {
+            operatorStats[key] = {
+              totalWallMs: 0,
+              cpuTimeMs: 0,
+              inputPositions: 0,
+              outputPositions: 0,
+              buildInputPositions: 0,
+              peakMemoryBytes: 0,
+              operators: [],
+              operatorDetails: [], // Store full operator details for rendering
+            };
+          }
+          const wallNs =
+            parseDuration(op.addInputWall) +
+            parseDuration(op.getOutputWall) +
+            parseDuration(op.blockedWall) +
+            parseDuration(op.finishWall);
+          operatorStats[key].totalWallMs += nsToMs(wallNs);
+
+          // For join nodes: track build operator rows separately
+          // For other nodes: use max (pipeline stages process same data)
+          if (isBuildOp) {
+            operatorStats[key].buildInputPositions = Math.max(
+              operatorStats[key].buildInputPositions,
+              op.inputPositions || 0,
+            );
+          } else {
+            operatorStats[key].inputPositions = Math.max(
+              operatorStats[key].inputPositions,
+              op.inputPositions || 0,
+            );
+            operatorStats[key].outputPositions = Math.max(
+              operatorStats[key].outputPositions,
+              op.outputPositions || 0,
+            );
+          }
+
+          operatorStats[key].peakMemoryBytes = Math.max(
+            operatorStats[key].peakMemoryBytes,
+            op.peakTotalMemoryReservationInBytes || 0,
+          );
+          operatorStats[key].operators.push(op.operatorType);
+
+          // Store detailed operator info for pipeline rendering
+          const opWallNs =
+            parseDuration(op.addInputWall) +
+            parseDuration(op.getOutputWall) +
+            parseDuration(op.blockedWall) +
+            parseDuration(op.finishWall);
+
+          // Extract batch statistics from runtimeStats
+          let inputBatches = 0;
+          let outputBatches = 0;
+          if (op.runtimeStats) {
+            Object.keys(op.runtimeStats).forEach((rKey) => {
+              const stat = op.runtimeStats[rKey];
+              if (rKey.includes("inputBatches")) {
+                inputBatches += stat.sum || 0;
+              }
+              if (rKey.includes("outputBatches")) {
+                outputBatches += stat.sum || 0;
+              }
+            });
+          }
+
+          // Calculate throughput metrics
+          const activeTimeMs = nsToMs(opWallNs) || 1;
+          const inputRowsPerSec =
+            ((op.inputPositions || 0) / activeTimeMs) * 1000;
+          const outputRowsPerSec =
+            ((op.outputPositions || 0) / activeTimeMs) * 1000;
+          const inputBytesPerSec =
+            ((op.inputDataSizeInBytes || 0) / activeTimeMs) * 1000;
+
+          operatorStats[key].operatorDetails.push({
+            operatorType: op.operatorType,
+            pipelineId: op.pipelineId,
+            operatorId: op.operatorId,
+            totalDrivers: op.totalDrivers || 0,
+            inputPositions: op.inputPositions || 0,
+            outputPositions: op.outputPositions || 0,
+            wallMs: nsToMs(opWallNs),
+            inputBatches: inputBatches,
+            outputBatches: outputBatches,
+            inputRowsPerSec: inputRowsPerSec,
+            outputRowsPerSec: outputRowsPerSec,
+            inputMBPerSec: inputBytesPerSec / (1024 * 1024),
+          });
+
+          // Track max drivers for the node
+          operatorStats[key].totalDrivers = Math.max(
+            operatorStats[key].totalDrivers || 0,
+            op.totalDrivers || 0
+          );
+        });
+
+        // Get color mode
+        const colorMode =
+          document.getElementById("dagColorMode")?.value || "type";
+
+        // Calculate metric ranges for heat map coloring
+        const allStats = Object.values(operatorStats);
+        const metricRanges = {
+          time: {
+            min:
+              Math.min(
+                ...allStats.map((s) => s.totalWallMs).filter((v) => v > 0),
+              ) || 0,
+            max: Math.max(...allStats.map((s) => s.totalWallMs)) || 1,
+          },
+          rows: {
+            min:
+              Math.min(
+                ...allStats
+                  .map((s) => Math.max(s.inputPositions, s.outputPositions))
+                  .filter((v) => v > 0),
+              ) || 0,
+            max:
+              Math.max(
+                ...allStats.map((s) =>
+                  Math.max(s.inputPositions, s.outputPositions),
+                ),
+              ) || 1,
+          },
+          memory: {
+            min:
+              Math.min(
+                ...allStats.map((s) => s.peakMemoryBytes).filter((v) => v > 0),
+              ) || 0,
+            max: Math.max(...allStats.map((s) => s.peakMemoryBytes)) || 1,
+          },
+        };
+
+        // Heat map color function (green -> yellow -> red)
+        function getHeatColor(value, min, max) {
+          if (max === min || value === 0) return "#666";
+          const logMin = min > 0 ? Math.log(min) : 0;
+          const logMax = max > 0 ? Math.log(max) : 0;
+          const logVal = value > 0 ? Math.log(value) : 0;
+          const ratio =
+            logMax > logMin ? (logVal - logMin) / (logMax - logMin) : 0;
+
+          let r, g, b;
+          if (ratio < 0.5) {
+            const t = ratio * 2;
+            r = Math.round(118 + (255 - 118) * t);
+            g = Math.round(185 - (185 - 200) * t);
+            b = 0;
+          } else {
+            const t = (ratio - 0.5) * 2;
+            r = 255;
+            g = Math.round(200 * (1 - t));
+            b = 0;
+          }
+          return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        // Selectivity color
+        function getSelectivityColor(selectivity) {
+          if (selectivity === 1) return "#666";
+          if (selectivity < 1) {
+            const ratio = Math.min(1, 1 - selectivity);
+            const intensity = Math.round(100 + 155 * ratio);
+            return `rgb(0, ${Math.round(intensity * 0.7)}, ${intensity})`;
+          } else {
+            const ratio = Math.min(1, Math.log(selectivity) / Math.log(100));
+            const intensity = Math.round(100 + 155 * ratio);
+            return `rgb(${intensity}, ${Math.round(intensity * 0.3)}, 0)`;
+          }
+        }
+
+        // Node type colors
+        const nodeColorsByType = {
+          TableScanNode: "#2563eb",
+          FilterNode: "#7c3aed",
+          ProjectNode: "#059669",
+          JoinNode: "#dc2626",
+          SemiJoinNode: "#dc2626",
+          AggregationNode: "#d97706",
+          ExchangeNode: "#0891b2",
+          RemoteSourceNode: "#0891b2", // Same as ExchangeNode
+          SortNode: "#4f46e5",
+          TopNNode: "#4f46e5",
+          LimitNode: "#6366f1",
+          OutputNode: "#76b900",
+          default: "#666",
+        };
+
+        // Get node color based on mode
+        function getNodeColor(stats, nodeType) {
+          if (!stats)
+            return nodeColorsByType[nodeType] || nodeColorsByType["default"];
+
+          switch (colorMode) {
+            case "time":
+              return getHeatColor(
+                stats.totalWallMs || 0,
+                metricRanges.time.min,
+                metricRanges.time.max,
+              );
+            case "rows":
+              const rows = Math.max(
+                stats.inputPositions || 0,
+                stats.outputPositions || 0,
+              );
+              return getHeatColor(
+                rows,
+                metricRanges.rows.min,
+                metricRanges.rows.max,
+              );
+            case "memory":
+              return getHeatColor(
+                stats.peakMemoryBytes || 0,
+                metricRanges.memory.min,
+                metricRanges.memory.max,
+              );
+            case "selectivity":
+              const inp = stats.inputPositions || 0;
+              const out = stats.outputPositions || 0;
+              const sel = inp > 0 ? out / inp : 1;
+              return getSelectivityColor(sel);
+            default:
+              return nodeColorsByType[nodeType] || nodeColorsByType["default"];
+          }
+        }
+
+        function getNodeName(node) {
+          const nodeType = node["@type"] || "unknown";
+          return nodeType
+            .replace("com.facebook.presto.sql.planner.plan.", "")
+            .replace(/^\./, "");
+        }
+
+        function getNodeDetails(node) {
+          const details = {};
+          const nodeType = getNodeName(node);
+
+          // Extract source location if available
+          if (node.sourceLocation) {
+            details.sourceLocation = {
+              line: node.sourceLocation.line,
+              column: node.sourceLocation.column,
+            };
+          }
+
+          // TableScanNode - get table name and columns
+          if (node.table) {
+            const connHandle = node.table.connectorHandle || {};
+            details.table = connHandle.tableName || "unknown";
+            // Get output columns
+            if (node.outputVariables) {
+              details.columns = node.outputVariables.map((v) => v.name);
+            }
+          }
+
+          // AggregationNode - get aggregations
+          if (node.aggregations) {
+            details.aggregationNames = Object.keys(node.aggregations);
+            details.aggregations = details.aggregationNames.length;
+            details.step = node.step; // PARTIAL, FINAL, SINGLE
+            // Get group by keys
+            if (node.groupingSets?.groupingKeys) {
+              details.groupByKeyNames = node.groupingSets.groupingKeys.map(
+                (k) => k.name,
+              );
+              details.groupByKeys = details.groupByKeyNames.length;
+            }
+          }
+
+          // ExchangeNode
+          if (nodeType === "ExchangeNode") {
+            details.exchangeType = node.type; // GATHER, REPARTITION, REPLICATE
+            details.scope = node.scope; // LOCAL, REMOTE
+            // Get partitioning info
+            if (
+              node.partitioningScheme?.partitioning?.handle?.connectorHandle
+            ) {
+              const partHandle =
+                node.partitioningScheme.partitioning.handle.connectorHandle;
+              details.partitioning =
+                partHandle.partitioning || partHandle.function;
+            }
+          }
+
+          // RemoteSourceNode - represents data exchange between stages
+          if (nodeType === "RemoteSourceNode") {
+            details.exchangeType = node.exchangeType; // GATHER, REPARTITION, REPLICATE
+            details.sourceFragmentIds = node.sourceFragmentIds;
+            details.encoding = node.encoding; // COLUMNAR
+          }
+
+          // JoinNode
+          if (nodeType === "JoinNode") {
+            details.joinType = node.type; // INNER, LEFT, RIGHT, FULL
+            details.distributionType = node.distributionType; // PARTITIONED, REPLICATED
+            // Extract all join keys
+            if (node.criteria && node.criteria.length > 0) {
+              details.joinCriteria = node.criteria.map((c) => ({
+                left: c.left?.name,
+                right: c.right?.name,
+              }));
+              details.joinKeys = details.joinCriteria
+                .map((c) => `${c.left}=${c.right}`)
+                .join(", ");
+            }
+          }
+
+          // SemiJoinNode
+          if (nodeType === "SemiJoinNode") {
+            details.semiJoin = true;
+            details.distributionType = node.distributionType;
+            if (node.sourceJoinVariable) {
+              details.sourceKey = node.sourceJoinVariable.name;
+            }
+            if (node.filteringSourceJoinVariable) {
+              details.filteringKey = node.filteringSourceJoinVariable.name;
+            }
+          }
+
+          // FilterNode
+          if (node.predicate) {
+            details.hasPredicate = true;
+            // Try to extract predicate info
+            if (node.predicate.form) {
+              details.predicateForm = node.predicate.form; // AND, OR, etc.
+            }
+            if (node.predicate.displayName) {
+              details.predicateFunc = node.predicate.displayName;
+            }
+          }
+
+          // ProjectNode
+          if (nodeType === "ProjectNode" && node.assignments) {
+            details.projectionNames = Object.keys(node.assignments);
+            details.projections = details.projectionNames.length;
+          }
+
+          // SortNode
+          if (node.orderingScheme) {
+            details.sortKeys = (
+              node.orderingScheme.orderByVariables || []
+            ).length;
+            if (node.orderingScheme.orderByVariables) {
+              details.sortKeyNames = node.orderingScheme.orderByVariables.map(
+                (v) => v.name,
+              );
+            }
+            if (node.orderingScheme.orderings) {
+              details.sortOrderings = node.orderingScheme.orderings;
+            }
+          }
+
+          // TopNNode
+          if (nodeType === "TopNNode") {
+            details.topN = node.count;
+            if (node.orderingScheme?.orderByVariables) {
+              details.orderBy = node.orderingScheme.orderByVariables.map(
+                (v) => v.name,
+              );
+            }
+          }
+
+          // LimitNode
+          if (nodeType === "LimitNode") {
+            details.limit = node.count;
+          }
+
+          // OutputNode
+          if (nodeType === "OutputNode") {
+            details.columnNames = node.columnNames;
+          }
+
+          // Get output variables for all nodes
+          if (node.outputVariables && !details.columns) {
+            details.outputVars = node.outputVariables.map((v) => v.name);
+          }
+
+          return details;
+        }
+
+        function extractNodes(node, parentId = null, visitedStages = new Set(), currentStageId = "0") {
+          if (!node || typeof node !== "object") return;
+
+          const nodeId = node.id || "?";
+          const nodeType = getNodeName(node);
+          const details = getNodeDetails(node);
+          const stats = operatorStats[nodeId] || {};
+
+          nodes.push({
+            id: nodeId,
+            type: nodeType,
+            details: details,
+            stats: stats,
+            stageId: currentStageId,
+          });
+
+          if (parentId !== null) {
+            edges.push({ from: nodeId, to: parentId });
+          }
+
+          // Handle RemoteSourceNode - link to subStage plans
+          if (nodeType === "RemoteSourceNode" && node.sourceFragmentIds) {
+            node.sourceFragmentIds.forEach((fragmentId) => {
+              const subStage = stagesByFragmentId[fragmentId];
+              if (subStage?.plan?.root && !visitedStages.has(fragmentId)) {
+                visitedStages.add(fragmentId);
+                // Add exchange type info to details
+                details.exchangeType = node.exchangeType;
+                details.sourceFragmentIds = node.sourceFragmentIds;
+                // Recurse into the subStage's plan with new stageId
+                extractNodes(subStage.plan.root, nodeId, visitedStages, fragmentId);
+              }
+            });
+            return; // RemoteSourceNode has no local children
+          }
+
+          // Recurse into children
+          if (node.source) {
+            extractNodes(node.source, nodeId, visitedStages, currentStageId);
+          }
+          if (node.sources) {
+            node.sources.forEach((src) => extractNodes(src, nodeId, visitedStages, currentStageId));
+          }
+          // JoinNode uses left/right instead of source/sources
+          if (node.left) {
+            extractNodes(node.left, nodeId, visitedStages, currentStageId);
+          }
+          if (node.right) {
+            extractNodes(node.right, nodeId, visitedStages, currentStageId);
+          }
+          // SemiJoinNode has filteringSource in addition to source
+          if (node.filteringSource) {
+            extractNodes(node.filteringSource, nodeId, visitedStages, currentStageId);
+          }
+        }
+
+        extractNodes(outputStage.plan.root);
+        return { nodes, edges };
+      }
+
+      // Generate text representation of the plan
+      function generateTextPlan(data) {
+        const outputStage = data?.query_info?.outputStage;
+        if (!outputStage?.plan?.root) return "No plan data available";
+
+        // Get the query string
+        const queryString = data?.query_info?.query || "";
+        const queryLines = queryString.split("\n");
+
+        // Build a map of stages by fragmentId for RemoteSourceNode linking
+        const stagesByFragmentId = {};
+        function buildStageMap(stage) {
+          if (!stage) return;
+          const stageId = stage.stageId || "";
+          const fragmentId = stageId.split(".").pop();
+          if (fragmentId && stage.plan?.root) {
+            stagesByFragmentId[fragmentId] = stage;
+          }
+          if (stage.subStages) {
+            stage.subStages.forEach(buildStageMap);
+          }
+        }
+        buildStageMap(outputStage);
+
+        // Build operator stats map
+        // For joins, we track build and probe separately.
+        // For other nodes with multiple operators, we use max.
+        const operatorStats = {};
+        const operatorSummaries =
+          data?.query_info?.queryStats?.operatorSummaries || [];
+        operatorSummaries.forEach((op) => {
+          const key = op.planNodeId;
+          const opType = op.operatorType || "";
+          const isBuildOp = opType.includes("Build");
+
+          if (!operatorStats[key]) {
+            operatorStats[key] = {
+              totalWallMs: 0,
+              inputPositions: 0,
+              outputPositions: 0,
+              buildInputPositions: 0,
+              peakMemoryBytes: 0,
+              operators: [],
+              operatorDetails: [],
+            };
+          }
+          const wallNs =
+            parseDuration(op.addInputWall) +
+            parseDuration(op.getOutputWall) +
+            parseDuration(op.blockedWall) +
+            parseDuration(op.finishWall);
+          operatorStats[key].totalWallMs += nsToMs(wallNs);
+
+          // For join nodes: track build operator rows separately
+          // For other nodes: use max (pipeline stages process same data)
+          if (isBuildOp) {
+            operatorStats[key].buildInputPositions = Math.max(
+              operatorStats[key].buildInputPositions,
+              op.inputPositions || 0,
+            );
+          } else {
+            operatorStats[key].inputPositions = Math.max(
+              operatorStats[key].inputPositions,
+              op.inputPositions || 0,
+            );
+            operatorStats[key].outputPositions = Math.max(
+              operatorStats[key].outputPositions,
+              op.outputPositions || 0,
+            );
+          }
+
+          operatorStats[key].peakMemoryBytes = Math.max(
+            operatorStats[key].peakMemoryBytes,
+            op.peakTotalMemoryReservationInBytes || 0,
+          );
+          operatorStats[key].operators.push(op.operatorType);
+
+          // Store detailed operator info for pipeline rendering
+          const opWallNs =
+            parseDuration(op.addInputWall) +
+            parseDuration(op.getOutputWall) +
+            parseDuration(op.blockedWall) +
+            parseDuration(op.finishWall);
+
+          // Extract batch statistics from runtimeStats
+          let inputBatches = 0;
+          let outputBatches = 0;
+          if (op.runtimeStats) {
+            Object.keys(op.runtimeStats).forEach((rKey) => {
+              const stat = op.runtimeStats[rKey];
+              if (rKey.includes("inputBatches")) {
+                inputBatches += stat.sum || 0;
+              }
+              if (rKey.includes("outputBatches")) {
+                outputBatches += stat.sum || 0;
+              }
+            });
+          }
+
+          // Calculate throughput metrics
+          const activeTimeMs = nsToMs(opWallNs) || 1;
+          const inputRowsPerSec =
+            ((op.inputPositions || 0) / activeTimeMs) * 1000;
+          const outputRowsPerSec =
+            ((op.outputPositions || 0) / activeTimeMs) * 1000;
+          const inputBytesPerSec =
+            ((op.inputDataSizeInBytes || 0) / activeTimeMs) * 1000;
+
+          operatorStats[key].operatorDetails.push({
+            operatorType: op.operatorType,
+            pipelineId: op.pipelineId,
+            operatorId: op.operatorId,
+            totalDrivers: op.totalDrivers || 0,
+            inputPositions: op.inputPositions || 0,
+            outputPositions: op.outputPositions || 0,
+            wallMs: nsToMs(opWallNs),
+            inputBatches: inputBatches,
+            outputBatches: outputBatches,
+            inputRowsPerSec: inputRowsPerSec,
+            outputRowsPerSec: outputRowsPerSec,
+            inputMBPerSec: inputBytesPerSec / (1024 * 1024),
+          });
+
+          // Track max drivers for the node
+          operatorStats[key].totalDrivers = Math.max(
+            operatorStats[key].totalDrivers || 0,
+            op.totalDrivers || 0
+          );
+        });
+
+        // Get color mode
+        const colorMode =
+          document.getElementById("dagColorMode")?.value || "type";
+
+        // Calculate metric ranges for heat map coloring
+        const allStats = Object.values(operatorStats);
+        const metricRanges = {
+          time: {
+            min:
+              Math.min(
+                ...allStats.map((s) => s.totalWallMs).filter((v) => v > 0),
+              ) || 0,
+            max: Math.max(...allStats.map((s) => s.totalWallMs)) || 1,
+          },
+          rows: {
+            min:
+              Math.min(
+                ...allStats
+                  .map((s) => Math.max(s.inputPositions, s.outputPositions))
+                  .filter((v) => v > 0),
+              ) || 0,
+            max:
+              Math.max(
+                ...allStats.map((s) =>
+                  Math.max(s.inputPositions, s.outputPositions),
+                ),
+              ) || 1,
+          },
+          memory: {
+            min:
+              Math.min(
+                ...allStats.map((s) => s.peakMemoryBytes).filter((v) => v > 0),
+              ) || 0,
+            max: Math.max(...allStats.map((s) => s.peakMemoryBytes)) || 1,
+          },
+        };
+
+        // Heat map color function (green -> yellow -> red)
+        function getHeatColor(value, min, max) {
+          if (max === min || value === 0) return "#666";
+          const logMin = min > 0 ? Math.log(min) : 0;
+          const logMax = max > 0 ? Math.log(max) : 0;
+          const logVal = value > 0 ? Math.log(value) : 0;
+          const ratio =
+            logMax > logMin ? (logVal - logMin) / (logMax - logMin) : 0;
+
+          let r, g, b;
+          if (ratio < 0.5) {
+            const t = ratio * 2;
+            r = Math.round(118 + (255 - 118) * t);
+            g = Math.round(185 - (185 - 200) * t);
+            b = 0;
+          } else {
+            const t = (ratio - 0.5) * 2;
+            r = 255;
+            g = Math.round(200 * (1 - t));
+            b = 0;
+          }
+          return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        // Selectivity color
+        function getSelectivityColor(selectivity) {
+          if (selectivity === 1) return "#666";
+          if (selectivity < 1) {
+            const ratio = Math.min(1, 1 - selectivity);
+            const intensity = Math.round(100 + 155 * ratio);
+            return `rgb(0, ${Math.round(intensity * 0.7)}, ${intensity})`;
+          } else {
+            const ratio = Math.min(1, Math.log(selectivity) / Math.log(100));
+            const intensity = Math.round(100 + 155 * ratio);
+            return `rgb(${intensity}, ${Math.round(intensity * 0.3)}, 0)`;
+          }
+        }
+
+        // Node type colors
+        const nodeColorsByType = {
+          TableScanNode: "#2563eb",
+          FilterNode: "#7c3aed",
+          ProjectNode: "#059669",
+          JoinNode: "#dc2626",
+          SemiJoinNode: "#dc2626",
+          AggregationNode: "#d97706",
+          ExchangeNode: "#0891b2",
+          RemoteSourceNode: "#0891b2",
+          SortNode: "#4f46e5",
+          TopNNode: "#4f46e5",
+          LimitNode: "#6366f1",
+          OutputNode: "#76b900",
+          default: "#666",
+        };
+
+        // Get node color based on mode
+        function getNodeColor(stats, nodeType) {
+          if (!stats)
+            return nodeColorsByType[nodeType] || nodeColorsByType["default"];
+
+          switch (colorMode) {
+            case "time":
+              return getHeatColor(
+                stats.totalWallMs || 0,
+                metricRanges.time.min,
+                metricRanges.time.max,
+              );
+            case "rows":
+              const rows = Math.max(
+                stats.inputPositions || 0,
+                stats.outputPositions || 0,
+              );
+              return getHeatColor(
+                rows,
+                metricRanges.rows.min,
+                metricRanges.rows.max,
+              );
+            case "memory":
+              return getHeatColor(
+                stats.peakMemoryBytes || 0,
+                metricRanges.memory.min,
+                metricRanges.memory.max,
+              );
+            case "selectivity":
+              const inp = stats.inputPositions || 0;
+              const out = stats.outputPositions || 0;
+              const sel = inp > 0 ? out / inp : 1;
+              return getSelectivityColor(sel);
+            default:
+              return nodeColorsByType[nodeType] || nodeColorsByType["default"];
+          }
+        }
+
+        function getNodeName(node) {
+          const nodeType = node["@type"] || "unknown";
+          return nodeType
+            .replace("com.facebook.presto.sql.planner.plan.", "")
+            .replace(/^\./, "");
+        }
+
+        function formatNode(node, indent = 0) {
+          if (!node || typeof node !== "object") return "";
+
+          const prefix = "  ".repeat(indent);
+          const nodeType = getNodeName(node);
+          const nodeId = node.id || "?";
+          const stats = operatorStats[nodeId];
+
+          let lines = [];
+
+          // Node header with color based on mode
+          const nodeColor = getNodeColor(stats, nodeType);
+          const colorIndicator = `<span style="display:inline-block;width:12px;height:12px;background:${nodeColor};border-radius:2px;margin-right:6px;vertical-align:middle;"></span>`;
+
+          // Add source location reference if available
+          let sourceRef = "";
+          if (node.sourceLocation) {
+            const line = node.sourceLocation.line;
+            const col = node.sourceLocation.column;
+            sourceRef = ` <span class="plan-source-ref" title="Click to highlight in query" data-line="${line}" data-col="${col}">@${line}:${col}</span>`;
+          }
+
+          let header = `${colorIndicator}<span class="plan-node" style="color: ${nodeColor}">${nodeType}</span> <span class="plan-id">[${nodeId}]</span>${sourceRef}`;
+
+          // Add node-specific details
+          let details = [];
+
+          // TableScanNode
+          if (node.table) {
+            const tableName =
+              node.table.connectorHandle?.tableName || "unknown";
+            details.push(`table: ${tableName}`);
+            if (node.outputVariables) {
+              const cols = node.outputVariables.map((v) => v.name).join(", ");
+              details.push(`columns: [${cols}]`);
+            }
+          }
+
+          // JoinNode
+          if (nodeType === "JoinNode") {
+            details.push(`type: ${node.type}`);
+            if (node.distributionType)
+              details.push(`dist: ${node.distributionType}`);
+            if (node.criteria && node.criteria.length > 0) {
+              const keys = node.criteria
+                .map((c) => `${c.left?.name}=${c.right?.name}`)
+                .join(", ");
+              details.push(`on: ${keys}`);
+            }
+          }
+
+          // ExchangeNode
+          if (nodeType === "ExchangeNode") {
+            details.push(`${node.type} (${node.scope})`);
+            if (
+              node.partitioningScheme?.partitioning?.handle?.connectorHandle
+            ) {
+              const ph =
+                node.partitioningScheme.partitioning.handle.connectorHandle;
+              if (ph.partitioning)
+                details.push(`partitioning: ${ph.partitioning}`);
+            }
+          }
+
+          // RemoteSourceNode
+          if (nodeType === "RemoteSourceNode") {
+            details.push(`${node.exchangeType || "EXCHANGE"}`);
+            if (node.sourceFragmentIds) {
+              details.push(`from stages: ${node.sourceFragmentIds.join(", ")}`);
+            }
+          }
+
+          // SemiJoinNode
+          if (nodeType === "SemiJoinNode") {
+            if (node.distributionType)
+              details.push(`dist: ${node.distributionType}`);
+            if (node.sourceJoinVariable && node.filteringSourceJoinVariable) {
+              details.push(
+                `on: ${node.sourceJoinVariable.name}=${node.filteringSourceJoinVariable.name}`,
+              );
+            }
+          }
+
+          // AggregationNode
+          if (node.aggregations) {
+            if (node.step) details.push(`step: ${node.step}`);
+            const aggs = Object.keys(node.aggregations).join(", ");
+            details.push(`aggs: [${aggs}]`);
+            if (node.groupingSets?.groupingKeys?.length > 0) {
+              const keys = node.groupingSets.groupingKeys
+                .map((k) => k.name)
+                .join(", ");
+              details.push(`group by: [${keys}]`);
+            }
+          }
+
+          // FilterNode
+          if (node.predicate) {
+            let filterInfo = "predicate";
+            if (node.predicate.form) filterInfo += ` (${node.predicate.form})`;
+            details.push(filterInfo);
+          }
+
+          // ProjectNode
+          if (nodeType === "ProjectNode" && node.assignments) {
+            const projs = Object.keys(node.assignments);
+            if (projs.length <= 5) {
+              details.push(`projects: [${projs.join(", ")}]`);
+            } else {
+              details.push(`projects: ${projs.length} columns`);
+            }
+          }
+
+          // SortNode
+          if (node.orderingScheme?.orderByVariables) {
+            const keys = node.orderingScheme.orderByVariables
+              .map((v) => v.name)
+              .join(", ");
+            details.push(`order by: [${keys}]`);
+          }
+
+          // TopNNode
+          if (nodeType === "TopNNode") {
+            details.push(`n: ${node.count}`);
+          }
+
+          // LimitNode
+          if (nodeType === "LimitNode") {
+            details.push(`limit: ${node.count}`);
+          }
+
+          // OutputNode
+          if (nodeType === "OutputNode" && node.columnNames) {
+            details.push(`output: [${node.columnNames.join(", ")}]`);
+          }
+
+          // Add details to header
+          if (details.length > 0) {
+            header += ` <span class="plan-detail">{ ${details.join(", ")} }</span>`;
+          }
+
+          // Add execution stats with pipeline operator details
+          if (stats && (stats.totalWallMs > 0 || stats.inputPositions > 0)) {
+            // Summary line
+            let statsStr = [];
+            if (stats.totalDrivers > 0)
+              statsStr.push(`drivers: ${stats.totalDrivers}`);
+            if (stats.totalWallMs > 0)
+              statsStr.push(`time: ${formatDuration(stats.totalWallMs)}`);
+
+            // For join nodes, show probe and build rows separately
+            const isJoinNode =
+              nodeType === "JoinNode" || nodeType === "SemiJoinNode";
+            if (isJoinNode && stats.buildInputPositions > 0) {
+              statsStr.push(
+                `probe: ${formatNumber(stats.inputPositions)} → ${formatNumber(stats.outputPositions)}, build: ${formatNumber(stats.buildInputPositions)}`,
+              );
+            } else {
+              statsStr.push(
+                `rows: ${formatNumber(stats.inputPositions)} → ${formatNumber(stats.outputPositions)}`,
+              );
+            }
+
+            if (stats.peakMemoryBytes > 1024)
+              statsStr.push(`mem: ${formatBytes(stats.peakMemoryBytes)}`);
+
+            header += `\n${prefix}  <span class="plan-stats">└─ ${statsStr.join(" | ")}</span>`;
+
+            // Pipeline operator details
+            if (stats.operatorDetails && stats.operatorDetails.length > 0) {
+              // Sort by pipelineId, then operatorId
+              const sortedOps = [...stats.operatorDetails].sort((a, b) => {
+                if (a.pipelineId !== b.pipelineId)
+                  return a.pipelineId - b.pipelineId;
+                return a.operatorId - b.operatorId;
+              });
+
+              sortedOps.forEach((op, idx) => {
+                // Shorten operator type name
+                let opName = op.operatorType
+                  .replace("CudfHashJoin", "HashJoin")
+                  .replace("CudfFilterProject", "Filter")
+                  .replace("CudfLocalPartition", "Partition")
+                  .replace("CudfTableScan", "Scan")
+                  .replace("LocalExchangeSinkOperator", "ExchSink")
+                  .replace("LocalExchangeSourceOperator", "ExchSrc")
+                  .replace("Operator", "");
+
+                const inRows = formatNumber(op.inputPositions);
+                const outRows = formatNumber(op.outputPositions);
+                const rowStr =
+                  op.outputPositions === 0 ? inRows : `${inRows} → ${outRows}`;
+                const timeStr =
+                  op.wallMs > 0 ? ` | ${formatDuration(op.wallMs)}` : "";
+
+                // Batch and throughput info
+                let statsStr = "";
+                if (op.inputBatches > 0) {
+                  statsStr += ` | ${op.inputBatches}b`;
+                }
+                if (op.inputRowsPerSec > 0) {
+                  statsStr += ` | ${formatNumber(Math.round(op.inputRowsPerSec))}/s`;
+                }
+                if (op.inputMBPerSec >= 1) {
+                  statsStr += ` ${op.inputMBPerSec.toFixed(0)}MB/s`;
+                }
+
+                const isLast = idx === sortedOps.length - 1;
+                const connector = isLast ? "└" : "├";
+                const driverStr = op.totalDrivers > 0 ? ` [${op.totalDrivers}d]` : "";
+                header += `\n${prefix}     <span class="plan-operator">${connector}─ P${op.pipelineId}.${op.operatorId} ${opName}${driverStr}: ${rowStr}${timeStr}${statsStr}</span>`;
+              });
+            }
+          }
+
+          lines.push(prefix + header);
+
+          // Handle RemoteSourceNode - link to subStage plans
+          if (nodeType === "RemoteSourceNode" && node.sourceFragmentIds) {
+            node.sourceFragmentIds.forEach((fragmentId, i) => {
+              const subStage = stagesByFragmentId[fragmentId];
+              if (subStage?.plan?.root) {
+                if (node.sourceFragmentIds.length > 1) {
+                  lines.push(
+                    prefix +
+                      `  <span class="plan-detail">── stage ${fragmentId} ──</span>`,
+                  );
+                }
+                lines.push(formatNode(subStage.plan.root, indent + 1));
+              }
+            });
+            return lines.join("\n"); // RemoteSourceNode has no local children
+          }
+
+          // Recurse into children
+          if (node.source) {
+            lines.push(formatNode(node.source, indent + 1));
+          }
+          if (node.sources) {
+            node.sources.forEach((src, i) => {
+              if (node.sources.length > 1) {
+                lines.push(
+                  prefix +
+                    `  <span class="plan-detail">── input ${i} ──</span>`,
+                );
+              }
+              lines.push(formatNode(src, indent + 1));
+            });
+          }
+          // JoinNode uses left/right instead of source/sources
+          if (node.left) {
+            lines.push(
+              prefix + `  <span class="plan-detail">── left ──</span>`,
+            );
+            lines.push(formatNode(node.left, indent + 1));
+          }
+          if (node.right) {
+            lines.push(
+              prefix + `  <span class="plan-detail">── right ──</span>`,
+            );
+            lines.push(formatNode(node.right, indent + 1));
+          }
+          // SemiJoinNode has filteringSource in addition to source
+          if (node.filteringSource) {
+            lines.push(
+              prefix + `  <span class="plan-detail">── filtering ──</span>`,
+            );
+            lines.push(formatNode(node.filteringSource, indent + 1));
+          }
+
+          return lines.join("\n");
+        }
+
+        // Build the query display with line numbers
+        let queryDisplay = "";
+        if (queryString) {
+          queryDisplay = `<div class="query-section" style="margin-bottom:20px;padding:15px;background:var(--bg-primary);border:1px solid var(--border-primary);border-radius:8px;">
+<div style="color:var(--accent-primary);font-weight:bold;margin-bottom:10px;">SQL Query:</div>
+<div id="queryTextDisplay" style="font-family:monospace;white-space:pre-wrap;line-height:1.6;color:var(--text-secondary);">`;
+
+          queryLines.forEach((line, idx) => {
+            const lineNum = idx + 1;
+            queryDisplay += `<span class="query-line" data-line="${lineNum}" style="display:block;"><span style="color:var(--text-muted);user-select:none;display:inline-block;width:30px;text-align:right;margin-right:10px;">${lineNum}</span><span class="query-line-content">${escapeHtml(line)}</span></span>`;
+          });
+
+          queryDisplay += `</div></div>
+<div style="color:var(--accent-primary);font-weight:bold;margin-bottom:10px;">Query Plan:</div>`;
+        }
+
+        return queryDisplay + formatNode(outputStage.plan.root);
+      }
+
+      // Helper to escape HTML
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      // Update DAG colors when color mode changes
+      function updateDAGColors() {
+        if (currentData) {
+          createDAG(currentData);
+          // Also update text plan if visible
+          const textContainer = document.getElementById("textPlanContainer");
+          if (textContainer.style.display !== "none") {
+            document.getElementById("textPlanContent").innerHTML =
+              generateTextPlan(currentData);
+            setupSourceRefHandlers();
+          }
+        }
+      }
+
+      // Setup click handlers for source location references
+      function setupSourceRefHandlers() {
+        const sourceRefs = document.querySelectorAll(".plan-source-ref");
+        sourceRefs.forEach((ref) => {
+          ref.addEventListener("click", (e) => {
+            const line = parseInt(ref.dataset.line);
+            const col = parseInt(ref.dataset.col);
+            highlightQueryLocation(line, col);
+          });
+        });
+      }
+
+      // Highlight a location in the query display
+      function highlightQueryLocation(line, col) {
+        // Remove any existing highlights
+        const existingHighlights =
+          document.querySelectorAll(".query-highlight");
+        existingHighlights.forEach((el) => {
+          el.classList.remove("query-highlight");
+          el.style.background = "";
+        });
+
+        // Find the query line element
+        const queryLine = document.querySelector(
+          `.query-line[data-line="${line}"]`,
+        );
+        if (queryLine) {
+          // Scroll to the query section
+          const querySection = document.querySelector(".query-section");
+          if (querySection) {
+            querySection.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+
+          // Highlight the line
+          queryLine.classList.add("query-highlight");
+          queryLine.style.background = "rgba(8, 145, 178, 0.3)";
+          queryLine.style.borderRadius = "4px";
+
+          // Also highlight the specific column position if we can
+          const lineContent = queryLine.querySelector(".query-line-content");
+          if (lineContent && col > 0) {
+            const text = lineContent.textContent;
+            // Find a reasonable span around the column (e.g., the word or keyword at that position)
+            const beforeCol = text.substring(0, col - 1);
+            const afterCol = text.substring(col - 1);
+
+            // Find the word/token at the column position
+            const wordMatch = afterCol.match(/^(\S+)/);
+            const word = wordMatch ? wordMatch[1] : "";
+
+            if (word) {
+              // Highlight the word at the column position
+              const highlightedText =
+                beforeCol +
+                `<span style="background:var(--accent-link);color:#fff;padding:0 2px;border-radius:2px;">${escapeHtml(word)}</span>` +
+                escapeHtml(afterCol.substring(word.length));
+              lineContent.innerHTML = highlightedText;
+            }
+          }
+
+          // Remove highlight after a delay
+          setTimeout(() => {
+            queryLine.style.background = "";
+            queryLine.classList.remove("query-highlight");
+            // Restore original text
+            if (lineContent) {
+              const queryString = currentData?.query_info?.query || "";
+              const queryLines = queryString.split("\n");
+              if (queryLines[line - 1] !== undefined) {
+                lineContent.innerHTML = escapeHtml(queryLines[line - 1]);
+              }
+            }
+          }, 3000);
+        }
+      }
+      window.updateDAGColors = updateDAGColors;
+
+      // Create DAG visualization
+      function createDAG(data) {
+        const container = document.getElementById("dagContainer");
+        container.innerHTML = "";
+
+        const { nodes, edges } = extractPlanDAG(data);
+        if (nodes.length === 0) {
+          container.innerHTML =
+            '<p style="color:var(--text-tertiary);padding:20px;">No plan data available</p>';
+          return;
+        }
+
+        // Layout parameters - larger nodes for more details
+        const nodeWidth = 260;
+        const baseNodeHeight = 70; // Header + details area
+        const operatorRowHeight = 16; // Height per operator row
+        const levelGap = 80;
+        const nodeGap = 40;
+
+        // Calculate node height based on number of operators
+        function getNodeHeight(node) {
+          const operatorDetails = node.stats?.operatorDetails || [];
+          const numOps = operatorDetails.length;
+          // Count operators that have batch/throughput stats (they get an extra row)
+          const opsWithStats = operatorDetails.filter(
+            (op) => op.inputBatches > 0 || op.inputRowsPerSec > 0,
+          ).length;
+          // At least 2 rows for summary stats, plus operator rows + extra stats rows
+          const minContentRows = 2;
+          const opRows = Math.max(numOps + opsWithStats, minContentRows);
+          return baseNodeHeight + opRows * operatorRowHeight;
+        }
+        const margin = { top: 60, right: 60, bottom: 60, left: 60 };
+
+        // Build adjacency for layout (edges go from child to parent, so reverse for top-down)
+        const children = {};
+        const parents = {};
+        nodes.forEach((n) => {
+          children[n.id] = [];
+          parents[n.id] = [];
+        });
+        edges.forEach((e) => {
+          children[e.to] = children[e.to] || [];
+          children[e.to].push(e.from);
+          parents[e.from] = parents[e.from] || [];
+          parents[e.from].push(e.to);
+        });
+
+        // Find root (node with no parent in edges - the output node)
+        const rootNodes = nodes.filter((n) => parents[n.id].length === 0);
+        const root = rootNodes[0];
+
+        // Assign levels using BFS from root
+        const levels = {};
+        const queue = [{ id: root.id, level: 0 }];
+        const visited = new Set();
+
+        while (queue.length > 0) {
+          const { id, level } = queue.shift();
+          if (visited.has(id)) continue;
+          visited.add(id);
+          levels[id] = level;
+
+          (children[id] || []).forEach((childId) => {
+            queue.push({ id: childId, level: level + 1 });
+          });
+        }
+
+        // Group nodes by level
+        const levelGroups = {};
+        nodes.forEach((n) => {
+          const lvl = levels[n.id] || 0;
+          if (!levelGroups[lvl]) levelGroups[lvl] = [];
+          levelGroups[lvl].push(n);
+        });
+
+        // Calculate node heights and store them
+        const nodeHeights = {};
+        nodes.forEach((n) => {
+          nodeHeights[n.id] = getNodeHeight(n);
+        });
+
+        // Calculate max height per level for layout
+        const maxLevel = Math.max(...Object.keys(levelGroups).map(Number));
+        const levelMaxHeights = {};
+        Object.keys(levelGroups).forEach((lvl) => {
+          levelMaxHeights[lvl] = Math.max(
+            ...levelGroups[lvl].map((n) => nodeHeights[n.id]),
+          );
+        });
+
+        // Calculate positions with dynamic heights
+        const positions = {};
+        let cumulativeY = 0;
+
+        for (let lvl = 0; lvl <= maxLevel; lvl++) {
+          const group = levelGroups[lvl] || [];
+          if (group.length === 0) continue;
+
+          const levelHeight = levelMaxHeights[lvl];
+          const totalWidth =
+            group.length * nodeWidth + (group.length - 1) * nodeGap;
+          const startX = -totalWidth / 2;
+
+          group.forEach((node, idx) => {
+            positions[node.id] = {
+              x: startX + idx * (nodeWidth + nodeGap) + nodeWidth / 2,
+              y: cumulativeY + levelHeight / 2,
+              height: nodeHeights[node.id],
+            };
+          });
+
+          cumulativeY += levelHeight + levelGap;
+        }
+
+        // Calculate SVG dimensions
+        const allX = Object.values(positions).map((p) => p.x);
+        const minX = Math.min(...allX) - nodeWidth / 2;
+        const maxX = Math.max(...allX) + nodeWidth / 2;
+        const minY = 0;
+        const maxY = cumulativeY - levelGap; // Remove last gap
+
+        const width = maxX - minX + margin.left + margin.right;
+        const height = maxY - minY + margin.top + margin.bottom;
+        const offsetX = -minX + margin.left;
+        const offsetY = -minY + margin.top;
+
+        // Create SVG
+        const svg = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        svg.setAttribute("class", "dag-svg");
+        svg.setAttribute("width", width);
+        svg.setAttribute("height", height);
+
+        // Add arrow marker definition
+        const defs = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "defs",
+        );
+        defs.innerHTML = `
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+          </marker>
+        `;
+        svg.appendChild(defs);
+
+        // Draw edges first (so they're behind nodes)
+        edges.forEach((edge) => {
+          const fromPos = positions[edge.from];
+          const toPos = positions[edge.to];
+          if (!fromPos || !toPos) return;
+
+          const fromHeight = fromPos.height || baseNodeHeight;
+          const toHeight = toPos.height || baseNodeHeight;
+
+          const x1 = fromPos.x + offsetX;
+          const y1 = fromPos.y + offsetY - fromHeight / 2;
+          const x2 = toPos.x + offsetX;
+          const y2 = toPos.y + offsetY + toHeight / 2;
+
+          // Create curved path
+          const midY = (y1 + y2) / 2;
+          const path = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path",
+          );
+          path.setAttribute(
+            "d",
+            `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`,
+          );
+          path.setAttribute("class", "dag-edge");
+          svg.appendChild(path);
+
+          // Add data flow label on edge
+          const fromNode = nodes.find((n) => n.id === edge.from);
+          if (
+            fromNode &&
+            fromNode.stats &&
+            fromNode.stats.outputPositions > 0
+          ) {
+            // Calculate total output batches from operator details
+            let totalOutputBatches = 0;
+            if (fromNode.stats.operatorDetails) {
+              totalOutputBatches = fromNode.stats.operatorDetails.reduce(
+                (max, op) => Math.max(max, op.outputBatches || 0),
+                0,
+              );
+            }
+
+            // Build label text: rows + batches
+            let labelText =
+              formatNumber(fromNode.stats.outputPositions) + " rows";
+            if (totalOutputBatches > 0) {
+              labelText += ` (${totalOutputBatches}b)`;
+            }
+
+            const label = document.createElementNS(
+              "http://www.w3.org/2000/svg",
+              "text",
+            );
+            label.setAttribute("x", (x1 + x2) / 2);
+            label.setAttribute("y", midY);
+            label.setAttribute("text-anchor", "middle");
+            label.setAttribute("class", "dag-edge-label");
+            label.textContent = labelText;
+            svg.appendChild(label);
+          }
+        });
+
+        // Node colors by type - NVIDIA themed
+        const nodeColorsByType = {
+          TableScanNode: "#76B900",
+          FilterNode: "#5a9400",
+          ProjectNode: "#4d7c0f",
+          AggregationNode: "#65a30d",
+          ExchangeNode: "#15803d",
+          SortNode: "#059669",
+          JoinNode: "#0d9488",
+          SemiJoinNode: "#0e7490",
+          TopNNode: "#0891b2",
+          LimitNode: "#0284c7",
+          OutputNode: "#333333",
+          default: "#4a4a4a",
+        };
+
+        // Calculate min/max values for metric-based coloring
+        const metrics = {
+          time: nodes.map((n) => n.stats?.totalWallMs || 0),
+          rows: nodes.map((n) =>
+            Math.max(
+              n.stats?.inputPositions || 0,
+              n.stats?.outputPositions || 0,
+            ),
+          ),
+          memory: nodes.map((n) => n.stats?.peakMemoryBytes || 0),
+          selectivity: nodes.map((n) => {
+            const inp = n.stats?.inputPositions || 0;
+            const out = n.stats?.outputPositions || 0;
+            if (inp === 0) return 1;
+            return out / inp;
+          }),
+        };
+        const metricRanges = {};
+        for (const [key, values] of Object.entries(metrics)) {
+          const nonZero = values.filter((v) => v > 0);
+          metricRanges[key] = {
+            min: nonZero.length > 0 ? Math.min(...nonZero) : 0,
+            max: Math.max(...values),
+          };
+        }
+
+        // Heat map color function (green -> yellow -> red)
+        function getHeatColor(value, min, max) {
+          if (max === min || value === 0) return "#4a4a4a";
+          // Use log scale for better distribution
+          const logMin = min > 0 ? Math.log(min) : 0;
+          const logMax = max > 0 ? Math.log(max) : 0;
+          const logVal = value > 0 ? Math.log(value) : 0;
+          const ratio =
+            logMax > logMin ? (logVal - logMin) / (logMax - logMin) : 0;
+
+          // Green (low) -> Yellow (mid) -> Red (high)
+          let r, g, b;
+          if (ratio < 0.5) {
+            // Green to Yellow
+            const t = ratio * 2;
+            r = Math.round(118 + (255 - 118) * t);
+            g = Math.round(185 - (185 - 200) * t);
+            b = Math.round(0);
+          } else {
+            // Yellow to Red
+            const t = (ratio - 0.5) * 2;
+            r = 255;
+            g = Math.round(200 * (1 - t));
+            b = 0;
+          }
+          return `rgb(${r},${g},${b})`;
+        }
+
+        // Selectivity color (blue for reduction, red for expansion)
+        function getSelectivityColor(selectivity) {
+          if (selectivity === 1) return "#4a4a4a";
+          if (selectivity < 1) {
+            // Reduction: more blue = more reduction
+            const ratio = Math.min(1, 1 - selectivity);
+            const intensity = Math.round(100 + 155 * ratio);
+            return `rgb(0, ${Math.round(intensity * 0.7)}, ${intensity})`;
+          } else {
+            // Expansion: more red = more expansion
+            const ratio = Math.min(1, Math.log(selectivity) / Math.log(100));
+            const intensity = Math.round(100 + 155 * ratio);
+            return `rgb(${intensity}, ${Math.round(intensity * 0.3)}, 0)`;
+          }
+        }
+
+        // Get node color based on current mode
+        const colorMode =
+          document.getElementById("dagColorMode")?.value || "type";
+        function getNodeColor(node) {
+          switch (colorMode) {
+            case "time":
+              return getHeatColor(
+                node.stats?.totalWallMs || 0,
+                metricRanges.time.min,
+                metricRanges.time.max,
+              );
+            case "rows":
+              const rows = Math.max(
+                node.stats?.inputPositions || 0,
+                node.stats?.outputPositions || 0,
+              );
+              return getHeatColor(
+                rows,
+                metricRanges.rows.min,
+                metricRanges.rows.max,
+              );
+            case "memory":
+              return getHeatColor(
+                node.stats?.peakMemoryBytes || 0,
+                metricRanges.memory.min,
+                metricRanges.memory.max,
+              );
+            case "selectivity":
+              const inp = node.stats?.inputPositions || 0;
+              const out = node.stats?.outputPositions || 0;
+              const sel = inp > 0 ? out / inp : 1;
+              return getSelectivityColor(sel);
+            default:
+              return nodeColorsByType[node.type] || nodeColorsByType["default"];
+          }
+        }
+
+        // Stage colors for visual grouping
+        const stageColors = [
+          "rgba(118, 185, 0, 0.08)",   // NVIDIA green
+          "rgba(0, 150, 136, 0.08)",   // Teal
+          "rgba(33, 150, 243, 0.08)",  // Blue
+          "rgba(156, 39, 176, 0.08)",  // Purple
+          "rgba(255, 152, 0, 0.08)",   // Orange
+          "rgba(233, 30, 99, 0.08)",   // Pink
+          "rgba(0, 188, 212, 0.08)",   // Cyan
+          "rgba(139, 195, 74, 0.08)",  // Light green
+        ];
+        const stageBorderColors = [
+          "rgba(118, 185, 0, 0.5)",
+          "rgba(0, 150, 136, 0.5)",
+          "rgba(33, 150, 243, 0.5)",
+          "rgba(156, 39, 176, 0.5)",
+          "rgba(255, 152, 0, 0.5)",
+          "rgba(233, 30, 99, 0.5)",
+          "rgba(0, 188, 212, 0.5)",
+          "rgba(139, 195, 74, 0.5)",
+        ];
+
+        // Group nodes by stage and calculate bounding boxes
+        const stageGroups = {};
+        nodes.forEach((node) => {
+          const stageId = node.stageId || "0";
+          if (!stageGroups[stageId]) {
+            stageGroups[stageId] = [];
+          }
+          stageGroups[stageId].push(node);
+        });
+
+        // Draw stage boxes (behind edges and nodes)
+        const stagePadding = 15;
+        const stageIds = Object.keys(stageGroups).sort((a, b) => parseInt(a) - parseInt(b));
+        stageIds.forEach((stageId, stageIndex) => {
+          const stageNodes = stageGroups[stageId];
+          if (stageNodes.length === 0) return;
+
+          // Calculate bounding box for this stage
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+          stageNodes.forEach((node) => {
+            const pos = positions[node.id];
+            if (!pos) return;
+            const h = pos.height || baseNodeHeight;
+            const nodeLeft = pos.x + offsetX - nodeWidth / 2;
+            const nodeRight = pos.x + offsetX + nodeWidth / 2;
+            const nodeTop = pos.y + offsetY - h / 2;
+            const nodeBottom = pos.y + offsetY + h / 2;
+            minX = Math.min(minX, nodeLeft);
+            maxX = Math.max(maxX, nodeRight);
+            minY = Math.min(minY, nodeTop);
+            maxY = Math.max(maxY, nodeBottom);
+          });
+
+          if (minX === Infinity) return;
+
+          // Add padding
+          minX -= stagePadding;
+          maxX += stagePadding;
+          minY -= stagePadding + 20; // Extra space for label
+          maxY += stagePadding;
+
+          const stageBox = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          stageBox.setAttribute("x", minX);
+          stageBox.setAttribute("y", minY);
+          stageBox.setAttribute("width", maxX - minX);
+          stageBox.setAttribute("height", maxY - minY);
+          stageBox.setAttribute("rx", "12");
+          stageBox.setAttribute("fill", stageColors[stageIndex % stageColors.length]);
+          stageBox.setAttribute("stroke", stageBorderColors[stageIndex % stageBorderColors.length]);
+          stageBox.setAttribute("stroke-width", "2");
+          stageBox.setAttribute("stroke-dasharray", "5,5");
+          svg.appendChild(stageBox);
+
+          // Add stage label
+          const stageLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          stageLabel.setAttribute("x", minX + 10);
+          stageLabel.setAttribute("y", minY + 16);
+          stageLabel.setAttribute("fill", stageBorderColors[stageIndex % stageBorderColors.length]);
+          stageLabel.setAttribute("font-size", "12");
+          stageLabel.setAttribute("font-weight", "bold");
+          stageLabel.textContent = `Stage ${stageId}`;
+          svg.appendChild(stageLabel);
+        });
+
+        // Draw nodes with more details
+        nodes.forEach((node) => {
+          const pos = positions[node.id];
+          if (!pos) return;
+
+          const thisNodeHeight = pos.height || baseNodeHeight;
+          const x = pos.x + offsetX - nodeWidth / 2;
+          const y = pos.y + offsetY - thisNodeHeight / 2;
+          const color = getNodeColor(node);
+
+          const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          g.setAttribute("class", "dag-node");
+          g.setAttribute("transform", `translate(${x}, ${y})`);
+
+          // Background rect with gradient effect
+          const rect = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "rect",
+          );
+          rect.setAttribute("width", nodeWidth);
+          rect.setAttribute("height", thisNodeHeight);
+          rect.setAttribute("rx", "8");
+          rect.setAttribute("fill", color);
+          g.appendChild(rect);
+
+          // Header background (darker strip at top)
+          const headerRect = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "rect",
+          );
+          headerRect.setAttribute("width", nodeWidth);
+          headerRect.setAttribute("height", 28);
+          headerRect.setAttribute("rx", "8");
+          headerRect.setAttribute("fill", "rgba(0,0,0,0.2)");
+          g.appendChild(headerRect);
+          // Cover bottom corners of header
+          const headerCover = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "rect",
+          );
+          headerCover.setAttribute("y", 20);
+          headerCover.setAttribute("width", nodeWidth);
+          headerCover.setAttribute("height", 8);
+          headerCover.setAttribute("fill", "rgba(0,0,0,0.2)");
+          g.appendChild(headerCover);
+
+          // Node type label (in header)
+          const typeText = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "text",
+          );
+          typeText.setAttribute("x", nodeWidth / 2);
+          typeText.setAttribute("y", 18);
+          typeText.setAttribute("text-anchor", "middle");
+          typeText.setAttribute("font-weight", "bold");
+          typeText.setAttribute("font-size", "12px");
+          typeText.textContent = node.type.replace("Node", "");
+          g.appendChild(typeText);
+
+          // Plan node ID (in header, right side)
+          const idText = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "text",
+          );
+          idText.setAttribute("x", nodeWidth - 8);
+          idText.setAttribute("y", 18);
+          idText.setAttribute("text-anchor", "end");
+          idText.setAttribute("font-size", "10px");
+          idText.setAttribute("fill", "rgba(255,255,255,0.6)");
+          idText.textContent = `#${node.id}`;
+          g.appendChild(idText);
+
+          // Content area - line 1: details
+          let detailText = "";
+          let detailText2 = "";
+          if (node.details.table) {
+            detailText = `Table: ${node.details.table}`;
+            if (node.details.columns && node.details.columns.length <= 4) {
+              detailText2 = node.details.columns.join(", ");
+            } else if (node.details.columns) {
+              detailText2 = `${node.details.columns.length} columns`;
+            }
+          } else if (node.details.joinType) {
+            detailText = `${node.details.joinType} JOIN (${node.details.distributionType || "?"})`;
+            if (node.details.joinKeys) detailText2 = node.details.joinKeys;
+          } else if (node.details.semiJoin) {
+            detailText = `SEMI JOIN (${node.details.distributionType || "?"})`;
+            if (node.details.sourceKey && node.details.filteringKey) {
+              detailText2 = `${node.details.sourceKey} = ${node.details.filteringKey}`;
+            }
+          } else if (node.details.exchangeType) {
+            detailText = `${node.details.exchangeType} (${node.details.scope || "LOCAL"})`;
+            if (node.details.partitioning)
+              detailText2 = node.details.partitioning;
+          } else if (node.details.aggregations) {
+            detailText = `${node.details.step || "?"}: ${node.details.aggregations} agg(s)`;
+            if (
+              node.details.groupByKeyNames &&
+              node.details.groupByKeyNames.length > 0
+            ) {
+              detailText2 = `by: ${node.details.groupByKeyNames.slice(0, 3).join(", ")}`;
+              if (node.details.groupByKeyNames.length > 3) detailText2 += "...";
+            }
+          } else if (node.details.sortKeys) {
+            detailText = `Sort by ${node.details.sortKeys} key(s)`;
+            if (node.details.sortKeyNames)
+              detailText2 = node.details.sortKeyNames.slice(0, 3).join(", ");
+          } else if (node.details.projections) {
+            detailText = `${node.details.projections} projections`;
+          } else if (node.details.topN) {
+            detailText = `Top ${node.details.topN}`;
+            if (node.details.orderBy)
+              detailText2 = `by: ${node.details.orderBy.slice(0, 2).join(", ")}`;
+          } else if (node.details.limit) {
+            detailText = `Limit ${node.details.limit}`;
+          } else if (node.details.hasPredicate) {
+            detailText = `Filter${node.details.predicateForm ? ` (${node.details.predicateForm})` : ""}`;
+          } else if (node.details.columnNames) {
+            detailText = `Output: ${node.details.columnNames.length} cols`;
+          }
+
+          if (detailText) {
+            const detail = document.createElementNS(
+              "http://www.w3.org/2000/svg",
+              "text",
+            );
+            detail.setAttribute("x", 10);
+            detail.setAttribute("y", 45);
+            detail.setAttribute("font-size", "10px");
+            detail.setAttribute("fill", "rgba(255,255,255,0.9)");
+            detail.textContent = detailText;
+            g.appendChild(detail);
+          }
+
+          // Content area - line 1b: additional details
+          if (detailText2) {
+            const detail2 = document.createElementNS(
+              "http://www.w3.org/2000/svg",
+              "text",
+            );
+            detail2.setAttribute("x", 10);
+            detail2.setAttribute("y", 58);
+            detail2.setAttribute("font-size", "9px");
+            detail2.setAttribute("fill", "rgba(255,255,255,0.7)");
+            detail2.textContent = detailText2;
+            g.appendChild(detail2);
+          }
+
+          // Separator line before operators
+          const sepLine = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "line",
+          );
+          sepLine.setAttribute("x1", 8);
+          sepLine.setAttribute("y1", 65);
+          sepLine.setAttribute("x2", nodeWidth - 8);
+          sepLine.setAttribute("y2", 65);
+          sepLine.setAttribute("stroke", "rgba(255,255,255,0.2)");
+          sepLine.setAttribute("stroke-width", "1");
+          g.appendChild(sepLine);
+
+          // Pipeline operators section
+          const operatorDetails = node.stats?.operatorDetails || [];
+          let opY = 78; // Starting Y position for operators
+
+          if (operatorDetails.length > 0) {
+            // Sort by pipelineId, then operatorId
+            const sortedOps = [...operatorDetails].sort((a, b) => {
+              if (a.pipelineId !== b.pipelineId)
+                return a.pipelineId - b.pipelineId;
+              return a.operatorId - b.operatorId;
+            });
+
+            // Group by pipeline
+            const pipelines = {};
+            sortedOps.forEach((op) => {
+              const pId = op.pipelineId;
+              if (!pipelines[pId]) pipelines[pId] = [];
+              pipelines[pId].push(op);
+            });
+
+            // Render each operator
+            Object.keys(pipelines).forEach((pipelineId) => {
+              const pipelineOps = pipelines[pipelineId];
+
+              pipelineOps.forEach((op) => {
+                // Shorten operator type name
+                let opName = op.operatorType
+                  .replace("CudfHashJoin", "HashJoin")
+                  .replace("CudfFilterProject", "Filter")
+                  .replace("CudfLocalPartition", "Partition")
+                  .replace("CudfTableScan", "Scan")
+                  .replace("LocalExchangeSinkOperator", "ExchSink")
+                  .replace("LocalExchangeSourceOperator", "ExchSrc")
+                  .replace("CudfPartialAggregation", "PartialAgg")
+                  .replace("CudfAggregation", "Agg")
+                  .replace("CudfOrderBy", "OrderBy")
+                  .replace("Operator", "");
+
+                // Row 1: P0.1 OpName | rows in→out
+                const opText = document.createElementNS(
+                  "http://www.w3.org/2000/svg",
+                  "text",
+                );
+                opText.setAttribute("x", 10);
+                opText.setAttribute("y", opY);
+                opText.setAttribute("font-size", "9px");
+                opText.setAttribute("font-family", "monospace");
+                opText.setAttribute("fill", "rgba(255,255,255,0.85)");
+
+                const inRows = formatNumber(op.inputPositions);
+                const outRows = formatNumber(op.outputPositions);
+                let rowStr =
+                  op.outputPositions === 0
+                    ? `${inRows}`
+                    : `${inRows}→${outRows}`;
+
+                const driverStr = op.totalDrivers > 0 ? ` [${op.totalDrivers}d]` : "";
+                opText.textContent = `P${pipelineId}.${op.operatorId} ${opName}${driverStr}`;
+                g.appendChild(opText);
+
+                // Row counts on the right
+                const rowsText = document.createElementNS(
+                  "http://www.w3.org/2000/svg",
+                  "text",
+                );
+                rowsText.setAttribute("x", nodeWidth - 10);
+                rowsText.setAttribute("y", opY);
+                rowsText.setAttribute("text-anchor", "end");
+                rowsText.setAttribute("font-size", "9px");
+                rowsText.setAttribute("font-family", "monospace");
+                rowsText.setAttribute("fill", "rgba(255,255,255,0.7)");
+                rowsText.textContent = rowStr;
+                g.appendChild(rowsText);
+
+                opY += operatorRowHeight;
+
+                // Row 2: Batch and throughput info (if available)
+                if (op.inputBatches > 0 || op.inputRowsPerSec > 0) {
+                  const statsText = document.createElementNS(
+                    "http://www.w3.org/2000/svg",
+                    "text",
+                  );
+                  statsText.setAttribute("x", 20);
+                  statsText.setAttribute("y", opY);
+                  statsText.setAttribute("font-size", "8px");
+                  statsText.setAttribute("font-family", "monospace");
+                  statsText.setAttribute("fill", "rgba(255,255,255,0.5)");
+
+                  // Format batch info
+                  let batchStr = "";
+                  if (op.inputBatches > 0) {
+                    batchStr = `${op.inputBatches}b`;
+                    if (
+                      op.outputBatches > 0 &&
+                      op.outputBatches !== op.inputBatches
+                    ) {
+                      batchStr += `→${op.outputBatches}b`;
+                    }
+                  }
+
+                  // Format throughput info
+                  let throughputStr = "";
+                  if (op.inputRowsPerSec > 0) {
+                    throughputStr = `${formatNumber(Math.round(op.inputRowsPerSec))}/s`;
+                  }
+
+                  // Format MB/s if significant
+                  let mbStr = "";
+                  if (op.inputMBPerSec >= 1) {
+                    mbStr = `${op.inputMBPerSec.toFixed(0)}MB/s`;
+                  } else if (op.inputMBPerSec > 0) {
+                    mbStr = `${(op.inputMBPerSec * 1024).toFixed(0)}KB/s`;
+                  }
+
+                  statsText.textContent = batchStr;
+                  g.appendChild(statsText);
+
+                  // Throughput on the right
+                  const throughputText = document.createElementNS(
+                    "http://www.w3.org/2000/svg",
+                    "text",
+                  );
+                  throughputText.setAttribute("x", nodeWidth - 10);
+                  throughputText.setAttribute("y", opY);
+                  throughputText.setAttribute("text-anchor", "end");
+                  throughputText.setAttribute("font-size", "8px");
+                  throughputText.setAttribute("font-family", "monospace");
+                  throughputText.setAttribute("fill", "rgba(255,255,255,0.5)");
+                  throughputText.textContent = mbStr
+                    ? `${throughputStr} ${mbStr}`
+                    : throughputStr;
+                  g.appendChild(throughputText);
+
+                  opY += operatorRowHeight;
+                }
+              });
+            });
+          } else {
+            // No operator details - show summary stats
+            if (
+              node.stats &&
+              (node.stats.inputPositions > 0 || node.stats.outputPositions > 0)
+            ) {
+              const rowsText = document.createElementNS(
+                "http://www.w3.org/2000/svg",
+                "text",
+              );
+              rowsText.setAttribute("x", 10);
+              rowsText.setAttribute("y", opY);
+              rowsText.setAttribute("font-size", "10px");
+              rowsText.setAttribute("fill", "rgba(255,255,255,0.8)");
+              const inRows = formatNumber(node.stats.inputPositions);
+              const outRows = formatNumber(node.stats.outputPositions);
+              rowsText.textContent = `Rows: ${inRows} → ${outRows}`;
+              g.appendChild(rowsText);
+              opY += operatorRowHeight;
+            }
+
+            if (node.stats && node.stats.totalWallMs > 0) {
+              const timeText = document.createElementNS(
+                "http://www.w3.org/2000/svg",
+                "text",
+              );
+              timeText.setAttribute("x", 10);
+              timeText.setAttribute("y", opY);
+              timeText.setAttribute("font-size", "10px");
+              timeText.setAttribute("fill", "rgba(255,255,255,0.8)");
+              timeText.textContent = `Time: ${formatDuration(node.stats.totalWallMs)}`;
+              g.appendChild(timeText);
+            }
+          }
+
+          // Tooltip with full details
+          g.addEventListener("mouseenter", (e) => {
+            const tooltip = document.getElementById("tooltip");
+            let html = `<strong style="font-size:14px">${node.type}</strong><br>`;
+            html += `<span style="color:var(--text-tertiary)">Plan Node ID: ${node.id}</span><br>`;
+
+            // Show worker/driver info if available
+            if (node.stats && node.stats.totalDrivers > 0) {
+              html += `<span style="color:var(--accent-primary)">Drivers: ${node.stats.totalDrivers}</span><br>`;
+            }
+
+            // TableScan details
+            if (node.details.table) {
+              html += `<br><strong>Table:</strong> ${node.details.table}`;
+              if (node.details.columns && node.details.columns.length > 0) {
+                html += `<br><strong>Columns:</strong> ${node.details.columns.join(", ")}`;
+              }
+            }
+
+            // Join details
+            if (node.details.joinType) {
+              html += `<br><strong>Join Type:</strong> ${node.details.joinType}`;
+              if (node.details.distributionType)
+                html += ` (${node.details.distributionType})`;
+              if (node.details.joinKeys)
+                html += `<br><strong>Join Keys:</strong> ${node.details.joinKeys}`;
+            }
+
+            // Exchange details
+            if (node.details.exchangeType) {
+              html += `<br><strong>Exchange:</strong> ${node.details.exchangeType} (${node.details.scope})`;
+              if (node.details.partitioning)
+                html += `<br><strong>Partitioning:</strong> ${node.details.partitioning}`;
+            }
+
+            // Aggregation details
+            if (node.details.aggregations) {
+              html += `<br><strong>Step:</strong> ${node.details.step || "N/A"}`;
+              html += `<br><strong>Aggregations:</strong> ${node.details.aggregationNames?.join(", ") || node.details.aggregations}`;
+              if (
+                node.details.groupByKeyNames &&
+                node.details.groupByKeyNames.length > 0
+              )
+                html += `<br><strong>Group By:</strong> ${node.details.groupByKeyNames.join(", ")}`;
+            }
+
+            // Project details
+            if (node.details.projections) {
+              html += `<br><strong>Projections:</strong> ${node.details.projections}`;
+              if (
+                node.details.projectionNames &&
+                node.details.projectionNames.length <= 5
+              )
+                html += ` (${node.details.projectionNames.join(", ")})`;
+            }
+
+            // Filter details
+            if (node.details.hasPredicate) {
+              html += `<br><strong>Filter:</strong> Yes`;
+              if (node.details.predicateForm)
+                html += ` (${node.details.predicateForm})`;
+            }
+
+            // Sort details
+            if (node.details.sortKeys) {
+              html += `<br><strong>Sort Keys:</strong> ${node.details.sortKeyNames?.join(", ") || node.details.sortKeys}`;
+            }
+
+            // TopN details
+            if (node.details.topN) {
+              html += `<br><strong>Top N:</strong> ${node.details.topN}`;
+              if (node.details.orderBy)
+                html += `<br><strong>Order By:</strong> ${node.details.orderBy.join(", ")}`;
+            }
+
+            // Limit details
+            if (node.details.limit)
+              html += `<br><strong>Limit:</strong> ${node.details.limit}`;
+
+            // Output details
+            if (node.details.columnNames)
+              html += `<br><strong>Output Columns:</strong> ${node.details.columnNames.join(", ")}`;
+
+            // Execution stats section
+            if (
+              node.stats &&
+              (node.stats.totalWallMs > 0 || node.stats.inputPositions > 0)
+            ) {
+              html += `<hr style="border-color:var(--text-inactive);margin:8px 0">`;
+              html += `<strong>Execution Stats:</strong><br>`;
+              if (node.stats.totalWallMs > 0)
+                html += `Wall Time: ${formatDuration(node.stats.totalWallMs)}<br>`;
+
+              // For join nodes, show probe and build rows separately
+              const isJoinNode =
+                node.type === "JoinNode" || node.type === "SemiJoinNode";
+              if (isJoinNode && node.stats.buildInputPositions > 0) {
+                html += `Probe Input Rows: ${node.stats.inputPositions.toLocaleString()}<br>`;
+                html += `Build Input Rows: ${node.stats.buildInputPositions.toLocaleString()}<br>`;
+              } else {
+                html += `Input Rows: ${node.stats.inputPositions.toLocaleString()}<br>`;
+              }
+              html += `Output Rows: ${node.stats.outputPositions.toLocaleString()}<br>`;
+
+              if (
+                node.stats.inputPositions > 0 &&
+                node.stats.outputPositions > 0
+              ) {
+                const selectivity = (
+                  (node.stats.outputPositions / node.stats.inputPositions) *
+                  100
+                ).toFixed(1);
+                html += `Selectivity: ${selectivity}%<br>`;
+              }
+              if (node.stats.peakMemoryBytes > 0) {
+                html += `Peak Memory: ${formatBytes(node.stats.peakMemoryBytes)}<br>`;
+              }
+
+              // Batch and throughput stats from operator details
+              if (
+                node.stats.operatorDetails &&
+                node.stats.operatorDetails.length > 0
+              ) {
+                const totalBatches = node.stats.operatorDetails.reduce(
+                  (sum, op) => sum + (op.inputBatches || 0),
+                  0,
+                );
+                const avgThroughput =
+                  node.stats.operatorDetails.reduce(
+                    (sum, op) => sum + (op.inputRowsPerSec || 0),
+                    0,
+                  ) / node.stats.operatorDetails.length;
+                const avgMBPerSec =
+                  node.stats.operatorDetails.reduce(
+                    (sum, op) => sum + (op.inputMBPerSec || 0),
+                    0,
+                  ) / node.stats.operatorDetails.length;
+
+                if (totalBatches > 0) {
+                  html += `Total Batches: ${totalBatches}<br>`;
+                }
+                if (avgThroughput > 0) {
+                  html += `Avg Throughput: ${formatNumber(Math.round(avgThroughput))} rows/s<br>`;
+                }
+                if (avgMBPerSec > 0) {
+                  html += `Avg Data Rate: ${avgMBPerSec.toFixed(1)} MB/s<br>`;
+                }
+              }
+
+              if (node.stats.operators && node.stats.operators.length > 0) {
+                html += `<br><strong>Velox Operators:</strong> ${[...new Set(node.stats.operators)].join(", ")}`;
+              }
+            }
+
+            tooltip.innerHTML = html;
+            tooltip.style.display = "block";
+            tooltip.style.left = e.pageX + 15 + "px";
+            tooltip.style.top = e.pageY + 15 + "px";
+          });
+          g.addEventListener("mousemove", (e) => {
+            const tooltip = document.getElementById("tooltip");
+            tooltip.style.left = e.pageX + 15 + "px";
+            tooltip.style.top = e.pageY + 15 + "px";
+          });
+          g.addEventListener("mouseleave", () => {
+            document.getElementById("tooltip").style.display = "none";
+          });
+
+          svg.appendChild(g);
+        });
+
+        container.appendChild(svg);
+
+        // Update legend
+        const legendEl = document.getElementById("dagLegend");
+        if (legendEl) {
+          let legendHtml = "";
+          switch (colorMode) {
+            case "time":
+              legendHtml = `
+                <div class="dag-legend-title">Execution Time</div>
+                <div class="dag-legend-gradient">
+                  <div class="dag-legend-bar" style="background: linear-gradient(to right, #76b900, #ffc800, #ff0000);"></div>
+                </div>
+                <div class="dag-legend-labels">
+                  <span>${formatDuration(metricRanges.time.min)}</span>
+                  <span>${formatDuration(metricRanges.time.max)}</span>
+                </div>
+              `;
+              break;
+            case "rows":
+              legendHtml = `
+                <div class="dag-legend-title">Rows Processed</div>
+                <div class="dag-legend-gradient">
+                  <div class="dag-legend-bar" style="background: linear-gradient(to right, #76b900, #ffc800, #ff0000);"></div>
+                </div>
+                <div class="dag-legend-labels">
+                  <span>${formatNumber(metricRanges.rows.min)}</span>
+                  <span>${formatNumber(metricRanges.rows.max)}</span>
+                </div>
+              `;
+              break;
+            case "memory":
+              legendHtml = `
+                <div class="dag-legend-title">Peak Memory</div>
+                <div class="dag-legend-gradient">
+                  <div class="dag-legend-bar" style="background: linear-gradient(to right, #76b900, #ffc800, #ff0000);"></div>
+                </div>
+                <div class="dag-legend-labels">
+                  <span>${formatBytes(metricRanges.memory.min)}</span>
+                  <span>${formatBytes(metricRanges.memory.max)}</span>
+                </div>
+              `;
+              break;
+            case "selectivity":
+              legendHtml = `
+                <div class="dag-legend-title">Selectivity</div>
+                <div class="dag-legend-gradient">
+                  <div class="dag-legend-bar" style="background: linear-gradient(to right, #0066ff, #4a4a4a, #ff3300);"></div>
+                </div>
+                <div class="dag-legend-labels">
+                  <span>Reduces</span>
+                  <span>1:1</span>
+                  <span>Expands</span>
+                </div>
+              `;
+              break;
+            default:
+              // Node type legend
+              const usedTypes = [...new Set(nodes.map((n) => n.type))];
+              legendHtml = `<div class="dag-legend-title">Node Type</div><div class="dag-legend-items">`;
+              usedTypes.forEach((type) => {
+                const color =
+                  nodeColorsByType[type] || nodeColorsByType["default"];
+                legendHtml += `<div class="dag-legend-item"><div class="dag-legend-color" style="background:${color}"></div><span>${type.replace("Node", "")}</span></div>`;
+              });
+              legendHtml += `</div>`;
+          }
+          legendEl.innerHTML = legendHtml;
+        }
+      }
+
+      // Helper to format large numbers
+      function formatNumber(num) {
+        if (num >= 1e9) return (num / 1e9).toFixed(1) + "B";
+        if (num >= 1e6) return (num / 1e6).toFixed(1) + "M";
+        if (num >= 1e3) return (num / 1e3).toFixed(1) + "K";
+        return num.toString();
+      }
+
+      // Create timeline visualization with estimated start/end times
+      // Create timeline visualization showing operators with per-worker timing
+      function createTimeline(data) {
+        const container = document.getElementById("timelineContainer");
+        const legendContainer = document.getElementById("timelineLegend");
+        container.innerHTML = "";
+        legendContainer.innerHTML = "";
+
+        if (!data?.query_info?.outputStage) {
+          container.innerHTML = '<p style="color:var(--text-tertiary);padding:20px;">No stage data available</p>';
+          return;
+        }
+
+        // Extract operator data per worker from all stages
+        const operatorsByKey = {}; // key = stageId-pipelineId-operatorId
+        let globalMinTime = Infinity;
+        let globalMaxTime = 0;
+
+        function traverseStages(stage) {
+          if (!stage) return;
+          const stageId = stage.stageId || "";
+          const stageNum = stageId.split(".").pop() || "0";
+
+          if (stage.latestAttemptExecutionInfo?.tasks) {
+            stage.latestAttemptExecutionInfo.tasks.forEach((task) => {
+              const taskStats = task.stats;
+              if (!taskStats) return;
+
+              const nodeId = task.nodeId || "unknown";
+
+              if (taskStats.pipelines) {
+                taskStats.pipelines.forEach((pipeline) => {
+                  const pipelineStart = pipeline.firstStartTimeInMillis;
+                  const pipelineEnd = pipeline.lastEndTimeInMillis;
+
+                  if (pipelineStart) globalMinTime = Math.min(globalMinTime, pipelineStart);
+                  if (pipelineEnd) globalMaxTime = Math.max(globalMaxTime, pipelineEnd);
+
+                  // Get operators for this pipeline on this worker
+                  const opSummaries = pipeline.operatorSummaries || [];
+                  
+                  opSummaries.forEach((op) => {
+                    const key = `${stageNum}-${pipeline.pipelineId}-${op.operatorId}`;
+                    
+                    if (!operatorsByKey[key]) {
+                      operatorsByKey[key] = {
+                        stageId: stageNum,
+                        pipelineId: pipeline.pipelineId,
+                        operatorId: op.operatorId,
+                        operatorType: op.operatorType,
+                        workers: {},
+                      };
+                    }
+
+                    // Parse durations
+                    const addInputNs = parseDuration(op.addInputWall);
+                    const getOutputNs = parseDuration(op.getOutputWall);
+                    const blockedNs = parseDuration(op.blockedWall);
+                    const finishNs = parseDuration(op.finishWall);
+                    const totalWallMs = (addInputNs + getOutputNs + blockedNs + finishNs) / 1000000;
+                    const activeWallMs = (addInputNs + getOutputNs + finishNs) / 1000000;
+                    const blockedMs = blockedNs / 1000000;
+
+                    // Store worker-specific data
+                    operatorsByKey[key].workers[nodeId] = {
+                      nodeId: nodeId,
+                      pipelineStart: pipelineStart,
+                      pipelineEnd: pipelineEnd,
+                      totalWallMs: totalWallMs,
+                      activeWallMs: activeWallMs,
+                      blockedMs: blockedMs,
+                      inputPositions: op.inputPositions || 0,
+                      outputPositions: op.outputPositions || 0,
+                      totalDrivers: op.totalDrivers || 1,
+                    };
+                  });
+                });
+              }
+            });
+          }
+
+          if (stage.subStages) {
+            stage.subStages.forEach(traverseStages);
+          }
+        }
+
+        traverseStages(data.query_info.outputStage);
+
+        const operators = Object.values(operatorsByKey);
+        if (operators.length === 0) {
+          container.innerHTML = '<p style="color:var(--text-tertiary);padding:20px;">No operator timing data available</p>';
+          return;
+        }
+
+        // Sort operators by stage, pipeline, operatorId
+        operators.sort((a, b) => {
+          if (a.stageId !== b.stageId) return parseInt(a.stageId) - parseInt(b.stageId);
+          if (a.pipelineId !== b.pipelineId) return a.pipelineId - b.pipelineId;
+          return a.operatorId - b.operatorId;
+        });
+
+        // Get unique workers and assign colors
+        const allWorkers = new Set();
+        operators.forEach(op => {
+          Object.keys(op.workers).forEach(w => allWorkers.add(w));
+        });
+        const workerList = Array.from(allWorkers).sort();
+        const workerColors = ["#76b900", "#0891b2", "#d97706", "#7c3aed", "#dc2626", "#059669", "#ec4899", "#8b5cf6"];
+        const workerColorMap = {};
+        workerList.forEach((w, i) => {
+          workerColorMap[w] = workerColors[i % workerColors.length];
+        });
+
+        // Normalize times
+        const queryStartTime = globalMinTime;
+        const queryDuration = globalMaxTime - globalMinTime;
+
+        // SVG dimensions
+        const margin = { top: 50, right: 30, bottom: 50, left: 200 };
+        const width = Math.max(1000, container.clientWidth - 20);
+        const operatorHeight = 8 + workerList.length * 14; // Height per operator = label + worker bars
+        const operatorGap = 6;
+        const groupGap = 20;
+
+        // Group operators by stage-pipeline
+        const groups = {};
+        operators.forEach(op => {
+          const key = `${op.stageId}-${op.pipelineId}`;
+          if (!groups[key]) {
+            groups[key] = {
+              stageId: op.stageId,
+              pipelineId: op.pipelineId,
+              operators: [],
+            };
+          }
+          groups[key].operators.push(op);
+        });
+        const groupList = Object.values(groups);
+
+        // Calculate height
+        let totalOperators = operators.length;
+        const height = margin.top + margin.bottom + 
+                       totalOperators * (operatorHeight + operatorGap) + 
+                       groupList.length * groupGap;
+
+        // Create SVG
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("class", "timeline-svg");
+        svg.setAttribute("width", width);
+        svg.setAttribute("height", height);
+
+        // Time scale
+        const timeScale = queryDuration > 0 ? (width - margin.left - margin.right) / queryDuration : 1;
+
+        // Draw grid lines
+        const numGridLines = 10;
+        for (let i = 0; i <= numGridLines; i++) {
+          const x = margin.left + (i / numGridLines) * (width - margin.left - margin.right);
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", x);
+          line.setAttribute("y1", margin.top - 10);
+          line.setAttribute("x2", x);
+          line.setAttribute("y2", height - margin.bottom);
+          line.setAttribute("stroke", "#333");
+          line.setAttribute("stroke-dasharray", "2,2");
+          svg.appendChild(line);
+
+          const timeMs = (i / numGridLines) * queryDuration;
+          const timeLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          timeLabel.setAttribute("x", x);
+          timeLabel.setAttribute("y", margin.top - 15);
+          timeLabel.setAttribute("text-anchor", "middle");
+          timeLabel.setAttribute("fill", "#aaa");
+          timeLabel.setAttribute("font-size", "10px");
+          timeLabel.textContent = formatDuration(timeMs);
+          svg.appendChild(timeLabel);
+
+          const bottomLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          bottomLabel.setAttribute("x", x);
+          bottomLabel.setAttribute("y", height - margin.bottom + 15);
+          bottomLabel.setAttribute("text-anchor", "middle");
+          bottomLabel.setAttribute("fill", "#aaa");
+          bottomLabel.setAttribute("font-size", "10px");
+          bottomLabel.textContent = formatDuration(timeMs);
+          svg.appendChild(bottomLabel);
+        }
+
+        // Draw operators with worker bars
+        let currentY = margin.top;
+
+        groupList.forEach((group) => {
+          // Group header
+          const headerText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          headerText.setAttribute("x", 5);
+          headerText.setAttribute("y", currentY + 12);
+          headerText.setAttribute("fill", "#e94560");
+          headerText.setAttribute("font-size", "11px");
+          headerText.setAttribute("font-weight", "bold");
+          headerText.textContent = `Stage ${group.stageId} - Pipeline ${group.pipelineId}`;
+          svg.appendChild(headerText);
+
+          currentY += 18;
+
+          // Draw each operator
+          group.operators.forEach((op) => {
+            // Operator label
+            const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            label.setAttribute("x", margin.left - 8);
+            label.setAttribute("y", currentY + 10);
+            label.setAttribute("text-anchor", "end");
+            label.setAttribute("fill", getOperatorColor(op.operatorType));
+            label.setAttribute("font-size", "10px");
+            label.setAttribute("font-weight", "bold");
+            label.textContent = op.operatorType.replace("Operator", "");
+            svg.appendChild(label);
+
+            // Draw a bar for each worker
+            const barHeight = 12;
+            const barGap = 2;
+            let workerY = currentY;
+
+            workerList.forEach((workerId, wIdx) => {
+              const workerData = op.workers[workerId];
+              const color = workerColorMap[workerId];
+
+              if (workerData) {
+                // Calculate bar position based on pipeline timing
+                const pipelineStartMs = (workerData.pipelineStart - queryStartTime);
+                const pipelineEndMs = (workerData.pipelineEnd - queryStartTime);
+                const pipelineDuration = pipelineEndMs - pipelineStartMs;
+
+                // The operator's active time within the pipeline
+                // Use activeWallMs (excluding blocked time) for the bar width
+                const activeMs = workerData.activeWallMs;
+                
+                // Position: start at pipeline start + blocked time (waiting)
+                // This is an approximation since we don't have exact operator start times
+                const startMs = pipelineStartMs + Math.min(workerData.blockedMs, pipelineDuration * 0.9);
+                const barWidth = Math.max(2, activeMs * timeScale);
+
+                const barX = margin.left + startMs * timeScale;
+
+                // Draw blocked/waiting portion (thin line)
+                if (workerData.blockedMs > 0 && startMs > pipelineStartMs) {
+                  const waitLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                  waitLine.setAttribute("x1", margin.left + pipelineStartMs * timeScale);
+                  waitLine.setAttribute("y1", workerY + barHeight / 2);
+                  waitLine.setAttribute("x2", barX);
+                  waitLine.setAttribute("y2", workerY + barHeight / 2);
+                  waitLine.setAttribute("stroke", "#444");
+                  waitLine.setAttribute("stroke-width", "2");
+                  waitLine.setAttribute("stroke-dasharray", "3,2");
+                  svg.appendChild(waitLine);
+                }
+
+                // Active time bar
+                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                rect.setAttribute("x", barX);
+                rect.setAttribute("y", workerY);
+                rect.setAttribute("width", barWidth);
+                rect.setAttribute("height", barHeight);
+                rect.setAttribute("fill", color);
+                rect.setAttribute("rx", "2");
+                rect.setAttribute("class", "operator-bar");
+
+                // Tooltip
+                const selectivity = workerData.inputPositions > 0 
+                  ? (workerData.outputPositions / workerData.inputPositions * 100).toFixed(1) + '%'
+                  : 'N/A';
+                rect.innerHTML = `<title>${op.operatorType} @ ${workerId}
+Active: ${formatDuration(activeMs)}
+Blocked: ${formatDuration(workerData.blockedMs)}
+Total: ${formatDuration(workerData.totalWallMs)}
+Rows: ${formatNumber(workerData.inputPositions)} → ${formatNumber(workerData.outputPositions)} (${selectivity})
+Drivers: ${workerData.totalDrivers}</title>`;
+                svg.appendChild(rect);
+
+                // Duration text if bar is wide enough
+                if (barWidth > 40) {
+                  const durText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                  durText.setAttribute("x", barX + barWidth / 2);
+                  durText.setAttribute("y", workerY + barHeight / 2 + 3);
+                  durText.setAttribute("text-anchor", "middle");
+                  durText.setAttribute("fill", "#000");
+                  durText.setAttribute("font-size", "8px");
+                  durText.setAttribute("font-weight", "bold");
+                  durText.textContent = formatDuration(activeMs);
+                  durText.style.pointerEvents = "none";
+                  svg.appendChild(durText);
+                }
+              } else {
+                // No data for this worker - draw empty placeholder
+                const emptyRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                emptyRect.setAttribute("x", margin.left);
+                emptyRect.setAttribute("y", workerY);
+                emptyRect.setAttribute("width", width - margin.left - margin.right);
+                emptyRect.setAttribute("height", barHeight);
+                emptyRect.setAttribute("fill", "none");
+                emptyRect.setAttribute("stroke", "#333");
+                emptyRect.setAttribute("stroke-dasharray", "2,4");
+                emptyRect.setAttribute("rx", "2");
+                svg.appendChild(emptyRect);
+              }
+
+              workerY += barHeight + barGap;
+            });
+
+            currentY += operatorHeight + operatorGap;
+          });
+
+          currentY += groupGap;
+        });
+
+        // X-axis label
+        const xLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        xLabel.setAttribute("x", (margin.left + width - margin.right) / 2);
+        xLabel.setAttribute("y", height - 10);
+        xLabel.setAttribute("text-anchor", "middle");
+        xLabel.setAttribute("fill", "#aaa");
+        xLabel.setAttribute("font-size", "11px");
+        xLabel.textContent = `Query Execution Timeline - Total Duration: ${formatDuration(queryDuration)}`;
+        svg.appendChild(xLabel);
+
+        container.appendChild(svg);
+
+        // Build legend
+        legendContainer.innerHTML = "";
+
+        // Worker legend
+        const workerSection = document.createElement("div");
+        workerSection.innerHTML = `<div style="font-weight:bold;margin-bottom:5px;color:var(--accent-primary);">Workers:</div>`;
+        workerList.forEach((workerId) => {
+          const item = document.createElement("div");
+          item.className = "legend-item";
+          item.innerHTML = `<div class="legend-color" style="background: ${workerColorMap[workerId]}"></div><span>${workerId}</span>`;
+          workerSection.appendChild(item);
+        });
+        legendContainer.appendChild(workerSection);
+
+        // Separator
+        const sep = document.createElement("hr");
+        sep.style.borderColor = "var(--border-primary)";
+        sep.style.margin = "10px 0";
+        legendContainer.appendChild(sep);
+
+        // Timing explanation
+        const explainSection = document.createElement("div");
+        explainSection.innerHTML = `
+          <div style="font-size:10px;color:var(--text-secondary);">
+            <div><strong>Solid bar:</strong> Active time (addInput + getOutput + finish)</div>
+            <div><strong>Dashed line:</strong> Blocked/waiting time</div>
+            <div style="margin-top:5px;">Hover over bars for details</div>
+          </div>
+        `;
+        legendContainer.appendChild(explainSection);
+      }
+
+      async function loadDataIntoViewers(data) {
+        await workerReady;
+        currentData = data;
+        updateQueryInfo(data);
+
+        const currentView = document.getElementById("viewSelect").value;
+        await switchView(currentView);
+      }
+
+      async function switchView(viewType) {
+        if (!currentData) return;
+        await workerReady;
+
+        const operatorData = extractOperatorData(currentData);
+        const runtimeStats = extractRuntimeStats(currentData);
+
+        const timelinePanel = document.getElementById("timelinePanel");
+        const mainPanel = document.getElementById("mainPanel");
+        const secondaryPanel1 = document.getElementById("secondaryPanel1");
+        const secondaryPanel2 = document.getElementById("secondaryPanel2");
+        const operatorViewer = document.getElementById("operatorViewer");
+        const typeViewer = document.getElementById("typeViewer");
+        const ioViewer = document.getElementById("ioViewer");
+
+        const dagPanel = document.getElementById("dagPanel");
+        const textPlanPanel = document.getElementById("textPlanPanel");
+        const workersPanel = document.getElementById("workersPanel");
+
+        // Reset panel visibility
+        dagPanel.style.display = "none";
+        textPlanPanel.style.display = "none";
+        timelinePanel.style.display = "none";
+        workersPanel.style.display = "none";
+        mainPanel.style.display = "flex";
+        mainPanel.classList.remove("full-width");
+        secondaryPanel1.style.display = "flex";
+        secondaryPanel2.style.display = "flex";
+
+        switch (viewType) {
+          case "dag":
+            dagPanel.style.display = "flex";
+            mainPanel.style.display = "none";
+            secondaryPanel1.style.display = "none";
+            secondaryPanel2.style.display = "none";
+            createDAG(currentData);
+            break;
+
+          case "textplan":
+            textPlanPanel.style.display = "flex";
+            mainPanel.style.display = "none";
+            secondaryPanel1.style.display = "none";
+            secondaryPanel2.style.display = "none";
+            document.getElementById("textPlanContent").innerHTML =
+              generateTextPlan(currentData);
+            break;
+
+          case "workers":
+            workersPanel.style.display = "flex";
+            mainPanel.style.display = "none";
+            secondaryPanel1.style.display = "none";
+            secondaryPanel2.style.display = "none";
+            displayWorkerMetrics(currentData);
+            break;
+
+          case "timeline":
+            timelinePanel.style.display = "flex";
+            mainPanel.style.display = "none";
+            secondaryPanel1.style.display = "none";
+            secondaryPanel2.style.display = "none";
+            createTimeline(currentData);
+            break;
+
+          case "operators":
+            document.getElementById("mainPanelHeader").textContent =
+              "Operator Execution Times (grouped by Pipeline)";
+            document.getElementById("secondaryPanel1Header").textContent =
+              "Time Distribution by Operator Type";
+            document.getElementById("secondaryPanel2Header").textContent =
+              "Time Breakdown (CPU vs Blocked)";
+
+            if (operatorData.length > 0) {
+              const operatorTable = await worker.table(operatorData);
+              await operatorViewer.load(operatorTable);
+              await operatorViewer.restore({
+                plugin: "Y Bar",
+                columns: ["totalWallMs"],
+                group_by: ["pipelineLabel", "operatorType"],
+                sort: [["totalWallMs", "desc"]],
+                title: "Operator Wall Time by Pipeline (ms)",
+              });
+
+              const typeTable = await worker.table(operatorData);
+              await typeViewer.load(typeTable);
+              await typeViewer.restore({
+                plugin: "Sunburst",
+                columns: ["totalWallMs"],
+                group_by: ["operatorType"],
+                title: "Time by Operator Type",
+              });
+
+              const breakdownTable = await worker.table(operatorData);
+              await ioViewer.load(breakdownTable);
+              await ioViewer.restore({
+                plugin: "Y Bar",
+                columns: ["cpuTimeMs", "blockedWallMs"],
+                group_by: ["operatorLabel"],
+                sort: [["cpuTimeMs", "desc"]],
+                title: "CPU vs Blocked Time",
+              });
+            }
+            break;
+
+          case "timePhases":
+            document.getElementById("mainPanelHeader").textContent =
+              "Time Phases Breakdown (addInput/getOutput/blocked/finish)";
+            document.getElementById("secondaryPanel1Header").textContent =
+              "Phase Distribution by Operator Type";
+            document.getElementById("secondaryPanel2Header").textContent =
+              "Time Phase Details";
+
+            if (operatorData.length > 0) {
+              const phasesTable = await worker.table(operatorData);
+              await operatorViewer.load(phasesTable);
+              await operatorViewer.restore({
+                plugin: "Y Bar",
+                columns: [
+                  "addInputWallMs",
+                  "getOutputWallMs",
+                  "blockedWallMs",
+                  "finishWallMs",
+                ],
+                group_by: ["operatorLabel"],
+                sort: [["totalWallMs", "desc"]],
+                title: "Time Phases by Operator",
+              });
+
+              const typePhaseTable = await worker.table(operatorData);
+              await typeViewer.load(typePhaseTable);
+              await typeViewer.restore({
+                plugin: "Y Bar",
+                columns: [
+                  "addInputWallMs",
+                  "getOutputWallMs",
+                  "blockedWallMs",
+                  "finishWallMs",
+                ],
+                group_by: ["operatorType"],
+                sort: [["totalWallMs", "desc"]],
+                title: "Time Phases by Operator Type",
+              });
+
+              const detailsTable = await worker.table(operatorData);
+              await ioViewer.load(detailsTable);
+              await ioViewer.restore({
+                plugin: "Datagrid",
+                columns: [
+                  "operatorLabel",
+                  "totalWallMs",
+                  "addInputWallMs",
+                  "getOutputWallMs",
+                  "blockedWallMs",
+                  "finishWallMs",
+                  "cpuTimeMs",
+                ],
+                sort: [["totalWallMs", "desc"]],
+                title: "Time Phase Details",
+              });
+            }
+            break;
+
+          case "throughput":
+            document.getElementById("mainPanelHeader").textContent =
+              "Data Throughput (Rows/Second)";
+            document.getElementById("secondaryPanel1Header").textContent =
+              "Data Throughput (MB/Second)";
+            document.getElementById("secondaryPanel2Header").textContent =
+              "Throughput Details";
+
+            if (operatorData.length > 0) {
+              // Filter out operators with no throughput data
+              const throughputData = operatorData.filter(
+                (op) => op.inputRowsPerSec > 0 || op.outputRowsPerSec > 0,
+              );
+
+              if (throughputData.length > 0) {
+                const rowsTable = await worker.table(throughputData);
+                await operatorViewer.load(rowsTable);
+                await operatorViewer.restore({
+                  plugin: "Y Bar",
+                  columns: ["inputRowsPerSec", "outputRowsPerSec"],
+                  group_by: ["operatorLabel"],
+                  sort: [["inputRowsPerSec", "desc"]],
+                  title: "Rows Processed per Second",
+                });
+
+                const bytesTable = await worker.table(throughputData);
+                await typeViewer.load(bytesTable);
+                await typeViewer.restore({
+                  plugin: "Y Bar",
+                  columns: ["inputMBPerSec", "outputMBPerSec"],
+                  group_by: ["operatorLabel"],
+                  sort: [["inputMBPerSec", "desc"]],
+                  title: "MB Processed per Second",
+                });
+
+                const detailsTable = await worker.table(throughputData);
+                await ioViewer.load(detailsTable);
+                await ioViewer.restore({
+                  plugin: "Datagrid",
+                  columns: [
+                    "operatorLabel",
+                    "totalWallMs",
+                    "inputPositions",
+                    "outputPositions",
+                    "inputRowsPerSec",
+                    "outputRowsPerSec",
+                    "inputMBPerSec",
+                    "outputMBPerSec",
+                  ],
+                  sort: [["inputRowsPerSec", "desc"]],
+                  title: "Throughput Details",
+                });
+              }
+            }
+            break;
+
+          case "batches":
+            document.getElementById("mainPanelHeader").textContent =
+              "Batch Counts by Operator";
+            document.getElementById("secondaryPanel1Header").textContent =
+              "Average Rows per Batch";
+            document.getElementById("secondaryPanel2Header").textContent =
+              "Batch Statistics Details";
+
+            if (operatorData.length > 0) {
+              // Filter out operators with no batch data
+              const batchData = operatorData.filter(
+                (op) => op.inputBatches > 0 || op.outputBatches > 0,
+              );
+
+              if (batchData.length > 0) {
+                const batchCountTable = await worker.table(batchData);
+                await operatorViewer.load(batchCountTable);
+                await operatorViewer.restore({
+                  plugin: "Y Bar",
+                  columns: ["inputBatches", "outputBatches"],
+                  group_by: ["operatorLabel"],
+                  sort: [["inputBatches", "desc"]],
+                  title: "Batch Counts by Operator",
+                });
+
+                const avgRowsTable = await worker.table(batchData);
+                await typeViewer.load(avgRowsTable);
+                await typeViewer.restore({
+                  plugin: "Y Bar",
+                  columns: ["avgRowsPerInputBatch", "avgRowsPerOutputBatch"],
+                  group_by: ["operatorLabel"],
+                  sort: [["avgRowsPerInputBatch", "desc"]],
+                  title: "Average Rows per Batch",
+                });
+
+                const detailsTable = await worker.table(batchData);
+                await ioViewer.load(detailsTable);
+                await ioViewer.restore({
+                  plugin: "Datagrid",
+                  columns: [
+                    "operatorLabel",
+                    "inputBatches",
+                    "outputBatches",
+                    "inputPositions",
+                    "outputPositions",
+                    "avgRowsPerInputBatch",
+                    "avgRowsPerOutputBatch",
+                    "selectivity",
+                  ],
+                  sort: [["inputBatches", "desc"]],
+                  title: "Batch Statistics Details",
+                });
+              }
+            }
+            break;
+
+          case "memory":
+            document.getElementById("mainPanelHeader").textContent =
+              "Peak Memory by Operator";
+            document.getElementById("secondaryPanel1Header").textContent =
+              "Memory by Pipeline";
+            document.getElementById("secondaryPanel2Header").textContent =
+              "Memory Details";
+
+            if (operatorData.length > 0) {
+              const memTable = await worker.table(operatorData);
+              await operatorViewer.load(memTable);
+              await operatorViewer.restore({
+                plugin: "Y Bar",
+                columns: ["peakTotalMemoryMB"],
+                group_by: ["pipelineLabel", "operatorType"],
+                sort: [["peakTotalMemoryMB", "desc"]],
+                title: "Peak Memory by Operator (MB)",
+              });
+
+              const pipelineMemTable = await worker.table(operatorData);
+              await typeViewer.load(pipelineMemTable);
+              await typeViewer.restore({
+                plugin: "Treemap",
+                columns: ["peakTotalMemoryMB"],
+                group_by: ["pipelineLabel", "operatorType"],
+                title: "Memory by Pipeline",
+              });
+
+              const detailsTable = await worker.table(operatorData);
+              await ioViewer.load(detailsTable);
+              await ioViewer.restore({
+                plugin: "Datagrid",
+                columns: [
+                  "pipelineLabel",
+                  "operatorType",
+                  "peakTotalMemoryMB",
+                  "spilledDataBytes",
+                  "inputPositions",
+                  "outputPositions",
+                ],
+                sort: [["peakTotalMemoryMB", "desc"]],
+                title: "Memory Details",
+              });
+            }
+            break;
+
+          case "pipeline":
+            document.getElementById("mainPanelHeader").textContent =
+              "Time by Pipeline";
+            document.getElementById("secondaryPanel1Header").textContent =
+              "Data Flow by Pipeline";
+            document.getElementById("secondaryPanel2Header").textContent =
+              "Pipeline Details";
+
+            if (operatorData.length > 0) {
+              const pipelineTable = await worker.table(operatorData);
+              await operatorViewer.load(pipelineTable);
+              await operatorViewer.restore({
+                plugin: "Y Bar",
+                columns: ["totalWallMs", "cpuTimeMs", "blockedWallMs"],
+                group_by: ["pipelineLabel"],
+                sort: [["totalWallMs", "desc"]],
+                title: "Time by Pipeline (ms)",
+              });
+
+              const dataFlowTable = await worker.table(operatorData);
+              await typeViewer.load(dataFlowTable);
+              await typeViewer.restore({
+                plugin: "Y Bar",
+                columns: ["inputDataSizeMB", "outputDataSizeMB"],
+                group_by: ["pipelineLabel"],
+                sort: [["inputDataSizeMB", "desc"]],
+                title: "Data Size by Pipeline (MB)",
+              });
+
+              const detailsTable = await worker.table(operatorData);
+              await ioViewer.load(detailsTable);
+              await ioViewer.restore({
+                plugin: "Datagrid",
+                columns: [
+                  "pipelineLabel",
+                  "operatorType",
+                  "totalWallMs",
+                  "cpuTimeMs",
+                  "blockedWallMs",
+                  "inputPositions",
+                  "outputPositions",
+                ],
+                sort: [
+                  ["pipelineLabel", "asc"],
+                  ["operatorId", "asc"],
+                ],
+                title: "Pipeline Details",
+              });
+            }
+            break;
+
+          case "runtime":
+            document.getElementById("mainPanelHeader").textContent =
+              "Runtime Stats (Time Metrics)";
+            document.getElementById("secondaryPanel1Header").textContent =
+              "All Runtime Stats";
+            document.getElementById("secondaryPanel2Header").textContent =
+              "Stats by Category";
+
+            if (runtimeStats.length > 0) {
+              const timeStats = runtimeStats.filter(
+                (s) => s.isTime && s.sumMs > 0,
+              );
+
+              if (timeStats.length > 0) {
+                const runtimeTable = await worker.table(timeStats);
+                await operatorViewer.load(runtimeTable);
+                await operatorViewer.restore({
+                  plugin: "Y Bar",
+                  columns: ["sumMs"],
+                  group_by: ["displayName"],
+                  sort: [["sumMs", "desc"]],
+                  filter: [["sumMs", ">", 0.1]],
+                  title: "Runtime Stats (ms)",
+                });
+              }
+
+              const allRuntimeTable = await worker.table(runtimeStats);
+              await typeViewer.load(allRuntimeTable);
+              await typeViewer.restore({
+                plugin: "Datagrid",
+                columns: ["name", "sum", "count", "max", "min", "unit"],
+                sort: [["sum", "desc"]],
+                title: "All Runtime Stats",
+              });
+
+              const categoryTable = await worker.table(
+                runtimeStats.filter((s) => s.isTime),
+              );
+              await ioViewer.load(categoryTable);
+              await ioViewer.restore({
+                plugin: "Sunburst",
+                columns: ["sumMs"],
+                group_by: ["category", "displayName"],
+                title: "Time Stats by Category",
+              });
+            }
+            break;
+        }
+      }
+
+      document
+        .getElementById("fileInput")
+        .addEventListener("change", async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            await loadDataIntoViewers(data);
+          } catch (err) {
+            console.error("Error loading file:", err);
+            alert("Error loading file: " + err.message);
+          }
+        });
+
+      document
+        .getElementById("viewSelect")
+        .addEventListener("change", async (e) => {
+          await switchView(e.target.value);
+        });
+
+      // Expose switchView to window for inline onclick handlers
+      window.switchView = switchView;
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const dataUrl = urlParams.get("data");
+      if (dataUrl) {
+        fetch(dataUrl)
+          .then((response) => response.json())
+          .then((data) => loadDataIntoViewers(data))
+          .catch((err) => console.error("Error loading data from URL:", err));
+      }
+    </script>
+  </body>
+</html>

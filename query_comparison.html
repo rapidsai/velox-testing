@@ -1,0 +1,1564 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Presto Query Comparison</title>
+    <style>
+      :root {
+        /* Dark mode colors (default) */
+        --bg-primary: #1a1a1a;
+        --bg-secondary: #2a2a2a;
+        --bg-tertiary: #333;
+        --bg-header: #000000;
+        --bg-panel-dark: #0d0d0d;
+        --bg-insight: #1a1a2e;
+        --bg-insight-secondary: #16213e;
+        --text-primary: #eee;
+        --text-secondary: #aaa;
+        --text-tertiary: #888;
+        --text-muted: #666;
+        --accent-primary: #76b900;
+        --accent-hover: #8fd400;
+        --border-primary: #333;
+        --border-accent: #76b900;
+        --border-insight: #0f3460;
+        --insight-title: #e94560;
+        --value-baseline: #3b82f6;
+        --value-comparison: #f59e0b;
+        --success-bg: rgba(34, 197, 94, 0.2);
+        --success-text: #22c55e;
+        --danger-bg: rgba(239, 68, 68, 0.2);
+        --danger-text: #ef4444;
+        --danger-highlight-bg: rgba(239, 68, 68, 0.1);
+        --neutral-bg: rgba(156, 163, 175, 0.2);
+        --neutral-text: #9ca3af;
+        --hover-bg: rgba(118, 185, 0, 0.1);
+        --overlay-bg: rgba(0, 0, 0, 0.2);
+      }
+
+      body.light-mode {
+        /* Light mode colors */
+        --bg-primary: #ffffff;
+        --bg-secondary: #f5f5f5;
+        --bg-tertiary: #e0e0e0;
+        --bg-header: #f9f9f9;
+        --bg-panel-dark: #fafafa;
+        --bg-insight: #f0f4ff;
+        --bg-insight-secondary: #e8f0fe;
+        --text-primary: #1a1a1a;
+        --text-secondary: #555555;
+        --text-tertiary: #666666;
+        --text-muted: #999999;
+        --accent-primary: #76b900;
+        --accent-hover: #609600;
+        --border-primary: #d0d0d0;
+        --border-accent: #76b900;
+        --border-insight: #a0c4ff;
+        --insight-title: #c62948;
+        --value-baseline: #2563eb;
+        --value-comparison: #d97706;
+        --success-bg: rgba(34, 197, 94, 0.15);
+        --success-text: #16a34a;
+        --danger-bg: rgba(239, 68, 68, 0.15);
+        --danger-text: #dc2626;
+        --danger-highlight-bg: rgba(239, 68, 68, 0.05);
+        --neutral-bg: rgba(107, 114, 128, 0.15);
+        --neutral-text: #6b7280;
+        --hover-bg: rgba(118, 185, 0, 0.08);
+        --overlay-bg: rgba(255, 255, 255, 0.5);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        min-height: 100vh;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+      .header {
+        background: var(--bg-header);
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--border-primary);
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .header h1 {
+        font-size: 1.4em;
+        color: var(--accent-primary);
+      }
+      /* Theme Toggle Switch */
+      .theme-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+      .theme-toggle-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .theme-switch {
+        position: relative;
+        display: inline-block;
+        width: 50px;
+        height: 24px;
+      }
+      .theme-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .theme-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--bg-tertiary);
+        transition: 0.3s;
+        border-radius: 24px;
+        border: 1px solid var(--border-primary);
+      }
+      .theme-slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 2px;
+        bottom: 2px;
+        background-color: var(--accent-primary);
+        transition: 0.3s;
+        border-radius: 50%;
+      }
+      input:checked + .theme-slider:before {
+        transform: translateX(26px);
+      }
+      .theme-slider:hover {
+        border-color: var(--accent-primary);
+      }
+      .upload-section {
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .upload-box {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .upload-box label {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .upload-box input[type="file"] {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-accent);
+        border-radius: 4px;
+        padding: 8px 12px;
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .upload-box.baseline input {
+        border-color: var(--value-baseline);
+      }
+      .upload-box.comparison input {
+        border-color: var(--value-comparison);
+      }
+      .compare-btn {
+        background: var(--accent-primary);
+        border: none;
+        color: #000;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .compare-btn:hover {
+        background: var(--accent-hover);
+      }
+      .compare-btn:disabled {
+        background: var(--bg-tertiary);
+        color: var(--text-tertiary);
+        cursor: not-allowed;
+      }
+      .container {
+        padding: 20px;
+        max-width: 1800px;
+        margin: 0 auto;
+      }
+      .summary-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+      .summary-card {
+        background: var(--bg-secondary);
+        border-radius: 8px;
+        padding: 15px;
+        border: 1px solid var(--border-primary);
+      }
+      .summary-card h3 {
+        color: var(--accent-primary);
+        font-size: 14px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .summary-card .metric {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border-primary);
+        font-size: 13px;
+      }
+      .summary-card .metric:last-child {
+        border-bottom: none;
+      }
+      .summary-card .metric-label {
+        color: var(--text-secondary);
+      }
+      .summary-card .metric-values {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+      }
+      .value-baseline {
+        color: var(--value-baseline);
+        font-weight: 500;
+      }
+      .value-comparison {
+        color: var(--value-comparison);
+        font-weight: 500;
+      }
+      .value-diff {
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-weight: 600;
+      }
+      .diff-better {
+        background: var(--success-bg);
+        color: var(--success-text);
+      }
+      .diff-worse {
+        background: var(--danger-bg);
+        color: var(--danger-text);
+      }
+      .diff-neutral {
+        background: var(--neutral-bg);
+        color: var(--neutral-text);
+      }
+      .diff-significant {
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
+        }
+      }
+      .metric-highlight {
+        background: var(--danger-highlight-bg);
+        border-left: 3px solid var(--danger-text);
+        padding-left: 8px;
+        margin-left: -11px;
+      }
+      .section {
+        background: var(--bg-secondary);
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border: 1px solid var(--border-primary);
+        overflow: hidden;
+      }
+      .section-header {
+        background: var(--bg-tertiary);
+        padding: 12px 15px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+      }
+      .section-header h2 {
+        font-size: 14px;
+        color: var(--accent-primary);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .section-header .badge {
+        background: var(--danger-text);
+        color: #fff;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .section-header .badge.good {
+        background: var(--success-text);
+      }
+      .section-content {
+        padding: 15px;
+        max-height: 600px;
+        overflow-y: auto;
+      }
+      .section-content.collapsed {
+        display: none;
+      }
+      .operator-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .operator-table th {
+        background: var(--bg-primary);
+        padding: 10px 8px;
+        text-align: left;
+        color: var(--accent-primary);
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+      .operator-table td {
+        padding: 8px;
+        border-bottom: 1px solid var(--border-primary);
+      }
+      .operator-table tr:hover {
+        background: var(--hover-bg);
+      }
+      .operator-table tr.significant {
+        background: var(--danger-highlight-bg);
+      }
+      .operator-table tr.significant:hover {
+        background: var(--danger-bg);
+      }
+      .operator-name {
+        font-weight: 500;
+        color: var(--text-primary);
+      }
+      .plan-node-id {
+        color: var(--text-tertiary);
+        font-size: 11px;
+      }
+      .bar-chart {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        min-width: 150px;
+      }
+      .bar {
+        height: 16px;
+        border-radius: 2px;
+        min-width: 2px;
+        transition: width 0.3s ease;
+      }
+      .bar-baseline {
+        background: var(--value-baseline);
+      }
+      .bar-comparison {
+        background: var(--value-comparison);
+      }
+      .legend {
+        display: flex;
+        gap: 20px;
+        padding: 10px 15px;
+        background: var(--bg-primary);
+        border-radius: 4px;
+        margin-bottom: 15px;
+        font-size: 12px;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .legend-color {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+      }
+      .insights-panel {
+        background: linear-gradient(135deg, var(--bg-insight) 0%, var(--bg-insight-secondary) 100%);
+        border: 1px solid var(--border-insight);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+      .insights-panel h2 {
+        color: var(--insight-title);
+        font-size: 16px;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .insight-item {
+        display: flex;
+        gap: 12px;
+        padding: 12px;
+        background: var(--overlay-bg);
+        border-radius: 6px;
+        margin-bottom: 10px;
+        align-items: flex-start;
+      }
+      .insight-item:last-child {
+        margin-bottom: 0;
+      }
+      .insight-icon {
+        font-size: 20px;
+        line-height: 1;
+      }
+      .insight-content {
+        flex: 1;
+      }
+      .insight-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+      }
+      .insight-detail {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+      }
+      .empty-state h2 {
+        color: var(--text-tertiary);
+        margin-bottom: 10px;
+      }
+      .query-info {
+        background: var(--bg-header);
+        padding: 10px 20px;
+        border-bottom: 1px solid var(--border-primary);
+        font-size: 12px;
+        display: none;
+      }
+      .query-info.visible {
+        display: flex;
+        gap: 30px;
+        flex-wrap: wrap;
+      }
+      .query-info-item {
+        display: flex;
+        gap: 8px;
+      }
+      .query-info-label {
+        color: var(--text-tertiary);
+      }
+      .tab-bar {
+        display: flex;
+        gap: 5px;
+        padding: 10px 20px;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-primary);
+      }
+      .tab {
+        padding: 8px 16px;
+        background: transparent;
+        border: 1px solid var(--bg-tertiary);
+        border-radius: 4px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.2s;
+      }
+      .tab:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+      }
+      .tab.active {
+        background: var(--accent-primary);
+        color: #000;
+        border-color: var(--accent-primary);
+        font-weight: 600;
+      }
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 10px;
+      }
+      .metric-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: var(--bg-primary);
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      .metric-row.changed {
+        border-left: 3px solid var(--value-comparison);
+      }
+      .metric-row.significant-change {
+        border-left: 3px solid var(--danger-text);
+        background: var(--danger-highlight-bg);
+      }
+      .tooltip {
+        position: absolute;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-accent);
+        border-radius: 4px;
+        padding: 10px;
+        font-size: 12px;
+        pointer-events: none;
+        z-index: 1000;
+        max-width: 350px;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Presto Query Comparison</h1>
+      <div class="upload-section">
+        <div class="upload-box baseline">
+          <label>Baseline (A)</label>
+          <input type="file" id="baselineFile" accept=".json" />
+        </div>
+        <div class="upload-box comparison">
+          <label>Comparison (B)</label>
+          <input type="file" id="comparisonFile" accept=".json" />
+        </div>
+        <button class="compare-btn" id="compareBtn" disabled>Compare</button>
+      </div>
+      <div class="theme-toggle">
+        <span class="theme-toggle-label">Light</span>
+        <label class="theme-switch">
+          <input type="checkbox" id="themeToggle" />
+          <span class="theme-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="query-info" id="queryInfo">
+      <div class="query-info-item">
+        <span class="query-info-label">Query:</span>
+        <span id="queryName">-</span>
+      </div>
+      <div class="query-info-item">
+        <span class="query-info-label">Baseline:</span>
+        <span id="baselineId" class="value-baseline">-</span>
+      </div>
+      <div class="query-info-item">
+        <span class="query-info-label">Comparison:</span>
+        <span id="comparisonId" class="value-comparison">-</span>
+      </div>
+    </div>
+
+    <div class="tab-bar" id="tabBar" style="display: none">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="operators">Operators</button>
+      <button class="tab" data-tab="pipelines">Pipelines</button>
+      <button class="tab" data-tab="metrics">Worker Metrics</button>
+    </div>
+
+    <div class="container">
+      <div id="emptyState" class="empty-state">
+        <h2>Upload Two Query Profiles to Compare</h2>
+        <p>
+          Load a baseline (A) and comparison (B) JSON file to see detailed
+          differences
+        </p>
+      </div>
+
+      <div id="comparisonResults" style="display: none">
+        <!-- Overview Tab -->
+        <div class="tab-content active" id="tab-overview">
+          <div class="insights-panel" id="insightsPanel">
+            <h2>Key Insights</h2>
+            <div id="insightsList"></div>
+          </div>
+
+          <div class="summary-cards" id="summaryCards"></div>
+        </div>
+
+        <!-- Operators Tab -->
+        <div class="tab-content" id="tab-operators">
+          <div class="legend">
+            <div class="legend-item">
+              <div class="legend-color bar-baseline"></div>
+              <span>Baseline (A)</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-color bar-comparison"></div>
+              <span>Comparison (B)</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-color" style="background: var(--danger-bg)"></div>
+              <span>Significant Difference (>20%)</span>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <h2>Operator Time Comparison</h2>
+              <span class="badge" id="operatorBadge">0 significant</span>
+            </div>
+            <div class="section-content">
+              <table class="operator-table" id="operatorTable">
+                <thead>
+                  <tr>
+                    <th>Operator</th>
+                    <th>Plan Node</th>
+                    <th>Wall Time</th>
+                    <th>Baseline</th>
+                    <th>Comparison</th>
+                    <th>Diff</th>
+                    <th>Input Rows</th>
+                    <th>Output Rows</th>
+                  </tr>
+                </thead>
+                <tbody id="operatorTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pipelines Tab -->
+        <div class="tab-content" id="tab-pipelines">
+          <div class="legend">
+            <div class="legend-item">
+              <div class="legend-color bar-baseline"></div>
+              <span>Baseline (A)</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-color bar-comparison"></div>
+              <span>Comparison (B)</span>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <h2>Pipeline Comparison</h2>
+            </div>
+            <div class="section-content">
+              <table class="operator-table" id="pipelineTable">
+                <thead>
+                  <tr>
+                    <th>Pipeline</th>
+                    <th>Wall Time</th>
+                    <th>Baseline</th>
+                    <th>Comparison</th>
+                    <th>Diff</th>
+                    <th>Operators</th>
+                  </tr>
+                </thead>
+                <tbody id="pipelineTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Worker Metrics Tab -->
+        <div class="tab-content" id="tab-metrics">
+          <div class="section">
+            <div class="section-header" onclick="toggleSection(this)">
+              <h2>
+                Changed Metrics
+                <span class="badge" id="changedMetricsBadge">0</span>
+              </h2>
+            </div>
+            <div class="section-content">
+              <div class="metrics-grid" id="changedMetricsGrid"></div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header" onclick="toggleSection(this)">
+              <h2>All Worker Metrics</h2>
+            </div>
+            <div class="section-content collapsed">
+              <div class="metrics-grid" id="allMetricsGrid"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+      // Theme Management
+      function initTheme() {
+        const savedTheme = localStorage.getItem('theme');
+        const themeToggle = document.getElementById('themeToggle');
+
+        // Default to dark mode
+        if (savedTheme === 'light') {
+          document.body.classList.add('light-mode');
+          themeToggle.checked = true;
+        } else {
+          // Ensure dark mode is default
+          document.body.classList.remove('light-mode');
+          themeToggle.checked = false;
+        }
+      }
+
+      function toggleTheme() {
+        const body = document.body;
+        const themeToggle = document.getElementById('themeToggle');
+
+        if (themeToggle.checked) {
+          body.classList.add('light-mode');
+          localStorage.setItem('theme', 'light');
+        } else {
+          body.classList.remove('light-mode');
+          localStorage.setItem('theme', 'dark');
+        }
+      }
+
+      // Initialize theme on page load
+      document.addEventListener('DOMContentLoaded', () => {
+        initTheme();
+        document.getElementById('themeToggle').addEventListener('change', toggleTheme);
+      });
+
+      let baselineData = null;
+      let comparisonData = null;
+
+      // File upload handlers
+      document
+        .getElementById("baselineFile")
+        .addEventListener("change", async (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            baselineData = JSON.parse(await file.text());
+            updateCompareButton();
+          }
+        });
+
+      document
+        .getElementById("comparisonFile")
+        .addEventListener("change", async (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            comparisonData = JSON.parse(await file.text());
+            updateCompareButton();
+          }
+        });
+
+      function updateCompareButton() {
+        document.getElementById("compareBtn").disabled = !(
+          baselineData && comparisonData
+        );
+      }
+
+      document.getElementById("compareBtn").addEventListener("click", () => {
+        if (baselineData && comparisonData) {
+          runComparison();
+        }
+      });
+
+      // Tab handling
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          document
+            .querySelectorAll(".tab")
+            .forEach((t) => t.classList.remove("active"));
+          document
+            .querySelectorAll(".tab-content")
+            .forEach((c) => c.classList.remove("active"));
+          tab.classList.add("active");
+          document
+            .getElementById(`tab-${tab.dataset.tab}`)
+            .classList.add("active");
+        });
+      });
+
+      function toggleSection(header) {
+        const content = header.nextElementSibling;
+        content.classList.toggle("collapsed");
+      }
+
+      // Utility functions
+      function parseDuration(str) {
+        if (!str || typeof str !== "string") return 0;
+        const match = str.match(/([\d.]+)(ns|us|ms|s|m|h)/);
+        if (!match) return 0;
+        const value = parseFloat(match[1]);
+        const unit = match[2];
+        const multipliers = {
+          ns: 1,
+          us: 1000,
+          ms: 1000000,
+          s: 1000000000,
+          m: 60000000000,
+          h: 3600000000000,
+        };
+        return value * (multipliers[unit] || 1);
+      }
+
+      function nsToMs(ns) {
+        return ns / 1000000;
+      }
+
+      function formatDuration(ms) {
+        if (ms < 1) return ms.toFixed(3) + " ms";
+        if (ms < 1000) return ms.toFixed(2) + " ms";
+        if (ms < 60000) return (ms / 1000).toFixed(2) + " s";
+        return (ms / 60000).toFixed(2) + " min";
+      }
+
+      function formatNumber(num) {
+        if (num >= 1e9) return (num / 1e9).toFixed(2) + "B";
+        if (num >= 1e6) return (num / 1e6).toFixed(2) + "M";
+        if (num >= 1e3) return (num / 1e3).toFixed(2) + "K";
+        return num.toLocaleString();
+      }
+
+      function formatBytes(bytes) {
+        if (bytes === 0) return "0 B";
+        const k = 1024;
+        const sizes = ["B", "KB", "MB", "GB", "TB"];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+      }
+
+      function calcDiff(baseline, comparison) {
+        if (baseline === 0 && comparison === 0) return 0;
+        if (baseline === 0) return comparison > 0 ? 100 : -100;
+        return ((comparison - baseline) / baseline) * 100;
+      }
+
+      function getDiffClass(diff, lowerIsBetter = true) {
+        const threshold = 5;
+        const significantThreshold = 20;
+        if (Math.abs(diff) < threshold) return "diff-neutral";
+        if (lowerIsBetter) {
+          return diff < 0 ? "diff-better" : "diff-worse";
+        } else {
+          return diff > 0 ? "diff-better" : "diff-worse";
+        }
+      }
+
+      function extractOperatorStats(data) {
+        const operators = [];
+        const summaries = data?.query_info?.queryStats?.operatorSummaries || [];
+
+        summaries.forEach((op) => {
+          const wallNs =
+            parseDuration(op.addInputWall) +
+            parseDuration(op.getOutputWall) +
+            parseDuration(op.blockedWall) +
+            parseDuration(op.finishWall);
+
+          operators.push({
+            key: `${op.stageId}-${op.pipelineId}-${op.operatorId}-${op.planNodeId}`,
+            stageId: op.stageId || 0,
+            pipelineId: op.pipelineId || 0,
+            operatorId: op.operatorId || 0,
+            planNodeId: op.planNodeId || "",
+            operatorType: op.operatorType || "Unknown",
+            totalWallMs: nsToMs(wallNs),
+            addInputWallMs: nsToMs(parseDuration(op.addInputWall)),
+            getOutputWallMs: nsToMs(parseDuration(op.getOutputWall)),
+            blockedWallMs: nsToMs(parseDuration(op.blockedWall)),
+            inputPositions: op.inputPositions || 0,
+            outputPositions: op.outputPositions || 0,
+            peakMemoryBytes: op.peakTotalMemoryReservationInBytes || 0,
+          });
+        });
+
+        return operators;
+      }
+
+      function extractQueryStats(data) {
+        const stats = data?.query_info?.queryStats || {};
+        return {
+          elapsedTime: stats.elapsedTime || "0s",
+          elapsedTimeMs: nsToMs(parseDuration(stats.elapsedTime)),
+          totalCpuTime: stats.totalCpuTime || "0s",
+          totalCpuTimeMs: nsToMs(parseDuration(stats.totalCpuTime)),
+          totalScheduledTime: stats.totalScheduledTime || "0s",
+          totalScheduledTimeMs: nsToMs(parseDuration(stats.totalScheduledTime)),
+          totalBlockedTime: stats.totalBlockedTime || "0s",
+          totalBlockedTimeMs: nsToMs(parseDuration(stats.totalBlockedTime)),
+          executionTime: stats.executionTime || "0s",
+          executionTimeMs: nsToMs(parseDuration(stats.executionTime)),
+          rawInputPositions: stats.rawInputPositions || 0,
+          rawInputDataSize: stats.rawInputDataSize || "0B",
+          rawInputBytes: parseBytes(stats.rawInputDataSize),
+          processedInputPositions: stats.processedInputPositions || 0,
+          processedInputDataSize: stats.processedInputDataSize || "0B",
+          processedInputBytes: parseBytes(stats.processedInputDataSize),
+          shuffledDataSize: stats.shuffledDataSize || "0B",
+          shuffledBytes: parseBytes(stats.shuffledDataSize),
+          shuffledPositions: stats.shuffledPositions || 0,
+          spilledDataSize: stats.spilledDataSize || "0B",
+          spilledBytes: parseBytes(stats.spilledDataSize),
+          outputPositions: stats.outputPositions || 0,
+          outputDataSize: stats.outputDataSize || "0B",
+          peakMemory: stats.peakNodeTotalMemory || "0B",
+          peakMemoryBytes: parseBytes(stats.peakNodeTotalMemory),
+          peakUserMemory: stats.peakUserMemoryReservation || "0B",
+          peakUserMemoryBytes: parseBytes(stats.peakUserMemoryReservation),
+          totalTasks: stats.totalTasks || 0,
+          totalDrivers: stats.totalDrivers || 0,
+          totalSplits: stats.totalSplits || 0,
+        };
+      }
+
+      // Parse byte strings like "38.01GB" to bytes
+      function parseBytes(str) {
+        if (!str || typeof str !== "string") return 0;
+        const match = str.match(/([\d.]+)\s*(B|KB|MB|GB|TB|kB)/i);
+        if (!match) return 0;
+        const value = parseFloat(match[1]);
+        const unit = match[2].toUpperCase();
+        const multipliers = {
+          B: 1,
+          KB: 1024,
+          MB: 1024 * 1024,
+          GB: 1024 * 1024 * 1024,
+          TB: 1024 * 1024 * 1024 * 1024,
+        };
+        return value * (multipliers[unit] || 1);
+      }
+
+      function runComparison() {
+        document.getElementById("emptyState").style.display = "none";
+        document.getElementById("comparisonResults").style.display = "block";
+        document.getElementById("tabBar").style.display = "flex";
+        document.getElementById("queryInfo").classList.add("visible");
+
+        // Extract data
+        const baselineOps = extractOperatorStats(baselineData);
+        const comparisonOps = extractOperatorStats(comparisonData);
+        const baselineStats = extractQueryStats(baselineData);
+        const comparisonStats = extractQueryStats(comparisonData);
+
+        // Update query info
+        const queryStr = baselineData?.query_info?.query || "";
+        const queryName = queryStr.match(/--(\w+)--/)?.[1] || "Unknown Query";
+        document.getElementById("queryName").textContent = queryName;
+
+        // Get worker counts
+        const baselineWorkers = Array.isArray(baselineData?.worker_metrics) ? baselineData.worker_metrics.length : 0;
+        const comparisonWorkers = Array.isArray(comparisonData?.worker_metrics) ? comparisonData.worker_metrics.length : 0;
+
+        // Get driver counts from operator summaries
+        const baselineDrivers = baselineData?.query_info?.queryStats?.operatorSummaries?.[0]?.totalDrivers || 0;
+        const comparisonDrivers = comparisonData?.query_info?.queryStats?.operatorSummaries?.[0]?.totalDrivers || 0;
+
+        let baselineIdText = baselineData?.query_info?.queryId || "Unknown";
+        let comparisonIdText = comparisonData?.query_info?.queryId || "Unknown";
+
+        if (baselineWorkers > 0) {
+          baselineIdText += ` (${baselineWorkers}W/${baselineDrivers}D)`;
+        }
+        if (comparisonWorkers > 0) {
+          comparisonIdText += ` (${comparisonWorkers}W/${comparisonDrivers}D)`;
+        }
+
+        document.getElementById("baselineId").textContent = baselineIdText;
+        document.getElementById("comparisonId").textContent = comparisonIdText;
+
+        // Generate insights
+        generateInsights(baselineStats, comparisonStats, baselineOps, comparisonOps);
+
+        // Generate summary cards
+        generateSummaryCards(baselineStats, comparisonStats);
+
+        // Generate operator comparison
+        generateOperatorComparison(baselineOps, comparisonOps);
+
+        // Generate pipeline comparison
+        generatePipelineComparison(baselineOps, comparisonOps);
+
+        // Generate metrics comparison
+        generateMetricsComparison(
+          baselineData?.worker_metrics || [],
+          comparisonData?.worker_metrics || []
+        );
+      }
+
+      function generateInsights(baselineStats, comparisonStats, baselineOps, comparisonOps) {
+        const insights = [];
+        const elapsedDiff = calcDiff(
+          baselineStats.elapsedTimeMs,
+          comparisonStats.elapsedTimeMs
+        );
+        const cpuDiff = calcDiff(
+          baselineStats.totalCpuTimeMs,
+          comparisonStats.totalCpuTimeMs
+        );
+
+        // Overall performance insight
+        if (Math.abs(elapsedDiff) > 5) {
+          const faster = elapsedDiff < 0;
+          insights.push({
+            icon: faster ? "🚀" : "🐌",
+            title: faster
+              ? `Query is ${Math.abs(elapsedDiff).toFixed(1)}% faster`
+              : `Query is ${Math.abs(elapsedDiff).toFixed(1)}% slower`,
+            detail: `Elapsed time: ${baselineStats.elapsedTime} → ${comparisonStats.elapsedTime}`,
+            type: faster ? "good" : "bad",
+          });
+        } else {
+          insights.push({
+            icon: "⚖️",
+            title: "Query performance is similar",
+            detail: `Elapsed time difference is within 5% (${elapsedDiff.toFixed(1)}%)`,
+            type: "neutral",
+          });
+        }
+
+        // CPU time insight
+        if (Math.abs(cpuDiff) > 10) {
+          const better = cpuDiff < 0;
+          insights.push({
+            icon: better ? "💪" : "⚠️",
+            title: better
+              ? `CPU usage reduced by ${Math.abs(cpuDiff).toFixed(1)}%`
+              : `CPU usage increased by ${Math.abs(cpuDiff).toFixed(1)}%`,
+            detail: `CPU time: ${baselineStats.totalCpuTime} → ${comparisonStats.totalCpuTime}`,
+            type: better ? "good" : "warning",
+          });
+        }
+
+        // Shuffle data insight
+        if (baselineStats.shuffledBytes > 0 || comparisonStats.shuffledBytes > 0) {
+          const shuffleDiff = calcDiff(baselineStats.shuffledBytes, comparisonStats.shuffledBytes);
+          if (Math.abs(shuffleDiff) > 10) {
+            const better = shuffleDiff < 0;
+            insights.push({
+              icon: better ? "📦" : "📦",
+              title: better
+                ? `Shuffle data reduced by ${Math.abs(shuffleDiff).toFixed(1)}%`
+                : `Shuffle data increased by ${Math.abs(shuffleDiff).toFixed(1)}%`,
+              detail: `Shuffle: ${baselineStats.shuffledDataSize} → ${comparisonStats.shuffledDataSize}`,
+              type: better ? "good" : "warning",
+            });
+          }
+        }
+
+        // Spill warning
+        if (baselineStats.spilledBytes > 0 || comparisonStats.spilledBytes > 0) {
+          const spillDiff = calcDiff(baselineStats.spilledBytes, comparisonStats.spilledBytes);
+          if (comparisonStats.spilledBytes > 0 && baselineStats.spilledBytes === 0) {
+            insights.push({
+              icon: "💾",
+              title: "Spill detected in comparison run",
+              detail: `Spilled ${comparisonStats.spilledDataSize} - this may indicate memory pressure`,
+              type: "bad",
+            });
+          } else if (baselineStats.spilledBytes > 0 && comparisonStats.spilledBytes === 0) {
+            insights.push({
+              icon: "✨",
+              title: "Spill eliminated in comparison run",
+              detail: `Baseline spilled ${baselineStats.spilledDataSize}, comparison has no spill`,
+              type: "good",
+            });
+          } else if (Math.abs(spillDiff) > 20) {
+            const better = spillDiff < 0;
+            insights.push({
+              icon: "💾",
+              title: better
+                ? `Spill reduced by ${Math.abs(spillDiff).toFixed(1)}%`
+                : `Spill increased by ${Math.abs(spillDiff).toFixed(1)}%`,
+              detail: `Spill: ${baselineStats.spilledDataSize} → ${comparisonStats.spilledDataSize}`,
+              type: better ? "good" : "bad",
+            });
+          }
+        }
+
+        // Find biggest operator differences
+        const opMap = new Map();
+        baselineOps.forEach((op) => opMap.set(op.key, { baseline: op }));
+        comparisonOps.forEach((op) => {
+          if (opMap.has(op.key)) {
+            opMap.get(op.key).comparison = op;
+          } else {
+            opMap.set(op.key, { comparison: op });
+          }
+        });
+
+        let biggestSlowdown = null;
+        let biggestSpeedup = null;
+
+        opMap.forEach((ops, key) => {
+          if (ops.baseline && ops.comparison) {
+            const diff = calcDiff(
+              ops.baseline.totalWallMs,
+              ops.comparison.totalWallMs
+            );
+            if (
+              diff > 20 &&
+              (!biggestSlowdown || diff > biggestSlowdown.diff)
+            ) {
+              biggestSlowdown = { ...ops, diff };
+            }
+            if (diff < -20 && (!biggestSpeedup || diff < biggestSpeedup.diff)) {
+              biggestSpeedup = { ...ops, diff };
+            }
+          }
+        });
+
+        if (biggestSlowdown) {
+          insights.push({
+            icon: "📉",
+            title: `Biggest slowdown: ${biggestSlowdown.baseline.operatorType}`,
+            detail: `${biggestSlowdown.diff.toFixed(1)}% slower (${formatDuration(biggestSlowdown.baseline.totalWallMs)} → ${formatDuration(biggestSlowdown.comparison.totalWallMs)}) at plan node ${biggestSlowdown.baseline.planNodeId}`,
+            type: "bad",
+          });
+        }
+
+        if (biggestSpeedup) {
+          insights.push({
+            icon: "📈",
+            title: `Biggest speedup: ${biggestSpeedup.baseline.operatorType}`,
+            detail: `${Math.abs(biggestSpeedup.diff).toFixed(1)}% faster (${formatDuration(biggestSpeedup.baseline.totalWallMs)} → ${formatDuration(biggestSpeedup.comparison.totalWallMs)}) at plan node ${biggestSpeedup.baseline.planNodeId}`,
+            type: "good",
+          });
+        }
+
+        // Render insights
+        const container = document.getElementById("insightsList");
+        container.innerHTML = insights
+          .map(
+            (i) => `
+          <div class="insight-item">
+            <div class="insight-icon">${i.icon}</div>
+            <div class="insight-content">
+              <div class="insight-title">${i.title}</div>
+              <div class="insight-detail">${i.detail}</div>
+            </div>
+          </div>
+        `
+          )
+          .join("");
+      }
+
+      function generateSummaryCards(baselineStats, comparisonStats) {
+        const metrics = [
+          {
+            category: "Timing",
+            items: [
+              {
+                label: "Elapsed Time",
+                baseline: baselineStats.elapsedTimeMs,
+                comparison: comparisonStats.elapsedTimeMs,
+                format: formatDuration,
+                lowerIsBetter: true,
+              },
+              {
+                label: "CPU Time",
+                baseline: baselineStats.totalCpuTimeMs,
+                comparison: comparisonStats.totalCpuTimeMs,
+                format: formatDuration,
+                lowerIsBetter: true,
+              },
+              {
+                label: "Blocked Time",
+                baseline: baselineStats.totalBlockedTimeMs,
+                comparison: comparisonStats.totalBlockedTimeMs,
+                format: formatDuration,
+                lowerIsBetter: true,
+              },
+            ],
+          },
+          {
+            category: "Data Volumes",
+            items: [
+              {
+                label: "Raw Input",
+                baseline: baselineStats.rawInputBytes,
+                comparison: comparisonStats.rawInputBytes,
+                format: formatBytes,
+                lowerIsBetter: null, // neutral
+              },
+              {
+                label: "Processed Input",
+                baseline: baselineStats.processedInputBytes,
+                comparison: comparisonStats.processedInputBytes,
+                format: formatBytes,
+                lowerIsBetter: null,
+              },
+              {
+                label: "Shuffle (Exchange)",
+                baseline: baselineStats.shuffledBytes,
+                comparison: comparisonStats.shuffledBytes,
+                format: formatBytes,
+                lowerIsBetter: true,
+              },
+              {
+                label: "Spilled",
+                baseline: baselineStats.spilledBytes,
+                comparison: comparisonStats.spilledBytes,
+                format: formatBytes,
+                lowerIsBetter: true,
+                highlight: true, // highlight if non-zero
+              },
+            ],
+          },
+          {
+            category: "Resources",
+            items: [
+              {
+                label: "Peak Memory",
+                baseline: baselineStats.peakMemoryBytes,
+                comparison: comparisonStats.peakMemoryBytes,
+                format: formatBytes,
+                lowerIsBetter: true,
+              },
+              {
+                label: "Total Tasks",
+                baseline: baselineStats.totalTasks,
+                comparison: comparisonStats.totalTasks,
+                format: formatNumber,
+                lowerIsBetter: null,
+              },
+              {
+                label: "Total Drivers",
+                baseline: baselineStats.totalDrivers,
+                comparison: comparisonStats.totalDrivers,
+                format: formatNumber,
+                lowerIsBetter: null,
+              },
+            ],
+          },
+        ];
+
+        const container = document.getElementById("summaryCards");
+        container.innerHTML = metrics
+          .map(
+            (cat) => `
+          <div class="summary-card">
+            <h3>${cat.category}</h3>
+            ${cat.items
+              .map((item) => {
+                const diff = calcDiff(item.baseline, item.comparison);
+                const diffClass = item.lowerIsBetter === null ? "diff-neutral" : getDiffClass(diff, item.lowerIsBetter);
+                const significant = Math.abs(diff) > 20;
+                const hasValue = item.baseline > 0 || item.comparison > 0;
+                const highlightSpill = item.highlight && (item.baseline > 0 || item.comparison > 0);
+                return `
+                <div class="metric ${highlightSpill ? 'metric-highlight' : ''}">
+                  <span class="metric-label">${item.label}</span>
+                  <div class="metric-values">
+                    <span class="value-baseline">${item.format(item.baseline)}</span>
+                    <span class="value-comparison">${item.format(item.comparison)}</span>
+                    ${hasValue ? `
+                      <span class="value-diff ${diffClass} ${significant ? "diff-significant" : ""}">
+                        ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%
+                      </span>
+                    ` : '<span class="value-diff diff-neutral">-</span>'}
+                  </div>
+                </div>
+              `;
+              })
+              .join("")}
+          </div>
+        `
+          )
+          .join("");
+      }
+
+      function generateOperatorComparison(baselineOps, comparisonOps) {
+        // Match operators by key
+        const opMap = new Map();
+        baselineOps.forEach((op) => opMap.set(op.key, { baseline: op }));
+        comparisonOps.forEach((op) => {
+          if (opMap.has(op.key)) {
+            opMap.get(op.key).comparison = op;
+          } else {
+            opMap.set(op.key, { comparison: op });
+          }
+        });
+
+        // Find max time for bar scaling
+        let maxTime = 0;
+        opMap.forEach((ops) => {
+          if (ops.baseline) maxTime = Math.max(maxTime, ops.baseline.totalWallMs);
+          if (ops.comparison)
+            maxTime = Math.max(maxTime, ops.comparison.totalWallMs);
+        });
+
+        // Sort by baseline time descending
+        const sortedOps = Array.from(opMap.entries()).sort((a, b) => {
+          const aTime = a[1].baseline?.totalWallMs || 0;
+          const bTime = b[1].baseline?.totalWallMs || 0;
+          return bTime - aTime;
+        });
+
+        let significantCount = 0;
+        const rows = sortedOps
+          .map(([key, ops]) => {
+            const baseline = ops.baseline || {};
+            const comparison = ops.comparison || {};
+            const baselineTime = baseline.totalWallMs || 0;
+            const comparisonTime = comparison.totalWallMs || 0;
+            const diff = calcDiff(baselineTime, comparisonTime);
+            const significant = Math.abs(diff) > 20;
+            if (significant) significantCount++;
+
+            const barScale = maxTime > 0 ? 100 / maxTime : 1;
+
+            return `
+            <tr class="${significant ? "significant" : ""}">
+              <td class="operator-name">${baseline.operatorType || comparison.operatorType}</td>
+              <td class="plan-node-id">${baseline.planNodeId || comparison.planNodeId}</td>
+              <td>
+                <div class="bar-chart">
+                  <div class="bar bar-baseline" style="width: ${baselineTime * barScale}px"></div>
+                  <div class="bar bar-comparison" style="width: ${comparisonTime * barScale}px"></div>
+                </div>
+              </td>
+              <td class="value-baseline">${formatDuration(baselineTime)}</td>
+              <td class="value-comparison">${formatDuration(comparisonTime)}</td>
+              <td>
+                <span class="value-diff ${getDiffClass(diff)} ${significant ? "diff-significant" : ""}">
+                  ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%
+                </span>
+              </td>
+              <td>${formatNumber(baseline.inputPositions || 0)} / ${formatNumber(comparison.inputPositions || 0)}</td>
+              <td>${formatNumber(baseline.outputPositions || 0)} / ${formatNumber(comparison.outputPositions || 0)}</td>
+            </tr>
+          `;
+          })
+          .join("");
+
+        document.getElementById("operatorTableBody").innerHTML = rows;
+
+        const badge = document.getElementById("operatorBadge");
+        badge.textContent = `${significantCount} significant`;
+        badge.classList.toggle("good", significantCount === 0);
+      }
+
+      function generatePipelineComparison(baselineOps, comparisonOps) {
+        // Group by pipeline
+        const groupByPipeline = (ops) => {
+          const pipelines = {};
+          ops.forEach((op) => {
+            const key = `S${op.stageId}-P${op.pipelineId}`;
+            if (!pipelines[key]) {
+              pipelines[key] = {
+                key,
+                stageId: op.stageId,
+                pipelineId: op.pipelineId,
+                totalWallMs: 0,
+                operators: [],
+              };
+            }
+            pipelines[key].totalWallMs += op.totalWallMs;
+            pipelines[key].operators.push(op.operatorType);
+          });
+          return pipelines;
+        };
+
+        const baselinePipelines = groupByPipeline(baselineOps);
+        const comparisonPipelines = groupByPipeline(comparisonOps);
+
+        // Merge pipelines
+        const allKeys = new Set([
+          ...Object.keys(baselinePipelines),
+          ...Object.keys(comparisonPipelines),
+        ]);
+
+        let maxTime = 0;
+        allKeys.forEach((key) => {
+          if (baselinePipelines[key])
+            maxTime = Math.max(maxTime, baselinePipelines[key].totalWallMs);
+          if (comparisonPipelines[key])
+            maxTime = Math.max(maxTime, comparisonPipelines[key].totalWallMs);
+        });
+
+        const sortedKeys = Array.from(allKeys).sort((a, b) => {
+          const aTime = baselinePipelines[a]?.totalWallMs || 0;
+          const bTime = baselinePipelines[b]?.totalWallMs || 0;
+          return bTime - aTime;
+        });
+
+        const rows = sortedKeys
+          .map((key) => {
+            const baseline = baselinePipelines[key] || {};
+            const comparison = comparisonPipelines[key] || {};
+            const baselineTime = baseline.totalWallMs || 0;
+            const comparisonTime = comparison.totalWallMs || 0;
+            const diff = calcDiff(baselineTime, comparisonTime);
+            const significant = Math.abs(diff) > 20;
+
+            const barScale = maxTime > 0 ? 100 / maxTime : 1;
+            const operators = [
+              ...new Set([
+                ...(baseline.operators || []),
+                ...(comparison.operators || []),
+              ]),
+            ].join(", ");
+
+            return `
+            <tr class="${significant ? "significant" : ""}">
+              <td class="operator-name">${key}</td>
+              <td>
+                <div class="bar-chart">
+                  <div class="bar bar-baseline" style="width: ${baselineTime * barScale}px"></div>
+                  <div class="bar bar-comparison" style="width: ${comparisonTime * barScale}px"></div>
+                </div>
+              </td>
+              <td class="value-baseline">${formatDuration(baselineTime)}</td>
+              <td class="value-comparison">${formatDuration(comparisonTime)}</td>
+              <td>
+                <span class="value-diff ${getDiffClass(diff)} ${significant ? "diff-significant" : ""}">
+                  ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%
+                </span>
+              </td>
+              <td style="font-size:11px;color:#888;max-width:300px;overflow:hidden;text-overflow:ellipsis;">${operators}</td>
+            </tr>
+          `;
+          })
+          .join("");
+
+        document.getElementById("pipelineTableBody").innerHTML = rows;
+      }
+
+      function generateMetricsComparison(baselineMetrics, comparisonMetrics) {
+        // Handle new multi-worker format (array of {worker, metrics} objects)
+        let flatBaselineMetrics = {};
+        let flatComparisonMetrics = {};
+
+        if (Array.isArray(baselineMetrics)) {
+          // New format: aggregate metrics across workers
+          baselineMetrics.forEach((workerData, idx) => {
+            const workerName = workerData.worker || `worker${idx}`;
+            const shortName = workerName.replace("presto-native-worker-", "");
+            const metrics = workerData.metrics || {};
+            Object.keys(metrics).forEach((key) => {
+              // Store per-worker and aggregated metrics
+              flatBaselineMetrics[`${shortName}:${key}`] = metrics[key];
+              // Aggregate (sum for counters, keep last for gauges)
+              if (flatBaselineMetrics[key] === undefined) {
+                flatBaselineMetrics[key] = metrics[key];
+              } else if (typeof metrics[key] === 'number') {
+                flatBaselineMetrics[key] += metrics[key];
+              }
+            });
+          });
+          flatBaselineMetrics['_workerCount'] = baselineMetrics.length;
+        } else {
+          flatBaselineMetrics = baselineMetrics;
+        }
+
+        if (Array.isArray(comparisonMetrics)) {
+          comparisonMetrics.forEach((workerData, idx) => {
+            const workerName = workerData.worker || `worker${idx}`;
+            const shortName = workerName.replace("presto-native-worker-", "");
+            const metrics = workerData.metrics || {};
+            Object.keys(metrics).forEach((key) => {
+              flatComparisonMetrics[`${shortName}:${key}`] = metrics[key];
+              if (flatComparisonMetrics[key] === undefined) {
+                flatComparisonMetrics[key] = metrics[key];
+              } else if (typeof metrics[key] === 'number') {
+                flatComparisonMetrics[key] += metrics[key];
+              }
+            });
+          });
+          flatComparisonMetrics['_workerCount'] = comparisonMetrics.length;
+        } else {
+          flatComparisonMetrics = comparisonMetrics;
+        }
+
+        const allKeys = new Set([
+          ...Object.keys(flatBaselineMetrics),
+          ...Object.keys(flatComparisonMetrics),
+        ]);
+
+        const changedMetrics = [];
+        const allMetrics = [];
+
+        allKeys.forEach((key) => {
+          // Skip per-worker metrics in the main comparison (they add clutter)
+          if (key.includes(':')) return;
+
+          const baseline = flatBaselineMetrics[key] || 0;
+          const comparison = flatComparisonMetrics[key] || 0;
+          const diff = calcDiff(baseline, comparison);
+
+          const metric = {
+            key,
+            baseline,
+            comparison,
+            diff,
+            changed: baseline !== comparison,
+            significant: Math.abs(diff) > 50,
+          };
+
+          allMetrics.push(metric);
+          if (metric.changed) {
+            changedMetrics.push(metric);
+          }
+        });
+
+        // Sort by absolute diff
+        changedMetrics.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+
+        const formatMetricValue = (key, value) => {
+          if (key.includes("bytes") || key.includes("Bytes")) {
+            return formatBytes(value);
+          }
+          if (key.includes("time") || key.includes("Time") || key.includes("_ms")) {
+            return formatDuration(value);
+          }
+          return formatNumber(value);
+        };
+
+        const renderMetric = (m) => {
+          const classes = ["metric-row"];
+          if (m.changed) classes.push("changed");
+          if (m.significant) classes.push("significant-change");
+
+          return `
+            <div class="${classes.join(" ")}">
+              <span class="metric-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;" title="${m.key}">${m.key}</span>
+              <span class="value-baseline" style="min-width:80px;text-align:right;">${formatMetricValue(m.key, m.baseline)}</span>
+              <span class="value-comparison" style="min-width:80px;text-align:right;">${formatMetricValue(m.key, m.comparison)}</span>
+              ${
+                m.changed
+                  ? `<span class="value-diff ${getDiffClass(m.diff)}" style="min-width:60px;text-align:right;">${m.diff >= 0 ? "+" : ""}${m.diff.toFixed(1)}%</span>`
+                  : '<span style="min-width:60px;"></span>'
+              }
+            </div>
+          `;
+        };
+
+        document.getElementById("changedMetricsGrid").innerHTML =
+          changedMetrics.length > 0
+            ? changedMetrics.map(renderMetric).join("")
+            : '<div style="color:#888;padding:20px;">No metrics changed between runs</div>';
+
+        document.getElementById("allMetricsGrid").innerHTML = allMetrics
+          .sort((a, b) => a.key.localeCompare(b.key))
+          .map(renderMetric)
+          .join("");
+
+        const badge = document.getElementById("changedMetricsBadge");
+        badge.textContent = changedMetrics.length;
+        badge.classList.toggle("good", changedMetrics.length === 0);
+      }
+    </script>
+  </body>
+</html>
