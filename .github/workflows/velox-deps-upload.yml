@@ -110,12 +110,6 @@ jobs:
             exit 1
           fi
           echo "✅ WRITE access verified."
-          
-          # Cleanup test file
-          echo "Cleaning up test file..."
-          aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_FILE}"
-
-          echo "✅ S3 credentials verified successfully (list, write, delete)."
 
       - name: Build Velox Dependencies Container Image (AMD64)
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
