@@ -21,16 +21,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 #
-# fetch_docker_image_from_s3 <imagename> <subdir> <filename>
+# upload_docker_image_to_s3 <imagename> <subdir> <filename>
 #
-# fetches s3://rapidsai-velox-testing/<subdir>/<filename>
-# and attempts to load it as a Docker image
-# 
+# Saves Docker image to a tar.gz file and uploads it to S3.
+# Overwrites existing image at the same path (no versioning).
+#
+# Example:
+#   upload_docker_image_to_s3 "ghcr.io/facebookincubator/velox-dev:adapters" \
+#     "velox-docker-images" "velox_adapters_deps_image_centos9_x86_64.tar.gz"
+#
+# Result:
+#   s3://${S3_BUCKET_NAME}/velox-docker-images/velox_adapters_deps_image_centos9_x86_64.tar.gz
+#
 
-fetch_docker_image_from_s3() {
+upload_docker_image_to_s3() {
   # validate parameter count
   if [[ "$#" -ne 3 ]]; then
-    echo "Usage: fetch_docker_image_from_s3 <imagename> <subdir> <filename>" >&2
+    echo "Usage: upload_docker_image_to_s3 <imagename> <subdir> <filename>" >&2
     exit 2
   fi
 
@@ -39,18 +46,20 @@ fetch_docker_image_from_s3() {
   local BUCKET_SUBDIR=$2
   local IMAGE_FILE_NAME=$3
 
-  # these env vars are required regardless of what creds are used
-  echo "Validating incoming environment..."
+  # validate required environment variables
+  echo "Validating environment..."
   if [ -z "${AWS_ACCESS_KEY_ID}" ] || [ -z "${AWS_SECRET_ACCESS_KEY}" ] || [ -z "${S3_BUCKET_NAME}" ] || [ -z "${S3_BUCKET_REGION}" ]; then
     echo "ERROR: The following values must be set in the environment:"
-    echo "  AWS_ARN_STRING (optional)"
+    echo "  AWS_ARN_STRING (optional - for assume-role)"
     echo "  AWS_ACCESS_KEY_ID"
     echo "  AWS_SECRET_ACCESS_KEY"
     echo "  S3_BUCKET_NAME"
     echo "  S3_BUCKET_REGION"
-    echo "Keys must either be valid for direct access to the bucket, or valid for an assume-role operation if AWS_ARN_STRING is set"
     exit 1
   fi
+
+  # validate image exists before proceeding
+  validate_docker_image ${IMAGE_NAME}
 
   # construct full S3 path
   local IMAGE_FILE_PATH="s3://${S3_BUCKET_NAME}/${BUCKET_SUBDIR}/${IMAGE_FILE_NAME}"
@@ -58,39 +67,52 @@ fetch_docker_image_from_s3() {
   # ensure region is set
   export AWS_REGION=${S3_BUCKET_REGION}
 
-  # if AWS_ARN_STRING is set in the environment, use environment creds to request new
-  # temporary rolling creds for the private bucket, otherwise use environment creds directly
+  # if AWS_ARN_STRING is set, assume role for temporary credentials
   if [ ! -z "${AWS_ARN_STRING}" ]; then
-    # ask for temporary credentials for file access
-    echo "Requesting temporary S3 credentials..."
+    echo "Requesting temporary S3 credentials via assume-role..."
     local TEMP_CREDS_JSON=$(aws sts assume-role \
       --role-arn ${AWS_ARN_STRING} \
-      --role-session-name "GetPrestoContainerImage" \
+      --role-session-name "UploadVeloxContainerImage" \
       --query "Credentials" \
       --output json)
 
-    # override environment with full temporary credentials
     export AWS_ACCESS_KEY_ID=$(echo "$TEMP_CREDS_JSON" | jq -r '.AccessKeyId')
     export AWS_SECRET_ACCESS_KEY=$(echo "$TEMP_CREDS_JSON" | jq -r '.SecretAccessKey')
     export AWS_SESSION_TOKEN=$(echo "$TEMP_CREDS_JSON" | jq -r '.SessionToken')
+    echo "✓ Obtained temporary credentials"
   fi
 
-  # pull the repo image
-  echo "Fetching image file from S3..."
-  aws s3 cp --no-progress ${IMAGE_FILE_PATH} /tmp/${IMAGE_FILE_NAME}
+  # save Docker image to tar.gz
+  echo "Saving Docker image to file..."
+  if ! docker save ${IMAGE_NAME} | gzip > /tmp/${IMAGE_FILE_NAME}; then
+    echo "ERROR: Failed to save Docker image"
+    exit 1
+  fi
 
-  # load the image into docker
-  echo "Loading image file into Docker..."
-  docker load < /tmp/${IMAGE_FILE_NAME}
+  # report file size
+  local FILE_SIZE=$(du -h /tmp/${IMAGE_FILE_NAME} | cut -f1)
+  echo "✓ Image saved (${FILE_SIZE})"
 
-  # clean up
+  # upload to S3 (overwrites existing)
+  echo "Uploading to S3..."
+  echo "  Destination: ${IMAGE_FILE_PATH}"
+  if ! aws s3 cp --no-progress /tmp/${IMAGE_FILE_NAME} ${IMAGE_FILE_PATH}; then
+    echo "ERROR: Upload failed"
+    rm -f /tmp/${IMAGE_FILE_NAME}
+    exit 1
+  fi
+
+  echo "✓ Upload successful"
+
+  # clean up local file
   rm -f /tmp/${IMAGE_FILE_NAME}
+  echo "✓ Cleanup complete"
 
-  # validate image
-  validate_docker_image ${IMAGE_NAME}
+  echo ""
+  echo "Image available at: ${IMAGE_FILE_PATH}"
 }
 
 # if executed directly, run with provided args
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  fetch_docker_image_from_s3 "$@"
+  upload_docker_image_to_s3 "$@"
 fi

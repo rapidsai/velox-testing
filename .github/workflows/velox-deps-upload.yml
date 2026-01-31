@@ -1,0 +1,184 @@
+name: Velox Dependencies Upload to S3
+description: Upload Velox Dependencies Image to S3
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit:
+        description: 'Velox commit SHA or branch'
+        type: string
+        required: false
+        default: 'main'
+
+  workflow_call:
+    inputs:
+      repository:
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit:
+        description: 'Velox commit SHA or branch'
+        type: string
+        required: false
+        default: 'main'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-and-upload-deps-amd64:
+    runs-on: linux-amd64-cpu4
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: runc
+
+    steps:
+      - &checkout-velox-testing
+        name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
+      - &checkout-velox
+        name: Setup Velox
+        uses: ./velox-testing/.github/actions/velox-setup
+        with:
+          repository: ${{ inputs.repository }}
+          velox_commit: ${{ inputs.velox_commit }}
+
+      - &verify-s3-access
+        name: Verify S3 Access
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        run: |
+          # Configure AWS region
+          export AWS_DEFAULT_REGION="${S3_BUCKET_REGION}"
+          export AWS_REGION="${S3_BUCKET_REGION}"
+          
+          # Derive writer ARN string from reader ARN
+          WRITER_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
+          
+          echo "Verifying S3 credentials for bucket: ${S3_BUCKET_NAME}"
+          
+          # Assume WRITER IAM role
+          echo "Assuming WRITER IAM role..."
+          WRITER_CREDS_JSON=$(aws sts assume-role \
+            --role-arn "${WRITER_ARN_STRING}" \
+            --role-session-name "VerifyS3Access" \
+            --query "Credentials" \
+            --output json)
+          
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to assume WRITER IAM role."
+            exit 1
+          fi
+          echo "✅ Successfully assumed WRITER IAM role."
+          
+          # Set writer credentials
+          export AWS_ACCESS_KEY_ID=$(echo "$WRITER_CREDS_JSON" | jq -r '.AccessKeyId')
+          export AWS_SECRET_ACCESS_KEY=$(echo "$WRITER_CREDS_JSON" | jq -r '.SecretAccessKey')
+          export AWS_SESSION_TOKEN=$(echo "$WRITER_CREDS_JSON" | jq -r '.SessionToken')
+          
+          # Test LIST access
+          echo "Testing LIST access..."
+          if ! aws s3 ls "s3://${S3_BUCKET_NAME}/" > /dev/null; then
+            echo "❌ LIST access FAILED! Check writer role permissions."
+            exit 1
+          fi
+          echo "✅ LIST access verified."
+          
+          # Generate unique test file name
+          TEST_FILE="s3-access-test-$(date +%s)-${RANDOM}.txt"
+          TEST_CONTENT="S3 access verification test - $(date)"
+          
+          # Test WRITE access
+          echo "Testing WRITE access..."
+          if ! echo "${TEST_CONTENT}" | aws s3 cp - "s3://${S3_BUCKET_NAME}/${TEST_FILE}"; then
+            echo "❌ WRITE access FAILED! Check writer role permissions."
+            exit 1
+          fi
+          echo "✅ WRITE access verified."
+
+      - name: Build Velox Dependencies Container Image (AMD64)
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./build_centos_deps_image.sh
+
+      - name: Upload Velox Dependencies Container Image to S3 (AMD64)
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: |
+          # Replace 'reader' with 'writer' in ARN string for write access
+          export AWS_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
+          ./upload_centos_deps_image.sh
+
+      - name: Upload Summary (AMD64)
+        if: success()
+        run: |
+          echo "### ✅ Velox Dependencies Image (AMD64) Uploaded Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${{ inputs.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Velox Commit:** ${{ inputs.velox_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Architecture:** $(uname -m)" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ghcr.io/facebookincubator/velox-dev:adapters" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The AMD64 dependencies image has been uploaded to S3 and is now available for use in CI workflows." >> $GITHUB_STEP_SUMMARY
+
+  build-and-upload-deps-arm64:
+    runs-on: linux-arm64-cpu4
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: runc
+
+    steps:
+      - *checkout-velox-testing
+
+      - *checkout-velox
+
+      - *verify-s3-access
+
+      - name: Build Velox Dependencies Container Image (ARM64)
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./build_centos_deps_image.sh
+
+      - name: Upload Velox Dependencies Container Image to S3 (ARM64)
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: |
+          # Replace 'reader' with 'writer' in ARN string for write access
+          export AWS_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
+          ./upload_centos_deps_image.sh
+
+      - name: Upload Summary (ARM64)
+        if: success()
+        run: |
+          echo "### ✅ Velox Dependencies Image (ARM64) Uploaded Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${{ inputs.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Velox Commit:** ${{ inputs.velox_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Architecture:** $(uname -m)" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ghcr.io/facebookincubator/velox-dev:adapters" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The ARM64 dependencies image has been uploaded to S3 and is now available for use in CI workflows." >> $GITHUB_STEP_SUMMARY
