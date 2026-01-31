@@ -1,11 +1,11 @@
 ARG TARGETARCH
 
 # Install latest ninja
-FROM --platform=$TARGETPLATFORM alpine:latest AS ninja-amd64
+FROM alpine:latest AS ninja-amd64
 RUN apk add --no-cache unzip
 ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux.zip /tmp
 
-FROM --platform=$TARGETPLATFORM alpine:latest AS ninja-arm64
+FROM alpine:latest AS ninja-arm64
 RUN apk add --no-cache unzip
 ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux-aarch64.zip /tmp
 RUN mv /tmp/ninja-linux-aarch64.zip /tmp/ninja-linux.zip
@@ -50,7 +50,7 @@ EOF
 ARG NUM_THREADS=8
 ARG MAX_HIGH_MEM_JOBS=4
 ARG MAX_LINK_JOBS=4
-ARG CUDA_VERSION=12.8
+ARG CUDA_VERSION=12.9
 ARG CUDA_ARCHITECTURES=70
 ARG BUILD_WITH_VELOX_ENABLE_CUDF=ON
 ARG BUILD_WITH_VELOX_ENABLE_WAVE=OFF

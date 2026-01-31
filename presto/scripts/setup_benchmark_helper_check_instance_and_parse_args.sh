@@ -56,7 +56,10 @@ if [[ -z $PRESTO_DATA_DIR ]]; then
   exit 1
 fi
 
-source ./common_functions.sh
+# Compute the directory where this script resides (if not already set by caller)
+SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+
+source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration
 

@@ -19,11 +19,17 @@ if [[ -z $PRESTO_VERSION ]]; then
   exit 1
 fi
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Get the root of the git repository
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+
 echo "Building Presto Java from source with PRESTO_VERSION: $PRESTO_VERSION..."
 
 docker run --rm \
-    -v $(pwd)/../../../presto:/presto \
-    -v ./.mvn_cache:/root/.m2 \
+    -v "${REPO_ROOT}/../presto:/presto" \
+    -v "${SCRIPT_DIR}/.mvn_cache:/root/.m2" \
     -e PRESTO_VERSION=$PRESTO_VERSION \
     -w /presto \
     eclipse-temurin:17-jdk-jammy \
@@ -36,7 +42,8 @@ docker run --rm \
     ./mvnw clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true &&
     echo 'Copying artifacts with version $PRESTO_VERSION...' &&
     cp presto-server/target/presto-server-*.tar.gz docker/presto-server-$PRESTO_VERSION.tar.gz &&
-    cp presto-function-server/target/presto-function-server-*-executable.jar docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
+    cp presto-function-server/target/presto-function-server-*executable.jar docker/presto-function-server-executable.jar &&
+    cp presto-function-server/target/presto-function-server-*executable.jar docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
     cp presto-cli/target/presto-cli-*-executable.jar docker/presto-cli-$PRESTO_VERSION-executable.jar &&
     chmod +r docker/presto-cli-$PRESTO_VERSION-executable.jar &&
     echo 'Build complete! Artifacts copied with version $PRESTO_VERSION'
