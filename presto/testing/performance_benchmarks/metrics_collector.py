@@ -24,9 +24,11 @@ import requests
 from collections import defaultdict
 from pathlib import Path
 from urllib.parse import urlparse
+import math
+import re
+from pathlib import Path
 
-
-def collect_metrics(query_id: str, hostname: str, port: int, output_dir: str) -> None:
+def collect_metrics(query_id: str, query_name: str, hostname: str, port: int, output_dir: str) -> None:
     """
     Collect metrics from Presto REST API endpoints for a given query.
 
@@ -49,6 +51,7 @@ def collect_metrics(query_id: str, hostname: str, port: int, output_dir: str) ->
         _save_json(query_info, output_path / "query.json")
         _collect_stages(query_info, output_path)
         _collect_worker_data(query_info, output_path)
+        _combined_json(output_path, query_name)
 
 
 def _fetch_json(url: str, timeout: int = 30) -> dict | None:
@@ -178,3 +181,75 @@ def _parse_prometheus_metrics(text: str) -> list:
 def _worker_id_from_uri(uri: str) -> str:
     """Extract a filesystem-safe worker ID from a URI."""
     return urlparse(uri).netloc.replace(":", "_").replace(".", "_")
+
+
+def _parse_metric_name(metric_with_labels: str) -> str:
+    """Extract base metric name, stripping Prometheus-style labels like {cluster="x"}."""
+    match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)', metric_with_labels)
+    return match.group(1) if match else metric_with_labels
+
+
+def _load_worker_metrics(metrics_path: Path) -> dict:
+    """Load metrics.json and convert to flat dict keyed by metric name."""
+    with open(metrics_path) as f:
+        data = json.load(f)
+    
+    # metrics.json has {"worker_ip": [{metric: "name{labels}", value: float}, ...]}
+    # We need to flatten to {"metric_name": value, ...}
+    result = {}
+    for worker_key, metric_list in data.items():
+        for item in metric_list:
+            if 'metric' not in item:
+                continue
+            metric_name = _parse_metric_name(item['metric'])
+            value = item['value']
+            # Replace NaN/Inf with null
+            if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                value = None
+            # Convert float to int if it's a whole number
+            elif isinstance(value, float) and value.is_integer():
+                value = int(value)
+            result[metric_name] = value
+    return result
+
+
+def _load_query_info(query_path: Path) -> dict:
+    """Load query.json as-is."""
+    with open(query_path) as f:
+        return json.load(f)
+
+
+def _load_tasks_info(tasks_path: Path) -> list:
+    """Load tasks.json and extract the tasks list."""
+    with open(tasks_path) as f:
+        data = json.load(f)
+    
+    # tasks.json has {"worker_ip": [task_objects]}
+    # Return the first (or combined) list of tasks
+    tasks = []
+    for worker_key, task_list in data.items():
+        tasks.extend(task_list)
+    return tasks
+
+
+def _combined_json(output_path: Path, query_name: str) -> dict:
+    """Combine the three JSON files into one structure."""
+    metrics_path = output_path / "metrics.json"
+    query_path = output_path / "query.json"
+    tasks_path = output_path / "tasks.json"
+
+    combined = {}
+
+    if metrics_path.exists():
+        combined["worker_metrics"] = _load_worker_metrics(metrics_path)
+    if query_path.exists():
+        combined["query_info"] = _load_query_info(query_path)
+    if tasks_path.exists():
+        combined["tasks_info"] = _load_tasks_info(tasks_path)
+    # Write combined JSON if any component is present
+
+    combined_path = output_path.parent / (query_name + "_" + output_path.name + ".presto_metrics.json")
+    if combined:
+        with open(combined_path, "w") as f:
+            json.dump(combined, f, indent=2, allow_nan=False)
+    return combined

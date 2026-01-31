@@ -99,6 +99,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                     if presto_query_id:
                         collect_metrics(
                             query_id=presto_query_id,
+                            query_name=str(query_id),
                             hostname=hostname,
                             port=port,
                             output_dir=bench_output_dir
