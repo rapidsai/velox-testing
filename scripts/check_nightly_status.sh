@@ -680,7 +680,7 @@ print_slack_header() {
 
 print_slack_table_header() {
   echo "| *NO* | *Job Name*         | *Upstream* | *Staging* | *Stable* |"
-  echo "|------|--------------------|-----------:|----------:|---------:|"
+  echo "|------|--------------------| ---------- | --------- | -------- |"
 }
 
 print_slack_failure_details() {
@@ -920,16 +920,30 @@ WF_UPSTREAM["Velox Benchmark"]=""  # none
 WF_STAGING["Velox Benchmark"]="velox-benchmark-nightly-staging.yml"
 WF_STABLE["Velox Benchmark"]=""    # none
 
-WF_UPSTREAM["Presto"]="presto-nightly-upstream.yml"
-WF_STAGING["Presto"]="presto-nightly-staging.yml"
-WF_STABLE["Presto"]="presto-nightly-pinned.yml"
+WF_UPSTREAM["Presto Java"]="presto-nightly-upstream.yml"
+WF_STAGING["Presto Java"]="presto-nightly-staging.yml"
+WF_STABLE["Presto Java"]="presto-nightly-pinned.yml"
+JOB_FILTER["Presto Java"]="java"  # filter jobs containing "java" (case-insensitive)
 
-rows=("Velox Build CPU" "Velox Build GPU" "Velox Benchmark" "Presto")
+WF_UPSTREAM["Presto CPU"]="presto-nightly-upstream.yml"
+WF_STAGING["Presto CPU"]="presto-nightly-staging.yml"
+WF_STABLE["Presto CPU"]="presto-nightly-pinned.yml"
+JOB_FILTER["Presto CPU"]="native-cpu"  # filter jobs containing "native-cpu"
+
+WF_UPSTREAM["Presto GPU"]="presto-nightly-upstream.yml"
+WF_STAGING["Presto GPU"]="presto-nightly-staging.yml"
+WF_STABLE["Presto GPU"]="presto-nightly-pinned.yml"
+JOB_FILTER["Presto GPU"]="native-gpu"  # filter jobs containing "native-gpu"
+
+rows=("Velox Build CPU" "Velox Build GPU" "Velox Benchmark" "Presto Java" "Presto CPU" "Presto GPU")
 
 # Display names for the table (with parentheses for better formatting)
 declare -A DISPLAY_NAME
 DISPLAY_NAME["Velox Build CPU"]="Velox Build (CPU)"
 DISPLAY_NAME["Velox Build GPU"]="Velox Build (GPU)"
+DISPLAY_NAME["Presto Java"]="Presto (Java)"
+DISPLAY_NAME["Presto CPU"]="Presto (CPU)"
+DISPLAY_NAME["Presto GPU"]="Presto (GPU)"
 
 fail_labels=()
 fail_runs=()
@@ -975,7 +989,7 @@ for row in "${rows[@]}"; do
   display_row="${DISPLAY_NAME[$row]:-$row}"
   
   if [[ "${SLACK_FORMAT}" == "true" ]]; then
-    printf "| %-2s | %-18s | %-10s | %-8s | %-8s |\n" "${row_no}" "${display_row}" "${up_cell}" "${st_cell}" "${sb_cell}"
+    printf "| %-4s | %-18s | %-10s | %-9s | %-8s |\n" "${row_no}" "${display_row}" "${up_cell}" "${st_cell}" "${sb_cell}"
   else
     printf "%-4s | %-18s | %-8s | %-8s | %-8s\n" "${row_no}" "${display_row}" "${up_cell}" "${st_cell}" "${sb_cell}"
   fi
