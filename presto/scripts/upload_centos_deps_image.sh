@@ -3,12 +3,12 @@
 set -e
 
 #
-# Fetch Presto dependencies image from S3
+# Upload Presto dependencies image to S3
 #
 # Usage:
-#   ./fetch_centos_deps_image.sh [upstream|pinned]
+#   ./upload_centos_deps_image.sh [upstream|pinned]
 #
-# The variant determines which S3 file to fetch:
+# The variant determines the S3 filename:
 #   upstream -> presto_deps_upstream_centos9_<arch>.tar.gz
 #   pinned   -> presto_deps_pinned_centos9_<arch>.tar.gz
 #
@@ -18,7 +18,7 @@ set -e
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source "${SCRIPT_DIR}/../../scripts/fetch_docker_image_from_s3.sh"
+source "${SCRIPT_DIR}/../../scripts/upload_docker_image_to_s3.sh"
 
 # Parse variant argument (default: upstream)
 VARIANT="${1:-upstream}"
@@ -34,20 +34,26 @@ ARCH=$(uname -m)
 BUCKET_SUBDIR="presto-docker-images"
 IMAGE_FILE="presto_deps_${VARIANT}_centos9_${ARCH}.tar.gz"
 
-echo "Fetching Presto deps image (variant: ${VARIANT})"
+echo "Uploading Presto deps image (variant: ${VARIANT})"
 
 #
-# check for existing container image
+# validate that the container image exists
 #
 
 validate_docker_image ${IMAGE_NAME}
 
-echo "Presto dependencies/run-time container image not found"
-
 #
-# try to pull container image from our S3 bucket
+# upload container image to S3 bucket
 #
 
-fetch_docker_image_from_s3 ${IMAGE_NAME} ${BUCKET_SUBDIR} ${IMAGE_FILE}
+upload_docker_image_to_s3 ${IMAGE_NAME} ${BUCKET_SUBDIR} ${IMAGE_FILE}
 
-echo "Failed to fetch pre-built Presto dependencies/run-time container image"
+if [[ $? -eq 0 ]]; then
+  echo "Successfully uploaded Presto dependencies/run-time container image to S3"
+  echo "  Variant: ${VARIANT}"
+  echo "  File: ${IMAGE_FILE}"
+  exit 0
+else
+  echo "Failed to upload Presto dependencies/run-time container image to S3"
+  exit 1
+fi
