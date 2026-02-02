@@ -14,7 +14,7 @@ services:
       file: docker-compose.common.yml
       service: presto-base-volumes
     container_name: presto-native-worker-gpu-dev
-    image: presto-native-worker-gpu-dev:latest
+    image: presto-native-worker-gpu-dev:${IMAGE_TAG:-latest}
     build:
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_dev_build.dockerfile
@@ -33,7 +33,7 @@ services:
       - PRESTO_REBUILD=${PRESTO_REBUILD:-0}
       - PRESTO_FORCE_REBUILD=${PRESTO_FORCE_REBUILD:-0}
       - PRESTO_SKIP_SERVER=${PRESTO_SKIP_SERVER:-0}
-      - PRESTO_NUM_THREADS=${NUM_THREADS:-12}
+      - PRESTO_NUM_THREADS=${PRESTO_NUM_THREADS:-12}
       - CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES:-}
     depends_on:
       - presto-coordinator

@@ -139,6 +139,20 @@ elif [[ "$VARIANT_TYPE" == "gpu-dev" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu-dev"
   prepare_gpu_dev_environment
 
+  # Map the common "--build-type" flag to the dev container env vars unless the
+  # user already provided explicit overrides.
+  if [[ -z "${PRESTO_BUILD_TYPE:-}" ]]; then
+    case "${BUILD_TYPE}" in
+      release) export PRESTO_BUILD_TYPE="Release" ;;
+      debug) export PRESTO_BUILD_TYPE="Debug" ;;
+      relwithdebinfo) export PRESTO_BUILD_TYPE="RelWithDebInfo" ;;
+    esac
+  fi
+  if [[ -z "${PRESTO_BUILD_DIR_NAME:-}" ]]; then
+    export PRESTO_BUILD_DIR_NAME="${BUILD_TYPE}"
+  fi
+  export PRESTO_NUM_THREADS="${NUM_THREADS}"
+
   # Optional: mount a local cuDF checkout into the dev worker container and
   # forward the in-container path via PRESTO_CUDF_DIR.
   #
