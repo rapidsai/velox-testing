@@ -15,12 +15,15 @@ BUCKET_SUBDIR="velox-docker-images"
 IMAGE_FILE="velox_adapters_deps_image_centos9_${ARCH}.tar.gz"
 
 #
-# check for existing container image
+# check for existing container image - skip download if already present
 #
+echo "Checking for existing Docker image ${IMAGE_NAME}..."
+if [[ -n $(docker images -q ${IMAGE_NAME}) ]]; then
+  echo "✓ Docker image already exists, skipping download"
+  exit 0
+fi
 
-validate_docker_image ${IMAGE_NAME}
-
-echo "Velox dependencies/run-time container image not found"
+echo "Docker image not found locally, fetching from S3..."
 
 #
 # try to pull container image from our S3 bucket
@@ -29,9 +32,9 @@ echo "Velox dependencies/run-time container image not found"
 fetch_docker_image_from_s3 ${IMAGE_NAME} ${BUCKET_SUBDIR} ${IMAGE_FILE}
 
 if [[ $? -eq 0 ]]; then
-  echo "Successfully fetched pre-built Velox dependencies/run-time container image"
+  echo "✓ Successfully fetched Velox dependencies image"
   exit 0
 else
-  echo "Failed to fetch pre-built Velox dependencies/run-time container image"
+  echo "ERROR: Failed to fetch Velox dependencies image"
   exit 1
 fi

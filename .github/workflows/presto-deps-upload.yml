@@ -1,0 +1,271 @@
+name: Presto Dependencies Upload to S3
+description: Upload Presto Dependencies Image to S3
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Image variant (upstream uses latest Velox main, pinned uses Presto submodule Velox)'
+        type: choice
+        options:
+          - upstream
+          - pinned
+        default: 'upstream'
+      presto_repository:
+        description: 'Presto repository'
+        type: string
+        required: false
+        default: 'prestodb/presto'
+      presto_commit:
+        description: 'Presto commit SHA or branch'
+        type: string
+        required: false
+        default: 'master'
+      velox_repository:
+        description: 'Velox repository (ignored for pinned variant)'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit:
+        description: 'Velox commit SHA or branch (ignored for pinned variant)'
+        type: string
+        required: false
+        default: 'main'
+
+  workflow_call:
+    inputs:
+      variant:
+        description: 'Image variant (upstream or pinned)'
+        type: string
+        required: false
+        default: 'upstream'
+      presto_repository:
+        description: 'Presto repository'
+        type: string
+        required: false
+        default: 'prestodb/presto'
+      presto_commit:
+        description: 'Presto commit SHA or branch'
+        type: string
+        required: false
+        default: 'master'
+      velox_repository:
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit:
+        description: 'Velox commit SHA or branch'
+        type: string
+        required: false
+        default: 'main'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # For pinned variant, resolve Velox SHA from Presto submodule
+  resolve-pinned-velox:
+    if: ${{ inputs.variant == 'pinned' }}
+    runs-on: linux-amd64-cpu4
+    outputs:
+      velox_sha: ${{ steps.get-pinned-velox.outputs.velox_sha }}
+    steps:
+      - name: Checkout Presto
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.presto_repository }}
+          ref: ${{ inputs.presto_commit }}
+          path: presto
+
+      - name: Get Presto Pinned Velox Version
+        id: get-pinned-velox
+        run: |
+          pushd presto/presto-native-execution
+          make submodules
+          cd velox
+          VELOX_SHA=$(git rev-parse HEAD)
+          echo "Found Presto pinned Velox SHA: ${VELOX_SHA}"
+          echo "velox_sha=${VELOX_SHA}" >> $GITHUB_OUTPUT
+          popd
+
+  build-and-upload-deps-amd64:
+    name: Build & Upload (${{ inputs.variant }}, AMD64)
+    runs-on: linux-amd64-cpu4
+    needs: [resolve-pinned-velox]
+    # Always run, but use resolved SHA for pinned variant
+    if: ${{ always() && (inputs.variant == 'upstream' || needs.resolve-pinned-velox.result == 'success') }}
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: runc
+      VARIANT: ${{ inputs.variant }}
+      # Use resolved SHA for pinned, input for upstream
+      VELOX_COMMIT: ${{ inputs.variant == 'pinned' && needs.resolve-pinned-velox.outputs.velox_sha || inputs.velox_commit }}
+
+    steps:
+      - &checkout-velox-testing
+        name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
+      - &checkout-presto
+        name: Checkout Presto
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.presto_repository }}
+          ref: ${{ inputs.presto_commit }}
+          path: presto
+
+      - &checkout-velox
+        name: Checkout Velox
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.velox_repository }}
+          ref: ${{ env.VELOX_COMMIT }}
+          path: velox
+
+      - &verify-s3-access
+        name: Verify S3 Access
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        run: |
+          # Configure AWS region
+          export AWS_DEFAULT_REGION="${S3_BUCKET_REGION}"
+          export AWS_REGION="${S3_BUCKET_REGION}"
+          
+          # Derive writer ARN string from reader ARN
+          WRITER_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
+          
+          echo "Verifying S3 credentials for bucket: ${S3_BUCKET_NAME}"
+          
+          # Assume WRITER IAM role
+          echo "Assuming WRITER IAM role..."
+          WRITER_CREDS_JSON=$(aws sts assume-role \
+            --role-arn "${WRITER_ARN_STRING}" \
+            --role-session-name "VerifyS3Access" \
+            --query "Credentials" \
+            --output json)
+          
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to assume WRITER IAM role."
+            exit 1
+          fi
+          echo "✅ Successfully assumed WRITER IAM role."
+          
+          # Set writer credentials
+          export AWS_ACCESS_KEY_ID=$(echo "$WRITER_CREDS_JSON" | jq -r '.AccessKeyId')
+          export AWS_SECRET_ACCESS_KEY=$(echo "$WRITER_CREDS_JSON" | jq -r '.SecretAccessKey')
+          export AWS_SESSION_TOKEN=$(echo "$WRITER_CREDS_JSON" | jq -r '.SessionToken')
+          
+          # Test LIST access
+          echo "Testing LIST access..."
+          if ! aws s3 ls "s3://${S3_BUCKET_NAME}/" > /dev/null; then
+            echo "❌ LIST access FAILED! Check writer role permissions."
+            exit 1
+          fi
+          echo "✅ LIST access verified."
+          
+          # Generate unique test file name
+          TEST_FILE="s3-access-test-$(date +%s)-${RANDOM}.txt"
+          TEST_CONTENT="S3 access verification test - $(date)"
+          
+          # Test WRITE access
+          echo "Testing WRITE access..."
+          if ! echo "${TEST_CONTENT}" | aws s3 cp - "s3://${S3_BUCKET_NAME}/${TEST_FILE}"; then
+            echo "❌ WRITE access FAILED! Check writer role permissions."
+            exit 1
+          fi
+          echo "✅ WRITE access verified."
+
+      - &build-deps
+        name: Build Presto Dependencies Container Image
+        working-directory: ${{ github.workspace }}/velox-testing/presto/scripts
+        run: ./build_centos_deps_image.sh
+
+      - name: Upload Presto Dependencies Container Image to S3 (AMD64)
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        working-directory: ${{ github.workspace }}/velox-testing/presto/scripts
+        run: |
+          # Replace 'reader' with 'writer' in ARN string for write access
+          export AWS_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
+          ./upload_centos_deps_image.sh "${VARIANT}"
+
+      - name: Upload Summary (AMD64)
+        if: success()
+        run: |
+          echo "### ✅ Presto Dependencies Image (AMD64) Uploaded Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Variant:** ${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          echo "**Presto Repository:** ${{ inputs.presto_repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Presto Commit:** ${{ inputs.presto_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Velox Repository:** ${{ inputs.velox_repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Velox Commit:** ${VELOX_COMMIT}" >> $GITHUB_STEP_SUMMARY
+          echo "**Architecture:** $(uname -m)" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** presto/prestissimo-dependency:centos9" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 File:** presto_deps_${VARIANT}_centos9_$(uname -m).tar.gz" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The AMD64 dependencies image has been uploaded to S3 and is now available for use in CI workflows." >> $GITHUB_STEP_SUMMARY
+
+  build-and-upload-deps-arm64:
+    name: Build & Upload (${{ inputs.variant }}, ARM64)
+    runs-on: linux-arm64-cpu4
+    needs: [resolve-pinned-velox]
+    if: ${{ always() && (inputs.variant == 'upstream' || needs.resolve-pinned-velox.result == 'success') }}
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: runc
+      VARIANT: ${{ inputs.variant }}
+      VELOX_COMMIT: ${{ inputs.variant == 'pinned' && needs.resolve-pinned-velox.outputs.velox_sha || inputs.velox_commit }}
+
+    steps:
+      - *checkout-velox-testing
+
+      - *checkout-presto
+
+      - *checkout-velox
+
+      - *verify-s3-access
+
+      - *build-deps
+
+      - name: Upload Presto Dependencies Container Image to S3 (ARM64)
+        env:
+          AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
+        working-directory: ${{ github.workspace }}/velox-testing/presto/scripts
+        run: |
+          # Replace 'reader' with 'writer' in ARN string for write access
+          export AWS_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
+          ./upload_centos_deps_image.sh "${VARIANT}"
+
+      - name: Upload Summary (ARM64)
+        if: success()
+        run: |
+          echo "### ✅ Presto Dependencies Image (ARM64) Uploaded Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Variant:** ${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          echo "**Presto Repository:** ${{ inputs.presto_repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Presto Commit:** ${{ inputs.presto_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Velox Repository:** ${{ inputs.velox_repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Velox Commit:** ${VELOX_COMMIT}" >> $GITHUB_STEP_SUMMARY
+          echo "**Architecture:** $(uname -m)" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** presto/prestissimo-dependency:centos9" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 File:** presto_deps_${VARIANT}_centos9_$(uname -m).tar.gz" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The ARM64 dependencies image has been uploaded to S3 and is now available for use in CI workflows." >> $GITHUB_STEP_SUMMARY

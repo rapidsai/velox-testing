@@ -35,6 +35,11 @@ on:
         description: 'Set VELOX_ENABLE_BACKWARD_COMPATIBLE in Velox build'
         type: string
         required: false
+      deps_variant:
+        description: 'Deps image variant to fetch (upstream or pinned)'
+        type: string
+        required: false
+        default: 'upstream'
 
 jobs:
   build-and-test:
@@ -69,7 +74,7 @@ jobs:
           S3_BUCKET_REGION: ${{ vars.S3_BUCKET_REGION }}
         run: |
           pushd velox-testing/presto/scripts
-          ./fetch_centos_deps_image.sh
+          ./fetch_centos_deps_image.sh ${{ inputs.deps_variant }}
           popd
       - name: Set Velox Backward Compatibility Flag
         # for Velox builds insert VELOX_ENABLE_BACKWARD_COMPATIBILITY definition?
