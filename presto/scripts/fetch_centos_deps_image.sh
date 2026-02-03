@@ -34,20 +34,26 @@ ARCH=$(uname -m)
 BUCKET_SUBDIR="presto-docker-images"
 IMAGE_FILE="presto_deps_${VARIANT}_centos9_${ARCH}.tar.gz"
 
-echo "Fetching Presto deps image (variant: ${VARIANT})"
+#
+# check for existing container image - skip download if already present
+#
+echo "Checking for existing Docker image ${IMAGE_NAME}..."
+if [[ -n $(docker images -q ${IMAGE_NAME}) ]]; then
+  echo "✓ Presto dependencies/run-time (Variant: ${VARIANT}) Docker image already exists, skipping download"
+  exit 0
+fi
+
+echo "Presto dependencies/run-time (Variant: ${VARIANT}) container image not found, fetching from S3..."
 
 #
-# check for existing container image
+# fetch container image from S3 bucket
 #
-
-validate_docker_image ${IMAGE_NAME}
-
-echo "Presto dependencies/run-time container image not found"
-
-#
-# try to pull container image from our S3 bucket
-#
-
 fetch_docker_image_from_s3 ${IMAGE_NAME} ${BUCKET_SUBDIR} ${IMAGE_FILE}
 
-echo "Failed to fetch pre-built Presto dependencies/run-time container image"
+if [[ $? -eq 0 ]]; then
+  echo "✓ Successfully fetched Presto dependencies image"
+  exit 0
+else
+  echo "ERROR: Failed to fetch Presto dependencies image"
+  exit 1
+fi

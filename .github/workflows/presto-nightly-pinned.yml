@@ -43,4 +43,5 @@ jobs:
       run_cpu_tests: true
       run_gpu_tests: true
       set_velox_backward_compatible: false
+      deps_variant: pinned
     secrets: inherit
