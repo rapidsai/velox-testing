@@ -30,6 +30,10 @@ def parse_args():
                         help="Comma-delimited list of GPU IDs")
     parser.add_argument("--kvikio-threads", type=int, default=None, dest="kvikio_threads", required=False,
                         help="Number of KvikIO threads (optional).")
+    parser.add_argument("--dev-mode", type=str_to_bool, default=False, dest="dev_mode", required=False,
+                        help="Whether to render in dev (gpu-dev) mode (default: false).")
+    parser.add_argument("--config-variant", type=str, default="gpu", dest="config_variant", required=False,
+                        help="Config directory suffix under presto/docker/config/generated (e.g. 'gpu', 'gpu-dev').")
     return parser.parse_args()
 
 def main() -> int:
@@ -66,7 +70,9 @@ def main() -> int:
         num_workers=parsed_args.num_workers,
         workers=workers,
         single_container=parsed_args.single_container,
-        kvikio_threads=parsed_args.kvikio_threads
+        kvikio_threads=parsed_args.kvikio_threads,
+        dev_mode=parsed_args.dev_mode,
+        config_variant=parsed_args.config_variant,
     )
 
     os.makedirs(os.path.dirname(parsed_args.output_path), exist_ok=True)

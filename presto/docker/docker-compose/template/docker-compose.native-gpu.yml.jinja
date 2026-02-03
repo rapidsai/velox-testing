@@ -1,14 +1,37 @@
+{%- set dev_mode = dev_mode | default(false) -%}
+{%- set config_variant = config_variant | default('gpu') -%}
+
+{%- set worker_service_base = 'presto-native-worker-gpu-dev' if dev_mode else 'presto-native-worker-gpu' -%}
+{%- set worker_image = worker_service_base ~ ':${IMAGE_TAG:-latest}' -%}
+{%- set config_root = '../../config/generated/' ~ config_variant -%}
+
 x-presto-native-worker-gpu: &gpu_worker_base
   extends:
     file: ../../docker-compose.common.yml
-    service: presto-base-native-worker
-  image: presto-native-worker-gpu:${IMAGE_TAG:-latest}
+    service: {% if dev_mode %}presto-base-volumes{% else %}presto-base-native-worker{% endif %}
+  image: {{ worker_image }}
+  {% if dev_mode %}
+  build:
+    # This compose is rendered into docker-compose/generated/, so we need one extra
+    # level of '..' compared to compose files living directly in presto/docker/.
+    # Target context is the common parent of velox-testing/, presto/, and velox/.
+    context: ../../../../../
+    dockerfile: velox-testing/presto/docker/native_dev_build.dockerfile
+  {% else %}
   build:
     args:
       - GPU=ON
+  {% endif %}
   runtime: nvidia
   cap_add:
+    {% if dev_mode %}
+    - SYS_PTRACE
+    {% endif %}
     - IPC_LOCK
+  {% if dev_mode %}
+  security_opt:
+    - seccomp=unconfined
+  {% endif %}
   pid: host
   ulimits:
     memlock: -1
@@ -38,10 +61,15 @@ x-presto-native-worker-gpu: &gpu_worker_base
   depends_on:
     - presto-coordinator
   volumes:
-    - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
-    - ../../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
-    - ../../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
-    - ../../config/generated/gpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+    - {{ config_root }}/etc_common:/opt/presto-server/etc
+    - {{ config_root }}/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+    - {{ config_root }}/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+    - {{ config_root }}/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+    {% if dev_mode %}
+    - ../../../../presto:/workspace/presto:rw
+    - ../../../../velox:/workspace/presto/presto-native-execution/velox:rw
+    - ${PRESTO_DEV_STATE_ROOT:-../devstate}:/workspace:rw
+    {% endif %}
 
 services:
   presto-coordinator:
@@ -49,21 +77,31 @@ services:
       file: ../../docker-compose.common.yml
       service: presto-base-coordinator
     volumes:
-      - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
-      - ../../config/generated/gpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
-      - ../../config/generated/gpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
-      - ../../config/generated/gpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      - {{ config_root }}/etc_common:/opt/presto-server/etc
+      - {{ config_root }}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
+      - {{ config_root }}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - {{ config_root }}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
 
   {% if workers|length > 1 and not single_container %}
   # Separate GPU workers - runs each worker in a separate container, pinned to a specific GPU
   {% for gpu_id in workers %}
-  presto-native-worker-gpu-{{ gpu_id }}:
+  {{ worker_service_base }}-{{ gpu_id }}:
     <<: *gpu_worker_base
-    container_name: presto-native-worker-gpu-{{ gpu_id }}
+    container_name: {{ worker_service_base }}-{{ gpu_id }}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE}
       PROFILE_ARGS: ${PROFILE_ARGS}
+      {% if dev_mode %}
+      HOME: /workspace/home
+      PRESTO_BUILD_TYPE: ${PRESTO_BUILD_TYPE:-RelWithDebInfo}
+      PRESTO_BUILD_DIR_NAME: ${PRESTO_BUILD_DIR_NAME:-relwithdebinfo}
+      PRESTO_REBUILD: ${PRESTO_REBUILD:-0}
+      PRESTO_FORCE_REBUILD: ${PRESTO_FORCE_REBUILD:-0}
+      PRESTO_SKIP_SERVER: ${PRESTO_SKIP_SERVER:-0}
+      PRESTO_NUM_THREADS: ${PRESTO_NUM_THREADS:-12}
+      CUDA_ARCHITECTURES: ${CUDA_ARCHITECTURES:-}
+      {% endif %}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
@@ -75,21 +113,43 @@ services:
       KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
     volumes:
-      - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
-      - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc/config.properties
-      - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      {% if dev_mode %}
+      - {{ config_root }}/etc_common:/opt/presto-server/etc
+      {% endif %}
+      - {{ config_root }}/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
+      - {{ config_root }}/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc/config.properties
+      - {{ config_root }}/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      {% if dev_mode %}
+      - ../../../../../presto:/workspace/presto:rw
+      - ../../../../../velox:/workspace/presto/presto-native-execution/velox:rw
+      - ${PRESTO_DEV_STATE_ROOT:-../devstate}:/workspace:rw
+      {% endif %}
   {% endfor %}
   {% else %}
   # Combined GPU worker - runs {{ workers|length if workers else 1 }} presto servers in parallel, each pinned to a specific GPU
-  presto-native-worker-gpu:
+  {{ worker_service_base }}:
     <<: *gpu_worker_base
-    container_name: presto-native-worker-gpu
+    container_name: {{ worker_service_base }}
 {%- if workers %}
+    {% if dev_mode %}
+    command: ["bash", "/opt/launch_presto_server_dev.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
+    {% else %}
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
+    {% endif %}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE}
       PROFILE_ARGS: ${PROFILE_ARGS}
+      {% if dev_mode %}
+      HOME: /workspace/home
+      PRESTO_BUILD_TYPE: ${PRESTO_BUILD_TYPE:-RelWithDebInfo}
+      PRESTO_BUILD_DIR_NAME: ${PRESTO_BUILD_DIR_NAME:-relwithdebinfo}
+      PRESTO_REBUILD: ${PRESTO_REBUILD:-0}
+      PRESTO_FORCE_REBUILD: ${PRESTO_FORCE_REBUILD:-0}
+      PRESTO_SKIP_SERVER: ${PRESTO_SKIP_SERVER:-0}
+      PRESTO_NUM_THREADS: ${PRESTO_NUM_THREADS:-12}
+      CUDA_ARCHITECTURES: ${CUDA_ARCHITECTURES:-}
+      {% endif %}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
@@ -120,13 +180,18 @@ services:
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}
-      - ../../config/generated/gpu/etc_common:/opt/presto-server/etc{{ gpu_id }}
+      - {{ config_root }}/etc_common:/opt/presto-server/etc{{ gpu_id }}
 {%- endfor %}
 {%- for gpu_id in workers %}
       # worker {{ gpu_id }} configs
-      - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc{{ gpu_id }}/node.properties
-      - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc{{ gpu_id }}/config.properties
-      - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc{{ gpu_id }}/catalog/hive.properties
+      - {{ config_root }}/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc{{ gpu_id }}/node.properties
+      - {{ config_root }}/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc{{ gpu_id }}/config.properties
+      - {{ config_root }}/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc{{ gpu_id }}/catalog/hive.properties
 {%- endfor %}
+      {% if dev_mode %}
+      - ../../../../../presto:/workspace/presto:rw
+      - ../../../../../velox:/workspace/presto/presto-native-execution/velox:rw
+      - ${PRESTO_DEV_STATE_ROOT:-../devstate}:/workspace:rw
+      {% endif %}
 {%- endif %}
 {%- endif %}

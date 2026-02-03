@@ -22,7 +22,7 @@ function to_abs_path() {
 }
 
 function prepare_gpu_dev_environment() {
-  local default_state_root="../devstate"
+  local default_state_root="${SCRIPT_DIR}/../devstate"
   local configured_root="${PRESTO_DEV_STATE_ROOT:-$default_state_root}"
 
   mkdir -p "$configured_root"
@@ -136,7 +136,9 @@ elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu-dev" ]]; then
-  DOCKER_COMPOSE_FILE="native-gpu-dev"
+  # Use the same Jinja template as the gpu variant, but render it in dev mode and
+  # point it at the gpu-dev generated configs.
+  DOCKER_COMPOSE_FILE="native-gpu"
   prepare_gpu_dev_environment
 
   # Map the common "--build-type" flag to the dev container env vars unless the
@@ -257,19 +259,29 @@ fi
 
 DOCKER_COMPOSE_FILE_PATH="${SCRIPT_DIR}/../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml"
 # For GPU, the docker-compose file is a Jinja template. Render it before any docker compose operations.
-if [[ "$VARIANT_TYPE" == "gpu" ]]; then
+if is_gpu_variant; then
   TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
   RENDERED_DIR="${SCRIPT_DIR}/../docker/docker-compose/generated"
   mkdir -p "$RENDERED_DIR"
-  RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
+  if [[ "$VARIANT_TYPE" == "gpu-dev" ]]; then
+    RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.dev.rendered.yml"
+  else
+    RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
+  fi
   # Default to 0 if not provided, which results in no per-GPU workers being rendered.
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
+  DEV_MODE_ARG=()
+  CONFIG_VARIANT_ARG=()
+  if [[ "$VARIANT_TYPE" == "gpu-dev" ]]; then
+    DEV_MODE_ARG=(--dev-mode true)
+    CONFIG_VARIANT_ARG=(--config-variant gpu-dev)
+  fi
   if [[ -n $GPU_IDS ]]; then
-    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS"
+    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS" "${DEV_MODE_ARG[@]}" "${CONFIG_VARIANT_ARG[@]}"
   else
-    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS"
+    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS" "${DEV_MODE_ARG[@]}" "${CONFIG_VARIANT_ARG[@]}"
   fi
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi

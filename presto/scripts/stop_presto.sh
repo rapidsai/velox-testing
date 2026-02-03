@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 GPU_FILE="${SCRIPT_DIR}/../docker/docker-compose/generated/docker-compose.native-gpu.rendered.yml"
-GPU_DEV_FILE="${SCRIPT_DIR}/../docker/docker-compose.native-gpu-dev.yml"
+GPU_DEV_FILE="${SCRIPT_DIR}/../docker/docker-compose/generated/docker-compose.native-gpu.dev.rendered.yml"
 JAVA_FILE="${SCRIPT_DIR}/../docker/docker-compose.java.yml"
 CPU_FILE="${SCRIPT_DIR}/../docker/docker-compose.native-cpu.yml"
 

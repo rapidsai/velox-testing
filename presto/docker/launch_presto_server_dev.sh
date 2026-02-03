@@ -135,7 +135,18 @@ else
     log "ERROR: presto_server binary missing at ${PRESTO_BIN}"
     exit 1
   fi
-  log "Starting presto_server from ${PRESTO_BIN}"
-  exec "${PROFILE_CMD[@]}" "$PRESTO_BIN" --etc-dir="$PRESTO_ETC_DIR"
+  if [[ $# -gt 0 ]]; then
+    # Launch multiple presto servers in parallel, each pinned to a different GPU.
+    # The GPU IDs are passed as command-line arguments and the template mounts
+    # per-GPU etc dirs at /opt/presto-server/etc<gpu_id>.
+    log "Starting presto_server(s) from ${PRESTO_BIN} for GPU IDs: $*"
+    for gpu_id in "$@"; do
+      CUDA_VISIBLE_DEVICES=$gpu_id "${PROFILE_CMD[@]}" "$PRESTO_BIN" --etc-dir="${PRESTO_ETC_DIR}${gpu_id}" &
+    done
+    wait
+  else
+    log "Starting presto_server from ${PRESTO_BIN}"
+    exec "${PROFILE_CMD[@]}" "$PRESTO_BIN" --etc-dir="$PRESTO_ETC_DIR"
+  fi
 fi
 

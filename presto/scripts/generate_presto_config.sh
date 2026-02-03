@@ -173,7 +173,7 @@ fi
 
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
-if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" && "$VARIANT_TYPE" == "gpu" ]]; then
+if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" ]] && is_gpu_variant; then
   # Count the number of GPU IDs provided
   IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
   for i in "${GPU_ID_ARRAY[@]}"; do

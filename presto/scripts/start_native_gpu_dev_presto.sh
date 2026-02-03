@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Optional local cuDF checkout for Velox-cuDF integration builds.
 #
 # Usage:
