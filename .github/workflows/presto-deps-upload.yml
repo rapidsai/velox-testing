@@ -91,6 +91,7 @@ jobs:
           popd
 
   build-and-upload-deps-amd64:
+    name: Build & Upload (${{ inputs.variant }}, AMD64)
     runs-on: linux-amd64-cpu4
     needs: [resolve-pinned-velox]
     # Always run, but use resolved SHA for pinned variant
@@ -218,6 +219,7 @@ jobs:
           echo "The AMD64 dependencies image has been uploaded to S3 and is now available for use in CI workflows." >> $GITHUB_STEP_SUMMARY
 
   build-and-upload-deps-arm64:
+    name: Build & Upload (${{ inputs.variant }}, ARM64)
     runs-on: linux-arm64-cpu4
     needs: [resolve-pinned-velox]
     if: ${{ always() && (inputs.variant == 'upstream' || needs.resolve-pinned-velox.result == 'success') }}
