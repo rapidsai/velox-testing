@@ -1,0 +1,105 @@
+{
+  "owner" : "test_user",
+  "tableType" : "EXTERNAL_TABLE",
+  "dataColumns" : [ {
+    "name" : "c_custkey",
+    "type" : "bigint"
+  }, {
+    "name" : "c_name",
+    "type" : "string"
+  }, {
+    "name" : "c_address",
+    "type" : "string"
+  }, {
+    "name" : "c_nationkey",
+    "type" : "int"
+  }, {
+    "name" : "c_phone",
+    "type" : "string"
+  }, {
+    "name" : "c_acctbal",
+    "type" : "double"
+  }, {
+    "name" : "c_mktsegment",
+    "type" : "string"
+  }, {
+    "name" : "c_comment",
+    "type" : "string"
+  } ],
+  "partitionColumns" : [ ],
+  "parameters" : {
+    "presto_version" : "testversion",
+    "presto_query_id" : "20260128_222728_00003_guzmg",
+    "EXTERNAL" : "TRUE",
+    "numFiles" : "0",
+    "numRows" : "4500000000",
+    "rawDataSize" : "0",
+    "totalSize" : "0"
+  },
+  "storageFormat" : {
+    "serDe" : "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+    "inputFormat" : "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+    "outputFormat" : "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+  },
+  "storageParameters" : {
+    "preferred_ordering_columns" : ""
+  },
+  "serdeParameters" : { },
+  "externalLocation" : "file:/var/lib/presto/data/hive/data/user_data/date-scale-30000/customer",
+  "columnStatistics" : {
+    "c_custkey" : {
+      "integerStatistics" : {
+        "min" : 1,
+        "max" : 4500000000
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 4500000000
+    },
+    "c_phone" : {
+      "maxValueSizeInBytes" : 19,
+      "totalSizeInBytes" : 85500000000,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 1971725483
+    },
+    "c_acctbal" : {
+      "doubleStatistics" : {
+        "min" : -999.99,
+        "max" : 9999.99
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 1106028
+    },
+    "c_mktsegment" : {
+      "maxValueSizeInBytes" : 14,
+      "totalSizeInBytes" : 58499993631,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 5
+    },
+    "c_address" : {
+      "maxValueSizeInBytes" : 44,
+      "totalSizeInBytes" : 130499901845,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 237625340
+    },
+    "c_nationkey" : {
+      "integerStatistics" : {
+        "min" : 0,
+        "max" : 24
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 25
+    },
+    "c_name" : {
+      "maxValueSizeInBytes" : 23,
+      "totalSizeInBytes" : 102500000001,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 4417096316
+    },
+    "c_comment" : {
+      "maxValueSizeInBytes" : 120,
+      "totalSizeInBytes" : 344246393374,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 300814874
+    }
+  }
+}

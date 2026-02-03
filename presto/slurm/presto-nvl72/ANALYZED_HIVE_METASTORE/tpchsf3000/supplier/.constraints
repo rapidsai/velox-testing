@@ -1,0 +1,50 @@
+[ {
+  "@type" : "notnullconstraint",
+  "name" : "416bbdbf-7a7b-45bb-a3a6-cdb363a3afc3",
+  "columns" : [ "s_address" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "8d945ad6-a48e-4c85-925f-3191f57900e8",
+  "columns" : [ "s_nationkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "d4cfa3b0-39fd-4138-b53c-8fed927e2324",
+  "columns" : [ "s_comment" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "51e201e9-491c-47a3-a7f8-61d84ddbabde",
+  "columns" : [ "s_suppkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "57f537f9-b58f-40b2-a7dd-64a5e6d0c045",
+  "columns" : [ "s_name" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "0832f25d-a9c6-428b-8461-a40fdac44f69",
+  "columns" : [ "s_phone" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "76414768-7a1b-4d90-a173-f1df4e401df3",
+  "columns" : [ "s_acctbal" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+} ]

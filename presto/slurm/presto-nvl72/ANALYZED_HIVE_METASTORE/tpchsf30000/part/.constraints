@@ -1,0 +1,64 @@
+[ {
+  "@type" : "notnullconstraint",
+  "name" : "2053dba0-a9db-4d85-a817-a8f1412c8a28",
+  "columns" : [ "p_type" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "1343bad6-7d1b-4d44-aedc-2c3612dda96e",
+  "columns" : [ "p_comment" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "2c11f718-8e7c-42cd-9458-57ba38b81445",
+  "columns" : [ "p_brand" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "7f66b309-d92c-4536-81bb-8e031279a806",
+  "columns" : [ "p_size" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "2e240689-c4ec-4fe7-aeb5-1035a99a86a9",
+  "columns" : [ "p_partkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "ced8256f-e7fe-4b51-a60c-4a5ae044b2d1",
+  "columns" : [ "p_mfgr" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "e23dbfc7-1542-44ef-a126-093bcd856b17",
+  "columns" : [ "p_retailprice" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "a834cfc6-2773-4b60-a2cb-3001e88fa192",
+  "columns" : [ "p_name" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "8559e439-c492-48c8-9678-f413bb9f61f7",
+  "columns" : [ "p_container" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+} ]

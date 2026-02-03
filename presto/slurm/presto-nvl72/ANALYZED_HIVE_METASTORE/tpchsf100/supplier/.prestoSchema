@@ -1,0 +1,96 @@
+{
+  "owner" : "test_user",
+  "tableType" : "EXTERNAL_TABLE",
+  "dataColumns" : [ {
+    "name" : "s_suppkey",
+    "type" : "bigint"
+  }, {
+    "name" : "s_name",
+    "type" : "string"
+  }, {
+    "name" : "s_address",
+    "type" : "string"
+  }, {
+    "name" : "s_nationkey",
+    "type" : "int"
+  }, {
+    "name" : "s_phone",
+    "type" : "string"
+  }, {
+    "name" : "s_acctbal",
+    "type" : "double"
+  }, {
+    "name" : "s_comment",
+    "type" : "string"
+  } ],
+  "partitionColumns" : [ ],
+  "parameters" : {
+    "presto_version" : "testversion",
+    "presto_query_id" : "20260127_202145_00026_9v9nd",
+    "EXTERNAL" : "TRUE",
+    "numFiles" : "0",
+    "numRows" : "1000000",
+    "rawDataSize" : "0",
+    "totalSize" : "0"
+  },
+  "storageFormat" : {
+    "serDe" : "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+    "inputFormat" : "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+    "outputFormat" : "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+  },
+  "storageParameters" : {
+    "preferred_ordering_columns" : ""
+  },
+  "serdeParameters" : { },
+  "externalLocation" : "file:/var/lib/presto/data/hive/data/user_data/date-scale-100/supplier",
+  "columnStatistics" : {
+    "s_comment" : {
+      "maxValueSizeInBytes" : 104,
+      "totalSizeInBytes" : 66495624,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 1000000
+    },
+    "s_phone" : {
+      "maxValueSizeInBytes" : 19,
+      "totalSizeInBytes" : 19000000,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 1000000
+    },
+    "s_nationkey" : {
+      "integerStatistics" : {
+        "min" : 0,
+        "max" : 24
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 25
+    },
+    "s_name" : {
+      "maxValueSizeInBytes" : 22,
+      "totalSizeInBytes" : 22000000,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 970862
+    },
+    "s_acctbal" : {
+      "doubleStatistics" : {
+        "min" : -999.99,
+        "max" : 9999.98
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 641174
+    },
+    "s_address" : {
+      "maxValueSizeInBytes" : 44,
+      "totalSizeInBytes" : 28997280,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 992449
+    },
+    "s_suppkey" : {
+      "integerStatistics" : {
+        "min" : 1,
+        "max" : 1000000
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 981802
+    }
+  }
+}

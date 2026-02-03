@@ -1,0 +1,57 @@
+[ {
+  "@type" : "notnullconstraint",
+  "name" : "71813aaf-23b8-432a-a796-6e4254943c7b",
+  "columns" : [ "c_phone" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "e12fe442-a574-4a7a-86b7-16ee644f4215",
+  "columns" : [ "c_custkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "7a23cb39-a3a9-4651-a920-5841fea270da",
+  "columns" : [ "c_comment" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "c9bf47d9-adf1-4fe9-9876-2d1ac02910e8",
+  "columns" : [ "c_mktsegment" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "b16fd77d-60bb-4e37-8919-2b80532f15ec",
+  "columns" : [ "c_address" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "5de13c23-6e80-4f8b-9c06-ff5712692f51",
+  "columns" : [ "c_acctbal" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "ada809be-d008-4e6e-802e-dfd87f29a7b9",
+  "columns" : [ "c_nationkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "85a30b41-3f2a-4cd9-b3c4-61ecbaa5601b",
+  "columns" : [ "c_name" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+} ]

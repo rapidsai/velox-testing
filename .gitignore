@@ -21,3 +21,8 @@ presto/docker/config/generated/
 
 # Generated Presto Docker Compose files
 presto/docker/docker-compose/generated/
+
+presto/slurm/presto-nvl72/logs/
+presto/slurm/presto-nvl72/*.err
+presto/slurm/presto-nvl72/*.out
+presto/slurm/presto-nvl72/result_dir/

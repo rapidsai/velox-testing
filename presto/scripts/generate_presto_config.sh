@@ -138,7 +138,8 @@ EOF
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
-    echo "cudf.exchange.server.port=0000" >> ${WORKER_CONFIG}  
+    sed -i 's/query.max-execution-time=.*/query.max-execution-time=10m/g' ${COORD_CONFIG}
+    echo "cudf.exchange.server.port=0000" >> ${WORKER_CONFIG}
 
     if [[ ${NUM_WORKERS} -eq 1 ]]; then
       # Adds a cluster tag for gpu variant

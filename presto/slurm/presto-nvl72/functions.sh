@@ -65,11 +65,11 @@ function run_coord_image {
 --container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${REPO_ROOT}:/workspace,\
-${DATA}:/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
+${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
     else
@@ -79,11 +79,11 @@ ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 --container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${REPO_ROOT}:/workspace,\
-${DATA}:/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
+${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
     fi
@@ -172,6 +172,7 @@ function run_worker {
 
     # Create unique data dir per worker.
     mkdir -p ${worker_data}
+    mkdir -p ${worker_data}/hive/data/user_data
     mkdir -p ${REPO_ROOT}/.hive_metastore
 
     # Need to fix this to run with cpu nodes as well.
@@ -184,12 +185,12 @@ function run_worker {
 --export=ALL \
 --container-env=LD_LIBRARY_PATH="/usr/lib64/presto-native-libs:/usr/local/lib:/usr/lib64" \
 --container-mounts=${REPO_ROOT}:/workspace,\
-${DATA}:/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${worker_node}:/opt/presto-server/etc/node.properties,\
 ${worker_config}:/opt/presto-server/etc/config.properties,\
 ${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
+${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 --container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
 --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
@@ -203,13 +204,20 @@ function setup_benchmark {
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
     local scale_factor=$1
     local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/data; yum install python3.12 -y; yum install jq -y; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 -y; yum install jq -y; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
 
     # Copy the hive metastore from the source of truth to the container.  This means we don't have to create
     # or analyze the tables.
-    for dataset in $(ls /mnt/data/tpch-rs/HIVE_METASTORE-BZ-MG-KN); do
-        if [[ -d ${REPO_ROOT}/.hive_metastore/${dataset} ]]; then
-            cp -r /mnt/data/tpch-rs/HIVE_METASTORE-BZ-MG-KN/${dataset} ${REPO_ROOT}/.hive_metastore/${dataset}
+    for dataset in $(ls ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE); do
+	if [[ -d ${REPO_ROOT}/.hive_metastore/${dataset} ]]; then
+	    echo "replacing dataset metadata: $dataset"
+	    cp -r ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE/${dataset} ${REPO_ROOT}/.hive_metastore/
+	    for table in $(ls ${REPO_ROOT}/.hive_metastore/${dataset}); do
+		# Need to remove checksum file (it will be recreated).
+		if [ -f ${REPO_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc ]; then
+		    rm ${REPO_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc
+		fi
+	    done
         fi
     done
 }
@@ -221,7 +229,7 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/data; yum install python3.12 jq -y > /dev/null; cd /workspace/presto/scripts; ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir" "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 jq -y > /dev/null; cd /workspace/presto/scripts; ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.
