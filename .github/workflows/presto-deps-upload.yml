@@ -2,7 +2,6 @@ name: Presto Dependencies Upload to S3
 description: Upload Presto Dependencies Image to S3
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       variant:
