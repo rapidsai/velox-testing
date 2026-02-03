@@ -14,7 +14,7 @@ services:
       file: docker-compose.common.yml
       service: presto-base-volumes
     container_name: presto-native-worker-gpu-dev
-    image: presto-native-worker-gpu-dev:latest
+    image: presto-native-worker-gpu-dev:${IMAGE_TAG:-latest}
     build:
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_dev_build.dockerfile
