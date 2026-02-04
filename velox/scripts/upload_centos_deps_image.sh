@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -30,4 +32,3 @@ else
   echo "Failed to upload Velox dependencies/run-time container image to S3"
   exit 1
 fi
-

@@ -100,7 +100,7 @@ def generate_data_files_with_tpchgen(args):
 
 # This dictionary maps each table to the number of partitions it should have based on it's
 # expected file size relative to the SF.
-# We generate a small sample bechmark (sf-0.01) to sample the ratio of how many rows are generated.
+# We generate a small sample benchmark (sf-0.01) to sample the ratio of how many rows are generated.
 def get_table_sf_ratios(scale_factor, max_rows):
     int_scale_factor = int(scale_factor)
     int_scale_factor = 1 if int_scale_factor < 1 else int_scale_factor
