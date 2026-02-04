@@ -8,18 +8,14 @@ set -x
 # This script creates the Presto schema and tables for existing TPC-H data
 
 # Source helper functions
-source /mnt/home/misiug/veloxtesting/presto-nvl72/echo_helpers.sh
-source /mnt/home/misiug/veloxtesting/presto-nvl72/functions.sh
+source ./echo_helpers.sh
+source ./functions.sh
 
 # ==============================================================================
 # Setup and Validation
 # ==============================================================================
 echo "Setting up Presto environment for schema creation..."
-export VARIANT_TYPE=cpu
 setup
-
-coord_config="${CONFIGS}/etc_coordinator/config_native.properties"
-sed -i "s/cluster-tag.*//g" ${coord_config}
 
 # ==============================================================================
 # Start Coordinator
@@ -27,8 +23,6 @@ sed -i "s/cluster-tag.*//g" ${coord_config}
 echo "Starting Presto coordinator on ${COORD}..."
 run_coordinator
 wait_until_coordinator_is_running
-
-
 
 # ==============================================================================
 # Start Workers (GPU workers for schema creation)

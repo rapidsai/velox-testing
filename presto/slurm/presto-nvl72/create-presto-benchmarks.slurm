@@ -16,20 +16,26 @@ if [ -z "${SCALE_FACTOR:-}" ]; then
     exit 1
 fi
 export SCALE_FACTOR
+if [ -z "${SCRIPT_DIR:-}" ]; then
+    echo "Error: SCRIPT_DIR is required."
+    exit 1
+fi
+export SCRIPT_DIR
 
 # Directory Configuration
-export REPO_ROOT=/mnt/home/misiug
+export REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 export DATA=/mnt/data/tpch-rs
-export IMAGE_DIR=/mnt/home/misiug/images
-export LOGS=/mnt/home/misiug/veloxtesting/presto-nvl72/logs
-export CONFIGS=${REPO_ROOT}/veloxtesting/config/generated/cpu
+export IMAGE_DIR=/mnt/data/images/presto
+export LOGS=$SCRIPT_DIR/logs
+export VARIANT_TYPE=cpu
+export CONFIGS=$REPO_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
 # Container Images
 # Coordinator: ${IMAGE_DIR}/presto-coordinator-test.sqsh
 # Worker: ${IMAGE_DIR}/${WORKER_IMAGE}.sqsh (CPU workers required for ANALYZE)
-export WORKER_IMAGE=presto-native-worker-cpu
-export NUM_NODES=1
-export NUM_GPUS_PER_NODE=1
+export WORKER_IMAGE=presto-native-worker-$VARIANT_TYPE
+export NUM_NODES=$SLURM_JOB_NUM_NODES
+export NUM_GPUS_PER_NODE=4
 
 # Presto Configuration
 export PORT=9200

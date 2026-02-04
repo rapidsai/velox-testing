@@ -157,7 +157,7 @@ function run_worker {
     local worker_config="${CONFIGS}/etc_worker_${worker_id}/config_native.properties"
     local worker_node="${CONFIGS}/etc_worker_${worker_id}/node.properties"
     local worker_hive="${CONFIGS}/etc_worker_${worker_id}/catalog/hive.properties"
-    local worker_data="/mnt/home/misiug/veloxtesting/presto-nvl72/worker_data_${worker_id}"
+    local worker_data="${SCRIPT_DIR}/worker_data_${worker_id}"
 
     # Create unique configuration/data files for each worker:
     # Give each worker a unique port.
@@ -380,7 +380,7 @@ function create_output_prefix() {
 
 # Push results to gitlab.
 function push_csv() {
-    local results_dir="/mnt/home/misiug/veloxtesting/presto-nvl72/results_dir"
+    local results_dir="${SCRIPT_DIR}/results_dir"
     local timestamp="$(date +%Y%m%d_%H%M%S)"
     local run_dir="${results_dir}/run_${timestamp}_scale${SCALE_FACTOR}"
 
@@ -388,8 +388,8 @@ function push_csv() {
     mkdir -p ${run_dir}
 
     # Copy result_dir if it exists
-    if [ -d "/mnt/home/misiug/veloxtesting/presto-nvl72/result_dir" ]; then
-        cp -r /mnt/home/misiug/veloxtesting/presto-nvl72/result_dir ${run_dir}/
+    if [ -d "${results_dir}" ]; then
+        cp -r ${results_dir} ${run_dir}/
     fi
 
     # Copy logs
@@ -399,8 +399,8 @@ function push_csv() {
 
     # Copy slurm output files from the job directory
     if [ -n "${SLURM_JOB_ID}" ]; then
-        cp /mnt/home/misiug/veloxtesting/presto-nvl72/presto-tpch-run_${SLURM_JOB_ID}.out ${run_dir}/ 2>/dev/null || true
-        cp /mnt/home/misiug/veloxtesting/presto-nvl72/presto-tpch-run_${SLURM_JOB_ID}.err ${run_dir}/ 2>/dev/null || true
+        cp ${SCRIPT_DIR}/presto-tpch-run_${SLURM_JOB_ID}.out ${run_dir}/ 2>/dev/null || true
+        cp ${SCRIPT_DIR}/presto-tpch-run_${SLURM_JOB_ID}.err ${run_dir}/ 2>/dev/null || true
     fi
 
     # Copy configs
