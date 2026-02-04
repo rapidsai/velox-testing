@@ -1,54 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Examples:
-#
-#   # Using child scripts (recommended for local development):
-#   ./velox/scripts/create_staging.sh --target-path ../velox
-#   ./presto/scripts/create_staging.sh --target-path ../presto
-#
-#   # Using parent script directly with Velox defaults:
-#   ./scripts/create_staging_branch.sh \
-#     --target-path ../velox \
-#     --base-repository facebookincubator/velox \
-#     --base-branch main \
-#     --target-branch staging \
-#     --pr-labels "cudf"
-#
-#   # Manual PR list (auto-fetch disabled automatically):
-#   ./scripts/create_staging_branch.sh \
-#     --target-path ../velox \
-#     --base-repository facebookincubator/velox \
-#     --manual-pr-numbers "12345,12346,12347"
-#
-#   # Multiple PR labels (comma-separated):
-#   ./scripts/create_staging_branch.sh \
-#     --target-path ../velox \
-#     --base-repository facebookincubator/velox \
-#     --pr-labels "cudf,gpu-support"
-#
-#   # CI mode (no interactive prompt, pushes to remote):
-#   GH_TOKEN=... ./scripts/create_staging_branch.sh \
-#     --mode ci \
-#     --target-path ./velox \
-#     --base-repository facebookincubator/velox \
-#     --force-push true
-#
-#   # Merge with additional repository (e.g., cuDF exchange):
-#   ./scripts/create_staging_branch.sh \
-#     --target-path ../velox \
-#     --base-repository facebookincubator/velox \
-#     --pr-labels "cudf" \
-#     --additional-repository IBM/velox \
-#     --additional-branch ibm-research-preview
-#
-#   # Step-by-step execution (for CI debugging):
-#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step reset
-#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step fetch-prs
-#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step test-merge
-#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step merge
-#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step manifest
-#   ./scripts/create_staging_branch.sh --target-path ./velox ... --step push
+# Staging Branch Creator
+# Run with --help for usage and examples.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -140,10 +94,10 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
 
-Required:
-  --target-path /path/to/velox     Local path to a Velox fork
+Creates a staging branch by merging PRs from a base repository.
 
-Optional:
+Required:
+  --target-path /path/to/repo      Local path to target repository
 
 Options:
   --base-repository owner/repo     Base repository (default: ${BASE_REPO})
@@ -161,12 +115,49 @@ Options:
   --step name                      Run a single step (see below)
   -h, --help                       Show this help
 
-Env:
+Environment:
   GH_TOKEN                         GitHub token for cloning/pushing and gh API calls
+
+Steps (for --step option):
+  reset, fetch-prs, test-merge, test-pairwise, merge, merge-additional, manifest, push, all
+
+Examples:
+
+  # Using child scripts (recommended):
+  ./velox/scripts/create_staging.sh
+  ./presto/scripts/create_staging.sh --manual-pr-numbers "27057,27054"
+
+  # Direct usage with Velox:
+  ./scripts/create_staging_branch.sh \\
+    --target-path ../velox \\
+    --base-repository facebookincubator/velox \\
+    --base-branch main \\
+    --pr-labels "cudf"
+
+  # Manual PR list (auto-fetch disabled automatically):
+  ./scripts/create_staging_branch.sh \\
+    --target-path ../velox \\
+    --base-repository facebookincubator/velox \\
+    --manual-pr-numbers "12345,12346,12347"
+
+  # Merge with additional repository (e.g., cuDF exchange):
+  ./scripts/create_staging_branch.sh \\
+    --target-path ../velox \\
+    --base-repository facebookincubator/velox \\
+    --pr-labels "cudf" \\
+    --additional-repository rapidsai/cudf \\
+    --additional-branch velox-exchange
+
+  # CI mode (no interactive prompt, pushes to remote):
+  GH_TOKEN=... ./scripts/create_staging_branch.sh \\
+    --mode ci \\
+    --target-path ./velox \\
+    --base-repository facebookincubator/velox \\
+    --force-push true
+
 Notes:
-  - If --target-path is provided, the script will prompt before resetting
-    ${TARGET_BRANCH} to ${BASE_REPO}/${BASE_BRANCH}.
-  - Steps: reset, fetch-prs, test-merge, test-pairwise, merge, merge-additional, manifest, push, all
+  - In local mode (default), push to remote is skipped.
+  - If --target-path is provided, the script will prompt before resetting.
 EOF
 }
 
