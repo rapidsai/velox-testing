@@ -118,7 +118,7 @@ def pytest_sessionfinish(session, exitstatus):
             BenchmarkKeys.SCHEMA_NAME_KEY: schema_name,
         },
     }
-    
+
     tag = session.config.getoption("--tag")
     if tag:
         json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
@@ -149,6 +149,19 @@ def pytest_sessionfinish(session, exitstatus):
 
     with open(f"{bench_output_dir}/benchmark_result.json", "w") as file:
         json.dump(json_result, file, indent=2)
+        file.write("\n")
+
+    # Dump full raw timing iterations for all queries to a separate JSON
+    json_full = {}
+    if tag:
+        json_full[BenchmarkKeys.TAG_KEY] = tag
+    for benchmark_type, result in session.benchmark_results.items():
+        json_full[benchmark_type] = {
+            BenchmarkKeys.RAW_TIMES_KEY: result[BenchmarkKeys.RAW_TIMES_KEY],
+            BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
+        }
+    with open(f"{bench_output_dir}/benchmark_full.json", "w") as file:
+        json.dump(json_full, file, indent=2)
         file.write("\n")
 
 
