@@ -42,7 +42,7 @@ jobs:
       matrix:
         # Schema for entries below:
         #
-        #  * 'image-tag': most specific tag to use for this image
+        #  * 'image-tag': tag to differentiate the image from others published under ${{ env.IMAGE_NAME }}
         #  * 'dockerfile': relative path to a Dockerfile in this repo
         #  * 'context': `null` if the Dockerfile does not 'ADD' / 'COPY' anything,
         #               otherwise relative path to a directory in this repos with the files
