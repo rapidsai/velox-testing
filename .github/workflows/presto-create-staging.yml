@@ -43,6 +43,16 @@ on:
         type: boolean
         required: false
         default: false
+      additional_repository:
+        description: 'Additional repository to merge from'
+        type: string
+        required: false
+        default: ''
+      additional_branch:
+        description: 'Branch from additional repository to merge'
+        type: string
+        required: false
+        default: ''
 
 jobs:
   presto-create-staging:
@@ -56,6 +66,8 @@ jobs:
       pr_labels: ${{ inputs.pr_labels }}
       manual_pr_numbers: ${{ inputs.manual_pr_numbers }}
       force_push: ${{ inputs.force_push }}
+      additional_repository: ${{ inputs.additional_repository }}
+      additional_branch: ${{ inputs.additional_branch }}
       script_path: ./velox-testing/presto/scripts/create_staging.sh
     secrets:
-      fork_pat: ${{ secrets.VELOX_FORK_PAT || secrets.GITHUB_TOKEN }}
+      fork_pat: ${{ secrets.PRESTO_FORK_PAT || secrets.GITHUB_TOKEN }}

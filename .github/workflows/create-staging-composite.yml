@@ -40,6 +40,16 @@ on:
         type: boolean
         required: false
         default: false
+      additional_repository:
+        description: 'Additional repository to merge from (e.g., rapidsai/cudf)'
+        type: string
+        required: false
+        default: ''
+      additional_branch:
+        description: 'Branch from additional repository to merge'
+        type: string
+        required: false
+        default: ''
       script_path:
         description: 'Path to the staging script (e.g., ./velox-testing/velox/scripts/create_staging.sh)'
         type: string
@@ -66,6 +76,8 @@ jobs:
         --auto-fetch-prs ${{ inputs.auto_fetch_prs }}
         ${{ inputs.pr_labels && format('--pr-labels {0}', inputs.pr_labels) || '' }}
         ${{ inputs.manual_pr_numbers && format('--manual-pr-numbers {0}', inputs.manual_pr_numbers) || '' }}
+        ${{ inputs.additional_repository && format('--additional-repository {0}', inputs.additional_repository) || '' }}
+        ${{ inputs.additional_branch && format('--additional-branch {0}', inputs.additional_branch) || '' }}
         --force-push ${{ inputs.force_push }}
     steps:
       - name: 📦 Checkout velox-testing
@@ -98,6 +110,10 @@ jobs:
 
       - name: 🔀 Merge PRs
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge
+
+      - name: 🔗 Merge additional repository
+        if: ${{ inputs.additional_repository != '' && inputs.additional_branch != '' }}
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge-additional
 
       - name: 📝 Create staging manifest
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step manifest

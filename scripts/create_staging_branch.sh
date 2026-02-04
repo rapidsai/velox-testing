@@ -34,6 +34,14 @@ set -euo pipefail
 #     --base-repository facebookincubator/velox \
 #     --force-push true
 #
+#   # Merge with additional repository (e.g., cuDF exchange):
+#   ./scripts/create_staging_branch.sh \
+#     --target-path ../velox \
+#     --base-repository facebookincubator/velox \
+#     --pr-labels "cudf" \
+#     --additional-repository IBM/velox \
+#     --additional-branch ibm-research-preview
+#
 #   # Step-by-step execution (for CI debugging):
 #   ./scripts/create_staging_branch.sh --target-path ./velox ... --step reset
 #   ./scripts/create_staging_branch.sh --target-path ./velox ... --step fetch-prs
@@ -53,9 +61,11 @@ TARGET_PATH=""
 WORK_DIR="velox"
 AUTO_FETCH_PRS="true"
 MANUAL_PR_NUMBERS=""
-PR_LABEL="cudf"
+PR_LABELS="cudf"
 MANIFEST_TEMPLATE=""
 FORCE_PUSH="false"
+ADDITIONAL_REPOSITORY=""
+ADDITIONAL_BRANCH=""
 GH_TOKEN="${GH_TOKEN:-}"
 USE_LOCAL_PATH="false"
 MODE="local"
@@ -145,6 +155,8 @@ Options:
   --pr-labels labels               Comma-separated PR labels to auto-fetch (default: ${PR_LABELS})
   --manifest-template path         Manifest template path (default: repo template)
   --force-push true|false          Force push to target branch (default: ${FORCE_PUSH})
+  --additional-repository repo     Additional repository to merge from (e.g., rapidsai/cudf)
+  --additional-branch branch       Branch from additional repository to merge
   --mode local|ci                  Execution mode (default: ${MODE})
   --step name                      Run a single step (see below)
   -h, --help                       Show this help
@@ -154,7 +166,7 @@ Env:
 Notes:
   - If --target-path is provided, the script will prompt before resetting
     ${TARGET_BRANCH} to ${BASE_REPO}/${BASE_BRANCH}.
-  - Steps: reset, fetch-prs, test-merge, test-pairwise, merge, manifest, push, all
+  - Steps: reset, fetch-prs, test-merge, test-pairwise, merge, merge-additional, manifest, push, all
 EOF
 }
 
@@ -172,9 +184,11 @@ parse_args() {
       --work-dir) WORK_DIR="$2"; shift 2 ;;
       --auto-fetch-prs) AUTO_FETCH_PRS="$2"; shift 2 ;;
       --manual-pr-numbers) MANUAL_PR_NUMBERS="$2"; AUTO_FETCH_PRS="false"; shift 2 ;;
-      --pr-label) PR_LABEL="$2"; shift 2 ;;
+      --pr-labels) PR_LABELS="$2"; shift 2 ;;
       --manifest-template) MANIFEST_TEMPLATE="$2"; shift 2 ;;
       --force-push) FORCE_PUSH="$2"; shift 2 ;;
+      --additional-repository) ADDITIONAL_REPOSITORY="$2"; shift 2 ;;
+      --additional-branch) ADDITIONAL_BRANCH="$2"; shift 2 ;;
       --mode) MODE="$2"; shift 2 ;;
       --step) STEP_NAME="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
@@ -421,6 +435,44 @@ merge_prs() {
   log "Merged ${MERGED_COUNT} PRs."
 }
 
+merge_additional_repository() {
+  local repo_dir="$1"
+  
+  if [[ -z "${ADDITIONAL_REPOSITORY}" || -z "${ADDITIONAL_BRANCH}" ]]; then
+    log "No additional repository configured, skipping."
+    return 0
+  fi
+  
+  step "Merging additional repository: ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}"
+  
+  local additional_remote="additional-merge-source"
+  local additional_url="https://github.com/${ADDITIONAL_REPOSITORY}.git"
+  
+  # Add remote if not exists
+  if ! git -C "${repo_dir}" remote get-url "${additional_remote}" >/dev/null 2>&1; then
+    git -C "${repo_dir}" remote add "${additional_remote}" "${additional_url}"
+  fi
+  
+  # Fetch the branch
+  log "Fetching ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY}..."
+  if ! git -C "${repo_dir}" fetch "${additional_remote}" "${ADDITIONAL_BRANCH}" 2>&1; then
+    die "Failed to fetch ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY}"
+  fi
+  
+  # Merge the branch
+  log "Merging ${additional_remote}/${ADDITIONAL_BRANCH}..."
+  if ! git -C "${repo_dir}" merge "${additional_remote}/${ADDITIONAL_BRANCH}" --log -m "Merge ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}" 2>&1; then
+    log "Merge conflict with additional repository. Aborting."
+    git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
+    exit 1
+  fi
+  
+  ADDITIONAL_MERGE_COMMIT="$(git -C "${repo_dir}" rev-parse "${additional_remote}/${ADDITIONAL_BRANCH}")"
+  export ADDITIONAL_MERGE_COMMIT
+  emit_output ADDITIONAL_MERGE_COMMIT "${ADDITIONAL_MERGE_COMMIT}"
+  log "Successfully merged ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH} (${ADDITIONAL_MERGE_COMMIT})"
+}
+
 create_manifest() {
   local repo_dir="$1"
   local template_file="${MANIFEST_TEMPLATE:-${PROJECT_ROOT}/.github/templates/staging-manifest.yaml.template}"
@@ -549,6 +601,9 @@ main() {
         require_env_var PR_LIST
         merge_prs "${WORK_DIR}" "${PR_LIST}"
         ;;
+      merge-additional)
+        merge_additional_repository "${WORK_DIR}"
+        ;;
       manifest)
         require_env_var MERGED_PRS
         create_manifest "${WORK_DIR}"
@@ -570,6 +625,7 @@ main() {
   test_merge_compatibility "${WORK_DIR}" "${PR_LIST}"
   test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}"
   merge_prs "${WORK_DIR}" "${PR_LIST}"
+  merge_additional_repository "${WORK_DIR}"
   create_manifest "${WORK_DIR}"
   push_branches "${WORK_DIR}"
   log "Done."
