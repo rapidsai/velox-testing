@@ -41,7 +41,7 @@ jobs:
         #                  `docker build`
         #
         include:
-          - image-tag: 'presto-deps-cu12'
+          - image-tag: 'presto-deps-cu13'
             dockerfile: ./docker/presto-deps/Dockerfile
             context: null
             build-args: |
@@ -49,7 +49,7 @@ jobs:
               CUDA_VER=13.1.1
               LINUX_VER=ubuntu24.04
             arch: amd64
-          - image-tag: 'presto-deps-cu12-arm64'
+          - image-tag: 'presto-deps-cu13'
             dockerfile: ./docker/presto-deps/Dockerfile
             context: null
             build-args: |
