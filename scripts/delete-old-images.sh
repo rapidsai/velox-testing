@@ -1,18 +1,7 @@
 #!/usr/bin/env bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 # Deletes old images on GHCR ("GitHub Packages").
 #
@@ -25,7 +14,7 @@
 #                    (e.g. 'velox-testing-images', not 'rapidsai/velox-testing-images')
 #
 #   * [DAYS_TO_RETAIN_VERSIONS] Positive integer. All versions more than this many days old will be deleted.
-# 
+#
 # Usage:
 #
 #  # delete anything more than 7 days old
@@ -68,7 +57,7 @@ echo ""
 echo "${PACKAGE_VERSIONS_TO_DELETE}" | jq -c '.[]' | while read -r item; do
   package_id=$(echo "${item}" | jq -r '.id')
   created_at=$(echo "${item}" | jq -r '.created_at')
-  
+
   echo "Deleting package '${package_id}' created at '${created_at}'..."
   gh api \
     --method DELETE \
