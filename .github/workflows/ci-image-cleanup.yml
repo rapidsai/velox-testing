@@ -33,4 +33,4 @@ jobs:
         run: |
           scripts/delete-old-images.sh \
             "velox-testing-images" \
-            "${{ inputs.days-to-retain-versions || 7 }}"
+            "${{ inputs.days-to-retain-versions || 0 }}"
