@@ -4,6 +4,10 @@ on:
   push:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   # This becomes the GitHub 'package' name, and it's the 'package'
@@ -105,15 +109,16 @@ jobs:
     needs: [ci-images]
     permissions:
       contents: read
-      id-token: write
       packages: read
     strategy:
       fail-fast: false
       matrix:
-        arch:
-          - amd64
-          - arm64
-    runs-on: linux-${{ matrix.arch }}-gpu-v100-latest-1
+        include:
+          - arch: amd64
+            gpu: v100
+          - arch: arm64
+            gpu: l4
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     container:
       image: ghcr.io/${{ github.repository }}-images:presto-deps-cu13-${{ matrix.arch}}
       env:
