@@ -34,8 +34,11 @@ function echo_success {
   echo -e "${GREEN}$1${NC}"
 }
 
-if [ ! -x ../pbench/pbench ]; then
-  echo_error "ERROR: generate_presto_config.sh script must only be run from presto:presto/scripts"
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ ! -x "${SCRIPT_DIR}/../pbench/pbench" ]; then
+  echo_error "ERROR: generate_presto_config.sh script cannot find pbench at ${SCRIPT_DIR}/../pbench/pbench"
 fi
 
 function duplicate_worker_configs() {
@@ -90,7 +93,7 @@ if [[ -z ${VCPU_PER_WORKER:-} ]]; then
 fi
 
 # move to config directory
-pushd ../docker/config > /dev/null
+pushd "${SCRIPT_DIR}/../docker/config" > /dev/null
 
 # always move back even on failure
 trap "popd > /dev/null" EXIT
@@ -121,7 +124,7 @@ EOF
 
   # run pbench to generate the config files
   # hide default pbench logging which goes to stderr so we only see any errors
-  if ../../pbench/pbench genconfig -p params.json -t template ${CONFIG_DIR} 2>&1 | grep '\{\"level":"error"'; then
+  if "${SCRIPT_DIR}/../pbench/pbench" genconfig -p params.json -t template ${CONFIG_DIR} 2>&1 | grep '\{\"level":"error"'; then
     echo_error "ERROR: Errors reported by pbench genconfig. Configs were not generated successfully."
   fi
 

@@ -2,8 +2,11 @@
 
 set -e
 
-source ./config.sh
-source ../../scripts/fetch_docker_image_from_s3.sh
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/config.sh"
+source "${SCRIPT_DIR}/../../scripts/fetch_docker_image_from_s3.sh"
 
 IMAGE_NAME="ghcr.io/facebookincubator/velox-dev:adapters"
 

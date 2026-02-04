@@ -1,23 +1,12 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
 SCRIPT_DESCRIPTION="This script generates benchmark data and sets up related tables under the given schema name.
-Generated data will reside under the PRESTO_DATA_DIR path in a directory with name that matches 
+Generated data will reside under the PRESTO_DATA_DIR path in a directory with name that matches
 the value set for the --data-dir-name argument."
 
 SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100 -f 100 -c"
@@ -52,12 +41,15 @@ function extra_options_parser() {
 }
 SCRIPT_EXTRA_OPTIONS_PARSER=extra_options_parser
 
-source ./setup_benchmark_helper_check_instance_and_parse_args.sh
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DATA_GEN_SCRIPT_PATH=$(readlink -f ../../benchmark_data_tools/generate_data_files.py)
+source "${SCRIPT_DIR}/setup_benchmark_helper_check_instance_and_parse_args.sh"
 
-../../scripts/run_py_script.sh -p $DATA_GEN_SCRIPT_PATH --benchmark-type $BENCHMARK_TYPE \
+DATA_GEN_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../benchmark_data_tools/generate_data_files.py")
+
+"${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p $DATA_GEN_SCRIPT_PATH --benchmark-type $BENCHMARK_TYPE \
 --data-dir-path ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} --scale-factor $SCALE_FACTOR \
 $CONVERT_DECIMALS_TO_FLOATS_ARG
 
-./setup_benchmark_tables.sh -b $BENCHMARK_TYPE -s $SCHEMA_NAME -d $DATA_DIR_NAME
+"${SCRIPT_DIR}/setup_benchmark_tables.sh" -b $BENCHMARK_TYPE -s $SCHEMA_NAME -d $DATA_DIR_NAME
