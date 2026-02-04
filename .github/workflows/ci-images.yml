@@ -20,13 +20,14 @@ env:
   IMAGE_NAME: ${{ github.repository }}-images
 
 jobs:
-  build-and-push-image:
+  ci-images:
     name: ci-images (${{ matrix.image-tag}}, ${{ matrix.arch }})
     permissions:
-      contents: read
-      packages: write
+      artifact-metadata: write
       attestations: write
+      contents: read
       id-token: write
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -99,3 +100,30 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+  test:
+    name: test (${{ matrix.arch }})
+    needs: [ci-images]
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
+    runs-on: linux-${{ matrix.arch }}-gpu-v100-latest-1
+    container:
+      image: ghcr.io/${{ github.repository }}-images:presto-deps-cu13-${{ matrix.arch}}
+      env:
+        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
+    steps:
+      - name: check system
+        run: |
+          echo "--- arch ---"
+          arch
+          echo "--- lscpu ---"
+          lscpu
+          echo "--- nvidia-smi ---"
+          nvidia-smi
