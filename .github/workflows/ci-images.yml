@@ -80,10 +80,10 @@ jobs:
           push: true
           # 'tags' should contain full image URIs, as you'd pass to 'docker tag'
           #
-          # It's a list input to allow for tagging the same images multiple ways, e.g.
+          # It's a space-delimited string allowing tagging the same images multiple ways, e.g.
           # as ':cuda13' and ':stable'.
-          tags:
-            - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.image-tag }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.image-tag }}
       # Create an attestation to prove that this image came from a workflow in this repository.
       #
       # Not strictly necessary for private images, but cheap to generate and useful for security scanners
