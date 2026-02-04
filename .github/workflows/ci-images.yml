@@ -21,6 +21,7 @@ env:
 
 jobs:
   build-and-push-image:
+    name: ci-images (${{ matrix.image-tag}}, ${{ matrix.arch }})
     permissions:
       contents: read
       packages: write
@@ -40,21 +41,23 @@ jobs:
         #                  `docker build`
         #
         include:
-          - image-tag: 'presto-deps-cu12-amd64'
+          - image-tag: 'presto-deps-cu12'
             dockerfile: ./docker/presto-deps/Dockerfile
             context: null
             build-args: |
               CUDA_ARCHITECTURES="100;120"
-              LINUX_VER=centos9
-            runner-type: linux-amd64-cpu8
+              CUDA_VER=13.1.1
+              LINUX_VER=ubuntu24.04
+            arch: amd64
           - image-tag: 'presto-deps-cu12-arm64'
             dockerfile: ./docker/presto-deps/Dockerfile
             context: null
             build-args: |
               CUDA_ARCHITECTURES="100;120"
-              LINUX_VER=centos9
-            runner-type: linux-arm64-cpu8
-    runs-on: ${{ matrix.runner-type }}
+              CUDA_VER=13.1.1
+              LINUX_VER=ubuntu24.04
+            arch: arm64
+    runs-on: linux-${{ matrix.arch }}-cpu8
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -83,7 +86,7 @@ jobs:
           # It's a space-delimited string allowing tagging the same images multiple ways, e.g.
           # as ':cuda13' and ':stable'.
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.image-tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.image-tag }}-${{ matrix.arch }}
       # Create an attestation to prove that this image came from a workflow in this repository.
       #
       # Not strictly necessary for private images, but cheap to generate and useful for security scanners
