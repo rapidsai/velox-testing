@@ -119,8 +119,6 @@ jobs:
         include:
           - arch: amd64
             gpu: v100
-          - arch: arm64
-            gpu: l4
     runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     container:
       image: ghcr.io/${{ github.repository }}-images:presto-deps-cu13-${{ matrix.arch}}
