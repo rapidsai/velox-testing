@@ -1,9 +1,12 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 import subprocess
 
 
 def start_profiler(profile_script_path, profile_output_file_path):
     """Start profiling on all worker containers.
-    
+
     Args:
         profile_script_path: Path to the profiler_functions.sh script
         profile_output_file_path: Base path for profile files (without .nsys-rep extension)
@@ -13,7 +16,7 @@ def start_profiler(profile_script_path, profile_output_file_path):
 
 def stop_profiler(profile_script_path, profile_output_file_path):
     """Stop profiling on all worker containers and copy profile files.
-    
+
     Args:
         profile_script_path: Path to the profiler_functions.sh script
         profile_output_file_path: Base path for profile files (without .nsys-rep extension)

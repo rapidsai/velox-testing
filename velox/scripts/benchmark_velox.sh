@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
 
@@ -50,7 +39,7 @@ Uses the velox-benchmark Docker service with pre-configured volumes and environm
 Benchmark Options:
   -b, --benchmark-type TYPE               Type of benchmark to run (default: tpch)
   -q, --queries "1 2 ..."                 Query numbers to run, specified as a space-separated list of query numbers (default: all queries for benchmark type)
-  -d, --device-type "cpu gpu"             Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")  
+  -d, --device-type "cpu gpu"             Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")
   -p, --profile BOOL                      Enable profiling: true or false (default: false)
   --data-dir DIR                          Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
@@ -161,7 +150,7 @@ parse_args() {
         ;;
     esac
   done
-  
+
   # Set benchmark-specific defaults for queries if not provided, NOTE: changes with `RUN` commands do not persist
   if [[ -z "$QUERIES" ]]; then
     case "$BENCHMARK_TYPE" in
@@ -175,13 +164,13 @@ parse_args() {
         ;;
     esac
   fi
-  
+
 }
 
 # Helper function to run commands in the Velox benchmark container
 run_in_container() {
   local cmd="$1"
-  
+
   docker compose -f "$COMPOSE_FILE" --env-file "${SCRIPT_DIR}/.env" run --rm \
     --cap-add=SYS_ADMIN \
     "$CONTAINER_NAME" bash -c "$cmd"
@@ -204,30 +193,30 @@ EOF
 
 prepare_benchmark_results_dir() {
   local output_dir="$1"
-  
-  # Create output directory if it doesn't exist  
+
+  # Create output directory if it doesn't exist
   mkdir -p "$output_dir"
 }
 
 check_velox_build() {
   echo "Checking Velox build..."
-  
+
   # Check if velox-adapters-build image exists
   if ! docker image inspect velox-adapters-build:latest &> /dev/null; then
     echo "ERROR: velox-adapters-build Docker image not found." >&2
     echo "Please build Velox first by running: ./build_velox.sh" >&2
     exit 1
   fi
-  
+
   # Check if the build output exists in the container
   EXPECTED_OUTPUT_DIR="/opt/velox-build/${BUILD_TYPE}"
-  
+
   if ! run_in_container "test -d ${EXPECTED_OUTPUT_DIR}" 2>/dev/null; then
     echo "ERROR: Velox build output not found in container at ${EXPECTED_OUTPUT_DIR}" >&2
     echo "Please rebuild Velox by running: ./build_velox.sh" >&2
     exit 1
   fi
-  
+
   # Check benchmark executables based on benchmark type
   case "$BENCHMARK_TYPE" in
     "tpch")
@@ -238,13 +227,13 @@ check_velox_build() {
       exit 1
       ;;
   esac
-  
+
   echo "Velox build verification passed"
 }
 
 check_benchmark_data() {
   echo "Checking benchmark data..."
-  
+
   case "$BENCHMARK_TYPE" in
     "tpch")
       check_tpch_data "$DATA_DIR"
@@ -260,14 +249,14 @@ check_benchmark_data() {
 run_benchmark() {
   local benchmark_type="$1"
   local queries="$2"
-  local device_type="$3" 
+  local device_type="$3"
   local profile="$4"
-  
+
   echo "Running $benchmark_type benchmark..."
   echo "Queries: $queries"
   echo "Device types: $device_type"
   echo "Profile: $profile"
-  
+
   # Run all query/device combinations
   for query_number in $queries; do
     for device in $device_type; do
@@ -313,7 +302,7 @@ create_docker_env_file
 # Get BUILD_TYPE from container environment
 export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
 
-# Check benchmark data 
+# Check benchmark data
 check_benchmark_data
 
 # Check Velox build
