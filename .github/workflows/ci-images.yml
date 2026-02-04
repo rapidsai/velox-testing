@@ -1,6 +1,7 @@
 name: ci-images
 
 on:
+  # TODO(jameslamb): remove 'push' trigger before merging
   push:
   workflow_dispatch:
 
@@ -16,9 +17,11 @@ env:
   # Until you have a strong need to separate packages, publish all CI images
   # under this package name and use tags to differentiate, e.g.
   #
-  #   - 'ghcr.io/rapidsai/velox-testing-images:presto-deps-cuda12'
-  #   - 'ghcr.io/rapidsai/velox-testing-images:presto-deps-cuda13'
+  #   - 'ghcr.io/rapidsai/velox-testing-images:presto-deps-cu12'
+  #   - 'ghcr.io/rapidsai/velox-testing-images:presto-deps-cu13'
   #   - etc., etc.
+  #
+  # IF YOU CHANGE THIS, THE NEW PACKAGES YOU CREATE WILL BE PUBLIC BY DEFAULT.
   #
   # See https://github.com/orgs/rapidsai/packages?repo_name=velox-testing
   IMAGE_NAME: ${{ github.repository }}-images
