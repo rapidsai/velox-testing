@@ -39,6 +39,10 @@ on:
         description: 'Set VELOX_ENABLE_BACKWARD_COMPATIBLE in Velox build'
         type: boolean
         default: false
+      build_dependency_image: &build_dependency_image
+        description: 'Build dependency image locally instead of downloading from S3'
+        type: boolean
+        default: true
 
   workflow_call:
     inputs:
@@ -50,6 +54,7 @@ on:
       run_cpu_tests: *run_cpu_tests
       run_gpu_tests: *run_gpu_tests
       set_velox_backward_compatible: *set_velox_backward_compatible
+      build_dependency_image: *build_dependency_image
 
 jobs:
   java:
@@ -63,6 +68,7 @@ jobs:
       velox_repository: ${{ inputs.velox_repository }}
       velox_commit: ${{ inputs.velox_commit }}
       set_velox_backward_compatible: false
+      build_dependency_image: ${{ inputs.build_dependency_image }}
     secrets: inherit
   native-cpu:
     if: ${{ inputs.run_cpu_tests }}
@@ -75,6 +81,7 @@ jobs:
       velox_repository: ${{ inputs.velox_repository }}
       velox_commit: ${{ inputs.velox_commit }}
       set_velox_backward_compatible: ${{ inputs.set_velox_backward_compatible }}
+      build_dependency_image: ${{ inputs.build_dependency_image }}
     secrets: inherit
   native-gpu:
     if: ${{ inputs.run_gpu_tests }}
@@ -87,4 +94,5 @@ jobs:
       velox_repository: ${{ inputs.velox_repository }}
       velox_commit: ${{ inputs.velox_commit }}
       set_velox_backward_compatible: ${{ inputs.set_velox_backward_compatible }}
+      build_dependency_image: ${{ inputs.build_dependency_image }}
     secrets: inherit
