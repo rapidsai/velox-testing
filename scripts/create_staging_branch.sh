@@ -13,7 +13,7 @@ set -euo pipefail
 #     --base-repository facebookincubator/velox \
 #     --base-branch main \
 #     --target-branch staging \
-#     --pr-label "cudf"
+#     --pr-labels "cudf"
 #
 #   # Manual PR list (auto-fetch disabled automatically):
 #   ./scripts/create_staging_branch.sh \
@@ -25,7 +25,7 @@ set -euo pipefail
 #   ./scripts/create_staging_branch.sh \
 #     --target-path ../velox \
 #     --base-repository facebookincubator/velox \
-#     --pr-label "cudf,gpu-support"
+#     --pr-labels "cudf,gpu-support"
 #
 #   # CI mode (no interactive prompt, pushes to remote):
 #   GH_TOKEN=... ./scripts/create_staging_branch.sh \
@@ -142,7 +142,7 @@ Options:
   --work-dir path                  Directory to clone target repo (default: ${WORK_DIR})
   --auto-fetch-prs true|false      Auto-fetch non-draft PRs with label (default: ${AUTO_FETCH_PRS})
   --manual-pr-numbers "1,2,3"      Comma-separated PR numbers to merge (disables auto-fetch)
-  --pr-label labels                Comma-separated PR labels to auto-fetch (default: ${PR_LABEL})
+  --pr-labels labels               Comma-separated PR labels to auto-fetch (default: ${PR_LABELS})
   --manifest-template path         Manifest template path (default: repo template)
   --force-push true|false          Force push to target branch (default: ${FORCE_PUSH})
   --mode local|ci                  Execution mode (default: ${MODE})
@@ -269,10 +269,10 @@ reset_target_branch() {
 fetch_pr_list() {
   local pr_list=""
   if [[ "${AUTO_FETCH_PRS}" == "true" ]]; then
-    step "Auto-fetch PRs with labels: ${PR_LABEL}"
+    step "Auto-fetch PRs with labels: ${PR_LABELS}"
     local label_args=()
     local labels=()
-    IFS=',' read -r -a labels <<< "${PR_LABEL}"
+    IFS=',' read -r -a labels <<< "${PR_LABELS}"
     for label in "${labels[@]}"; do
       label="$(echo "${label}" | xargs)"
       [[ -z "${label}" ]] && continue

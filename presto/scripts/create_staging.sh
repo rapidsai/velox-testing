@@ -14,7 +14,7 @@ set -euo pipefail
 #   ./presto/scripts/create_staging.sh --manual-pr-numbers "27057,27054,27052"
 #
 #   # Enable auto-fetch with PR label
-#   ./presto/scripts/create_staging.sh --auto-fetch-prs true --pr-label "gpu"
+#   ./presto/scripts/create_staging.sh --auto-fetch-prs true --pr-labels "gpu"
 #
 #   # Force push (overwrites remote staging branch)
 #   ./presto/scripts/create_staging.sh --manual-pr-numbers "27057,29056" --force-push true

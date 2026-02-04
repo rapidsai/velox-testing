@@ -25,7 +25,7 @@ on:
         type: boolean
         required: false
         default: true
-      pr_label:
+      pr_labels:
         description: 'Comma-separated PR labels to auto-fetch'
         type: string
         required: false
@@ -64,7 +64,7 @@ jobs:
         --base-branch ${{ inputs.base_branch }}
         --target-branch ${{ inputs.target_branch }}
         --auto-fetch-prs ${{ inputs.auto_fetch_prs }}
-        ${{ inputs.pr_label && format('--pr-label {0}', inputs.pr_label) || '' }}
+        ${{ inputs.pr_labels && format('--pr-labels {0}', inputs.pr_labels) || '' }}
         ${{ inputs.manual_pr_numbers && format('--manual-pr-numbers {0}', inputs.manual_pr_numbers) || '' }}
         --force-push ${{ inputs.force_push }}
     steps:

@@ -17,7 +17,7 @@ set -euo pipefail
 #   ./velox/scripts/create_staging.sh --manual-pr-numbers "16075,16050"
 #
 #   # Multiple PR labels
-#   ./velox/scripts/create_staging.sh --auto-fetch-prs true --pr-label "cudf,ready-to-merge"
+#   ./velox/scripts/create_staging.sh --auto-fetch-prs true --pr-labels "cudf,ready-to-merge"
 #
 #   # Force push (overwrites remote staging branch)
 #   ./velox/scripts/create_staging.sh --force-push true
@@ -34,5 +34,5 @@ exec "${PARENT_SCRIPT}" \
   --base-repository "facebookincubator/velox" \
   --base-branch "main" \
   --target-branch "staging" \
-  --pr-label "cudf" \
+  --pr-labels "cudf" \
   "$@"

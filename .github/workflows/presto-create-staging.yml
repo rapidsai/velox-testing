@@ -28,7 +28,7 @@ on:
         type: boolean
         required: false
         default: false
-      pr_label:
+      pr_labels:
         description: Comma-separated PR labels to auto-fetch
         type: string
         required: false
@@ -53,7 +53,7 @@ jobs:
       target_repository: ${{ inputs.target_repository }}
       target_branch: ${{ inputs.target_branch }}
       auto_fetch_prs: ${{ inputs.auto_fetch_prs }}
-      pr_label: ${{ inputs.pr_label }}
+      pr_labels: ${{ inputs.pr_labels }}
       manual_pr_numbers: ${{ inputs.manual_pr_numbers }}
       force_push: ${{ inputs.force_push }}
       script_path: ./velox-testing/presto/scripts/create_staging.sh

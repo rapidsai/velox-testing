@@ -24,7 +24,9 @@ on:
         required: false
         default: 'staging'
       auto_fetch_prs:
-        description: Auto-fetch non-draft PRs with 'cudf' label
+        description: >-
+          Auto-fetch non-draft PRs with 'cudf' label
+          from 'facebookincubator/velox' (https://github.com/facebookincubator/velox)
         type: boolean
         required: false
         default: true
@@ -53,7 +55,7 @@ jobs:
       target_repository: ${{ inputs.target_repository }}
       target_branch: ${{ inputs.target_branch }}
       auto_fetch_prs: ${{ inputs.auto_fetch_prs }}
-      pr_label: ${{ inputs.pr_label }}
+      pr_labels: ${{ inputs.pr_labels }}
       manual_pr_numbers: ${{ inputs.manual_pr_numbers }}
       force_push: ${{ inputs.force_push }}
       script_path: ./velox-testing/velox/scripts/create_staging.sh
