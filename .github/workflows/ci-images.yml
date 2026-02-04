@@ -3,6 +3,8 @@ name: ci-images
 on:
   # TODO(jameslamb): remove 'push' trigger before merging
   push:
+  schedule:
+    - cron: '0 4 * * 2'  # 4:00a UTC every Tuesday
   workflow_dispatch:
 
 concurrency:
@@ -69,6 +71,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+        continue-on-error: true
+        with:
+          enable-apt: true
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:

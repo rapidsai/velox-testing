@@ -8,7 +8,10 @@ on:
   workflow_dispatch:
     inputs:
       days-to-retain-versions:
+        description: |
+          Positive integer. Images more than this many days old will be deleted.
         type: number
+        default: 30
         required: true
 
 concurrency:
@@ -31,7 +34,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sleep 180
           scripts/delete-old-images.sh \
             "velox-testing-images" \
-            "${{ inputs.days-to-retain-versions || 0 }}"
+            "${{ inputs.days-to-retain-versions || 30 }}"
