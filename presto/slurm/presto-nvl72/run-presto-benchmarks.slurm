@@ -31,7 +31,7 @@ export CONFIGS=/mnt/home/misiug/veloxtesting/config/generated/gpu
 #export WORKER_IMAGE=presto-native-worker-cpu
 export WORKER_IMAGE=presto-native-worker-gpu
 export NUM_NODES=$SLURM_JOB_NUM_NODES
-export NUM_GPUS_PER_NODE=4
+export NUM_GPUS_PER_NODE=${SLURM_GPUS_ON_NODE:-4}
 
 # Presto Configuration
 export PORT=9200

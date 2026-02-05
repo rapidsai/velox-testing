@@ -50,6 +50,8 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 source "${SCRIPT_DIR}/common_functions.sh"
 
+echo "wait_for... PORT: $PORT, HOSTNAME: $HOSTNAME"
+
 wait_for_worker_node_registration
 
 parse_args() {

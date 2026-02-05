@@ -140,6 +140,89 @@ def pytest_sessionfinish(session, exitstatus):
         json.dump(json_result, file, indent=2)
         file.write("\n")
 
+    # Dump full raw timing iterations for all queries to a separate JSON
+    json_full = {}
+    if tag:
+        json_full[BenchmarkKeys.TAG_KEY] = tag
+    for benchmark_type, result in session.benchmark_results.items():
+        json_full[benchmark_type] = {
+            BenchmarkKeys.RAW_TIMES_KEY: result[BenchmarkKeys.RAW_TIMES_KEY],
+            BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
+        }
+    with open(f"{bench_output_dir}/benchmark_full.json", "w") as file:
+        json.dump(json_full, file, indent=2)
+        file.write("\n")
+
+    # Compute and dump cold-start aggregates (first iteration per query)
+    json_cold = {}
+    if tag:
+        json_cold[BenchmarkKeys.TAG_KEY] = tag
+    for benchmark_type, result in session.benchmark_results.items():
+        # Build filtered raw times: only first iteration when available
+        raw_times = result[BenchmarkKeys.RAW_TIMES_KEY]
+        cold_raw = {}
+        for query_id, timings in raw_times.items():
+            if timings is None:
+                cold_raw[query_id] = None
+            elif len(timings) > 0:
+                cold_raw[query_id] = [timings[0]]
+            else:
+                cold_raw[query_id] = []
+        # Compute aggregates using existing utility
+        tmp = {
+            BenchmarkKeys.RAW_TIMES_KEY: cold_raw,
+            BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
+        }
+        compute_aggregate_timings(tmp)
+        json_cold[benchmark_type] = {
+            BenchmarkKeys.AGGREGATE_TIMES_KEY: {},
+            BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
+        }
+        json_agg_timings = json_cold[benchmark_type][BenchmarkKeys.AGGREGATE_TIMES_KEY]
+        for agg_key in AGG_KEYS:
+            json_agg_timings[agg_key] = {}
+        for query_id, agg_timings in tmp[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
+            if agg_timings:
+                for i, agg_key in enumerate(AGG_KEYS):
+                    json_agg_timings[agg_key][query_id] = agg_timings[i]
+    with open(f"{bench_output_dir}/benchmark_cold.json", "w") as file:
+        json.dump(json_cold, file, indent=2)
+        file.write("\n")
+                            
+    # Compute and dump warm aggregates (all but first iteration per query)
+    json_warm = {}
+    if tag:
+        json_warm[BenchmarkKeys.TAG_KEY] = tag
+    for benchmark_type, result in session.benchmark_results.items():
+        raw_times = result[BenchmarkKeys.RAW_TIMES_KEY]
+        warm_raw = {}
+        for query_id, timings in raw_times.items():
+            if timings is None:
+                warm_raw[query_id] = None
+            elif len(timings) > 1:
+                warm_raw[query_id] = timings[1:]
+            else:
+                warm_raw[query_id] = []
+        tmp = {
+            BenchmarkKeys.RAW_TIMES_KEY: warm_raw,
+            BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
+        }
+        compute_aggregate_timings(tmp)
+        json_warm[benchmark_type] = {
+            BenchmarkKeys.AGGREGATE_TIMES_KEY: {},
+            BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
+        }
+        json_agg_timings = json_warm[benchmark_type][BenchmarkKeys.AGGREGATE_TIMES_KEY]
+        for agg_key in AGG_KEYS:
+            json_agg_timings[agg_key] = {}
+        for query_id, agg_timings in tmp[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
+            if agg_timings:
+                for i, agg_key in enumerate(AGG_KEYS):
+                    json_agg_timings[agg_key][query_id] = agg_timings[i]
+    with open(f"{bench_output_dir}/benchmark_warm.json", "w") as file:
+        json.dump(json_warm, file, indent=2)
+        file.write("\n")
+
 
 def get_output_dir(config):
     bench_output_dir = config.getoption("--output-dir")
