@@ -21,7 +21,7 @@ OPTIONS:
     -h, --help           Show this help message
     -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9)
     -n, --no-cache       Do not use Docker build cache (default: use cache)
-    --cuda-version       CUDA version to install (default: 12.9)
+    --cuda-version       CUDA version to install (major.minor, like 12.9)
 
 EOF
 }
