@@ -14,7 +14,7 @@ It expects a sibling Velox clone.
 
 OPTIONS:
     -h, --help           Show this help message
-    --cuda-version       CUDA version to install (default: 12.9)
+    --cuda-version       CUDA version to install (major.minor, like 12.9)
 
 EOF
 }
