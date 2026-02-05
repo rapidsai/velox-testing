@@ -99,6 +99,10 @@ jobs:
       - name: 🔄 Reset target branch
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step reset
 
+      - name: 🔗 Merge additional repository/branch
+        if: ${{ inputs.additional_repository != '' && inputs.additional_branch != '' }}
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge-additional
+
       - name: 📋 Fetch PR list
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step fetch-prs
 
@@ -110,10 +114,6 @@ jobs:
 
       - name: 🔀 Merge PRs
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge
-
-      - name: 🔗 Merge additional repository
-        if: ${{ inputs.additional_repository != '' && inputs.additional_branch != '' }}
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge-additional
 
       - name: 📝 Create staging manifest
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step manifest
