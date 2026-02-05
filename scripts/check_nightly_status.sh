@@ -353,7 +353,7 @@ cell_for_filtered_jobs() {
 }
 
 print_table_header() {
-  printf "%-4s | %-18s | %-8s | %-8s | %-8s\n" "SNO" "Job Name" "Upstream" "Staging" "Stable"
+  printf "%-4s | %-18s | %-8s | %-8s | %-8s\n" "SNO" "Job Name" "Staging" "Upstream" "Stable"
   printf "%-4s-|-%-18s-|-%-8s-|-%-8s-|-%-8s\n" "----" "------------------" "--------" "--------" "--------"
 }
 
@@ -679,8 +679,8 @@ print_slack_header() {
 }
 
 print_slack_table_header() {
-  echo "| *NO* | *Job Name*         | *Upstream* | *Staging* | *Stable* |"
-  echo "|------|--------------------| ---------- | --------- | -------- |"
+  echo "| *NO* | *Job Name*         | *Staging* | *Upstream* | *Stable* |"
+  echo "|------|--------------------| --------- | ---------- | -------- |"
 }
 
 print_slack_failure_details() {
@@ -989,16 +989,16 @@ for row in "${rows[@]}"; do
   display_row="${DISPLAY_NAME[$row]:-$row}"
   
   if [[ "${SLACK_FORMAT}" == "true" ]]; then
-    printf "| %-4s | %-18s | %-10s | %-9s | %-8s |\n" "${row_no}" "${display_row}" "${up_cell}" "${st_cell}" "${sb_cell}"
+    printf "| %-4s | %-18s | %-9s | %-10s | %-8s |\n" "${row_no}" "${display_row}" "${st_cell}" "${up_cell}" "${sb_cell}"
   else
-    printf "%-4s | %-18s | %-8s | %-8s | %-8s\n" "${row_no}" "${display_row}" "${up_cell}" "${st_cell}" "${sb_cell}"
+    printf "%-4s | %-18s | %-8s | %-8s | %-8s\n" "${row_no}" "${display_row}" "${st_cell}" "${up_cell}" "${sb_cell}"
   fi
 
   # Collect failure details (completed + non-success).
   # Use the cell status which already accounts for job filtering
   EMOJI_CROSS=$'\xe2\x9d\x8c'     # ❌ cross mark
   EMOJI_HOURGLASS=$'\xe2\x8f\xb3' # ⏳ hourglass
-  for col in upstream staging stable; do
+  for col in staging upstream stable; do
     case "${col}" in
       upstream) wf="${up_wf}"; run="${up_run}"; cell="${up_cell}";;
       staging)  wf="${st_wf}"; run="${st_run}"; cell="${st_cell}";;
