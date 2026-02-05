@@ -35,6 +35,12 @@ on:
         description: 'Set VELOX_ENABLE_BACKWARD_COMPATIBLE in Velox build'
         type: string
         required: false
+      build_dependency_image:
+        description: 'Build dependency image locally instead of downloading from S3'
+        type: boolean
+        required: false
+        default: true
+
 
 jobs:
   build-and-test:
@@ -59,8 +65,14 @@ jobs:
           repository: rapidsai/velox-testing
           ref: ${{ github.ref_name }} # automatically match the workflow branch
           path: velox-testing
+      - name: Build Presto Dependencies Container Image
+        if: ${{ inputs.presto_worker_type != 'java' && inputs.build_dependency_image == true }}
+        run: |
+          pushd velox-testing/presto/scripts
+          ./build_centos_deps_image.sh
+          popd
       - name: Download Presto Dependencies Container Image
-        if: ${{ inputs.presto_worker_type != 'java' }}
+        if: ${{ inputs.presto_worker_type != 'java' && inputs.build_dependency_image == false }}
         env:
           AWS_ARN_STRING: ${{ secrets.AWS_ARN_STRING }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}

@@ -12,4 +12,5 @@ jobs:
       repository: facebookincubator/velox
       velox_commit: main
       build_target: all
+      use_upstream_deps_image: true
     secrets: inherit

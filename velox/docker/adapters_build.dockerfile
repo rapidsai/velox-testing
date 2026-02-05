@@ -20,10 +20,10 @@ ARG TARGETARCH
 ARG VELOX_ENABLE_BENCHMARKS=ON
 
 # Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
-RUN \ 
+RUN \
 <<EOF
-if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then 
-      set -euxo pipefail 
+if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then
+      set -euxo pipefail
       # Detect architecture and set appropriate repo
       ARCH=$(uname -m)
       if [ "$ARCH" = "aarch64" ]; then
@@ -50,7 +50,7 @@ EOF
 ARG NUM_THREADS=8
 ARG MAX_HIGH_MEM_JOBS=4
 ARG MAX_LINK_JOBS=4
-ARG CUDA_VERSION=12.8
+ARG CUDA_VERSION=12.9
 ARG CUDA_ARCHITECTURES=70
 ARG BUILD_WITH_VELOX_ENABLE_CUDF=ON
 ARG BUILD_WITH_VELOX_ENABLE_WAVE=OFF

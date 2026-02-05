@@ -26,14 +26,20 @@ if [[ -z ${SCRIPT_NAME} ]]; then
   exit 1
 fi
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Get the root of the git repository
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+
 # Validate sibling repos
 if [[ "$VARIANT_TYPE" == "java" ]]; then
-  ../../scripts/validate_directories_exist.sh "../../../presto"
+  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
 else
-  ../../scripts/validate_directories_exist.sh "../../../presto" "../../../velox"
+  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
 fi
 
-source ./start_presto_helper_parse_args.sh
+source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
 
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
@@ -41,14 +47,24 @@ if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   exit 1
 fi
 
+if [[ "$PROFILE" == "ON" && $(( $NUM_WORKERS > 1 )) && "$SINGLE_CONTAINER" == "false" ]]; then
+  echo "Error: multi-worker --profile argument is only currently supported with the --single-container option"
+  exit 1
+fi
+
+# Set IMAGE_TAG with username to avoid conflicts when multiple users build images
+# Falls back to "latest" if USER is not set
+export IMAGE_TAG="${USER:-latest}"
+echo "Using IMAGE_TAG: $IMAGE_TAG"
+
 COORDINATOR_SERVICE="presto-coordinator"
-COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:latest
+COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:${IMAGE_TAG}
 JAVA_WORKER_SERVICE="presto-java-worker"
-JAVA_WORKER_IMAGE=${JAVA_WORKER_SERVICE}:latest
+JAVA_WORKER_IMAGE=${JAVA_WORKER_SERVICE}:${IMAGE_TAG}
 CPU_WORKER_SERVICE="presto-native-worker-cpu"
-CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:latest
+CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:${IMAGE_TAG}
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
-GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:latest
+GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:${IMAGE_TAG}
 
 DEPS_IMAGE="presto/prestissimo-dependency:centos9"
 
@@ -66,7 +82,7 @@ function conditionally_add_build_target() {
     echo "Added $2 to the list of services to build because the '$BUILD_TARGET' build target was specified"
     BUILD_TARGET_ARG+=($2)
   fi
-} 
+}
 
 conditionally_add_build_target $COORDINATOR_IMAGE $COORDINATOR_SERVICE "coordinator|c"
 
@@ -83,9 +99,15 @@ else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
 
-./stop_presto.sh
+# Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
+if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
+  # Generate default GPU IDs: 0,1,2,...,N-1
+  export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
+fi
 
-./generate_presto_config.sh
+"${SCRIPT_DIR}/stop_presto.sh"
+
+"${SCRIPT_DIR}/generate_presto_config.sh"
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
@@ -108,7 +130,24 @@ elif [[ "$ALL_CUDA_ARCHS" == "true" ]]; then
   exit 1
 fi
 
-DOCKER_COMPOSE_FILE_PATH=../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml
+DOCKER_COMPOSE_FILE_PATH="${SCRIPT_DIR}/../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml"
+# For GPU, the docker-compose file is a Jinja template. Render it before any docker compose operations.
+if [[ "$VARIANT_TYPE" == "gpu" ]]; then
+  TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
+  RENDERED_DIR="${SCRIPT_DIR}/../docker/docker-compose/generated"
+  mkdir -p "$RENDERED_DIR"
+  RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
+  # Default to 0 if not provided, which results in no per-GPU workers being rendered.
+  LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
+
+  RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
+  if [[ -n $GPU_IDS ]]; then
+    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS"
+  else
+    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS"
+  fi
+  DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
+fi
 if (( ${#BUILD_TARGET_ARG[@]} )); then
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
@@ -119,7 +158,7 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
 
   PRESTO_VERSION=testing
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($COORDINATOR_SERVICE|$JAVA_WORKER_SERVICE) ]]; then
-    PRESTO_VERSION=$PRESTO_VERSION ./build_presto_java_package.sh
+    PRESTO_VERSION=$PRESTO_VERSION "${SCRIPT_DIR}/build_presto_java_package.sh"
   fi
 
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
@@ -130,4 +169,5 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   ${BUILD_TARGET_ARG[@]}
 fi
 
+# Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
