@@ -23,7 +23,7 @@ jobs:
 
   checks:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@fix/no-changed-files
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
     with:
       enable_check_size: false
       enable_check_generated_files: false
