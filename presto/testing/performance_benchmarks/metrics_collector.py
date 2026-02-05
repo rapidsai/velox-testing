@@ -1,16 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 """
 Metrics collector for Presto queries.
@@ -193,7 +182,7 @@ def _load_worker_metrics(metrics_path: Path) -> dict:
     """Load metrics.json and convert to flat dict keyed by metric name."""
     with open(metrics_path) as f:
         data = json.load(f)
-    
+
     # metrics.json has {"worker_ip": [{metric: "name{labels}", value: float}, ...]}
     # We need to flatten to {"metric_name": value, ...}
     result = {}
@@ -223,7 +212,7 @@ def _load_tasks_info(tasks_path: Path) -> list:
     """Load tasks.json and extract the tasks list."""
     with open(tasks_path) as f:
         data = json.load(f)
-    
+
     # tasks.json has {"worker_ip": [task_objects]}
     # Return the first (or combined) list of tasks
     tasks = []
