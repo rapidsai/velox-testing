@@ -7,7 +7,7 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | Workflow | Purpose | Notes |
 |----------|---------|-------|
 | **Staging Branch Management** |||
-| `create-staging-composite.yml` | Reusable workflow for creating staging branches | Called by velox/presto staging workflows |
+| `create-staging-composite.yml` | Reusable workflow for creating staging branches | Supports additional repo merge + PR merging |
 | `velox-create-staging.yml` | Creates Velox staging branch by merging cuDF PRs | Auto-fetches PRs with `cudf` label by default |
 | `presto-create-staging.yml` | Creates Presto staging branch by merging specified PRs | Requires manual PR numbers (no auto-fetch) |
 | **Velox Testing** |||
@@ -38,10 +38,35 @@ The staging workflows create branches that aggregate PRs from upstream repositor
 
 **Key Features:**
 - Resets target branch to upstream HEAD
+- Optionally merges an additional repository/branch (e.g., cuDF exchange integration)
 - Auto-discovers or manually specifies PRs to merge
 - Tests all PR pairs for merge conflicts before proceeding
 - Creates dated snapshot branches (e.g., `staging_01-30-2026`) for rollback
-- Generates `.staging-manifest.yaml` documenting merged PRs
+- Generates `.staging-manifest.yaml` documenting merged PRs and additional merges
+
+### Workflow Inputs
+
+| Input | Description | Required |
+|-------|-------------|----------|
+| `base_repository` | Upstream repository to sync from (e.g., `facebookincubator/velox`) | Yes |
+| `base_branch` | Branch from base repository (e.g., `main`) | Yes |
+| `target_repository` | Fork repository to push staging branch to | Yes |
+| `target_branch` | Name of the staging branch to create | Yes |
+| `auto_fetch_prs` | Auto-fetch non-draft PRs with specified labels | No |
+| `pr_labels` | Comma-separated PR labels to auto-fetch | No |
+| `manual_pr_numbers` | Comma-separated PR numbers to merge | No |
+| `force_push` | Force push to override existing target branch | No |
+| `additional_repository` | Additional repository to merge from (e.g., `rapidsai/velox`) | No |
+| `additional_branch` | Branch from additional repository to merge (e.g., `cudf-exchange`) | No |
+
+### Additional Repository Merge
+
+The `additional_repository` and `additional_branch` inputs allow merging code from a secondary source before PRs are applied. This is useful for:
+- Integrating cuDF exchange or GPU-specific changes
+- Testing feature branches that span multiple repositories
+- Including work-in-progress changes not yet submitted as PRs
+
+The additional merge happens **after** the base reset but **before** PR merging. The resulting commit becomes the new base for PR compatibility testing, ensuring all merged PRs are compatible with the additional changes.
 
 ### Local Usage
 
@@ -51,6 +76,12 @@ The staging workflows create branches that aggregate PRs from upstream repositor
 
 # Velox: specific PRs
 ./velox/scripts/create_staging.sh --manual-pr-numbers "16075,16050"
+
+# Velox: with additional repository merge
+./velox/scripts/create_staging.sh \
+  --additional-repository "rapidsai/velox" \
+  --additional-branch "feature/cudf-exchange" \
+  --manual-pr-numbers "16075"
 
 # Presto: must specify PRs (no auto-fetch)
 ./presto/scripts/create_staging.sh --manual-pr-numbers "27057,27054"
@@ -107,7 +138,7 @@ Tests Presto with its exact pinned Velox submodule version. Ensures Presto works
 | Secret | Purpose |
 |--------|---------|
 | `VELOX_FORK_PAT` | GitHub PAT with write access to target Velox repository |
-| `PRESTO_FORK_PAT` | GitHub PAT with write access to target Presto repository (falls back to `VELOX_FORK_PAT`) |
+| `PRESTO_FORK_PAT` | GitHub PAT with write access to target Presto repository |
 | `AWS_ARN_STRING` | AWS ARN for S3 access |
 | `AWS_ACCESS_KEY_ID` | AWS access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
