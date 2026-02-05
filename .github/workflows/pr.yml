@@ -21,6 +21,15 @@ jobs:
     with:
       needs: ${{ toJSON(needs) }}
 
+  checks:
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@fix/no-changed-files
+    with:
+      enable_check_generated_files: false
+      enable_check_version_files_changed: false
+      enable_check_version_against_tag: false
+      ignored_pr_jobs: "test_benchmark_data_tools"
+
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -35,15 +44,6 @@ jobs:
           filters: |
             benchmark_data_tools:
               - "benchmark_data_tools/**"
-
-  checks:
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
-    with:
-      enable_check_generated_files: false
-      enable_check_version_files_changed: false
-      enable_check_version_against_tag: false
-      ignored_pr_jobs: "test_benchmark_data_tools"
 
   test_benchmark_data_tools:
     needs: detect-changes
