@@ -629,11 +629,11 @@ main() {
 
   maybe_confirm_reset
   reset_target_branch "${WORK_DIR}"
+  merge_additional_repository "${WORK_DIR}"
   fetch_pr_list
   test_merge_compatibility "${WORK_DIR}" "${PR_LIST}"
   test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}"
   merge_prs "${WORK_DIR}" "${PR_LIST}"
-  merge_additional_repository "${WORK_DIR}"
   create_manifest "${WORK_DIR}"
   push_branches "${WORK_DIR}"
   log "Done."
