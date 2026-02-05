@@ -49,12 +49,12 @@ on:
         description: 'Additional repository to merge from (e.g., IBM/velox for cuDF exchange)'
         type: string
         required: false
-        default: ''
+        default: 'rapidsai/velox'
       additional_branch:
         description: 'Branch from additional repository to merge (e.g., ibm-research-preview for cuDF exchange)'
         type: string
         required: false
-        default: ''
+        default: 'cudf_exchange/rebase_latest/ibm-research-preview'
 
 jobs:
   velox-create-staging:
