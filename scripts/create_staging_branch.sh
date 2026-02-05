@@ -462,6 +462,12 @@ merge_additional_repository() {
   export ADDITIONAL_MERGE_COMMIT
   emit_output ADDITIONAL_MERGE_COMMIT "${ADDITIONAL_MERGE_COMMIT}"
   log "Successfully merged ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH} (${ADDITIONAL_MERGE_COMMIT})"
+  
+  # Update BASE_COMMIT to current HEAD so subsequent steps preserve the additional merge
+  BASE_COMMIT="$(git -C "${repo_dir}" rev-parse HEAD)"
+  export BASE_COMMIT
+  emit_output BASE_COMMIT "${BASE_COMMIT}"
+  log "Updated BASE_COMMIT to include additional merge: ${BASE_COMMIT}"
 }
 
 create_manifest() {
@@ -482,6 +488,17 @@ create_manifest() {
   sed -i "s|{{BASE_REPO}}|${BASE_REPO}|g" "${manifest_file}"
   sed -i "s|{{BASE_BRANCH}}|${BASE_BRANCH}|g" "${manifest_file}"
   sed -i "s|{{BASE_COMMIT}}|${BASE_COMMIT}|g" "${manifest_file}"
+
+  # Populate additional_merge section
+  local additional_section
+  if [[ -n "${ADDITIONAL_REPOSITORY}" && -n "${ADDITIONAL_BRANCH}" ]]; then
+    additional_section="  repository: \"${ADDITIONAL_REPOSITORY}\"\n  branch: \"${ADDITIONAL_BRANCH}\"\n  commit: \"${ADDITIONAL_MERGE_COMMIT:-unknown}\"\n  url: \"https://github.com/${ADDITIONAL_REPOSITORY}/tree/${ADDITIONAL_MERGE_COMMIT:-${ADDITIONAL_BRANCH}}\""
+  else
+    additional_section="  null  # No additional repository merged"
+  fi
+  sed -i "s|{{ADDITIONAL_MERGE_SECTION}}|${additional_section}|g" "${manifest_file}"
+  # Convert escaped newlines to actual newlines
+  sed -i 's/\\n/\n/g' "${manifest_file}"
 
   if [[ -n "${MERGED_PRS}" ]]; then
     for pr_num in ${MERGED_PRS}; do

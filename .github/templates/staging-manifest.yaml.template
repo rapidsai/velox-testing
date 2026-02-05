@@ -13,4 +13,6 @@ base:
   commit: "{{BASE_COMMIT}}"
   url: "https://github.com/{{BASE_REPO}}/tree/{{BASE_COMMIT}}"
 
+additional_merge:
+{{ADDITIONAL_MERGE_SECTION}}
 merged_prs:
