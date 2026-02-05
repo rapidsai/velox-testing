@@ -20,8 +20,10 @@ WARNING: If an image of the given name already exists, it will be removed prior 
 
 OPTIONS:
     -h, --help           Show this help message
-    -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9-\$USER)
-    -t, --tag            Docker image tag to use (default: current username from \$USER)
+    -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9-\$USER).
+                         This option overrides the --tag option and provides full control over the image name.
+    -t, --tag            Docker image tag to use (default: current username from \$USER).
+                         Creates image name: presto/prestissimo-dependency:centos9-<tag>
     -n, --no-cache       Do not use Docker build cache (default: use cache)
 
 EOF

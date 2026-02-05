@@ -41,6 +41,8 @@ fi
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
+# Ensure IMAGE_TAG is set (fallback if parse_args didn't set it)
+IMAGE_TAG="${IMAGE_TAG:-${USER:-latest}}"
 
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   echo "Error: the --profile argument is only supported for Presto GPU"
