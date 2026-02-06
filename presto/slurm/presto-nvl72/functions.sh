@@ -208,6 +208,33 @@ function run_coordinator {
         # Remove unsupported/unused properties
         sed -i '/^hive\.file-system\s*=/d' "${coord_hive}" 2>/dev/null || true
         sed -i '/^hive\.config\.resources\s*=/d' "${coord_hive}" 2>/dev/null || true
+        # Apply requested performance and feature options
+        if grep -q '^hive\.non-managed-table-writes-enabled=' "${coord_hive}"; then
+            sed -i 's/^hive\.non-managed-table-writes-enabled\s*=.*/hive.non-managed-table-writes-enabled=true/' "${coord_hive}"
+        else
+            echo "hive.non-managed-table-writes-enabled=true" >> "${coord_hive}"
+        fi
+        if grep -q '^hive\.non-managed-table-creates-enabled=' "${coord_hive}"; then
+            sed -i 's/^hive\.non-managed-table-creates-enabled\s*=.*/hive.non-managed-table-creates-enabled=true/' "${coord_hive}"
+        else
+            echo "hive.non-managed-table-creates-enabled=true" >> "${coord_hive}"
+        fi
+        if grep -q '^fs\.hadoop\.enabled=' "${coord_hive}"; then
+            sed -i 's/^fs\.hadoop\.enabled\s*=.*/fs.hadoop.enabled=true/' "${coord_hive}"
+        else
+            echo "fs.hadoop.enabled=true" >> "${coord_hive}"
+        fi
+        for kv in "fs.native-azure.enabled=false" "fs.native-s3.enabled=false" "fs.native-gcs.enabled=false" \
+                  "hive.max-split-size=256MB" "hive.max-initial-split-size=256MB" "hive.max-partitions-per-scan=1000000" \
+                  "parquet.max-read-block-size=32MB" "parquet.max-buffer-size=16MB" \
+                  "hive.split-loader-concurrency=144" "hive.domain-compaction-threshold=2000"; do
+            key="${kv%%=*}"; val="${kv#*=}"
+            if grep -q "^${key}=" "${coord_hive}"; then
+                sed -i "s|^${key}\s*=.*|${key}=${val}|" "${coord_hive}"
+            else
+                echo "${key}=${val}" >> "${coord_hive}"
+            fi
+        done
     fi
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
@@ -346,6 +373,33 @@ function run_worker {
         # Remove unsupported/unused properties
         sed -i '/^hive\.file-system\s*=/d' "${worker_hive}" 2>/dev/null || true
         sed -i '/^hive\.config\.resources\s*=/d' "${worker_hive}" 2>/dev/null || true
+        # Apply requested performance and feature options
+        if grep -q '^hive\.non-managed-table-writes-enabled=' "${worker_hive}"; then
+            sed -i 's/^hive\.non-managed-table-writes-enabled\s*=.*/hive.non-managed-table-writes-enabled=true/' "${worker_hive}"
+        else
+            echo "hive.non-managed-table-writes-enabled=true" >> "${worker_hive}"
+        fi
+        if grep -q '^hive\.non-managed-table-creates-enabled=' "${worker_hive}"; then
+            sed -i 's/^hive\.non-managed-table-creates-enabled\s*=.*/hive.non-managed-table-creates-enabled=true/' "${worker_hive}"
+        else
+            echo "hive.non-managed-table-creates-enabled=true" >> "${worker_hive}"
+        fi
+        if grep -q '^fs\.hadoop\.enabled=' "${worker_hive}"; then
+            sed -i 's/^fs\.hadoop\.enabled\s*=.*/fs.hadoop.enabled=true/' "${worker_hive}"
+        else
+            echo "fs.hadoop.enabled=true" >> "${worker_hive}"
+        fi
+        for kv in "fs.native-azure.enabled=false" "fs.native-s3.enabled=false" "fs.native-gcs.enabled=false" \
+                  "hive.max-split-size=256MB" "hive.max-initial-split-size=256MB" "hive.max-partitions-per-scan=1000000" \
+                  "parquet.max-read-block-size=32MB" "parquet.max-buffer-size=16MB" \
+                  "hive.split-loader-concurrency=144" "hive.domain-compaction-threshold=2000"; do
+            key="${kv%%=*}"; val="${kv#*=}"
+            if grep -q "^${key}=" "${worker_hive}"; then
+                sed -i "s|^${key}\s*=.*|${key}=${val}|" "${worker_hive}"
+            else
+                echo "${key}=${val}" >> "${worker_hive}"
+            fi
+        done
     fi
 
     # Create unique data dir per worker.
