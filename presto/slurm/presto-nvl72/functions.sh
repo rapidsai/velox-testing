@@ -108,6 +108,44 @@ function run_coordinator {
     sed -i -E 's/^(memory\.heap-headroom-per-node\s*=\s*)([0-9]+)\s*[Mm]\s*$/\1\2MB/g' ${coord_config} 2>/dev/null || true
     # Remove Presto-only flags if present
     sed -i '/^single-node-execution-enabled\s*=/d' ${coord_config} 2>/dev/null || true
+    # Remove defunct logging properties incompatible with Trino
+    if [ -f "${CONFIGS}/etc_common/log.properties" ]; then
+        sed -i '/^log\.max-history\s*=/d' "${CONFIGS}/etc_common/log.properties"
+    fi
+    # Remove/translate defunct or renamed Trino properties
+    sed -i '/^experimental\.spiller-max-used-space-threshold\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^experimental\.spiller-spill-path\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^experimental\.enable-dynamic-filtering\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^experimental\.reserved-pool-enabled\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^optimizer\.optimize-hash-generation\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^cluster-tag\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^discovery-server\.enabled\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^native-execution-enabled\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^presto\.version\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^use-alternative-function-signatures\s*=/d' ${coord_config} 2>/dev/null || true
+    # Remove defunct memory property (Trino suggests other keys)
+    sed -i '/^query\.max-total-memory-per-node\s*=/d' ${coord_config} 2>/dev/null || true
+    # Translate renamed properties if present
+    if grep -q '^experimental\.max-spill-per-node=' ${coord_config} 2>/dev/null; then
+        val=$(grep '^experimental\.max-spill-per-node=' ${coord_config} | tail -1 | cut -d'=' -f2-)
+        sed -i '/^experimental\.max-spill-per-node\s*=/d' ${coord_config}
+        echo "max-spill-per-node=${val}" >> ${coord_config}
+    fi
+    if grep -q '^experimental\.query-max-spill-per-node=' ${coord_config} 2>/dev/null; then
+        val=$(grep '^experimental\.query-max-spill-per-node=' ${coord_config} | tail -1 | cut -d'=' -f2-)
+        sed -i '/^experimental\.query-max-spill-per-node\s*=/d' ${coord_config}
+        echo "query-max-spill-per-node=${val}" >> ${coord_config}
+    fi
+    if grep -q '^node-scheduler\.max-pending-splits-per-task=' ${coord_config} 2>/dev/null; then
+        val=$(grep '^node-scheduler\.max-pending-splits-per-task=' ${coord_config} | tail -1 | cut -d'=' -f2-)
+        sed -i '/^node-scheduler\.max-pending-splits-per-task\s*=/d' ${coord_config}
+        echo "node-scheduler.min-pending-splits-per-task=${val}" >> ${coord_config}
+    fi
+    if grep -q '^regex-library=' ${coord_config} 2>/dev/null; then
+        val=$(grep '^regex-library=' ${coord_config} | tail -1 | cut -d'=' -f2-)
+        sed -i '/^regex-library\s*=/d' ${coord_config}
+        echo "deprecated.regex-library=${val}" >> ${coord_config}
+    fi
 
     # Ensure data dir path for coordinator (keep existing /var/lib paths)
     if grep -q "^node\.data-dir=" "${coord_node}"; then
@@ -158,6 +196,44 @@ function run_worker {
     sed -i -E 's/^(memory\.heap-headroom-per-node\s*=\s*)([0-9]+)\s*[Mm]\s*$/\1\2MB/g' ${worker_config} 2>/dev/null || true
     # Remove Presto-only flags if present
     sed -i '/^single-node-execution-enabled\s*=/d' ${worker_config} 2>/dev/null || true
+    # Remove defunct logging properties incompatible with Trino
+    if [ -f "${CONFIGS}/etc_common/log.properties" ]; then
+        sed -i '/^log\.max-history\s*=/d' "${CONFIGS}/etc_common/log.properties"
+    fi
+    # Remove/translate defunct or renamed Trino properties (worker)
+    sed -i '/^experimental\.spiller-max-used-space-threshold\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^experimental\.spiller-spill-path\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^experimental\.enable-dynamic-filtering\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^experimental\.reserved-pool-enabled\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^optimizer\.optimize-hash-generation\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^cluster-tag\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^discovery-server\.enabled\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^native-execution-enabled\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^presto\.version\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^use-alternative-function-signatures\s*=/d' ${worker_config} 2>/dev/null || true
+    # Remove defunct memory property
+    sed -i '/^query\.max-total-memory-per-node\s*=/d' ${worker_config} 2>/dev/null || true
+    # Translate renamed properties if present
+    if grep -q '^experimental\.max-spill-per-node=' ${worker_config} 2>/dev/null; then
+        val=$(grep '^experimental\.max-spill-per-node=' ${worker_config} | tail -1 | cut -d'=' -f2-)
+        sed -i '/^experimental\.max-spill-per-node\s*=/d' ${worker_config}
+        echo "max-spill-per-node=${val}" >> ${worker_config}
+    fi
+    if grep -q '^experimental\.query-max-spill-per-node=' ${worker_config} 2>/dev/null; then
+        val=$(grep '^experimental\.query-max-spill-per-node=' ${worker_config} | tail -1 | cut -d'=' -f2-)
+        sed -i '/^experimental\.query-max-spill-per-node\s*=/d' ${worker_config}
+        echo "query-max-spill-per-node=${val}" >> ${worker_config}
+    fi
+    if grep -q '^node-scheduler\.max-pending-splits-per-task=' ${worker_config} 2>/dev/null; then
+        val=$(grep '^node-scheduler\.max-pending-splits-per-task=' ${worker_config} | tail -1 | cut -d'=' -f2-)
+        sed -i '/^node-scheduler\.max-pending-splits-per-task\s*=/d' ${worker_config}
+        echo "node-scheduler.min-pending-splits-per-task=${val}" >> ${worker_config}
+    fi
+    if grep -q '^regex-library=' ${worker_config} 2>/dev/null; then
+        val=$(grep '^regex-library=' ${worker_config} | tail -1 | cut -d'=' -f2-)
+        sed -i '/^regex-library\s*=/d' ${worker_config}
+        echo "deprecated.regex-library=${val}" >> ${worker_config}
+    fi
     # Give each worker a unique id.
     sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_node}
     # Ensure data dir path (keep existing /var/lib paths)
