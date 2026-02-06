@@ -99,6 +99,16 @@ function run_coordinator {
     sed -i "s+discovery\.uri.*+discovery\.uri=http://${COORD}:${PORT}+g" ${coord_config}
     sed -i "s+http-server\.http\.port=.*+http-server\.http\.port=${PORT}+g" ${coord_config}
 
+    # Normalize Trino memory settings to valid DataSize suffixes (e.g., 8G -> 8GB)
+    sed -i -E 's/^(query\.max-memory-per-node\s*=\s*)([0-9]+)\s*[Gg]\s*$/\1\2GB/g' ${coord_config} 2>/dev/null || true
+    sed -i -E 's/^(query\.max-memory-per-node\s*=\s*)([0-9]+)\s*[Mm]\s*$/\1\2MB/g' ${coord_config} 2>/dev/null || true
+    sed -i -E 's/^(query\.max-total-memory-per-node\s*=\s*)([0-9]+)\s*[Gg]\s*$/\1\2GB/g' ${coord_config} 2>/dev/null || true
+    sed -i -E 's/^(query\.max-total-memory-per-node\s*=\s*)([0-9]+)\s*[Mm]\s*$/\1\2MB/g' ${coord_config} 2>/dev/null || true
+    sed -i -E 's/^(memory\.heap-headroom-per-node\s*=\s*)([0-9]+)\s*[Gg]\s*$/\1\2GB/g' ${coord_config} 2>/dev/null || true
+    sed -i -E 's/^(memory\.heap-headroom-per-node\s*=\s*)([0-9]+)\s*[Mm]\s*$/\1\2MB/g' ${coord_config} 2>/dev/null || true
+    # Remove Presto-only flags if present
+    sed -i '/^single-node-execution-enabled\s*=/d' ${coord_config} 2>/dev/null || true
+
     # Ensure data dir path for coordinator (keep existing /var/lib paths)
     if grep -q "^node\.data-dir=" "${coord_node}"; then
         sed -i "s+^node\.data-dir=.*+node\.data-dir=/var/lib/presto/data+g" ${coord_node}
@@ -139,7 +149,15 @@ function run_worker {
     sed -i "s+http-server\.http\.port.*+http-server\.http\.port=10${worker_two_digit}0+g" ${worker_config}
     # Update discovery based on which node the coordinator is running on.
     sed -i "s+discovery\.uri.*+discovery\.uri=http://${COORD}:${PORT}+g" ${worker_config}
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=${SINGLE_NODE_EXECUTION}+g" ${worker_config}
+    # Normalize Trino memory settings to valid DataSize suffixes (e.g., 8G -> 8GB)
+    sed -i -E 's/^(query\.max-memory-per-node\s*=\s*)([0-9]+)\s*[Gg]\s*$/\1\2GB/g' ${worker_config} 2>/dev/null || true
+    sed -i -E 's/^(query\.max-memory-per-node\s*=\s*)([0-9]+)\s*[Mm]\s*$/\1\2MB/g' ${worker_config} 2>/dev/null || true
+    sed -i -E 's/^(query\.max-total-memory-per-node\s*=\s*)([0-9]+)\s*[Gg]\s*$/\1\2GB/g' ${worker_config} 2>/dev/null || true
+    sed -i -E 's/^(query\.max-total-memory-per-node\s*=\s*)([0-9]+)\s*[Mm]\s*$/\1\2MB/g' ${worker_config} 2>/dev/null || true
+    sed -i -E 's/^(memory\.heap-headroom-per-node\s*=\s*)([0-9]+)\s*[Gg]\s*$/\1\2GB/g' ${worker_config} 2>/dev/null || true
+    sed -i -E 's/^(memory\.heap-headroom-per-node\s*=\s*)([0-9]+)\s*[Mm]\s*$/\1\2MB/g' ${worker_config} 2>/dev/null || true
+    # Remove Presto-only flags if present
+    sed -i '/^single-node-execution-enabled\s*=/d' ${worker_config} 2>/dev/null || true
     # Give each worker a unique id.
     sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_node}
     # Ensure data dir path (keep existing /var/lib paths)
