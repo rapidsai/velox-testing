@@ -48,6 +48,7 @@ services:
     extends:
       file: ../../docker-compose.common.yml
       service: presto-base-coordinator
+    image: presto-coordinator:${IMAGE_TAG:-latest}
     volumes:
       - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
       - ../../config/generated/gpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties

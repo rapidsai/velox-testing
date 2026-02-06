@@ -3,6 +3,7 @@ services:
     extends:
       file: docker-compose.common.yml
       service: presto-base-coordinator
+    image: presto-coordinator:${IMAGE_TAG:-latest}
     volumes:
       - ./config/generated/java/etc_common:/opt/presto-server/etc
       - ./config/generated/java/etc_coordinator/config_java.properties:/opt/presto-server/etc/config.properties
