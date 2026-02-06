@@ -16,8 +16,14 @@
 
 set -euo pipefail
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Get the root of the git repository
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+
 # load common variables and functions
-source ./config.sh
+source "${SCRIPT_DIR}/config.sh"
 
 ALL_CUDA_ARCHS=false
 NO_CACHE=false
@@ -27,7 +33,7 @@ VELOX_ENABLE_BENCHMARKS="ON"
 BUILD_TYPE="release"
 LOG_ENABLED=false
 TREAT_WARNINGS_AS_ERRORS="${TREAT_WARNINGS_AS_ERRORS:-1}"
-LOGFILE="./build_velox.log"
+LOGFILE="${SCRIPT_DIR}/build_velox.log"
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
@@ -262,7 +268,7 @@ parse_args "$@"
 validate_sccache_auth
 
 # Validate repo layout using shared script
-../../scripts/validate_directories_exist.sh "../../../velox"
+"${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../velox"
 
 # Compose docker build command options (default: do not force pull; use local images if present)
 DOCKER_BUILD_OPTS=()

@@ -41,6 +41,8 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
+    -m, --metrics           Collect detailed metrics from Presto REST API after each query.
+                            Metrics are stored in query-specific directories.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -48,12 +50,13 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -i 10 -o ~/tpch_benchmark_output
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
+    $0 -b tpch -s bench_sf100 --metrics
     $0 -h
 
 EOF
 }
 
-parse_args() { 
+parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -h|--help)
@@ -154,6 +157,10 @@ parse_args() {
         PROFILE=true
         shift
         ;;
+      -m|--metrics)
+        METRICS=true
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -220,16 +227,23 @@ if [[ "${PROFILE}" == "true" ]]; then
   PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
 fi
 
-source ../../scripts/py_env_functions.sh
+if [[ "${METRICS}" == "true" ]]; then
+  PYTEST_ARGS+=("--metrics")
+fi
+
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
 trap delete_python_virtual_env EXIT
 
 init_python_virtual_env
 
-TEST_DIR=$(readlink -f ../testing)
+TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
 pip install -q -r ${TEST_DIR}/requirements.txt
 
-source ./common_functions.sh
+source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 

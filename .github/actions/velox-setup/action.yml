@@ -32,7 +32,7 @@ runs:
       run: |
         VELOX_REF="${{ inputs.velox_commit }}"
         echo "Input ref: $VELOX_REF"
-        
+
         if [[ "$VELOX_REF" == "main" || "$VELOX_REF" == "master" ]]; then
           cd velox
           ACTUAL_SHA=$(git rev-parse HEAD)

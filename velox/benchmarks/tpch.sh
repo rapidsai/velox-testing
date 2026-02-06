@@ -2,19 +2,8 @@
 # TPC-H Benchmark Module for Velox
 # This file contains TPC-H specific benchmark utilities used by benchmark_velox.sh
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 # TPC-H specific constants
 TPCH_REQUIRED_TABLES=("customer" "lineitem" "nation" "orders" "part" "partsupp" "region" "supplier")
@@ -23,7 +12,7 @@ get_tpch_help() {
   cat <<EOF
 
 TPC-H Data Requirements:
-    
+
   The data must use the Hive-style directory structure with at least one parquet file per table.
 
 TPC-H Build Requirements:
@@ -37,9 +26,9 @@ EOF
 check_tpch_hive_data_layout() {
   local data_dir=$1
       echo "Validating TPC-H Hive-style data layout..."
-  
+
   local missing_tables=0
-  
+
   for table in "${TPCH_REQUIRED_TABLES[@]}"; do
     # Check for Hive-style directory structure: table/*.parquet
     if [[ ! -d "$data_dir/${table}" ]]; then
@@ -51,7 +40,7 @@ check_tpch_hive_data_layout() {
       while IFS= read -r -d '' file; do
         parquet_files+=("$file")
       done < <(find "$data_dir/${table}" -name "*.parquet" -type f -print0 2>/dev/null)
-      
+
       if [[ ${#parquet_files[@]} -eq 0 ]]; then
         echo "ERROR: No parquet files found in '$data_dir/${table}/' directory (including subdirectories)." >&2
         missing_tables=1
@@ -67,7 +56,7 @@ check_tpch_hive_data_layout() {
       fi
     fi
   done
-  
+
   if [[ "$missing_tables" -ne 0 ]]; then
     echo "ERROR: TPC-H Hive-style data layout validation failed." >&2
     echo "Expected Hive-style directory structure with at least one parquet file per table:" >&2
@@ -88,7 +77,7 @@ check_tpch_hive_data_layout() {
     echo "  - Multi-partition: customer/region=AMERICA/part-00000.parquet, customer/region=EUROPE/part-00001.parquet, ..." >&2
     return 1
   fi
-  
+
   return 0
 }
 
@@ -96,14 +85,14 @@ check_tpch_hive_data_layout() {
 check_for_table_definition_files() {
   local data_dir=$1
   local definition_files_found=0
-  
+
   for table in "${TPCH_REQUIRED_TABLES[@]}"; do
     if [[ -f "$data_dir/${table}" ]]; then
       definition_files_found=1
       break
     fi
   done
-  
+
   if [[ $definition_files_found -eq 1 ]]; then
     echo "ERROR: Table definition files detected but not supported." >&2
     echo "" >&2
@@ -121,25 +110,25 @@ check_for_table_definition_files() {
     echo "  $data_dir/supplier/*.parquet (directory with parquet files)" >&2
     return 1
   fi
-  
+
   return 0
 }
 
 check_tpch_data() {
   local data_dir=$1
-  
+
   if [[ ! -d "$data_dir" ]]; then
     echo "ERROR: TPC-H data directory not found at $data_dir" >&2
     exit 1
   fi
-  
+
   echo "Found TPC-H data directory: $data_dir"
-  
+
   # Check for unsupported table definition files first
   if ! check_for_table_definition_files "$data_dir"; then
     exit 1
   fi
-  
+
   # Validate Hive-style data layout
   if check_tpch_hive_data_layout "$data_dir"; then
     echo "TPC-H Hive-style data layout validation passed"
@@ -166,8 +155,8 @@ get_tpch_benchmark_executable_path() {
 # Modifies the profile command variable passed by reference to include --gpu-metrics-devices
 setup_gpu_metrics_profiling_if_supported() {
   local run_in_container_func="$1"
-  local -n profile_cmd_ref=$2  
-  
+  local -n profile_cmd_ref=$2
+
   # Check GPU compute capability (>7 required for metrics)
   if $run_in_container_func "nvidia-smi --query-gpu=compute_cap --format=csv,noheader -i 0 2>/dev/null | cut -d '.' -f 1" | awk '{if ($1 > 7) exit 0; else exit 1}'; then
     local device_id=${CUDA_VISIBLE_DEVICES:-"all"}
@@ -185,10 +174,10 @@ run_tpch_single_benchmark() {
   local profile="$3"
   local run_in_container_func="$4"
   local num_repeats="$5"
-  
+
   printf -v query_number_padded '%02d' "$query_number"
-  
-  # Set device-specific parameters  
+
+  # Set device-specific parameters
   case "$device_type" in
     "cpu")
       num_drivers=${NUM_DRIVERS:-32}
@@ -204,12 +193,12 @@ run_tpch_single_benchmark() {
       CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit} --cudf_memory_resource=${cudf_memory_resource}"
       ;;
   esac
-  
+
   # Common benchmark settings
   output_batch_rows=${BATCH_SIZE_ROWS:-100000}
-  
+
   echo "Running query ${query_number_padded} on ${device_type} with ${num_drivers} drivers."
-  
+
   # Set up profiling if requested
   PROFILE_CMD=""
   if [[ "$profile" == "true" ]]; then
@@ -231,7 +220,7 @@ run_tpch_single_benchmark() {
       echo "         To enable profiling, rebuild with: ./build_velox.sh --benchmarks" >&2
     fi
   fi
-  
+
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
   set +e
   $run_in_container_func 'bash -c "
@@ -244,8 +233,6 @@ run_tpch_single_benchmark() {
         --run_query_verbose='"${query_number_padded}"' \
         --num_repeats='"${num_repeats}"' \
         --num_drivers='"${num_drivers}"' \
-        --preferred_output_batch_rows='"${output_batch_rows}"' \
-        --max_output_batch_rows='"${output_batch_rows}"' \
         '"${CUDF_FLAGS}"' 2>&1 | \
         tee \"\$BASE_FILENAME\"
       chown \"${USER_ID}:${GROUP_ID}\" \"\$BASE_FILENAME\"
@@ -260,7 +247,7 @@ run_tpch_single_benchmark() {
     return $EXIT_CODE
   fi
 
-  set -e 
+  set -e
 }
 
 get_tpch_default_queries() {
@@ -271,25 +258,25 @@ check_tpch_benchmark_executable_with_path() {
   local benchmark_executable="$1"
   local run_in_container_func="$2"
   local error_msg_hint="$3"
-  
+
   if ! $run_in_container_func "test -f ${benchmark_executable}" 2>/dev/null; then
     echo "ERROR: TPC-H benchmark executable not found at ${benchmark_executable}" >&2
     echo "$error_msg_hint" >&2
     exit 1
   fi
-} 
+}
 
 
 check_tpch_benchmark_executable() {
     local run_in_container_func="$1"
     local device_type="${2:-cpu gpu}"  # Default to both if not specified
-    
+
     # Always check the CPU benchmark executable
     check_tpch_benchmark_executable_with_path \
         "$(get_tpch_benchmark_executable_path "cpu")" \
         "$run_in_container_func" \
-        "Please rebuild Velox with benchmarks enabled by running: ./build_velox.sh --benchmarks true" 
-    
+        "Please rebuild Velox with benchmarks enabled by running: ./build_velox.sh --benchmarks true"
+
     # Only check CUDF executable if GPU is requested
     if [[ "$device_type" == *"gpu"* ]]; then
         check_tpch_benchmark_executable_with_path "$(get_tpch_benchmark_executable_path "gpu")" \

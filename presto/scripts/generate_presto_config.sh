@@ -34,9 +34,45 @@ function echo_success {
   echo -e "${GREEN}$1${NC}"
 }
 
-if [ ! -x ../pbench/pbench ]; then
-  echo_error "ERROR: generate_presto_config.sh script must only be run from presto:presto/scripts"
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ ! -x "${SCRIPT_DIR}/../pbench/pbench" ]; then
+  echo_error "ERROR: generate_presto_config.sh script cannot find pbench at ${SCRIPT_DIR}/../pbench/pbench"
 fi
+
+function duplicate_worker_configs() {
+  echo "Duplicating worker configs for GPU ID $1"
+  local worker_config="${CONFIG_DIR}/etc_worker_${1}"
+  local coord_config="${CONFIG_DIR}/etc_coordinator"
+  rm -rf ${worker_config}
+  cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
+
+  # Single node execution needs to be disabled if we are running multiple workers.
+  if [[ ${NUM_WORKERS} -gt 1 ]]; then
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
+        ${coord_config}/config_native.properties
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
+	${worker_config}/config_native.properties
+  # make cudf.exchange=true if we are running multiple workers
+    sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
+  fi
+  echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
+
+  # Each worker node needs to have it's own http-server port.  This isn't used, but
+  # the cudf.exchange server port is currently hard-coded to be the server port +3
+  # and that needs to be unique for each worker.
+  sed -i "s+http-server\.http\.port.*+http-server\.http\.port=80${1}0+g" \
+      ${worker_config}/config_native.properties
+  sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
+      ${worker_config}/config_native.properties
+  if ! grep -q "^cudf.exchange.server.port=80${1}3" ${worker_config}/config_native.properties; then
+    echo "cudf.exchange.server.port=80${1}3" >> ${worker_config}/config_native.properties
+  fi
+  echo "async-data-cache-enabled=false" >> ${worker_config}/config_native.properties
+  # Give each worker a unique id.
+  sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
+}
 
 # get host values
 NPROC=`nproc`
@@ -48,14 +84,16 @@ RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo_error "ERROR: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
 fi
-if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
-  VCPU_PER_WORKER=2
-else
-  VCPU_PER_WORKER=${NPROC}
+if [[ -z ${VCPU_PER_WORKER} ]]; then
+  if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
+      VCPU_PER_WORKER=2
+  else
+    VCPU_PER_WORKER=${NPROC}
+  fi
 fi
 
 # move to config directory
-pushd ../docker/config > /dev/null
+pushd "${SCRIPT_DIR}/../docker/config" > /dev/null
 
 # always move back even on failure
 trap "popd > /dev/null" EXIT
@@ -76,7 +114,7 @@ if [[ ! -d ${CONFIG_DIR} || "${OVERWRITE_CONFIG}" == "true" ]]; then
     "coordinator_instance_ebs_size": 50,
     "worker_instance_type": "${NPROC}-core CPU and ${RAM_GB}GB RAM",
     "worker_instance_ebs_size": 50,
-    "number_of_workers": 1,
+    "number_of_workers": ${NUM_WORKERS},
     "memory_per_node_gb": ${RAM_GB},
     "vcpu_per_worker": ${VCPU_PER_WORKER},
     "fragment_result_cache_enabled": true,
@@ -86,28 +124,32 @@ EOF
 
   # run pbench to generate the config files
   # hide default pbench logging which goes to stderr so we only see any errors
-  if ../../pbench/pbench genconfig -p params.json -t template ${CONFIG_DIR} 2>&1 | grep '\{\"level":"error"'; then
+  if "${SCRIPT_DIR}/../pbench/pbench" genconfig -p params.json -t template ${CONFIG_DIR} 2>&1 | grep '\{\"level":"error"'; then
     echo_error "ERROR: Errors reported by pbench genconfig. Configs were not generated successfully."
   fi
 
+  if [ -n "${HIVE_METASTORE_URI:-}" ]; then
+    sed -i 's/hive.metastore=file/#hive.metastore=file/' "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties" "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
+    sed -i "s|hive.metastore.catalog.dir=.*|hive.metastore.uri=${HIVE_METASTORE_URI}|" "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties" "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
+  fi
+
+  COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
   # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
     # for GPU variant, uncomment these optimizer settings
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
-    COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
-    
-    # Adds a cluster tag for gpu variant
-    WORKER_CONFIG="${CONFIG_DIR}/etc_worker/config_native.properties"
-    echo "cluster-tag=native-gpu" >> ${WORKER_CONFIG}
+    if [[ ${NUM_WORKERS} -eq 1 ]]; then
+      # Adds a cluster tag for gpu variant
+      echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
+    fi
   fi
 
   # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
     # Adds a cluster tag for cpu variant
-    WORKER_CONFIG="${CONFIG_DIR}/etc_worker/config_native.properties"
-    echo "cluster-tag=native-cpu" >> ${WORKER_CONFIG}
+    echo "cluster-tag=native-cpu" >> ${COORD_CONFIG}
   fi
 
   # for Java variant, disable some Parquet properties which are now rejected
@@ -115,6 +157,7 @@ EOF
     HIVE_CONFIG="${CONFIG_DIR}/etc_worker/catalog/hive.properties"
     sed -i 's/parquet\.reader\.chunk-read-limit/#parquet\.reader\.chunk-read-limit/' ${HIVE_CONFIG}
     sed -i 's/parquet\.reader\.pass-read-limit/#parquet\.reader\.pass-read-limit/' ${HIVE_CONFIG}
+    sed -i 's/^cudf/#cudf/' ${HIVE_CONFIG}
   fi
 
   # success message
@@ -122,4 +165,14 @@ EOF
 else
   # otherwise, reuse existing config
   echo_success "Reusing existing Presto Config files for '${VARIANT_TYPE}'"
+fi
+
+# We want to propagate any changes from the original worker config to the new worker configs even if
+# we did not re-generate the configs.
+if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" && "$VARIANT_TYPE" == "gpu" ]]; then
+  # Count the number of GPU IDs provided
+  IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
+  for i in "${GPU_ID_ARRAY[@]}"; do
+    duplicate_worker_configs $i
+  done
 fi

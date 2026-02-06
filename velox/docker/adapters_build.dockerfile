@@ -1,11 +1,11 @@
 ARG TARGETARCH
 
 # Install latest ninja
-FROM --platform=$TARGETPLATFORM alpine:latest AS ninja-amd64
+FROM alpine:latest AS ninja-amd64
 RUN apk add --no-cache unzip
 ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux.zip /tmp
 
-FROM --platform=$TARGETPLATFORM alpine:latest AS ninja-arm64
+FROM alpine:latest AS ninja-arm64
 RUN apk add --no-cache unzip
 ADD https://github.com/ninja-build/ninja/releases/latest/download/ninja-linux-aarch64.zip /tmp
 RUN mv /tmp/ninja-linux-aarch64.zip /tmp/ninja-linux.zip
@@ -20,10 +20,10 @@ ARG TARGETARCH
 ARG VELOX_ENABLE_BENCHMARKS=ON
 
 # Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
-RUN \ 
+RUN \
 <<EOF
-if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then 
-      set -euxo pipefail 
+if [ "$VELOX_ENABLE_BENCHMARKS" = "ON" ]; then
+      set -euxo pipefail
       # Detect architecture and set appropriate repo
       ARCH=$(uname -m)
       if [ "$ARCH" = "aarch64" ]; then
