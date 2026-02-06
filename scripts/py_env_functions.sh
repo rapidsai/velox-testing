@@ -68,7 +68,7 @@ function init_python_virtual_env() {
     init_conda
 
     echo "Creating virtual environment using conda"
-    conda create -q -y --prefix ".venv" python=3.12 > /dev/null
+    conda create -q -y --prefix ".venv" python=3.10 > /dev/null
 
     echo "Activating conda environment"
     conda activate "$(readlink -f .venv)"
