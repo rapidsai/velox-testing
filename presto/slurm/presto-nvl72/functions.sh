@@ -185,6 +185,20 @@ function run_coordinator {
         sed -i '/^hive\.file-splittable\s*=/d' "${coord_hive}" 2>/dev/null || true
         sed -i '/^parquet\.reader\.chunk-read-limit\s*=/d' "${coord_hive}" 2>/dev/null || true
         sed -i '/^parquet\.reader\.pass-read-limit\s*=/d' "${coord_hive}" 2>/dev/null || true
+        # Ensure local file metastore is correctly configured with proper URI
+        if grep -q '^hive\.metastore=' "${coord_hive}"; then
+            sed -i 's/^hive\.metastore\s*=.*/hive.metastore=file/' "${coord_hive}"
+        else
+            echo "hive.metastore=file" >> "${coord_hive}"
+        fi
+        if grep -q '^hive\.metastore\.catalog\.dir=' "${coord_hive}"; then
+            sed -i 's|^hive\.metastore\.catalog\.dir\s*=.*|hive.metastore.catalog.dir=file:///var/lib/presto/data/hive/metastore|' "${coord_hive}"
+        else
+            echo "hive.metastore.catalog.dir=file:///var/lib/presto/data/hive/metastore" >> "${coord_hive}"
+        fi
+        # Remove thrift/glue URIs if present to avoid conflicts
+        sed -i '/^hive\.metastore\.uri\s*=/d' "${coord_hive}" 2>/dev/null || true
+        sed -i '/^hive\.metastore\.uris\s*=/d' "${coord_hive}" 2>/dev/null || true
     fi
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
@@ -306,6 +320,20 @@ function run_worker {
         sed -i '/^hive\.file-splittable\s*=/d' "${worker_hive}" 2>/dev/null || true
         sed -i '/^parquet\.reader\.chunk-read-limit\s*=/d' "${worker_hive}" 2>/dev/null || true
         sed -i '/^parquet\.reader\.pass-read-limit\s*=/d' "${worker_hive}" 2>/dev/null || true
+        # Ensure local file metastore is correctly configured with proper URI
+        if grep -q '^hive\.metastore=' "${worker_hive}"; then
+            sed -i 's/^hive\.metastore\s*=.*/hive.metastore=file/' "${worker_hive}"
+        else
+            echo "hive.metastore=file" >> "${worker_hive}"
+        fi
+        if grep -q '^hive\.metastore\.catalog\.dir=' "${worker_hive}"; then
+            sed -i 's|^hive\.metastore\.catalog\.dir\s*=.*|hive.metastore.catalog.dir=file:///var/lib/presto/data/hive/metastore|' "${worker_hive}"
+        else
+            echo "hive.metastore.catalog.dir=file:///var/lib/presto/data/hive/metastore" >> "${worker_hive}"
+        fi
+        # Remove thrift/glue URIs if present to avoid conflicts
+        sed -i '/^hive\.metastore\.uri\s*=/d' "${worker_hive}" 2>/dev/null || true
+        sed -i '/^hive\.metastore\.uris\s*=/d' "${worker_hive}" 2>/dev/null || true
     fi
 
     # Create unique data dir per worker.
