@@ -245,7 +245,15 @@ pip install -q -r ${TEST_DIR}/requirements.txt
 
 source "${SCRIPT_DIR}/common_functions.sh"
 
-wait_for_worker_node_registration "$HOST_NAME" "$PORT"
+# Align environment variable names expected by wait_for_worker_node_registration
+if [[ -n "${HOST_NAME:-}" ]]; then
+  export HOSTNAME="${HOST_NAME}"
+fi
+if [[ -n "${PORT:-}" ]]; then
+  export PORT="${PORT}"
+fi
+
+wait_for_worker_node_registration
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
