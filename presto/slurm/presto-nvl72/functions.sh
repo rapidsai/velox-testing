@@ -112,6 +112,12 @@ function run_coordinator {
     if [ -f "${CONFIGS}/etc_common/log.properties" ]; then
         sed -i '/^log\.max-history\s*=/d' "${CONFIGS}/etc_common/log.properties"
     fi
+    # Remove CUDF/Velox and other Presto-native-only properties
+    sed -i '/^cudf\./d' ${coord_config} 2>/dev/null || true
+    sed -i '/^memory-arbitrator-kind\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^runtime-metrics-collection-enabled\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^system-.*\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^query-memory-gb\s*=/d' ${coord_config} 2>/dev/null || true
     # Remove/translate defunct or renamed Trino properties
     sed -i '/^experimental\.spiller-max-used-space-threshold\s*=/d' ${coord_config} 2>/dev/null || true
     sed -i '/^experimental\.spiller-spill-path\s*=/d' ${coord_config} 2>/dev/null || true
@@ -158,6 +164,13 @@ function run_coordinator {
         val=$(grep '^regex-library=' ${coord_config} | tail -1 | cut -d'=' -f2-)
         sed -i '/^regex-library\s*=/d' ${coord_config}
         echo "deprecated.regex-library=${val}" >> ${coord_config}
+    fi
+    # Validate query.max-memory-per-node format; if invalid, drop to use defaults
+    if grep -q '^query\.max-memory-per-node=' ${coord_config} 2>/dev/null; then
+        qv="$(grep '^query\.max-memory-per-node=' ${coord_config} | tail -1 | cut -d'=' -f2- | tr -d '[:space:]')"
+        if ! echo "$qv" | grep -Eq '^[0-9]+(KB|MB|GB|TB|PB)$'; then
+            sed -i '/^query\.max-memory-per-node\s*=/d' ${coord_config}
+        fi
     fi
 
     # Ensure data dir path for coordinator (keep existing /var/lib paths)
@@ -213,6 +226,12 @@ function run_worker {
     if [ -f "${CONFIGS}/etc_common/log.properties" ]; then
         sed -i '/^log\.max-history\s*=/d' "${CONFIGS}/etc_common/log.properties"
     fi
+    # Remove CUDF/Velox and other Presto-native-only properties
+    sed -i '/^cudf\./d' ${worker_config} 2>/dev/null || true
+    sed -i '/^memory-arbitrator-kind\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^runtime-metrics-collection-enabled\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^system-.*\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^query-memory-gb\s*=/d' ${worker_config} 2>/dev/null || true
     # Remove/translate defunct or renamed Trino properties (worker)
     sed -i '/^experimental\.spiller-max-used-space-threshold\s*=/d' ${worker_config} 2>/dev/null || true
     sed -i '/^experimental\.spiller-spill-path\s*=/d' ${worker_config} 2>/dev/null || true
@@ -259,6 +278,13 @@ function run_worker {
         val=$(grep '^regex-library=' ${worker_config} | tail -1 | cut -d'=' -f2-)
         sed -i '/^regex-library\s*=/d' ${worker_config}
         echo "deprecated.regex-library=${val}" >> ${worker_config}
+    fi
+    # Validate query.max-memory-per-node format; if invalid, drop to use defaults
+    if grep -q '^query\.max-memory-per-node=' ${worker_config} 2>/dev/null; then
+        qv="$(grep '^query\.max-memory-per-node=' ${worker_config} | tail -1 | cut -d'=' -f2- | tr -d '[:space:]')"
+        if ! echo "$qv" | grep -Eq '^[0-9]+(KB|MB|GB|TB|PB)$'; then
+            sed -i '/^query\.max-memory-per-node\s*=/d' ${worker_config}
+        fi
     fi
     # Give each worker a unique id.
     sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_node}
