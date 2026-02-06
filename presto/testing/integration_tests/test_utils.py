@@ -29,7 +29,7 @@ def execute_query_and_compare_results(presto_cursor, queries, query_id):
     debug_info = None
     if _is_single_none_result(presto_rows) and not _is_single_none_result(duckdb_rows):
         debug_info = _debug_none_result(presto_cursor, query_id, query)
-        print(debug_info)
+        print(debug_info, flush=True)
 
     try:
         compare_results(presto_rows, duckdb_rows, types, query, columns)
