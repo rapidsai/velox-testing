@@ -102,7 +102,6 @@ elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
-  conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
@@ -111,6 +110,25 @@ fi
 if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
   # Generate default GPU IDs: 0,1,2,...,N-1
   export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
+fi
+
+if [[ "$VARIANT_TYPE" == "gpu" ]]; then
+  gpu_worker_services=("${GPU_WORKER_SERVICE}")
+  if [[ "$SINGLE_CONTAINER" == "false" && $NUM_WORKERS -gt 1 ]]; then
+    gpu_worker_services=()
+    IFS=',' read -ra gpu_id_array <<< "${GPU_IDS}"
+    for gpu_id in "${gpu_id_array[@]}"; do
+      gpu_worker_services+=("${GPU_WORKER_SERVICE}-${gpu_id}")
+    done
+  fi
+
+  if is_image_missing ${GPU_WORKER_IMAGE}; then
+    echo "Added ${gpu_worker_services[*]} to the list of services to build because the ${GPU_WORKER_IMAGE} image is missing"
+    BUILD_TARGET_ARG+=("${gpu_worker_services[@]}")
+  elif [[ ${BUILD_TARGET} =~ ^(worker|w|all|a)$ ]]; then
+    echo "Added ${gpu_worker_services[*]} to the list of services to build because the '${BUILD_TARGET}' build target was specified"
+    BUILD_TARGET_ARG+=("${gpu_worker_services[@]}")
+  fi
 fi
 
 "${SCRIPT_DIR}/stop_presto.sh"
