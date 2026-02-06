@@ -14,10 +14,9 @@ services:
   presto-base-coordinator:
     extends:
       service: presto-base-java
-    container_name: presto-coordinator
     image: presto-coordinator:${IMAGE_TAG:-latest}
     ports:
-      - 8080:8080
+      - "${PRESTO_COORDINATOR_PORT:-8080}:8080"
 
   presto-base-native-worker:
     extends:

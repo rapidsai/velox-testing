@@ -41,6 +41,14 @@ fi
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
+if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
+  project_user="${USER:-user}"
+  project_user="${project_user//[^a-zA-Z0-9]/-}"
+  project_user="$(printf "%s" "${project_user}" | tr '[:upper:]' '[:lower:]')"
+  COMPOSE_PROJECT_NAME="presto-${project_user}"
+  export COMPOSE_PROJECT_NAME
+fi
+echo "Using COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}"
 
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   echo "Error: the --profile argument is only supported for Presto GPU"
