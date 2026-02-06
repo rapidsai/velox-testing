@@ -3,7 +3,7 @@ set -e
 set -x
 
 # ==============================================================================
-# Presto TPC-H Benchmark Execution Script
+# Trino TPC-H Benchmark Execution Script
 # ==============================================================================
 # This script runs the actual benchmark execution after environment is configured
 # by the slurm launcher script. All configuration is passed via environment vars.
@@ -15,28 +15,26 @@ source $SCRIPT_DIR/functions.sh
 # ==============================================================================
 # Setup and Validation
 # ==============================================================================
-echo "Setting up Presto environment..."
+echo "Setting up Trino environment..."
 setup
 
 # ==============================================================================
 # Start Coordinator
 # ==============================================================================
-echo "Starting Presto coordinator on ${COORD}..."
+echo "Starting Trino coordinator on ${COORD}..."
 run_coordinator
 wait_until_coordinator_is_running
 
 # ==============================================================================
 # Start Workers
 # ==============================================================================
-echo "Starting ${NUM_WORKERS} Presto workers across ${NUM_NODES} nodes..."
+echo "Starting ${NUM_WORKERS} Trino workers across ${NUM_NODES} nodes..."
 
 worker_id=0
 for node in $(scontrol show hostnames "$SLURM_JOB_NODELIST"); do
-    for gpu_id in $(seq 0 $((NUM_GPUS_PER_NODE - 1))); do
-        echo "  Starting worker ${worker_id} on node ${node} GPU ${gpu_id}"
-        run_worker "${gpu_id}" "$WORKER_IMAGE" "${node}" "$worker_id"
-        worker_id=$((worker_id + 1))
-    done
+    echo "  Starting worker ${worker_id} on node ${node}"
+    run_worker "0" "$WORKER_IMAGE" "${node}" "$worker_id"
+    worker_id=$((worker_id + 1))
 done
 
 # ==============================================================================

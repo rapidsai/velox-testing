@@ -2,9 +2,9 @@
 
 #!/bin/bash
 # ==============================================================================
-# Presto TPC-H Benchmark Launcher
+# Trino TPC-H Benchmark Launcher
 # ==============================================================================
-# Simple launcher script to submit the presto benchmark job to slurm
+# Simple launcher script to submit the trino benchmark job to slurm
 #
 # Usage:
 #   ./launch-run.sh -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]
@@ -21,7 +21,7 @@ cd "$(dirname "$0")"
 rm -f result_dir/* logs/* *.out *.err 2>/dev/null || true
 mkdir -p result_dir logs
 
-echo "Submitting Presto TPC-H benchmark job..."
+echo "Submitting Trino TPC-H benchmark job..."
 echo "Configuration is set in run-presto-benchmarks.slurm"
 echo ""
 
@@ -85,8 +85,8 @@ if [[ -z "${SCALE_FACTOR}" ]]; then
 fi
 
 # Submit job (include nodes/SF/iterations in file names)
-OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
-ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
+OUT_FMT="trino-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
+ERR_FMT="trino-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
 SCRIPT_DIR="$PWD"
 JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR}" \
 --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" \

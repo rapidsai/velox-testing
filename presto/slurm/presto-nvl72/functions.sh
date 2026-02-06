@@ -52,8 +52,14 @@ function run_coord_image {
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
     local log_file="${type}.log"
 
-    local coord_image="${IMAGE_DIR}/presto-coordinator.sqsh"
-    [ ! -f "${coord_image}" ] && echo_error "coord image does not exist at ${coord_image}"
+    local coord_image="${IMAGE_DIR}/trino-coordinator.sqsh"
+    if [ ! -f "${coord_image}" ]; then
+        if [ -f "${IMAGE_DIR}/trino.sqsh" ]; then
+            coord_image="${IMAGE_DIR}/trino.sqsh"
+        else
+            echo_error "coord image does not exist at ${IMAGE_DIR}/trino-coordinator.sqsh or ${IMAGE_DIR}/trino.sqsh"
+        fi
+    fi
 
     # Coordinator runs as a background process, whereas we want to wait for cli
     # so that the job will finish when the cli is done (terminating background
@@ -65,10 +71,10 @@ function run_coord_image {
 --container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${REPO_ROOT}:/workspace,\
-${CONFIGS}/etc_common:/opt/presto-server/etc,\
-${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
-${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
-${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
+${CONFIGS}/etc_common:/etc/trino,\
+${CONFIGS}/etc_coordinator/node.properties:/etc/trino/node.properties,\
+${CONFIGS}/etc_coordinator/config_native.properties:/etc/trino/config.properties,\
+${CONFIGS}/etc_coordinator/catalog/hive.properties:/etc/trino/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
@@ -79,10 +85,10 @@ ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 --container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${REPO_ROOT}:/workspace,\
-${CONFIGS}/etc_common:/opt/presto-server/etc,\
-${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
-${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
-${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
+${CONFIGS}/etc_common:/etc/trino,\
+${CONFIGS}/etc_coordinator/node.properties:/etc/trino/node.properties,\
+${CONFIGS}/etc_coordinator/config_native.properties:/etc/trino/config.properties,\
+${CONFIGS}/etc_coordinator/catalog/hive.properties:/etc/trino/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
@@ -94,10 +100,17 @@ ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 function run_coordinator {
     validate_environment_preconditions CONFIGS SINGLE_NODE_EXECUTION
     local coord_config="${CONFIGS}/etc_coordinator/config_native.properties"
+    local coord_node="${CONFIGS}/etc_coordinator/node.properties"
     # Replace placeholder in configs
     sed -i "s+discovery\.uri.*+discovery\.uri=http://${COORD}:${PORT}+g" ${coord_config}
     sed -i "s+http-server\.http\.port=.*+http-server\.http\.port=${PORT}+g" ${coord_config}
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=${SINGLE_NODE_EXECUTION}+g" ${coord_config}
+
+    # Ensure data dir path for coordinator (keep existing /var/lib paths)
+    if grep -q "^node\.data-dir=" "${coord_node}"; then
+        sed -i "s+^node\.data-dir=.*+node\.data-dir=/var/lib/presto/data+g" ${coord_node}
+    else
+        echo "node.data-dir=/var/lib/presto/data" >> ${coord_node}
+    fi
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
 
@@ -107,11 +120,11 @@ unset CONFIG NODE_CONFIG PRESTO_ETC JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPT
 
 export JAVA_HOME=/usr
 export PATH=/usr/bin:$PATH
-/opt/presto-server/bin/launcher run & srv=$!
+/usr/lib/trino/bin/run-trino & srv=$!
 
 # wait for JVM to appear
 for i in {1..60}; do
-  pid="$(pgrep -fa java | awk '/com\.facebook\.presto\.server\.PrestoServer/{print $1; exit}' || true)"
+  pid="$(pgrep -fa java | awk '/io\.trino\.server\.Server/{print $1; exit}' || true)"
   [ -n "${pid:-}" ] && break
   sleep 1
 done
@@ -139,14 +152,14 @@ run_coord_image "$COORD_SCRIPT" "coord"
 # Runs a worker on a given node with custom configuration files which are generated as necessary.
 function run_worker {
     [ $# -ne 4 ] && echo_error "$0 expected arguments 'gpu_id', 'image', 'node_id', and 'worker_id'"
-    validate_environment_preconditions LOGS CONFIGS REPO_ROOT COORD SINGLE_NODE_EXECUTION CUDF_LIB DATA
+    validate_environment_preconditions LOGS CONFIGS REPO_ROOT COORD SINGLE_NODE_EXECUTION DATA
 
     local gpu_id=$1
     local image=$2
     local node=$3
     local worker_id=$4
     local worker_two_digit=$(printf "%02d\n" "$worker_id")
-    echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id}"
+    echo "running worker ${worker_id} with image ${image} on node ${node}"
 
     local worker_image="${IMAGE_DIR}/${image}.sqsh"
     [ ! -f "${worker_image}" ] && echo_error "worker image does not exist at ${worker_image}"
@@ -162,13 +175,17 @@ function run_worker {
     # Create unique configuration/data files for each worker:
     # Give each worker a unique port.
     sed -i "s+http-server\.http\.port.*+http-server\.http\.port=10${worker_two_digit}0+g" ${worker_config}
-    # If we are using cudf exchange then the port number is hard coded (in current velox) to port # + 3
-    sed -i "s+cudf\.exchange\.server\.port=.*+cudf\.exchange\.server\.port=10${worker_two_digit}3+g" ${worker_config}
     # Update discovery based on which node the coordinator is running on.
     sed -i "s+discovery\.uri.*+discovery\.uri=http://${COORD}:${PORT}+g" ${worker_config}
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=${SINGLE_NODE_EXECUTION}+g" ${worker_config}
     # Give each worker a unique id.
     sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_node}
+    # Ensure data dir path (keep existing /var/lib paths)
+    if grep -q "^node\.data-dir=" "${worker_node}"; then
+        sed -i "s+^node\.data-dir=.*+node\.data-dir=/var/lib/presto/data+g" ${worker_node}
+    else
+        echo "node.data-dir=/var/lib/presto/data" >> ${worker_node}
+    fi
 
     # Create unique data dir per worker.
     mkdir -p ${worker_data}
@@ -179,23 +196,18 @@ function run_worker {
     # Run the worker with the new configs.
     # Use --overlap to allow multiple srun commands from same job
     # Don't use --gres=gpu:1 here since the job already allocated GPUs
-    # Set CUDA_VISIBLE_DEVICES explicitly in bash command to override SLURM default
     srun -N1 -w $node --ntasks=1 --overlap \
 --container-image=${worker_image} \
 --export=ALL \
---container-env=LD_LIBRARY_PATH="/usr/lib64/presto-native-libs:/usr/local/lib:/usr/lib64" \
 --container-mounts=${REPO_ROOT}:/workspace,\
-${CONFIGS}/etc_common:/opt/presto-server/etc,\
-${worker_node}:/opt/presto-server/etc/node.properties,\
-${worker_config}:/opt/presto-server/etc/config.properties,\
-${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
+${CONFIGS}/etc_common:/etc/trino,\
+${worker_node}:/etc/trino/node.properties,\
+${worker_config}:/etc/trino/config.properties,\
+${worker_hive}:/etc/trino/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
---container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
---container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
---container-env=GLOG_logtostderr=1 \
--- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; nvidia-smi -L; ls -l /data/date-scale-3000/orders/part0*; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+-- /bin/bash -c "/usr/lib/trino/bin/run-trino" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 #./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
@@ -204,7 +216,7 @@ function setup_benchmark {
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
     local scale_factor=$1
     local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 -y; yum install jq -y; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; (command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y python3 jq) || (command -v yum >/dev/null 2>&1 && yum install -y python3.12 jq) || true; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
 
     # Copy the hive metastore from the source of truth to the container.  This means we don't have to create
     # or analyze the tables.
@@ -229,7 +241,7 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 jq -y > /dev/null; cd /workspace/presto/scripts; ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir" "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; (command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y python3 jq) || (command -v yum >/dev/null 2>&1 && yum install -y python3.12 jq) || true; cd /workspace/presto/scripts; ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.
@@ -399,8 +411,8 @@ function push_csv() {
 
     # Copy slurm output files from the job directory
     if [ -n "${SLURM_JOB_ID}" ]; then
-        cp ${SCRIPT_DIR}/presto-tpch-run_${SLURM_JOB_ID}.out ${run_dir}/ 2>/dev/null || true
-        cp ${SCRIPT_DIR}/presto-tpch-run_${SLURM_JOB_ID}.err ${run_dir}/ 2>/dev/null || true
+        cp ${SCRIPT_DIR}/trino-tpch-run_${SLURM_JOB_ID}.out ${run_dir}/ 2>/dev/null || true
+        cp ${SCRIPT_DIR}/trino-tpch-run_${SLURM_JOB_ID}.err ${run_dir}/ 2>/dev/null || true
     fi
 
     # Copy configs

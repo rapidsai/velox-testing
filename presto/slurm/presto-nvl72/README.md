@@ -1,6 +1,6 @@
-# Presto TPC-H Benchmark (NVL72)
+# Trino TPC-H Benchmark (NVL72)
 
-This directory contains scripts for running Presto TPC-H benchmarks on CoreWeave NVL72 nodes.
+This directory contains scripts for running Trino TPC-H benchmarks on CoreWeave NVL72 nodes.
 
 ## Directory Structure
 
@@ -9,7 +9,7 @@ presto-nvl72/
 ├── run-presto-benchmarks.slurm  # Main slurm job script with configuration
 ├── run-presto-benchmarks.sh     # Execution script
 ├── launch-run.sh                # Convenience launcher
-├── functions.sh                 # Presto helper functions
+├── functions.sh                 # Trino helper functions
 ├── echo_helpers.sh              # Logging helpers
 ├── logs/                        # Execution logs
 └── result_dir/                  # Benchmark results
@@ -32,7 +32,7 @@ The launcher:
 - requires node count (-n/--nodes) and scale factor (-s/--scale-factor)
 - accepts optional iterations (-i/--iterations, default 1)
 - embeds nodes/SF/iterations in .out/.err filenames
-- prints the first node’s hostname/IP when allocated and a ready-to-run SSH port-forward command to access the Presto Web UI on your machine (http://localhost:9200)
+- prints the first node’s hostname/IP when allocated and a ready-to-run SSH port-forward command to access the Trino Web UI on your machine (http://localhost:9200)
 
 ### Submitting directly (advanced)
 
@@ -40,8 +40,8 @@ The launcher:
 export SCALE_FACTOR=3000
 export NUM_ITERATIONS=1
 sbatch --nodes 8 \
-  --output "presto-tpch-run_n8_sf3000_i1_%j.out" \
-  --error  "presto-tpch-run_n8_sf3000_i1_%j.err" \
+  --output "trino-tpch-run_n8_sf3000_i1_%j.out" \
+  --error  "trino-tpch-run_n8_sf3000_i1_%j.err" \
   --export "ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS}" \
   run-presto-benchmarks.slurm
 ```
@@ -60,10 +60,10 @@ Key variables:
 - IMAGE_DIR, DATA, CONFIGS: see below or override via environment if needed
 
 Other defaults:
-- WORKER_IMAGE: `presto-native-worker-gpu`
-- NUM_GPUS_PER_NODE: `4`
+- WORKER_IMAGE: `trino-worker`
+- NUM_GPUS_PER_NODE: `1`
 - DATA: `/mnt/data/tpch-rs`
-- IMAGE_DIR: `/mnt/data/images/presto`
+- IMAGE_DIR: `/mnt/data/images/trino`
 - CONFIGS: `${REPO_ROOT}/presto/docker/config/generated/gpu`
 
 ### SBATCH Directives
@@ -80,7 +80,7 @@ Other defaults:
 squeue -u $USER
 
 # Monitor job output
-tail -f presto-tpch-run_n<NODES>_sf<SCALE_FACTOR>_i<ITER>_<JOB_ID>.out
+tail -f trino-tpch-run_n<NODES>_sf<SCALE_FACTOR>_i<ITER>_<JOB_ID>.out
 
 # Check logs during execution
 tail -f logs/coord.log
@@ -92,7 +92,7 @@ tail -f logs/worker_0.log
 
 After submission, the launcher waits until nodes are allocated, then prints:
 - the first node’s hostname/IP
-- an SSH port-forward command you can run locally to access the Presto Web UI
+- an SSH port-forward command you can run locally to access the Trino Web UI
 
 Example output snippet:
 
@@ -112,8 +112,8 @@ Results are saved to:
 ## Prerequisites
 
 1. **Container images** must exist in `${IMAGE_DIR}`:
-   - `presto-coordinator.sqsh`
-   - `presto-native-worker-gpu.sqsh` or `presto-native-worker-cpu.sqsh`
+   - `trino-coordinator.sqsh`
+   - `trino-worker.sqsh`
 
 2. **Data directory** must be accessible at `${DATA}` (will be mounted in containers)
 
@@ -136,7 +136,7 @@ cat logs/worker_*.log
 ### Image not found
 Verify images exist:
 ```bash
-ls -lh /mnt/data/images/presto/*.sqsh
+ls -lh /mnt/data/images/trino/*.sqsh
 ```
 
 ### Data directory issues

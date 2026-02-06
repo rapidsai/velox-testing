@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=presto-tpch-run
+#SBATCH --job-name=trino-tpch-run
 #SBATCH --time=01:00:00
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=144
@@ -30,21 +30,20 @@ export SCRIPT_DIR
 # Assumes the repo root is four steps up from the script directory.  This should refer to velox-testing.
 export REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 export DATA=/mnt/data/tpch-rs
-export IMAGE_DIR=/mnt/data/images/presto
+export IMAGE_DIR=/mnt/data/images/trino
 export LOGS=$SCRIPT_DIR/logs
 export VARIANT_TYPE=gpu
 export CONFIGS=$REPO_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
 # Container Images
-# Coordinator: ${IMAGE_DIR}/presto-coordinator-test.sqsh
+# Coordinator: ${IMAGE_DIR}/trino.sqsh
 # Worker: ${IMAGE_DIR}/${WORKER_IMAGE}.sqsh
-export WORKER_IMAGE=presto-native-worker-$VARIANT_TYPE
+export WORKER_IMAGE=trino
 export NUM_NODES=$SLURM_JOB_NUM_NODES
-export NUM_GPUS_PER_NODE=4
+export NUM_GPUS_PER_NODE=1
 
-# Presto Configuration
+# Trino Configuration
 export PORT=9200
-export CUDF_LIB=/usr/lib64/presto-native-libs
 
 # UCX Configuration
 export UCX_TLS=^ib,ud:aux,sm
@@ -58,7 +57,7 @@ export UCX_KEEPALIVE_INTERVAL=1ms
 # ==============================================================================
 # Get the head node (coordinator node) - export for use inside container
 export COORD=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
-export NUM_WORKERS=$((NUM_NODES * NUM_GPUS_PER_NODE))
+export NUM_WORKERS=$((NUM_NODES))
 
 # Single node execution mode
 if [ "${NUM_WORKERS}" -eq "1" ]; then
@@ -80,7 +79,7 @@ echo "Scale factor: $SCALE_FACTOR"
 echo "Iterations: $NUM_ITERATIONS"
 echo "Data directory: $DATA"
 echo "Logs directory: $LOGS"
-echo "Total workers: $NUM_WORKERS (${NUM_NODES} nodes × ${NUM_GPUS_PER_NODE} GPUs)"
+echo "Total workers: $NUM_WORKERS (${NUM_NODES} nodes)"
 echo "Single node execution: $SINGLE_NODE_EXECUTION"
 echo "========================================"
 
