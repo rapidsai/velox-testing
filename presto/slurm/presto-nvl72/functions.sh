@@ -388,11 +388,11 @@ function wait_for_workers_to_register {
     echo "waiting for $1 workers to register"
     local expected_num_workers=$1
     local num_workers=0
-    for i in {1..60}; do
+    for i in {1..20}; do
         local new_num=0
         # Try multiple Trino endpoints: active first, then legacy
         for ep in "/v1/node/active" "/v1/node"; do
-            resp="$(curl -fsS http://${COORD}:${PORT}${ep} 2>/dev/null || true)"
+            resp="$(curl -fsS --compressed -H 'Accept: application/json' http://${COORD}:${PORT}${ep} 2>/dev/null || true)"
             # Prefer jq if available
             if command -v jq >/dev/null 2>&1 && [ -n "$resp" ] && echo "$resp" | jq -e . >/dev/null 2>&1; then
                 new_num="$(echo "$resp" | jq -r '
