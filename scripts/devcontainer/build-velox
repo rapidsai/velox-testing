@@ -1,0 +1,72 @@
+#!/bin/bash
+# Build velox with cuDF support
+# Usage: build-velox [--release|--debug] [-j N] [--cuda-arch ARCH]
+
+set -euo pipefail
+
+# Defaults
+BUILD_TYPE="${BUILD_TYPE:-release}"
+NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
+CUDA_ARCH="${CUDA_ARCH:-}"
+
+usage() {
+    cat <<EOF
+Usage: build-velox [OPTIONS]
+
+Build velox with cuDF support.
+
+Options:
+  --release         Build in release mode (default)
+  --debug           Build in debug mode
+  -j, --jobs N      Number of parallel jobs (default: nproc - 1)
+  --cuda-arch ARCH  CUDA compute capability (default: auto-detect or 75)
+  -h, --help        Show this help message
+
+Environment variables:
+  BUILD_TYPE        release or debug
+  NUM_THREADS       Number of parallel jobs
+  CUDA_ARCH         CUDA compute capability
+  BUILD_BASE_DIR    Base directory for build output (default: /opt/velox-build)
+EOF
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --release) BUILD_TYPE="release"; shift ;;
+        --debug) BUILD_TYPE="debug"; shift ;;
+        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        --cuda-arch) CUDA_ARCH="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+VELOX_DIR="${HOME}/velox"
+if [[ ! -d "${VELOX_DIR}" ]]; then
+    echo "Error: velox repository not found at ${VELOX_DIR}"
+    echo "Please ensure velox is mounted as a sibling directory."
+    exit 1
+fi
+
+# Run configuration
+CONFIGURE_ARGS=("--${BUILD_TYPE}")
+if [[ -n "${CUDA_ARCH}" ]]; then
+    CONFIGURE_ARGS+=("--cuda-arch" "${CUDA_ARCH}")
+fi
+BUILD_BASE_DIR="${BUILD_BASE_DIR}" configure-velox "${CONFIGURE_ARGS[@]}"
+
+# Build
+cd "${VELOX_DIR}"
+
+echo "=== Building Velox ==="
+echo "Threads:       ${NUM_THREADS}"
+echo ""
+
+make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" \
+    NUM_THREADS="${NUM_THREADS}"
+
+echo ""
+echo "=== Build complete ==="
+echo "Binaries in: ${BUILD_BASE_DIR}/${BUILD_TYPE}"
