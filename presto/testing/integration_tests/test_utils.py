@@ -11,6 +11,7 @@ def get_abs_file_path(relative_path):
 sys.path.append(get_abs_file_path("../../../benchmark_data_tools"))
 
 import duckdb
+import decimal
 import json
 import pytest
 import sqlglot
@@ -25,7 +26,17 @@ def execute_query_and_compare_results(presto_cursor, queries, query_id):
     presto_rows = presto_cursor.fetchall()
     duckdb_rows, types, columns = execute_duckdb_query(query)
 
-    compare_results(presto_rows, duckdb_rows, types, query, columns)
+    debug_info = None
+    if _is_single_none_result(presto_rows) and not _is_single_none_result(duckdb_rows):
+        debug_info = _debug_none_result(presto_cursor, query_id, query)
+        print(debug_info)
+
+    try:
+        compare_results(presto_rows, duckdb_rows, types, query, columns)
+    except AssertionError as e:
+        if debug_info:
+            raise AssertionError(f"{e}\n{debug_info}") from e
+        raise
 
 
 def get_is_sorted_query(query):
@@ -108,11 +119,67 @@ def execute_duckdb_query(query):
     return relation.fetchall(), relation.types, relation.columns
 
 
+def _is_single_none_result(rows):
+    return len(rows) == 1 and len(rows[0]) == 1 and rows[0][0] is None
+
+
+def _debug_none_result(presto_cursor, query_id, query):
+    lines = []
+    try:
+        if query_id == "Q6":
+            where_clause = query.split(" WHERE ", 1)[1]
+            count_query = (
+                "SELECT count(*) AS match_count FROM lineitem WHERE "
+                + where_clause
+            )
+            presto_count = presto_cursor.execute(count_query).fetchone()[0]
+            duckdb_count = duckdb.sql(count_query).fetchone()[0]
+            lines.append(
+                f"Q6 debug: match_count presto={presto_count} duckdb={duckdb_count}"
+            )
+        elif query_id == "Q19":
+            where_clause = query.split(" WHERE ", 1)[1]
+            full_count_query = (
+                "SELECT count(*) AS match_count FROM lineitem, part WHERE "
+                + where_clause
+            )
+            presto_full = presto_cursor.execute(full_count_query).fetchone()[0]
+            duckdb_full = duckdb.sql(full_count_query).fetchone()[0]
+            lines.append(
+                f"Q19 debug: full match_count presto={presto_full} duckdb={duckdb_full}"
+            )
+
+            where_clause = where_clause.strip()
+            if where_clause.startswith("(") and where_clause.endswith(")"):
+                inner = where_clause[1:-1]
+                branches = inner.split(") OR (")
+            else:
+                branches = [where_clause]
+            for idx, branch in enumerate(branches, 1):
+                branch_query = (
+                    "SELECT count(*) AS match_count FROM lineitem, part WHERE "
+                    + branch
+                )
+                presto_branch = presto_cursor.execute(branch_query).fetchone()[0]
+                duckdb_branch = duckdb.sql(branch_query).fetchone()[0]
+                lines.append(
+                    "Q19 debug: branch "
+                    + str(idx)
+                    + f" match_count presto={presto_branch} duckdb={duckdb_branch}"
+                )
+    except Exception as exc:
+        lines.append(f"Debug query failed: {exc}")
+
+    if not lines:
+        return "No debug info available."
+    return "\n".join(lines)
+
 def normalize_rows(rows, types):
     return [normalize_row(row, types) for row in rows]
 
 
-FLOATING_POINT_TYPES = ("double", "float", "decimal")
+FLOATING_POINT_TYPES = ("double", "float")
+DECIMAL_TYPE = "decimal"
 
 
 def normalize_row(row, types):
@@ -125,6 +192,11 @@ def normalize_row(row, types):
         type_id = types[index].id
         if type_id == "date":
             normalized_row.append(str(value))
+        elif type_id == DECIMAL_TYPE:
+            if isinstance(value, decimal.Decimal):
+                normalized_row.append(value)
+            else:
+                normalized_row.append(decimal.Decimal(str(value)))
         elif type_id in FLOATING_POINT_TYPES:
             normalized_row.append(float(value))
         else:
