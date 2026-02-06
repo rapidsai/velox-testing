@@ -1,0 +1,65 @@
+{
+  "name": "velox-dev-cuda12.9",
+  "build": {
+    "context": "${localWorkspaceFolder}/..",
+    "dockerfile": "${localWorkspaceFolder}/.devcontainer/Dockerfile",
+    "args": {
+      "CUDA_VERSION": "12.9",
+      "BASE": "rapidsai/devcontainers:latest-cpp-cuda12.9-ucx1.19.0-openmpi5.0.7"
+    }
+  },
+  "features": {
+    "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils:latest": {}
+  },
+  "overrideFeatureInstallOrder": [
+    "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils"
+  ],
+  "initializeCommand": ["/bin/bash", "-c", "mkdir -p ${localWorkspaceFolder}/../.{aws,cache,config/pip,local/share/velox-testing-cuda12.9-venvs}"],
+  "workspaceFolder": "/home/coder",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/coder/velox-testing,type=bind,consistency=consistent",
+  "mounts": [
+    "source=${localWorkspaceFolder}/../velox,target=/home/coder/velox,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../presto,target=/home/coder/presto,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../rmm,target=/home/coder/rmm,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../cudf,target=/home/coder/cudf,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../kvikio,target=/home/coder/kvikio,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../devcontainers,target=/home/coder/devcontainers,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../.aws,target=/home/coder/.aws,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../.cache,target=/home/coder/.cache,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../.config,target=/home/coder/.config,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../.local/share/velox-testing-cuda12.9-venvs,target=/home/coder/.local/share/venvs,type=bind,consistency=consistent"
+  ],
+  "hostRequirements": {
+    "gpu": "optional"
+  },
+  "runArgs": [
+    "--rm",
+    "--name", "${localEnv:USER:anon}-velox-dev-cuda12.9",
+    "--ulimit", "nofile=500000"
+  ],
+  "postCreateCommand": "/home/coder/velox-testing/scripts/devcontainer/post-create",
+  "postAttachCommand": [
+    "/bin/bash",
+    "-c",
+    "if [ ${CODESPACES:-false} = 'true' ]; then . devcontainer-utils-post-attach-command; . rapids-post-attach-command; fi"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "llvm-vs-code-extensions.vscode-clangd"
+      ],
+      "settings": {
+        "cmake.buildDirectory": "/opt/velox-build/${buildType}",
+        "cmake.configureOnOpen": false
+      }
+    }
+  },
+  "containerEnv": {
+    "VELOX_DEPENDENCY_SOURCE": "SYSTEM",
+    "GTest_SOURCE": "BUNDLED",
+    "cudf_SOURCE": "BUNDLED",
+    "faiss_SOURCE": "BUNDLED"
+  }
+}

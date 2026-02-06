@@ -1,0 +1,90 @@
+#!/bin/bash
+# Post-create setup script for devcontainer
+# Runs once after container creation to initialize environment
+
+set -euo pipefail
+
+echo "=== Velox Development Container Setup ==="
+echo ""
+
+# Check for required repositories
+REQUIRED_REPOS=("velox" "presto" "rmm" "cudf" "kvikio")
+MISSING_REPOS=()
+
+for repo in "${REQUIRED_REPOS[@]}"; do
+    if [[ -d "${HOME}/${repo}" ]]; then
+        echo "Found ${repo} at ~/${repo}"
+    else
+        MISSING_REPOS+=("${repo}")
+    fi
+done
+echo ""
+
+if [[ ${#MISSING_REPOS[@]} -gt 0 ]]; then
+    echo "ERROR: Missing required repositories:"
+    for repo in "${MISSING_REPOS[@]}"; do
+        echo "  - ${repo}"
+    done
+    echo ""
+    echo "Expected directory layout:"
+    echo "  ~/code/"
+    echo "  ├── velox-testing/   (this repo)"
+    echo "  ├── velox/           (facebookincubator/velox)"
+    echo "  ├── presto/          (prestodb/presto)"
+    echo "  ├── rmm/             (rapidsai/rmm)"
+    echo "  ├── cudf/            (rapidsai/cudf)"
+    echo "  └── kvikio/          (rapidsai/kvikio)"
+    echo ""
+    exit 1
+fi
+
+# Create cache directories if they don't exist
+mkdir -p ~/.cache
+
+# Ensure build directories exist and are writable
+for dir in /opt/velox-build /opt/presto-build; do
+    if [[ ! -w "${dir}" ]]; then
+        sudo mkdir -p "${dir}"
+        sudo chown -R "$(id -u):$(id -g)" "${dir}"
+    fi
+done
+
+# Set up Python virtual environment for RAPIDS builds
+if command -v rapids-make-pip-env &>/dev/null; then
+    echo "Setting up Python virtual environment..."
+    rapids-make-pip-env rapids
+    echo ""
+fi
+
+# Initialize sccache stats
+if command -v sccache &>/dev/null; then
+    echo "sccache is available:"
+    sccache --show-stats 2>/dev/null || echo "  (no stats yet)"
+    echo ""
+fi
+
+# Display available commands
+echo "Available commands:"
+echo "  build-velox      - Build velox with cuDF support"
+echo "  build-presto     - Build presto-native-execution"
+echo "  test-velox       - Run velox tests"
+echo "  test-presto      - Run presto tests"
+echo "  configure-velox  - Run CMake configuration only"
+echo "  clean-velox      - Clean velox build directory"
+echo "  clean-presto     - Clean presto build directory"
+echo ""
+echo "RAPIDS build commands (build-rmm, build-cudf, etc.) are also available."
+echo "Run any command with --help for usage information."
+echo ""
+
+# Check for GPU
+if command -v nvidia-smi &>/dev/null; then
+    echo "GPU detected:"
+    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo "  (unable to query GPU)"
+    echo ""
+else
+    echo "No GPU detected. CPU-only builds will be used."
+    echo ""
+fi
+
+echo "=== Setup complete ==="

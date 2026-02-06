@@ -1,0 +1,88 @@
+#!/bin/bash
+# Run velox tests
+# Usage: test-velox [-j N] [--filter PATTERN] [--cuda]
+
+set -euo pipefail
+
+# Defaults
+BUILD_TYPE="${BUILD_TYPE:-release}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
+NUM_THREADS="${NUM_THREADS:-2}"  # Limited to avoid OOM with GPU tests
+CUDA_ONLY=false
+
+usage() {
+    cat <<EOF
+Usage: test-velox [OPTIONS]
+
+Run velox tests.
+
+Options:
+  -j, --jobs N        Number of parallel test jobs (default: 2, limited for GPU memory)
+  --filter PATTERN    Only run tests matching pattern (ctest -R)
+  --exclude PATTERN   Exclude tests matching pattern (ctest -E)
+  --cuda              Only run CUDA/cuDF tests (tests labeled with cuda_driver)
+  --list              List available tests without running
+  -h, --help          Show this help message
+
+Environment variables:
+  BUILD_TYPE          release or debug (default: release)
+  BUILD_BASE_DIR      Build base directory (default: /opt/velox-build)
+  NUM_THREADS         Number of parallel test jobs
+EOF
+}
+
+FILTER=""
+EXCLUDE=""
+LIST_ONLY=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        --filter) FILTER="$2"; shift 2 ;;
+        --exclude) EXCLUDE="$2"; shift 2 ;;
+        --cuda) CUDA_ONLY=true; shift ;;
+        --list) LIST_ONLY=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+BUILD_DIR="${BUILD_BASE_DIR}/${BUILD_TYPE}"
+if [[ ! -d "${BUILD_DIR}" ]]; then
+    echo "Error: Build directory not found at ${BUILD_DIR}"
+    echo "Please run build-velox first."
+    exit 1
+fi
+
+cd "${BUILD_DIR}"
+
+# Tests known to be flaky or require special setup
+DEFAULT_SKIP="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3|velox_cudf_s3_read_test"
+EXCLUDE="${EXCLUDE:-${DEFAULT_SKIP}}"
+
+LABEL_FILTER=""
+if [[ "${CUDA_ONLY}" == true ]]; then
+    LABEL_FILTER="-L cuda_driver"
+fi
+
+if [[ "${LIST_ONLY}" == true ]]; then
+    echo "Available tests:"
+    ctest ${LABEL_FILTER} -N ${FILTER:+-R "${FILTER}"} ${EXCLUDE:+-E "${EXCLUDE}"}
+    exit 0
+fi
+
+echo "=== Running Velox Tests ==="
+echo "Build dir: ${BUILD_DIR}"
+echo "Threads:   ${NUM_THREADS}"
+echo "CUDA only: ${CUDA_ONLY}"
+echo "Filter:    ${FILTER:-<none>}"
+echo "Exclude:   ${EXCLUDE}"
+echo ""
+
+ctest -j "${NUM_THREADS}" ${LABEL_FILTER} --output-on-failure --no-tests=error \
+    ${FILTER:+-R "${FILTER}"} \
+    ${EXCLUDE:+-E "${EXCLUDE}"}
+
+echo ""
+echo "=== Tests complete ==="

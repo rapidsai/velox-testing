@@ -1,0 +1,54 @@
+#!/bin/bash
+# Clean velox build directory
+# Usage: clean-velox [--release|--debug|--all]
+
+set -euo pipefail
+
+BUILD_TYPE="${BUILD_TYPE:-}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
+
+usage() {
+    cat <<EOF
+Usage: clean-velox [OPTIONS]
+
+Clean velox build directory.
+
+Options:
+  --release         Clean release build only
+  --debug           Clean debug build only
+  --all             Clean all builds (default if no option specified)
+  -h, --help        Show this help message
+
+Environment variables:
+  BUILD_TYPE        release or debug
+  BUILD_BASE_DIR    Base directory for build output (default: /opt/velox-build)
+EOF
+}
+
+CLEAN_ALL=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --release) BUILD_TYPE="release"; shift ;;
+        --debug) BUILD_TYPE="debug"; shift ;;
+        --all) CLEAN_ALL=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+if [[ -z "${BUILD_TYPE}" && "${CLEAN_ALL}" == false ]]; then
+    CLEAN_ALL=true
+fi
+
+if [[ "${CLEAN_ALL}" == true ]]; then
+    echo "Cleaning all velox builds in ${BUILD_BASE_DIR}..."
+    rm -rf "${BUILD_BASE_DIR:?}"/*
+    echo "Done."
+else
+    BUILD_DIR="${BUILD_BASE_DIR}/${BUILD_TYPE}"
+    echo "Cleaning velox ${BUILD_TYPE} build in ${BUILD_DIR}..."
+    rm -rf "${BUILD_DIR:?}"
+    echo "Done."
+fi
