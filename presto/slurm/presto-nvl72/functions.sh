@@ -199,6 +199,12 @@ function run_coordinator {
         # Remove thrift/glue URIs if present to avoid conflicts
         sed -i '/^hive\.metastore\.uri\s*=/d' "${coord_hive}" 2>/dev/null || true
         sed -i '/^hive\.metastore\.uris\s*=/d' "${coord_hivme}" 2>/dev/null || true
+        # Ensure local filesystem binding for file:// paths
+        if grep -q '^hive\.file-system=' "${coord_hive}"; then
+            sed -i 's/^hive\.file-system\s*=.*/hive.file-system=local/' "${coord_hive}"
+        else
+            echo "hive.file-system=local" >> "${coord_hive}"
+        fi
     fi
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
@@ -334,6 +340,12 @@ function run_worker {
         # Remove thrift/glue URIs if present to avoid conflicts
         sed -i '/^hive\.metastore\.uri\s*=/d' "${worker_hive}" 2>/dev/null || true
         sed -i '/^hive\.metastore\.uris\s*=/d' "${worker_hive}" 2>/dev/null || true
+        # Ensure local filesystem binding for file:// paths
+        if grep -q '^hive\.file-system=' "${worker_hive}"; then
+            sed -i 's/^hive\.file-system\s*=.*/hive.file-system=local/' "${worker_hive}"
+        else
+            echo "hive.file-system=local" >> "${worker_hive}"
+        fi
     fi
 
     # Create unique data dir per worker.
