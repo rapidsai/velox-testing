@@ -249,6 +249,11 @@ setup_remotes() {
 }
 
 set_dated_branch() {
+  if [[ "${MODE}" == "local" ]]; then
+    DATED_BRANCH=""
+    export DATED_BRANCH
+    return 0
+  fi
   CURRENT_DATE="$(date -u +%m-%d-%Y)"
   DATED_BRANCH="${TARGET_BRANCH}_${CURRENT_DATE}"
   export DATED_BRANCH
@@ -355,8 +360,9 @@ test_pairwise_compatibility() {
   local pr_list="$2"
   local pr_array=(${pr_list})
   local pr_count="${#pr_array[@]}"
-  local successful_pairs=""
   local conflict_pairs=""
+  declare -A pair_results  # Store results for matrix display
+  declare -A conflict_prs  # Track PRs involved in conflicts
 
   if [[ "${pr_count}" -lt 2 ]]; then
     return 0
@@ -376,13 +382,19 @@ test_pairwise_compatibility() {
         git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
         git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
         conflict_pairs="${conflict_pairs} ${pr1}+${pr2}"
+        pair_results["${pr1},${pr2}"]="XX"
+        conflict_prs["${pr1}"]=1
+        conflict_prs["${pr2}"]=1
         continue
       fi
 
       if git -C "${repo_dir}" merge --no-commit --no-ff "${PR_SHA[$pr2]}" >/dev/null 2>&1; then
-        successful_pairs="${successful_pairs} ${pr1}+${pr2}"
+        pair_results["${pr1},${pr2}"]="OK"
       else
         conflict_pairs="${conflict_pairs} ${pr1}+${pr2}"
+        pair_results["${pr1},${pr2}"]="XX"
+        conflict_prs["${pr1}"]=1
+        conflict_prs["${pr2}"]=1
       fi
 
       git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
@@ -391,10 +403,87 @@ test_pairwise_compatibility() {
     done
   done
 
+  # Display pairwise compatibility matrix
+  log ""
+  log "Pairwise Compatibility Matrix:"
+  log "Legend: OK = Compatible, XX = Conflict"
+  log ""
+
+  # Column width based on longest PR number (min 7 for "#XXXXX")
+  local col_w=7
+  for pr in "${pr_array[@]}"; do
+    local len=$(( ${#pr} + 1 ))  # +1 for '#' prefix
+    (( len > col_w )) && col_w=$len
+  done
+
+  # Helper to build a divider row: +--------+--------+...
+  _matrix_divider() {
+    local div="+"
+    div+="$(printf '%*s' $((col_w + 2)) '' | tr ' ' '-')+"
+    for ((d=0; d<pr_count; d++)); do
+      div+="$(printf '%*s' $((col_w + 2)) '' | tr ' ' '-')+"
+    done
+    log "${div}"
+  }
+
+  # Print header row
+  _matrix_divider
+  local header
+  header="$(printf "| %-${col_w}s " "PR")"
+  for pr in "${pr_array[@]}"; do
+    header+="$(printf "| %${col_w}s " "#${pr}")"
+  done
+  header+="|"
+  log "${header}"
+  _matrix_divider
+
+  # Print matrix rows with row dividers
+  for ((i=0; i<pr_count; i++)); do
+    local pr1="${pr_array[$i]}"
+    local row
+    row="$(printf "| %-${col_w}s " "#${pr1}")"
+    for ((j=0; j<pr_count; j++)); do
+      local pr2="${pr_array[$j]}"
+      local cell
+      if [[ $i -eq $j ]]; then
+        cell="--"
+      elif [[ $i -lt $j ]]; then
+        cell="${pair_results[${pr1},${pr2}]:-?}"
+      else
+        cell="${pair_results[${pr2},${pr1}]:-?}"
+      fi
+      row+="$(printf "| %${col_w}s " "${cell}")"
+    done
+    row+="|"
+    log "${row}"
+    _matrix_divider
+  done
+
+  # If conflicts exist, show detailed table with PR authors and links
   if [[ -n "$(echo "${conflict_pairs}" | xargs)" ]]; then
-    log "Pairwise conflicts detected:${conflict_pairs}"
+    log ""
+    log "PRs Involved in Conflicts:"
+    log ""
+    log "$(printf "| %-10s | %-20s | %-50s | %-55s |" "PR" "Author" "Title" "URL")"
+    log "$(printf "| %-10s | %-20s | %-50s | %-55s |" "----------" "--------------------" "--------------------------------------------------" "-------------------------------------------------------")"
+
+    for pr_num in "${!conflict_prs[@]}"; do
+      local pr_author pr_title pr_url
+      pr_author="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json author --jq '.author.login' 2>/dev/null || echo "N/A")"
+      pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "N/A")"
+      pr_url="https://github.com/${BASE_REPO}/pull/${pr_num}"
+      # Truncate title if too long
+      if [[ ${#pr_title} -gt 47 ]]; then
+        pr_title="${pr_title:0:47}..."
+      fi
+      log "$(printf "| %-10s | %-20s | %-50s | %-55s |" "#${pr_num}" "${pr_author}" "${pr_title}" "${pr_url}")"
+    done
+
+    log ""
+    log "Conflict Pairs: ${conflict_pairs}"
     exit 1
   fi
+  log ""
   log "All PR pairs can merge cleanly together."
 }
 
@@ -484,7 +573,7 @@ create_manifest() {
   sed -i "s|{{TIMESTAMP}}|${timestamp}|g" "${manifest_file}"
   sed -i "s|{{TARGET_REPO}}|${TARGET_REPO}|g" "${manifest_file}"
   sed -i "s|{{TARGET_BRANCH}}|${TARGET_BRANCH}|g" "${manifest_file}"
-  sed -i "s|{{DATED_BRANCH}}|${DATED_BRANCH}|g" "${manifest_file}"
+  sed -i "s|{{DATED_BRANCH}}|${DATED_BRANCH:-N/A}|g" "${manifest_file}"
   sed -i "s|{{BASE_REPO}}|${BASE_REPO}|g" "${manifest_file}"
   sed -i "s|{{BASE_BRANCH}}|${BASE_BRANCH}|g" "${manifest_file}"
   sed -i "s|{{BASE_COMMIT}}|${BASE_COMMIT}|g" "${manifest_file}"
@@ -522,7 +611,7 @@ create_manifest() {
   fi
 
   git -C "${repo_dir}" add "${manifest_file}"
-  git -C "${repo_dir}" commit -m "${timestamp}" -m "Staging branch manifest for ${DATED_BRANCH}"
+  git -C "${repo_dir}" commit -m "${timestamp}" -m "Staging branch manifest for ${DATED_BRANCH:-${TARGET_BRANCH}}"
   log "Manifest committed."
 }
 
