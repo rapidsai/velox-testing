@@ -25,11 +25,46 @@ function wait_for_worker_node_registration() {
   until {
         # Try Trino active nodes endpoint first
         curl -s -f -H 'Accept: application/json' -o node_response.json ${COORDINATOR_URL}/v1/node/active && \
-        (( $(jq length node_response.json 2>/dev/null || echo 0) > 0 )) \
+        { \
+          if command -v python3 >/dev/null 2>&1; then \
+            python3 - "$@" <<'PY'
+import sys, json
+try:
+    with open('node_response.json') as f:
+        data=json.load(f)
+    n = len(data) if isinstance(data, list) else (len(data.get('activeNodes', [])) if isinstance(data, dict) else 0)
+    sys.exit(0 if n>0 else 1)
+except Exception:
+    sys.exit(1)
+PY
+          else \
+            grep -q '"httpUri"\|"uri"\|"nodeId"' node_response.json; \
+          fi; \
+        } \
       ; } || {
         # Try legacy nodes endpoint
         curl -s -f -H 'Accept: application/json' -o node_response.json ${COORDINATOR_URL}/v1/node && \
-        (( $(jq length node_response.json 2>/dev/null || echo 0) > 0 )) \
+        { \
+          if command -v python3 >/dev/null 2>&1; then \
+            python3 - "$@" <<'PY'
+import sys, json
+try:
+    with open('node_response.json') as f:
+        data=json.load(f)
+    if isinstance(data, list):
+        n=len(data)
+    elif isinstance(data, dict):
+        n=len(data.get('nodes', []))
+    else:
+        n=0
+    sys.exit(0 if n>0 else 1)
+except Exception:
+    sys.exit(1)
+PY
+          else \
+            grep -q '"httpUri"\|"uri"\|"nodeId"' node_response.json; \
+          fi; \
+        } \
       ; } || {
         # Fallback: use Trino statements API to count workers
         RESP=$(curl -s -f -X POST ${COORDINATOR_URL}/v1/statement \
@@ -37,13 +72,60 @@ function wait_for_worker_node_registration() {
           -H 'X-Trino-Source: wait_for_workers' \
           -H 'Accept: application/json' \
           --data-binary 'select count(*) from system.runtime.nodes where coordinator=false' 2>/dev/null || true)
-        NEXT=$(echo "$RESP" | jq -r '.nextUri // empty')
-        DATA=$(echo "$RESP" | jq -r '.data[0][0] // empty')
+        if command -v python3 >/dev/null 2>&1; then
+          read -r NEXT DATA <<EOF
+$(python3 - <<'PY' 2>/dev/null || true
+import sys, json
+try:
+    d=json.load(sys.stdin)
+    nxt=d.get('nextUri','')
+    dat=''
+    if 'data' in d and isinstance(d['data'], list) and d['data'] and isinstance(d['data'][0], list):
+        dat=str(d['data'][0][0])
+    print(nxt)
+    print(dat)
+except Exception:
+    print()
+    print()
+PY
+          <<< "$RESP")
+        else
+          NEXT=""
+          # crude grep: look for "data": [[N]] with N>0
+          if echo "$RESP" | grep -q '"data":[[:space:]]*\[[[:space:]]*\[[[:space:]]*[1-9]'; then
+            DATA="1"
+          else
+            DATA=""
+          fi
+        fi
         STEPS=0
         while [[ -z "$DATA" && -n "$NEXT" && $STEPS -lt 10 ]]; do
           RESP=$(curl -s -f "$NEXT" 2>/dev/null || true)
-          NEXT=$(echo "$RESP" | jq -r '.nextUri // empty')
-          DATA=$(echo "$RESP" | jq -r '.data[0][0] // empty')
+          if command -v python3 >/dev/null 2>&1; then
+            read -r NEXT DATA <<EOF
+$(python3 - <<'PY' 2>/dev/null || true
+import sys, json
+try:
+    d=json.load(sys.stdin)
+    nxt=d.get('nextUri','')
+    dat=''
+    if 'data' in d and isinstance(d['data'], list) and d['data'] and isinstance(d['data'][0], list):
+        dat=str(d['data'][0][0])
+    print(nxt)
+    print(dat)
+except Exception:
+    print()
+    print()
+PY
+            <<< "$RESP")
+          else
+            NEXT=""
+            if echo "$RESP" | grep -q '"data":[[:space:]]*\[[[:space:]]*\[[[:space:]]*[1-9]'; then
+              DATA="1"
+            else
+              DATA=""
+            fi
+          fi
           STEPS=$((STEPS+1))
         done
         if [[ "$DATA" =~ ^[0-9]+$ ]] && (( DATA > 0 )); then
