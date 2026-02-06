@@ -42,11 +42,9 @@ RUN chmod 755 /usr/local/bin/build-* /usr/local/bin/configure-* \
               /usr/local/bin/test-* /usr/local/bin/clean-* /usr/local/bin/post-create
 
 # Environment for velox builds
+# VELOX_DEPENDENCY_SOURCE is read from env by CMake
+# Individual _SOURCE overrides must be passed as -D flags in configure-velox
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
-    GTest_SOURCE=BUNDLED \
-    cudf_SOURCE=BUNDLED \
-    duckdb_SOURCE=BUNDLED \
-    faiss_SOURCE=BUNDLED \
     CUDA_VERSION=${CUDA_VERSION} \
     CUDAARCHS="RAPIDS" \
     DEFAULT_VIRTUAL_ENV=rapids \

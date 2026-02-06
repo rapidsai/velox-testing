@@ -64,6 +64,12 @@ EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_PARQUET=ON"
 EXTRA_CMAKE_FLAGS+=" -DVELOX_MONO_LIBRARY=ON"
 EXTRA_CMAKE_FLAGS+=" -DVELOX_BUILD_SHARED=ON"
 
+# Dependencies that must be built from source (not available as system packages)
+EXTRA_CMAKE_FLAGS+=" -DGTest_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dcudf_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dduckdb_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dfaiss_SOURCE=BUNDLED"
+
 # Auto-detect RAPIDS library paths from rapids-build-utils if available
 # This allows velox to find cudf, rmm, kvikio built by the RAPIDS build system
 get_rapids_cmake_dir() {
