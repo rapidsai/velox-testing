@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
-import prestodb
+import os
+import trino
 
 
 def analyze_tables(presto_cursor, schema_name, verbose=False):
@@ -57,17 +58,23 @@ if __name__ == "__main__":
         description="Analyze all tables in a Hive schema to collect statistics for query optimization.")
     parser.add_argument("--schema-name", type=str, required=True,
                         help="Name of the schema containing the tables to analyze.")
-    parser.add_argument("--host", type=str, default="localhost",
-                        help="Presto coordinator hostname (default: localhost)")
-    parser.add_argument("--port", type=int, default=8080,
-                        help="Presto coordinator port (default: 8080)")
-    parser.add_argument("--user", type=str, default="test_user",
-                        help="Presto user (default: test_user)")
+    parser.add_argument("--host", type=str, default=os.environ.get("HOSTNAME", "localhost"),
+                        help="Trino coordinator hostname (default: localhost)")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")),
+                        help="Trino coordinator port (default: 8080)")
+    parser.add_argument("--user", type=str, default=os.environ.get("TRINO_USER", "test_user"),
+                        help="Trino user (default: test_user)")
     parser.add_argument("-v", "--verbose", action="store_true", default=False,
                         help="Enable verbose output")
     args = parser.parse_args()
 
-    conn = prestodb.dbapi.connect(host=args.host, port=args.port, user=args.user, catalog="hive")
+    conn = trino.dbapi.connect(
+        host=args.host,
+        port=args.port,
+        user=args.user,
+        catalog="hive",
+        http_scheme="http",
+    )
     cursor = conn.cursor()
 
     try:
