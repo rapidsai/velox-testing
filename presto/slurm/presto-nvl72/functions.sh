@@ -434,6 +434,30 @@ PY
                 break
             fi
         done
+        # If HTTP node endpoints failed, fall back to SQL via Trino statements API
+        if (( new_num == 0 )); then
+            if command -v jq >/dev/null 2>&1; then
+                sql_payload='select count(*) from system.runtime.nodes where coordinator=false'
+                resp="$(curl -fsS -X POST http://${COORD}:${PORT}/v1/statement \
+                  -H 'X-Trino-User: health' \
+                  -H 'X-Trino-Source: wait_for_workers' \
+                  -H 'Accept: application/json' \
+                  --data-binary "$sql_payload" 2>/dev/null || true)"
+                # Follow nextUri chain up to 10 steps to get data
+                next_uri="$(echo "$resp" | jq -r '.nextUri // empty')"
+                data_val="$(echo "$resp" | jq -r '.data[0][0] // empty')"
+                steps=0
+                while [ -z "$data_val" ] && [ -n "$next_uri" ] && [ $steps -lt 10 ]; do
+                    resp="$(curl -fsS "$next_uri" 2>/dev/null || true)"
+                    data_val="$(echo "$resp" | jq -r '.data[0][0] // empty')"
+                    next_uri="$(echo "$resp" | jq -r '.nextUri // empty')"
+                    steps=$((steps+1))
+                done
+                if [[ "$data_val" =~ ^[0-9]+$ ]]; then
+                    new_num="$data_val"
+                fi
+            fi
+        fi
         num_workers=$new_num
         if (( num_workers >= expected_num_workers )); then
             echo "workers registered. num_nodes: $num_workers"
