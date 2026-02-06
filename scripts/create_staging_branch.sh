@@ -97,6 +97,19 @@ Usage: $(basename "$0") [options]
 
 Creates a staging branch by merging PRs from a base repository.
 
+Prerequisites (local mode with --target-path):
+  The target repository will be DESTRUCTIVELY modified. The script performs:
+    - git checkout -B (switches/creates branch, discards conflicting changes)
+    - git reset --hard (discards all uncommitted changes to tracked files)
+    - git clean -fd    (removes untracked files and directories)
+
+  Before running locally, ensure you:
+    1. Have NO uncommitted changes you want to keep (stash or commit them first)
+    2. Have NO untracked files you want to keep in the repo directory
+    3. Are NOT on a branch with work-in-progress changes
+
+  In CI mode (--mode ci), the script clones a fresh copy, so this is not a concern.
+
 Required:
   --target-path /path/to/repo      Local path to target repository
 
@@ -682,7 +695,22 @@ maybe_confirm_reset() {
       if [[ ! -t 0 ]]; then
         die "Confirmation required to reset ${TARGET_BRANCH} but no TTY available."
       fi
+
+      # Warn about dirty state
+      local dirty_files
+      dirty_files="$(git -C "${WORK_DIR}" status --porcelain 2>/dev/null || true)"
+      if [[ -n "${dirty_files}" ]]; then
+        log ""
+        log "WARNING: The repository at ${WORK_DIR} has uncommitted changes:"
+        log "${dirty_files}"
+        log ""
+        log "These changes WILL BE LOST. The script performs hard resets and cleans untracked files."
+        log "Consider running 'git stash' first to preserve your work."
+        log ""
+      fi
+
       log "About to reset ${TARGET_BRANCH} to ${BASE_REPO}/${BASE_BRANCH} in ${WORK_DIR}."
+      log "This will DESTRUCTIVELY modify the repository (checkout -B, reset --hard, clean -fd)."
       read -r -p "Continue? [y/N] " confirm
       if [[ ! "${confirm}" =~ ^[Yy]$ ]]; then
         die "Aborted by user."
