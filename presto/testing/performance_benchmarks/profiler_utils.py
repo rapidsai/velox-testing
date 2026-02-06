@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import subprocess
 
 
@@ -27,7 +28,8 @@ def stop_profiler(profile_script_path, profile_output_file_path):
 def execute_profiler_function(profile_script_path, profile_output_file_path, profiler_function):
     profiler_command = ["bash", "-c",
                         f"source {profile_script_path}; {profiler_function} {profile_output_file_path}"]
-    result = subprocess.run(profiler_command, capture_output=True, text=True)
+    
+    result = subprocess.run(profiler_command, capture_output=True, text=True, env=os.environ)
     if result.returncode != 0:
         raise RuntimeError(
             f"{profiler_function} returned error code: {result.returncode}, "
