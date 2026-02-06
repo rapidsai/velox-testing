@@ -99,14 +99,14 @@ EOF
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
     
     # Adds a cluster tag for gpu variant
-    WORKER_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
+    WORKER_CONFIG="${CONFIG_DIR}/etc_worker/config_native.properties"
     echo "cluster-tag=native-gpu" >> ${WORKER_CONFIG}
   fi
 
   # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
     # Adds a cluster tag for cpu variant
-    WORKER_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
+    WORKER_CONFIG="${CONFIG_DIR}/etc_worker/config_native.properties"
     echo "cluster-tag=native-cpu" >> ${WORKER_CONFIG}
   fi
 
