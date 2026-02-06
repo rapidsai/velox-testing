@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import os
 import statistics
 
 from pathlib import Path
@@ -9,12 +10,26 @@ from .benchmark_keys import BenchmarkKeys
 from ..common.conftest import *
 
 
+def _default_port():
+    env_port = os.getenv("PRESTO_COORDINATOR_PORT")
+    if env_port:
+        try:
+            return int(env_port)
+        except ValueError:
+            pass
+    return 8080
+
+
+DEFAULT_HOST = os.getenv("PRESTO_COORDINATOR_HOST", "localhost")
+DEFAULT_PORT = _default_port()
+
+
 def pytest_addoption(parser):
     parser.addoption("--queries")
     parser.addoption("--schema-name", required=True)
     parser.addoption("--scale-factor")
-    parser.addoption("--hostname", default="localhost")
-    parser.addoption("--port", default=8080, type=int)
+    parser.addoption("--hostname", default=DEFAULT_HOST)
+    parser.addoption("--port", default=DEFAULT_PORT, type=int)
     parser.addoption("--user", default="test_user")
     parser.addoption("--iterations", default=5, type=int)
     parser.addoption("--output-dir", default="benchmark_output")

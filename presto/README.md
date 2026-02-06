@@ -58,12 +58,17 @@ All three repositories must be checked out as sibling directories. **Important:*
    ```
    > **Note:** Only internal team members with credentials can fetch a pre-built image (`./fetch_centos_deps_image.sh`). For most users, building locally is required.
 
-4. Start Presto with GPU workers:
+4. (Optional) Override the coordinator port on the host:
+   ```bash
+   export PRESTO_COORDINATOR_PORT=8081
+   ```
+
+5. Start Presto with GPU workers:
    ```bash
    ./start_native_gpu_presto.sh
    ```
 
-5. Access the Presto web UI at http://localhost:8080
+6. Access the Presto web UI at http://localhost:8080 (or the port set in `PRESTO_COORDINATOR_PORT`)
 
 ### Running Tests
 

@@ -2,7 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import os
 import prestodb
+
+
+def _default_port():
+    env_port = os.getenv("PRESTO_COORDINATOR_PORT")
+    if env_port:
+        try:
+            return int(env_port)
+        except ValueError:
+            pass
+    return 8080
+
+
+DEFAULT_HOST = os.getenv("PRESTO_COORDINATOR_HOST", "localhost")
+DEFAULT_PORT = _default_port()
 
 
 def analyze_tables(presto_cursor, schema_name, verbose=False):
@@ -57,10 +72,10 @@ if __name__ == "__main__":
         description="Analyze all tables in a Hive schema to collect statistics for query optimization.")
     parser.add_argument("--schema-name", type=str, required=True,
                         help="Name of the schema containing the tables to analyze.")
-    parser.add_argument("--host", type=str, default="localhost",
-                        help="Presto coordinator hostname (default: localhost)")
-    parser.add_argument("--port", type=int, default=8080,
-                        help="Presto coordinator port (default: 8080)")
+    parser.add_argument("--host", type=str, default=DEFAULT_HOST,
+                        help="Presto coordinator hostname (default: PRESTO_COORDINATOR_HOST or localhost)")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT,
+                        help="Presto coordinator port (default: PRESTO_COORDINATOR_PORT or 8080)")
     parser.add_argument("--user", type=str, default="test_user",
                         help="Presto user (default: test_user)")
     parser.add_argument("-v", "--verbose", action="store_true", default=False,

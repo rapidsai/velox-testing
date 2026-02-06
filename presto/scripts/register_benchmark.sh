@@ -7,7 +7,9 @@ set -euo pipefail
 # TPC-H Table Registration Script
 # Registers TPC-H tables in Presto with configurable location
 
-COORD=localhost:8080
+DEFAULT_COORD_HOST="${PRESTO_COORDINATOR_HOST:-localhost}"
+DEFAULT_COORD_PORT="${PRESTO_COORDINATOR_PORT:-8080}"
+COORD="${COORD:-${DEFAULT_COORD_HOST}:${DEFAULT_COORD_PORT}}"
 CATALOG=hive
 USER=tpch-benchmark
 SCHEMA=${SCHEMA:-"tpch_pq_sf1"}
@@ -138,18 +140,20 @@ Commands:
 Options:
   -s, --schema NAME    Schema name for TPC-H tables, only underscores allowed (default: tpch_pq_sf1)
   -l, --location PATH  Location path for TPC-H data (default: /data/velox-100)
-  -c, --coordinator URL Presto coordinator URL (default: localhost:8080)
+  -c, --coordinator URL Presto coordinator URL (default: ${DEFAULT_COORD_HOST}:${DEFAULT_COORD_PORT})
   -h, --help          Show this help message
 
 Environment Variables:
   SCHEMA               Schema name for TPC-H tables (default: test-tpch_pq_sf1)
-  COORD                Presto coordinator URL (default: localhost:8080)
+  COORD                Presto coordinator URL (default: ${DEFAULT_COORD_HOST}:${DEFAULT_COORD_PORT})
+  PRESTO_COORDINATOR_HOST  Presto coordinator host override (default: localhost)
+  PRESTO_COORDINATOR_PORT  Presto coordinator port override (default: 8080)
   CATALOG              Presto catalog (default: hive)
 
 Examples:
   $0 register -l "/data/tpch/sf1"                          # Register with custom location
   $0 register -s "tpch_sf100_parquet" -l "/data/velox-100" # Register with custom schema and location
-  $0 register -c "presto-coordinator:8080"                 # Register with custom coordinator
+  $0 register -c "localhost:${DEFAULT_COORD_PORT}"         # Register with custom coordinator
   $0 clean                                                 # Clean up tables
 
 EOF

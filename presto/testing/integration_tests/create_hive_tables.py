@@ -17,6 +17,20 @@ import os
 import prestodb
 
 
+def _default_port():
+    env_port = os.getenv("PRESTO_COORDINATOR_PORT")
+    if env_port:
+        try:
+            return int(env_port)
+        except ValueError:
+            pass
+    return 8080
+
+
+DEFAULT_HOST = os.getenv("PRESTO_COORDINATOR_HOST", "localhost")
+DEFAULT_PORT = _default_port()
+
+
 def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directory):
     drop_schema(presto_cursor, schema_name)
     presto_cursor.execute(f"CREATE SCHEMA hive.{schema_name}")
@@ -54,9 +68,13 @@ if __name__ == "__main__":
                         help="The path to the directory that will contain the schema files.")
     parser.add_argument("--data-dir-name", type=str, required=True,
                         help="The name of the directory that contains the benchmark data.")
+    parser.add_argument("--host", type=str, default=DEFAULT_HOST,
+                        help="Presto coordinator hostname (default: PRESTO_COORDINATOR_HOST or localhost)")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT,
+                        help="Presto coordinator port (default: PRESTO_COORDINATOR_PORT or 8080)")
     args = parser.parse_args()
 
-    conn = prestodb.dbapi.connect(host="localhost", port=8080, user="test_user", catalog="hive")
+    conn = prestodb.dbapi.connect(host=args.host, port=args.port, user="test_user", catalog="hive")
     cursor = conn.cursor()
     data_sub_directory = f"user_data/{args.data_dir_name}"
     create_tables(cursor, args.schema_name, args.schemas_dir_path, data_sub_directory)

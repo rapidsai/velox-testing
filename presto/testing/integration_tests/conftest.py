@@ -12,13 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 from ..common.conftest import *
+
+
+def _default_port():
+    env_port = os.getenv("PRESTO_COORDINATOR_PORT")
+    if env_port:
+        try:
+            return int(env_port)
+        except ValueError:
+            pass
+    return 8080
+
+
+DEFAULT_HOST = os.getenv("PRESTO_COORDINATOR_HOST", "localhost")
+DEFAULT_PORT = _default_port()
 
 def pytest_addoption(parser):
     parser.addoption("--queries") # default is all queries for the benchmark type
     parser.addoption("--keep-tables", action="store_true", default=False)
-    parser.addoption("--hostname", default="localhost")
-    parser.addoption("--port", default=8080, type=int)
+    parser.addoption("--hostname", default=DEFAULT_HOST)
+    parser.addoption("--port", default=DEFAULT_PORT, type=int)
     parser.addoption("--user", default="test_user")
     parser.addoption("--schema-name")
     parser.addoption("--scale-factor")

@@ -12,10 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import prestodb
 
+
+def _default_port():
+    env_port = os.getenv("PRESTO_COORDINATOR_PORT")
+    if env_port:
+        try:
+            return int(env_port)
+        except ValueError:
+            pass
+    return 8080
+
 def test_simple_query():
-    conn = prestodb.dbapi.connect(host="localhost", port=8080, user="test_user", catalog="tpch", schema="sf1")
+    host = os.getenv("PRESTO_COORDINATOR_HOST", "localhost")
+    port = _default_port()
+    conn = prestodb.dbapi.connect(host=host, port=port, user="test_user", catalog="tpch", schema="sf1")
     cursor = conn.cursor()
 
     cursor.execute("select count(*) from customer")

@@ -8,7 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="${SCRIPT_DIR}/../.."
 OUTPUT_DIR="$BASE_DIR/pbench_output/tpch"
 PBENCH_DIR="${SCRIPT_DIR}"
-COORD="localhost:8080"
+COORD_HOST="${PRESTO_COORDINATOR_HOST:-localhost}"
+COORD_PORT="${PRESTO_COORDINATOR_PORT:-8080}"
+COORD="${COORD:-${COORD_HOST}:${COORD_PORT}}"
 
 mkdir -p $OUTPUT_DIR
 "$PBENCH_DIR/pbench" run -s http://$COORD/ -o $OUTPUT_DIR "$PBENCH_DIR/benchmarks/tpch/sf100.json"

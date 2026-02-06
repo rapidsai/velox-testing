@@ -5,6 +5,9 @@
 
 set -e
 
+DEFAULT_HOST="${PRESTO_COORDINATOR_HOST:-localhost}"
+DEFAULT_PORT="${PRESTO_COORDINATOR_PORT:-8080}"
+
 print_help() {
   cat << EOF
 
@@ -25,13 +28,13 @@ OPTIONS:
     -h, --help              Show this help message.
     -s, --schema-name       Name of the schema containing the tables to analyze (required).
     -v, --verbose           Enable verbose output.
-    -H, --hostname          Hostname of the Presto coordinator (default: localhost).
-    -p, --port              Port number of the Presto coordinator (default: 8080).
+    -H, --hostname          Hostname of the Presto coordinator (default: ${DEFAULT_HOST}).
+    -p, --port              Port number of the Presto coordinator (default: ${DEFAULT_PORT}).
     -u, --user              User who queries will be executed as (default: test_user).
 
 EXAMPLES:
     $0 -s my_tpch_sf100
-    $0 --schema-name my_tpcds_sf1 -H localhost -p 8080
+    $0 --schema-name my_tpcds_sf1 -H ${DEFAULT_HOST} -p ${DEFAULT_PORT}
     $0 -s my_schema -v
     $0 -h
 
