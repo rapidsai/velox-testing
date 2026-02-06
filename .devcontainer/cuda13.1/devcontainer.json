@@ -57,9 +57,6 @@
     }
   },
   "containerEnv": {
-    "VELOX_DEPENDENCY_SOURCE": "SYSTEM",
-    "GTest_SOURCE": "BUNDLED",
-    "cudf_SOURCE": "BUNDLED",
-    "faiss_SOURCE": "BUNDLED"
+    "VELOX_DEPENDENCY_SOURCE": "SYSTEM"
   }
 }
