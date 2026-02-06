@@ -170,6 +170,11 @@ function run_coordinator {
         qv="$(grep '^query\.max-memory-per-node=' ${coord_config} | tail -1 | cut -d'=' -f2- | tr -d '[:space:]')"
         if ! echo "$qv" | grep -Eq '^[0-9]+(KB|MB|GB|TB|PB)$'; then
             sed -i '/^query\.max-memory-per-node\s*=/d' ${coord_config}
+        else
+            qn="$(echo "$qv" | sed -E 's/^([0-9]+).*/\1/')"
+            if [ "${qn}" = "0" ]; then
+                sed -i -E 's/^(query\.max-memory-per-node\s*=\s*).*/\11GB/' ${coord_config}
+            fi
         fi
     fi
 
@@ -284,6 +289,11 @@ function run_worker {
         qv="$(grep '^query\.max-memory-per-node=' ${worker_config} | tail -1 | cut -d'=' -f2- | tr -d '[:space:]')"
         if ! echo "$qv" | grep -Eq '^[0-9]+(KB|MB|GB|TB|PB)$'; then
             sed -i '/^query\.max-memory-per-node\s*=/d' ${worker_config}
+        else
+            qn="$(echo "$qv" | sed -E 's/^([0-9]+).*/\1/')"
+            if [ "${qn}" = "0" ]; then
+                sed -i -E 's/^(query\.max-memory-per-node\s*=\s*).*/\11GB/' ${worker_config}
+            fi
         fi
     fi
     # Give each worker a unique id.
