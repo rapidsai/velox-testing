@@ -337,7 +337,7 @@ function setup_benchmark {
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
     local scale_factor=$1
     local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; (command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y python3.12 jq) || (command -v yum >/dev/null 2>&1 && yum install -y python3.12 jq) || true; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; (command -v apt-get && apt-get update && apt-get install -y python3.12 jq) || (command -v yum && yum install -y python3.12 jq); cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
 
     # Copy the hive metastore from the source of truth to the container.  This means we don't have to create
     # or analyze the tables.
