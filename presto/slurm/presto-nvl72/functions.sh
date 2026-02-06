@@ -389,21 +389,51 @@ function wait_for_workers_to_register {
     local expected_num_workers=$1
     local num_workers=0
     for i in {1..60}; do
-        resp="$(curl -fsS http://${COORD}:${PORT}/v1/node 2>/dev/null || true)"
         local new_num=0
-        if command -v jq >/dev/null 2>&1 && echo "$resp" | jq -e . >/dev/null 2>&1; then
-            new_num="$(echo "$resp" | jq -r '
-              if type=="array" then length
-              elif type=="object" then
-                if has("activeNodes") then (.activeNodes|length)
-                elif has("nodes") then (.nodes|length)
-                else 0 end
-              else 0 end
-            ' 2>/dev/null || echo "")"
-        fi
-        if ! [[ "$new_num" =~ ^[0-9]+$ ]]; then
-            new_num=0
-        fi
+        # Try multiple Trino endpoints: active first, then legacy
+        for ep in "/v1/node/active" "/v1/node"; do
+            resp="$(curl -fsS http://${COORD}:${PORT}${ep} 2>/dev/null || true)"
+            # Prefer jq if available
+            if command -v jq >/dev/null 2>&1 && [ -n "$resp" ] && echo "$resp" | jq -e . >/dev/null 2>&1; then
+                new_num="$(echo "$resp" | jq -r '
+                  if type=="array" then length
+                  elif type=="object" then
+                    if has("activeNodes") then (.activeNodes|length)
+                    elif has("nodes") then (.nodes|length)
+                    else 0 end
+                  else 0 end
+                ' 2>/dev/null || echo "")"
+            # Fallback to python if present
+            elif command -v python3 >/dev/null 2>&1 && [ -n "$resp" ]; then
+                new_num="$(python3 - <<'PY' 2>/dev/null || true
+import sys, json
+try:
+    data=json.load(sys.stdin)
+    if isinstance(data, list):
+        print(len(data))
+    elif isinstance(data, dict):
+        if 'activeNodes' in data and isinstance(data['activeNodes'], list):
+            print(len(data['activeNodes']))
+        elif 'nodes' in data and isinstance(data['nodes'], list):
+            print(len(data['nodes']))
+        else:
+            print(0)
+    else:
+        print(0)
+except Exception:
+    pass
+PY
+                <<< "$resp")"
+            # Last resort: crude count by matching common field tokens
+            elif [ -n "$resp" ]; then
+                new_num="$(printf "%s" "$resp" | grep -o '"httpUri"\|"uri"\|"nodeId"' | wc -l | awk '{print $1}')"
+            fi
+            [[ "$new_num" =~ ^[0-9]+$ ]] || new_num=0
+            # If we got any positive count, stop trying endpoints
+            if (( new_num > 0 )); then
+                break
+            fi
+        done
         num_workers=$new_num
         if (( num_workers == expected_num_workers )); then
             echo "workers registered. num_nodes: $num_workers"
