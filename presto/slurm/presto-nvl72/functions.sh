@@ -179,6 +179,12 @@ function run_coordinator {
     local coord_hive="${CONFIGS}/etc_coordinator/catalog/hive.properties"
     if [ -f "${coord_hive}" ]; then
         sed -i -E 's/^(connector\.name\s*=\s*).*/\1hive/' "${coord_hive}"
+        # Remove/translate Presto-native or invalid Trino Hive properties
+        sed -i '/^cudf\.hive\.use-buffered-input\s*=/d' "${coord_hive}" 2>/dev/null || true
+        sed -i '/^hive\.allow-drop-table\s*=/d' "${coord_hive}" 2>/dev/null || true
+        sed -i '/^hive\.file-splittable\s*=/d' "${coord_hive}" 2>/dev/null || true
+        sed -i '/^parquet\.reader\.chunk-read-limit\s*=/d' "${coord_hive}" 2>/dev/null || true
+        sed -i '/^parquet\.reader\.pass-read-limit\s*=/d' "${coord_hive}" 2>/dev/null || true
     fi
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
@@ -294,6 +300,12 @@ function run_worker {
     # Ensure Trino hive connector name (replace Presto's hive_hadoop2/hive-hadoop2)
     if [ -f "${worker_hive}" ]; then
         sed -i -E 's/^(connector\.name\s*=\s*).*/\1hive/' "${worker_hive}"
+        # Remove/translate Presto-native or invalid Trino Hive properties
+        sed -i '/^cudf\.hive\.use-buffered-input\s*=/d' "${worker_hive}" 2>/dev/null || true
+        sed -i '/^hive\.allow-drop-table\s*=/d' "${worker_hive}" 2>/dev/null || true
+        sed -i '/^hive\.file-splittable\s*=/d' "${worker_hive}" 2>/dev/null || true
+        sed -i '/^parquet\.reader\.chunk-read-limit\s*=/d' "${worker_hive}" 2>/dev/null || true
+        sed -i '/^parquet\.reader\.pass-read-limit\s*=/d' "${worker_hive}" 2>/dev/null || true
     fi
 
     # Create unique data dir per worker.
