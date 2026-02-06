@@ -166,20 +166,8 @@ function run_coordinator {
         echo "deprecated.regex-library=${val}" >> ${coord_config}
     fi
     # Validate query.max-memory-per-node format; if invalid, drop to use defaults
-    if grep -q '^query\.max-memory-per-node=' ${coord_config} 2>/dev/null; then
-        qv="$(grep '^query\.max-memory-per-node=' ${coord_config} | tail -1 | cut -d'=' -f2- | tr -d '[:space:]')"
-        if echo "$qv" | grep -Eq '^[0-9]+(KB|MB|GB|TB|PB)$'; then
-            qn="$(echo "$qv" | sed -E 's/^([0-9]+).*/\1/')"
-            if [ -z "$qn" ] || [ "$qn" = "0" ]; then
-                sed -i -E 's/^(query\.max-memory-per-node\s*=\s*).*/\11GB/' ${coord_config}
-            fi
-        else
-            sed -i '/^query\.max-memory-per-node\s*=/d' ${coord_config}
-            echo "query.max-memory-per-node=1GB" >> ${coord_config}
-        fi
-    else
-        echo "query.max-memory-per-node=1GB" >> ${coord_config}
-    fi
+    # Remove problematic memory limit; let Trino defaults apply
+    sed -i '/^query\.max-memory-per-node\s*=/d' ${coord_config} 2>/dev/null || true
 
     # Ensure data dir path for coordinator (keep existing /var/lib paths)
     if grep -q "^node\.data-dir=" "${coord_node}"; then
@@ -288,20 +276,8 @@ function run_worker {
         echo "deprecated.regex-library=${val}" >> ${worker_config}
     fi
     # Validate query.max-memory-per-node format; if invalid, drop to use defaults
-    if grep -q '^query\.max-memory-per-node=' ${worker_config} 2>/dev/null; then
-        qv="$(grep '^query\.max-memory-per-node=' ${worker_config} | tail -1 | cut -d'=' -f2- | tr -d '[:space:]')"
-        if echo "$qv" | grep -Eq '^[0-9]+(KB|MB|GB|TB|PB)$'; then
-            qn="$(echo "$qv" | sed -E 's/^([0-9]+).*/\1/')"
-            if [ -z "$qn" ] || [ "$qn" = "0" ]; then
-                sed -i -E 's/^(query\.max-memory-per-node\s*=\s*).*/\11GB/' ${worker_config}
-            fi
-        else
-            sed -i '/^query\.max-memory-per-node\s*=/d' ${worker_config}
-            echo "query.max-memory-per-node=1GB" >> ${worker_config}
-        fi
-    else
-        echo "query.max-memory-per-node=1GB" >> ${worker_config}
-    fi
+    # Remove problematic memory limit; let Trino defaults apply
+    sed -i '/^query\.max-memory-per-node\s*=/d' ${worker_config} 2>/dev/null || true
     # Give each worker a unique id.
     sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_node}
     # Ensure data dir path (keep existing /var/lib paths)
