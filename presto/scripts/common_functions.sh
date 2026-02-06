@@ -22,25 +22,6 @@ function wait_for_worker_node_registration() {
   echo "Coordinator URL: $COORDINATOR_URL"
   local -r MAX_RETRIES=24
   local retry_count=0
-  # Preferred: use Trino CLI if available (most reliable)
-  if [ -x /usr/lib/trino/bin/trino ] || command -v trino >/dev/null 2>&1; then
-    local trino_cli="/usr/lib/trino/bin/trino"
-    command -v trino >/dev/null 2>&1 && trino_cli="trino"
-    while (( retry_count < MAX_RETRIES )); do
-      set +e
-      COUNT="$($trino_cli --server ${COORDINATOR_URL} -e "select count(*) from system.runtime.nodes where coordinator=false" 2>/dev/null | tr -dc '0-9')"
-      set -e
-      if [[ "$COUNT" =~ ^[0-9]+$ ]] && (( COUNT > 0 )); then
-        echo "Worker node registered"
-        return 0
-      fi
-      sleep 5
-      retry_count=$(( retry_count + 1 ))
-    done
-    echo "Error: Worker node not registered after 120s (CLI check). Exiting."
-    exit 1
-  fi
-
   until {
         # Try Trino active nodes endpoint first
         curl -s -f -H 'Accept: application/json' -o node_response.json ${COORDINATOR_URL}/v1/node/active && \
@@ -108,13 +89,8 @@ PY
           NEXT="$(printf '%s\n' "$OUT" | sed -n '1p')"
           DATA="$(printf '%s\n' "$OUT" | sed -n '2p')"
         else
-          NEXT=""
-          # crude grep: look for "data": [[N]] with N>0
-          if echo "$RESP" | grep -q '"data":[[:space:]]*\[[[:space:]]*\[[[:space:]]*[1-9]'; then
-            DATA="1"
-          else
-            DATA=""
-          fi
+          NEXT="$(printf '%s' "$RESP" | sed -n 's/.*"nextUri"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+          DATA="$(printf '%s' "$RESP" | sed -n 's/.*"data"[[:space:]]*:[[:space:]]*\[\[[[:space:]]*\([0-9]\+\).*/\1/p')"
         fi
         STEPS=0
         while [[ -z "$DATA" && -n "$NEXT" && $STEPS -lt 10 ]]; do
@@ -136,12 +112,8 @@ PY
             NEXT="$(printf '%s\n' "$OUT" | sed -n '1p')"
             DATA="$(printf '%s\n' "$OUT" | sed -n '2p')"
           else
-            NEXT=""
-            if echo "$RESP" | grep -q '"data":[[:space:]]*\[[[:space:]]*\[[[:space:]]*[1-9]'; then
-              DATA="1"
-            else
-              DATA=""
-            fi
+            NEXT="$(printf '%s' "$RESP" | sed -n 's/.*"nextUri"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+            DATA="$(printf '%s' "$RESP" | sed -n 's/.*"data"[[:space:]]*:[[:space:]]*\[\[[[:space:]]*\([0-9]\+\).*/\1/p')"
           fi
           STEPS=$((STEPS+1))
         done
