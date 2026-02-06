@@ -1,0 +1,94 @@
+# Velox development container based on RAPIDS devcontainers
+#
+# Uses RAPIDS devcontainer base image (Ubuntu) for compatibility with
+# RAPIDS build utilities and cuDF development.
+
+ARG CUDA_VERSION=12.9
+ARG BASE=rapidsai/devcontainers:latest-cpp-mambaforge
+
+FROM ${BASE}
+
+ARG TARGETARCH
+ARG CUDA_VERSION
+
+# Install velox build dependencies
+RUN apt-get update -y && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    # Velox dependencies not in RAPIDS base
+    libdouble-conversion-dev \
+    libevent-dev \
+    libgflags-dev \
+    libgoogle-glog-dev \
+    liblz4-dev \
+    liblzo2-dev \
+    libre2-dev \
+    libsnappy-dev \
+    libsodium-dev \
+    libthrift-dev \
+    libzstd-dev \
+    # Additional tools
+    ninja-build \
+    ccache \
+    && rm -rf /tmp/* /var/tmp/* /var/cache/apt/* /var/lib/apt/lists/*
+
+# Create build directories
+RUN mkdir -p /opt/velox-build /opt/presto-build && \
+    chown -R coder:coder /opt/velox-build /opt/presto-build
+
+# Install velox helper scripts
+COPY velox-testing/scripts/devcontainer/* /usr/local/bin/
+RUN chmod 755 /usr/local/bin/build-* /usr/local/bin/configure-* \
+              /usr/local/bin/test-* /usr/local/bin/clean-* /usr/local/bin/post-create
+
+# Environment for velox builds
+ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
+    GTest_SOURCE=BUNDLED \
+    cudf_SOURCE=BUNDLED \
+    faiss_SOURCE=BUNDLED \
+    CUDA_VERSION=${CUDA_VERSION} \
+    CUDAARCHS="RAPIDS" \
+    DEFAULT_VIRTUAL_ENV=rapids \
+    PYTHON_PACKAGE_MANAGER=pip
+
+# Python environment
+ENV PYTHONSAFEPATH="1" \
+    PYTHONUNBUFFERED="1" \
+    PYTHONDONTWRITEBYTECODE="1"
+
+# Persist bash history to cache
+ENV HISTFILE="/home/coder/.cache/._bash_history"
+
+###
+# sccache configuration
+###
+ENV AWS_ROLE_ARN="arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs" \
+    SCCACHE_REGION="us-east-2" \
+    SCCACHE_BUCKET="rapids-sccache-devs" \
+    SCCACHE_S3_USE_PREPROCESSOR_CACHE_MODE=true \
+    SCCACHE_IDLE_TIMEOUT=0
+
+###
+# sccache-dist configuration
+###
+# Enable sccache-dist by default
+ENV DEVCONTAINER_UTILS_ENABLE_SCCACHE_DIST=1
+# Compile locally if max retries exceeded
+ENV SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true
+# Retry transient errors 4 times (for a total of 5 attempts)
+ENV SCCACHE_DIST_MAX_RETRIES=4
+# 1hr 59min (to accommodate debug builds)
+ENV SCCACHE_DIST_REQUEST_TIMEOUT=7140
+ENV SCCACHE_DIST_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com"
+
+# Build as much in parallel as possible
+ENV INFER_NUM_DEVICE_ARCHITECTURES=1 \
+    MAX_DEVICE_OBJ_TO_COMPILE_IN_PARALLEL=20
+
+# Add velox environment to bashrc
+RUN echo "export CUDA_VERSION=${CUDA_VERSION}" >> /home/coder/.bashrc && \
+    echo 'export CMAKE_C_COMPILER_LAUNCHER=sccache' >> /home/coder/.bashrc && \
+    echo 'export CMAKE_CXX_COMPILER_LAUNCHER=sccache' >> /home/coder/.bashrc && \
+    echo 'export CMAKE_CUDA_COMPILER_LAUNCHER=sccache' >> /home/coder/.bashrc
+
+USER coder
+WORKDIR /home/coder
