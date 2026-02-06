@@ -337,7 +337,7 @@ function setup_benchmark {
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
     local scale_factor=$1
     local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; (command -v apt-get && apt-get update && apt-get install -y python3.12 jq) || (command -v yum && yum install -y python3.12 jq); cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; export MINIFORGE_HOME=/workspace/.miniforge3; (command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y jq) || (command -v yum >/dev/null 2>&1 && yum install -y jq) || true; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
 
     # Copy the hive metastore from the source of truth to the container.  This means we don't have to create
     # or analyze the tables.
@@ -362,7 +362,7 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; (command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y python3.12 jq) || (command -v yum >/dev/null 2>&1 && yum install -y python3.12 jq) || true; cd /workspace/presto/scripts; ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir" "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; export MINIFORGE_HOME=/workspace/.miniforge3; (command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y jq) || (command -v yum >/dev/null 2>&1 && yum install -y jq) || true; cd /workspace/presto/scripts; ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.
