@@ -74,7 +74,7 @@ ${CONFIGS}/etc_coordinator/config_native.properties:/etc/trino/config.properties
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/etc/trino/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
->> ${LOGS}/${log_file} 2>&1 &
+-- bash -lc "/usr/lib/trino/bin/launcher run --etc-dir /etc/trino" >> ${LOGS}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
