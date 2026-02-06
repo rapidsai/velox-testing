@@ -73,8 +73,7 @@ PY
           -H 'Accept: application/json' \
           --data-binary 'select count(*) from system.runtime.nodes where coordinator=false' 2>/dev/null || true)
         if command -v python3 >/dev/null 2>&1; then
-          read -r NEXT DATA <<EOF
-$(python3 - <<'PY' 2>/dev/null || true
+          OUT="$(python3 - <<'PY' 2>/dev/null || true
 import sys, json
 try:
     d=json.load(sys.stdin)
@@ -82,13 +81,13 @@ try:
     dat=''
     if 'data' in d and isinstance(d['data'], list) and d['data'] and isinstance(d['data'][0], list):
         dat=str(d['data'][0][0])
-    print(nxt)
-    print(dat)
+    print(nxt); print(dat)
 except Exception:
-    print()
-    print()
+    print(); print()
 PY
-          <<< "$RESP")
+          <<< "$RESP")"
+          NEXT="$(printf '%s\n' "$OUT" | sed -n '1p')"
+          DATA="$(printf '%s\n' "$OUT" | sed -n '2p')"
         else
           NEXT=""
           # crude grep: look for "data": [[N]] with N>0
@@ -102,8 +101,7 @@ PY
         while [[ -z "$DATA" && -n "$NEXT" && $STEPS -lt 10 ]]; do
           RESP=$(curl -s -f "$NEXT" 2>/dev/null || true)
           if command -v python3 >/dev/null 2>&1; then
-            read -r NEXT DATA <<EOF
-$(python3 - <<'PY' 2>/dev/null || true
+            OUT="$(python3 - <<'PY' 2>/dev/null || true
 import sys, json
 try:
     d=json.load(sys.stdin)
@@ -111,13 +109,13 @@ try:
     dat=''
     if 'data' in d and isinstance(d['data'], list) and d['data'] and isinstance(d['data'][0], list):
         dat=str(d['data'][0][0])
-    print(nxt)
-    print(dat)
+    print(nxt); print(dat)
 except Exception:
-    print()
-    print()
+    print(); print()
 PY
-            <<< "$RESP")
+            <<< "$RESP")"
+            NEXT="$(printf '%s\n' "$OUT" | sed -n '1p')"
+            DATA="$(printf '%s\n' "$OUT" | sed -n '2p')"
           else
             NEXT=""
             if echo "$RESP" | grep -q '"data":[[:space:]]*\[[[:space:]]*\[[[:space:]]*[1-9]'; then
