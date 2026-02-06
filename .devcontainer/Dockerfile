@@ -15,19 +15,28 @@ ARG CUDA_VERSION
 RUN apt-get update -y && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     # Velox dependencies not in RAPIDS base
+    libc-ares-dev \
+    libboost-all-dev \
     libdouble-conversion-dev \
     libevent-dev \
+    libfmt-dev \
     libgflags-dev \
     libgoogle-glog-dev \
     liblz4-dev \
     liblzo2-dev \
+    libprotobuf-dev \
+    libprotoc-dev \
+    protobuf-compiler \
     librdkafka-dev \
     libre2-dev \
     libsnappy-dev \
     libsodium-dev \
+    libstemmer-dev \
     libthrift-dev \
     libzstd-dev \
-    # Additional tools
+    # Build tools
+    bison \
+    flex \
     ninja-build \
     ccache \
     && rm -rf /tmp/* /var/tmp/* /var/cache/apt/* /var/lib/apt/lists/*
