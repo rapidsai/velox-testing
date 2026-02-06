@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import prestodb
+import trino
 import pytest
 
 from pathlib import Path
@@ -28,8 +28,14 @@ def presto_cursor(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema = request.config.getoption("--schema-name")
-    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive",
-                                  schema=schema)
+    conn = trino.dbapi.connect(
+        host=hostname,
+        port=port,
+        user=user,
+        catalog="hive",
+        schema=schema,
+        http_scheme="http",
+    )
     return conn.cursor()
 
 
@@ -91,11 +97,18 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                     "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" +
                     benchmark_queries[query_id]
                 )
-                result.append(cursor.stats["elapsedTimeMillis"])
+                # Prefer server-reported elapsed time if available; fall back to None
+                elapsed_ms = None
+                try:
+                    if hasattr(cursor, "stats") and isinstance(cursor.stats, dict):
+                        elapsed_ms = cursor.stats.get("elapsedTimeMillis", None)
+                except Exception:
+                    elapsed_ms = None
+                result.append(elapsed_ms if elapsed_ms is not None else None)
 
                 # Collect metrics after each query iteration if enabled
                 if metrics:
-                    presto_query_id = cursor._query.query_id
+                    presto_query_id = getattr(getattr(cursor, "_query", None), "query_id", None)
                     if presto_query_id:
                         collect_metrics(
                             query_id=presto_query_id,
