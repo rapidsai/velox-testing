@@ -125,6 +125,19 @@ function run_coordinator {
     sed -i '/^use-alternative-function-signatures\s*=/d' ${coord_config} 2>/dev/null || true
     # Remove defunct memory property (Trino suggests other keys)
     sed -i '/^query\.max-total-memory-per-node\s*=/d' ${coord_config} 2>/dev/null || true
+    # Remove "not used" optimizer/experimental properties reported by Trino
+    sed -i '/^experimental\.max-revocable-memory-per-node\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^experimental\.optimized-repartitioning\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^experimental\.pushdown-dereference-enabled\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^experimental\.pushdown-subfields-enabled\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^optimizer\.default-join-selectivity-coefficient\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^optimizer\.exploit-constraints\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^optimizer\.generate-domain-filters\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^optimizer\.handle-complex-equi-joins\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^optimizer\.in-predicates-as-inner-joins-enabled\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^optimizer\.infer-inequality-predicates\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^optimizer\.joins-not-null-inference-strategy\s*=/d' ${coord_config} 2>/dev/null || true
+    sed -i '/^optimizer\.partial-aggregation-strategy\s*=/d' ${coord_config} 2>/dev/null || true
     # Translate renamed properties if present
     if grep -q '^experimental\.max-spill-per-node=' ${coord_config} 2>/dev/null; then
         val=$(grep '^experimental\.max-spill-per-node=' ${coord_config} | tail -1 | cut -d'=' -f2-)
@@ -213,6 +226,19 @@ function run_worker {
     sed -i '/^use-alternative-function-signatures\s*=/d' ${worker_config} 2>/dev/null || true
     # Remove defunct memory property
     sed -i '/^query\.max-total-memory-per-node\s*=/d' ${worker_config} 2>/dev/null || true
+    # Remove "not used" optimizer/experimental properties reported by Trino
+    sed -i '/^experimental\.max-revocable-memory-per-node\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^experimental\.optimized-repartitioning\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^experimental\.pushdown-dereference-enabled\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^experimental\.pushdown-subfields-enabled\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^optimizer\.default-join-selectivity-coefficient\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^optimizer\.exploit-constraints\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^optimizer\.generate-domain-filters\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^optimizer\.handle-complex-equi-joins\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^optimizer\.in-predicates-as-inner-joins-enabled\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^optimizer\.infer-inequality-predicates\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^optimizer\.joins-not-null-inference-strategy\s*=/d' ${worker_config} 2>/dev/null || true
+    sed -i '/^optimizer\.partial-aggregation-strategy\s*=/d' ${worker_config} 2>/dev/null || true
     # Translate renamed properties if present
     if grep -q '^experimental\.max-spill-per-node=' ${worker_config} 2>/dev/null; then
         val=$(grep '^experimental\.max-spill-per-node=' ${worker_config} | tail -1 | cut -d'=' -f2-)
