@@ -57,7 +57,8 @@ WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{{file_path}}')"
 
 def get_column_definition(column_metadata):
     col_name, col_type, nullable, *_ = column_metadata
-    col_def = f"{col_name} {col_type}{' NOT NULL' if nullable == 'NO' else ''}"
+    # Trino Hive connector does not support NOT NULL constraints; omit them.
+    col_def = f"{col_name} {col_type}"
     return col_def
 
 
