@@ -337,22 +337,22 @@ function setup_benchmark {
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
     local scale_factor=$1
     local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; export MINIFORGE_HOME=/workspace/.miniforge3; (command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y jq) || (command -v yum >/dev/null 2>&1 && yum install -y jq) || true; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; " "cli"
+    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; export MINIFORGE_HOME=/workspace/.miniforge3; (command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y jq) || (command -v yum >/dev/null 2>&1 && yum install -y jq) || true; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor}; analyze_tables.sh -s tpchsf${scale_factor}" "cli"
 
     # Copy the hive metastore from the source of truth to the container.  This means we don't have to create
     # or analyze the tables.
-    for dataset in $(ls ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE); do
-	if [[ -d ${REPO_ROOT}/.hive_metastore/${dataset} ]]; then
-	    echo "replacing dataset metadata: $dataset"
-	    cp -r ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE/${dataset} ${REPO_ROOT}/.hive_metastore/
-	    for table in $(ls ${REPO_ROOT}/.hive_metastore/${dataset}); do
+    #for dataset in $(ls ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE); do
+	#if [[ -d ${REPO_ROOT}/.hive_metastore/${dataset} ]]; then
+	#    echo "replacing dataset metadata: $dataset"
+	#    cp -r ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE/${dataset} ${REPO_ROOT}/.hive_metastore/
+	#    for table in $(ls ${REPO_ROOT}/.hive_metastore/${dataset}); do
 		# Need to remove checksum file (it will be recreated).
-		if [ -f ${REPO_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc ]; then
-		    rm ${REPO_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc
-		fi
-	    done
-        fi
-    done
+	#	if [ -f ${REPO_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc ]; then
+	#	    rm ${REPO_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc
+	#	fi
+	#    done
+        #fi
+    #done
 }
 
 # Run a cli node that will connect to the coordinator and run queries from queries.sql
