@@ -435,10 +435,11 @@ PY
             fi
         done
         num_workers=$new_num
-        if (( num_workers == expected_num_workers )); then
+        if (( num_workers >= expected_num_workers )); then
             echo "workers registered. num_nodes: $num_workers"
 	    return 0
         fi
+        echo "wait_for_workers_to_register: observed $num_workers/$expected_num_workers workers (COORD=${COORD}:${PORT})"
         sleep 5
     done
     echo_error "workers failed to register. num_nodes: $num_workers"
