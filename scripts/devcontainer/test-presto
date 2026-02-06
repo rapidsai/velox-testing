@@ -1,0 +1,75 @@
+#!/bin/bash
+# Run presto-native-execution tests
+# Usage: test-presto [-j N] [--filter PATTERN]
+
+set -euo pipefail
+
+# Defaults
+BUILD_TYPE="${BUILD_TYPE:-release}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/presto-build}"
+NUM_THREADS="${NUM_THREADS:-2}"
+
+usage() {
+    cat <<EOF
+Usage: test-presto [OPTIONS]
+
+Run presto-native-execution tests.
+
+Options:
+  -j, --jobs N        Number of parallel test jobs (default: 2)
+  --filter PATTERN    Only run tests matching pattern (ctest -R)
+  --exclude PATTERN   Exclude tests matching pattern (ctest -E)
+  --list              List available tests without running
+  -h, --help          Show this help message
+
+Environment variables:
+  BUILD_TYPE          release or debug (default: release)
+  BUILD_BASE_DIR      Build base directory (default: /opt/presto-build)
+  NUM_THREADS         Number of parallel test jobs
+EOF
+}
+
+FILTER=""
+EXCLUDE=""
+LIST_ONLY=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        --filter) FILTER="$2"; shift 2 ;;
+        --exclude) EXCLUDE="$2"; shift 2 ;;
+        --list) LIST_ONLY=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+BUILD_DIR="${BUILD_BASE_DIR}/${BUILD_TYPE}"
+if [[ ! -d "${BUILD_DIR}" ]]; then
+    echo "Error: Build directory not found at ${BUILD_DIR}"
+    echo "Please run build-presto first."
+    exit 1
+fi
+
+cd "${BUILD_DIR}"
+
+if [[ "${LIST_ONLY}" == true ]]; then
+    echo "Available tests:"
+    ctest -N ${FILTER:+-R "${FILTER}"} ${EXCLUDE:+-E "${EXCLUDE}"}
+    exit 0
+fi
+
+echo "=== Running Presto Tests ==="
+echo "Build dir: ${BUILD_DIR}"
+echo "Threads:   ${NUM_THREADS}"
+echo "Filter:    ${FILTER:-<none>}"
+echo "Exclude:   ${EXCLUDE:-<none>}"
+echo ""
+
+ctest -j "${NUM_THREADS}" --output-on-failure --no-tests=error \
+    ${FILTER:+-R "${FILTER}"} \
+    ${EXCLUDE:+-E "${EXCLUDE}"}
+
+echo ""
+echo "=== Tests complete ==="
