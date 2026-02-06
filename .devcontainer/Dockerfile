@@ -45,6 +45,7 @@ RUN chmod 755 /usr/local/bin/build-* /usr/local/bin/configure-* \
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     GTest_SOURCE=BUNDLED \
     cudf_SOURCE=BUNDLED \
+    duckdb_SOURCE=BUNDLED \
     faiss_SOURCE=BUNDLED \
     CUDA_VERSION=${CUDA_VERSION} \
     CUDAARCHS="RAPIDS" \
