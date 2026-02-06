@@ -14,7 +14,7 @@
 
 import argparse
 import os
-import prestodb
+import trino
 
 
 def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directory):
@@ -56,11 +56,12 @@ if __name__ == "__main__":
                         help="The name of the directory that contains the benchmark data.")
     args = parser.parse_args()
 
-    conn = prestodb.dbapi.connect(
+    conn = trino.dbapi.connect(
         host=os.environ.get("HOSTNAME", "localhost"),
         port=int(os.environ.get("PORT", "8080")),
-        user="test_user",
+        user=os.environ.get("TRINO_USER", "test_user"),
         catalog="hive",
+        http_scheme="http",
     )
     cursor = conn.cursor()
     data_sub_directory = f"user_data/{args.data_dir_name}"
