@@ -27,7 +27,7 @@ function wait_for_worker_node_registration() {
         curl -s -f -H 'Accept: application/json' -o node_response.json ${COORDINATOR_URL}/v1/node/active && \
         { \
           if command -v python3 >/dev/null 2>&1; then \
-            python3 - "$@" <<'PY'
+            python3 - <<'PY'
 import sys, json
 try:
     with open('node_response.json') as f:
@@ -46,7 +46,7 @@ PY
         curl -s -f -H 'Accept: application/json' -o node_response.json ${COORDINATOR_URL}/v1/node && \
         { \
           if command -v python3 >/dev/null 2>&1; then \
-            python3 - "$@" <<'PY'
+            python3 - <<'PY'
 import sys, json
 try:
     with open('node_response.json') as f:
