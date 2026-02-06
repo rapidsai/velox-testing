@@ -185,14 +185,18 @@ function run_coordinator {
         sed -i '/^hive\.file-splittable\s*=/d' "${coord_hive}" 2>/dev/null || true
         sed -i '/^parquet\.reader\.chunk-read-limit\s*=/d' "${coord_hive}" 2>/dev/null || true
         sed -i '/^parquet\.reader\.pass-read-limit\s*=/d' "${coord_hive}" 2>/dev/null || true
-        # Use in-memory metastore to avoid filesystem factory issues
+        # Configure file metastore with a local path (no URI scheme)
         if grep -q '^hive\.metastore=' "${coord_hive}"; then
-            sed -i 's/^hive\.metastore\s*=.*/hive.metastore=memory/' "${coord_hive}"
+            sed -i 's/^hive\.metastore\s*=.*/hive.metastore=file/' "${coord_hive}"
         else
-            echo "hive.metastore=memory" >> "${coord_hive}"
+            echo "hive.metastore=file" >> "${coord_hive}"
         fi
-        # Remove any file/thrift/glue settings that may conflict
-        sed -i '/^hive\.metastore\.catalog\.dir\s*=/d' "${coord_hive}" 2>/dev/null || true
+        if grep -q '^hive\.metastore\.catalog\.dir=' "${coord_hive}"; then
+            sed -i 's|^hive\.metastore\.catalog\.dir\s*=.*|hive.metastore.catalog.dir=/var/lib/presto/data/hive/metastore|' "${coord_hive}"
+        else
+            echo "hive.metastore.catalog.dir=/var/lib/presto/data/hive/metastore" >> "${coord_hive}"
+        fi
+        # Remove thrift/glue URIs if present to avoid conflicts
         sed -i '/^hive\.metastore\.uri\s*=/d' "${coord_hive}" 2>/dev/null || true
         sed -i '/^hive\.metastore\.uris\s*=/d' "${coord_hive}" 2>/dev/null || true
     fi
@@ -316,14 +320,18 @@ function run_worker {
         sed -i '/^hive\.file-splittable\s*=/d' "${worker_hive}" 2>/dev/null || true
         sed -i '/^parquet\.reader\.chunk-read-limit\s*=/d' "${worker_hive}" 2>/dev/null || true
         sed -i '/^parquet\.reader\.pass-read-limit\s*=/d' "${worker_hive}" 2>/dev/null || true
-        # Use in-memory metastore to avoid filesystem factory issues
+        # Configure file metastore with a local path (no URI scheme)
         if grep -q '^hive\.metastore=' "${worker_hive}"; then
-            sed -i 's/^hive\.metastore\s*=.*/hive.metastore=memory/' "${worker_hive}"
+            sed -i 's/^hive\.metastore\s*=.*/hive.metastore=file/' "${worker_hive}"
         else
-            echo "hive.metastore=memory" >> "${worker_hive}"
+            echo "hive.metastore=file" >> "${worker_hive}"
         fi
-        # Remove any file/thrift/glue settings that may conflict
-        sed -i '/^hive\.metastore\.catalog\.dir\s*=/d' "${worker_hive}" 2>/dev/null || true
+        if grep -q '^hive\.metastore\.catalog\.dir=' "${worker_hive}"; then
+            sed -i 's|^hive\.metastore\.catalog\.dir\s*=.*|hive.metastore.catalog.dir=/var/lib/presto/data/hive/metastore|' "${worker_hive}"
+        else
+            echo "hive.metastore.catalog.dir=/var/lib/presto/data/hive/metastore" >> "${worker_hive}"
+        fi
+        # Remove thrift/glue URIs if present to avoid conflicts
         sed -i '/^hive\.metastore\.uri\s*=/d' "${worker_hive}" 2>/dev/null || true
         sed -i '/^hive\.metastore\.uris\s*=/d' "${worker_hive}" 2>/dev/null || true
     fi
