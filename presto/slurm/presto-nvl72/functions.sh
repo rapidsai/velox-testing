@@ -169,6 +169,12 @@ function run_coordinator {
     # Remove problematic memory limit; let Trino defaults apply
     sed -i '/^query\.max-memory-per-node\s*=/d' ${coord_config} 2>/dev/null || true
 
+    # Ensure JVM has local filesystem defaults for Hadoop-based file lookups
+    local jvm_cfg="${CONFIGS}/etc_common/jvm.config"
+    touch "${jvm_cfg}"
+    grep -q '^-Dfs.defaultFS=file:///$' "${jvm_cfg}" 2>/dev/null || echo "-Dfs.defaultFS=file:///" >> "${jvm_cfg}"
+    grep -q '^-Dfs.file.impl=org.apache.hadoop.fs.LocalFileSystem$' "${jvm_cfg}" 2>/dev/null || echo "-Dfs.file.impl=org.apache.hadoop.fs.LocalFileSystem" >> "${jvm_cfg}"
+
     # Ensure data dir path for coordinator (keep existing /var/lib paths)
     if grep -q "^node\.data-dir=" "${coord_node}"; then
         sed -i "s+^node\.data-dir=.*+node\.data-dir=/var/lib/presto/data+g" ${coord_node}
@@ -201,25 +207,7 @@ function run_coordinator {
         sed -i '/^hive\.metastore\.uris\s*=/d' "${coord_hive}" 2>/dev/null || true
         # Remove unsupported/unused properties
         sed -i '/^hive\.file-system\s*=/d' "${coord_hive}" 2>/dev/null || true
-        # Provide Hadoop core-site with file scheme and point hive.config.resources to it
-        mkdir -p "${CONFIGS}/etc_common/hadoop"
-        cat > "${CONFIGS}/etc_common/hadoop/core-site.xml" <<'EOF'
-<configuration>
-  <property>
-    <name>fs.defaultFS</name>
-    <value>file:///</value>
-  </property>
-  <property>
-    <name>fs.file.impl</name>
-    <value>org.apache.hadoop.fs.LocalFileSystem</value>
-  </property>
-</configuration>
-EOF
-        if grep -q '^hive\.config\.resources=' "${coord_hive}"; then
-            sed -i 's|^hive\.config\.resources\s*=.*|hive.config.resources=/etc/trino/hadoop/core-site.xml|' "${coord_hive}"
-        else
-            echo "hive.config.resources=/etc/trino/hadoop/core-site.xml" >> "${coord_hive}"
-        fi
+        sed -i '/^hive\.config\.resources\s*=/d' "${coord_hive}" 2>/dev/null || true
     fi
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
@@ -357,25 +345,7 @@ function run_worker {
         sed -i '/^hive\.metastore\.uris\s*=/d' "${worker_hive}" 2>/dev/null || true
         # Remove unsupported/unused properties
         sed -i '/^hive\.file-system\s*=/d' "${worker_hive}" 2>/dev/null || true
-        # Provide Hadoop core-site with file scheme and point hive.config.resources to it
-        mkdir -p "${CONFIGS}/etc_common/hadoop"
-        cat > "${CONFIGS}/etc_common/hadoop/core-site.xml" <<'EOF'
-<configuration>
-  <property>
-    <name>fs.defaultFS</name>
-    <value>file:///</value>
-  </property>
-  <property>
-    <name>fs.file.impl</name>
-    <value>org.apache.hadoop.fs.LocalFileSystem</value>
-  </property>
-</configuration>
-EOF
-        if grep -q '^hive\.config\.resources=' "${worker_hive}"; then
-            sed -i 's|^hive\.config\.resources\s*=.*|hive.config.resources=/etc/trino/hadoop/core-site.xml|' "${worker_hive}"
-        else
-            echo "hive.config.resources=/etc/trino/hadoop/core-site.xml" >> "${worker_hive}"
-        fi
+        sed -i '/^hive\.config\.resources\s*=/d' "${worker_hive}" 2>/dev/null || true
     fi
 
     # Create unique data dir per worker.
