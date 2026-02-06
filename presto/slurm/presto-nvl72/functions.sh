@@ -230,7 +230,19 @@ function wait_for_workers_to_register {
     local expected_num_workers=$1
     local num_workers=0
     for i in {1..60}; do
-        num_workers=$(curl -s http://${COORD}:${PORT}/v1/node | jq length)
+        resp="$(curl -fsS http://${COORD}:${PORT}/v1/node 2>/dev/null || true)"
+        if echo "$resp" | jq -e . >/dev/null 2>&1; then
+            num_workers=$(echo "$resp" | jq '
+              if type=="array" then length
+              elif type=="object" then
+                if has("activeNodes") then (.activeNodes|length)
+                elif has("nodes") then (.nodes|length)
+                else 0 end
+              else 0 end
+            ')
+        else
+            num_workers=0
+        fi
         if (( $num_workers == $expected_num_workers )); then
             echo "workers registered. num_nodes: $num_workers"
 	    return 0
