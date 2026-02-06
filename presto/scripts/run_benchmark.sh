@@ -253,7 +253,37 @@ if [[ -n "${PORT:-}" ]]; then
   export PORT="${PORT}"
 fi
 
-wait_for_worker_node_registration
+# Prefer a local statements-API based wait here to avoid endpoint differences
+echo "Waiting for a worker node to be registered..."
+echo "Coordinator URL: http://${HOSTNAME}:${PORT}"
+MAX_RETRIES=24
+retry_count=0
+while (( retry_count < MAX_RETRIES )); do
+  set +e
+  RESP="$(curl -fsS -X POST http://${HOSTNAME}:${PORT}/v1/statement \
+    -H 'X-Trino-User: health' -H 'X-Trino-Source: wait_for_workers' -H 'Accept: application/json' \
+    --data-binary 'select count(*) from system.runtime.nodes where coordinator=false' 2>/dev/null || true)"
+  COUNT="$(printf '%s' "$RESP" | sed -n 's/.*"data"[[:space:]]*:[[:space:]]*\[\[[[:space:]]*\([0-9]\+\).*/\1/p')"
+  NEXT="$(printf '%s' "$RESP" | sed -n 's/.*"nextUri"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  steps=0
+  while [[ -z "$COUNT" && -n "$NEXT" && $steps -lt 10 ]]; do
+    RESP="$(curl -fsS "$NEXT" 2>/dev/null || true)"
+    COUNT="$(printf '%s' "$RESP" | sed -n 's/.*"data"[[:space:]]*:[[:space:]]*\[\[[[:space:]]*\([0-9]\+\).*/\1/p')"
+    NEXT="$(printf '%s' "$RESP" | sed -n 's/.*"nextUri"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    steps=$((steps+1))
+  done
+  set -e
+  if [[ "$COUNT" =~ ^[0-9]+$ ]] && (( COUNT > 0 )); then
+    echo "Worker node registered (count=${COUNT})"
+    break
+  fi
+  sleep 5
+  retry_count=$(( retry_count + 1 ))
+done
+if (( retry_count >= MAX_RETRIES )); then
+  echo "Error: Worker node not registered after 120s. Exiting."
+  exit 1
+fi
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}

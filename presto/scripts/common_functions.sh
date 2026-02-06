@@ -20,7 +20,7 @@ function wait_for_worker_node_registration() {
   echo "Waiting for a worker node to be registered..."
   COORDINATOR_URL=http://${HOSTNAME}:${PORT}
   echo "Coordinator URL: $COORDINATOR_URL"
-  local -r MAX_RETRIES=24
+  local -r MAX_RETRIES=10
   local retry_count=0
   until {
         # Try Trino active nodes endpoint first
