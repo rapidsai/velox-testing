@@ -94,8 +94,10 @@ if [ -n "${HOST_VELOX_ABS:-}" ] && [ "${HOST_VELOX_ABS}" != "/workspace/velox" ]
 fi
 if [ -n "${BUILD_BASE_DIR:-}" ]; then
   mkdir -p /workspace/velox/velox-build
+  chown -R "${HOST_UID}:${HOST_GID}" /workspace/velox/velox-build || true
   if [ -e /opt/velox-build ] && [ ! -L /opt/velox-build ]; then
     echo "Skipping symlink for /opt/velox-build; target exists"
+    chown -R "${HOST_UID}:${HOST_GID}" /opt/velox-build || true
   else
     ln -sfn /workspace/velox/velox-build /opt/velox-build || true
   fi
