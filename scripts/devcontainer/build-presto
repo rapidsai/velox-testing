@@ -1,0 +1,112 @@
+#!/bin/bash
+# Build presto-native-execution with velox and cuDF support
+# Usage: build-presto [--release|--debug] [-j N]
+
+set -euo pipefail
+
+# Defaults
+BUILD_TYPE="${BUILD_TYPE:-release}"
+NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/presto-build}"
+
+usage() {
+    cat <<EOF
+Usage: build-presto [OPTIONS]
+
+Build presto-native-execution with velox and cuDF support.
+
+Options:
+  --release         Build in release mode (default)
+  --debug           Build in debug mode
+  -j, --jobs N      Number of parallel jobs (default: nproc - 1)
+  -h, --help        Show this help message
+
+Environment variables:
+  BUILD_TYPE        release or debug
+  NUM_THREADS       Number of parallel jobs
+  BUILD_BASE_DIR    Base directory for build output (default: /opt/presto-build)
+EOF
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --release) BUILD_TYPE="release"; shift ;;
+        --debug) BUILD_TYPE="debug"; shift ;;
+        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+PRESTO_DIR="${HOME}/presto/presto-native-execution"
+if [[ ! -d "${PRESTO_DIR}" ]]; then
+    echo "Error: presto-native-execution not found at ${PRESTO_DIR}"
+    echo "Please ensure presto is mounted as a sibling directory."
+    exit 1
+fi
+
+cd "${PRESTO_DIR}"
+
+echo "=== Building Presto Native Execution ==="
+echo "Build type:    ${BUILD_TYPE}"
+echo "Threads:       ${NUM_THREADS}"
+echo "Build dir:     ${BUILD_BASE_DIR}"
+echo ""
+
+# Enable sccache if available
+export CMAKE_C_COMPILER_LAUNCHER="${CMAKE_C_COMPILER_LAUNCHER:-sccache}"
+export CMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER:-sccache}"
+export CMAKE_CUDA_COMPILER_LAUNCHER="${CMAKE_CUDA_COMPILER_LAUNCHER:-sccache}"
+
+# Build CMake flags
+EXTRA_CMAKE_FLAGS="-DPRESTO_ENABLE_PARQUET=ON"
+EXTRA_CMAKE_FLAGS+=" -DPRESTO_ENABLE_S3=ON"
+EXTRA_CMAKE_FLAGS+=" -DPRESTO_ENABLE_CUDF=ON"
+
+# Auto-detect RAPIDS library paths from rapids-build-utils if available
+# This allows presto to find cudf, rmm, kvikio built by the RAPIDS build system
+get_rapids_cmake_dir() {
+    local lib_name="$1"
+    local repo_path="${HOME}/${lib_name}"
+
+    if command -v rapids-get-cmake-build-dir &>/dev/null && [[ -d "${repo_path}" ]]; then
+        local build_dir
+        build_dir=$(rapids-get-cmake-build-dir "${repo_path}/cpp" 2>/dev/null || true)
+        if [[ -n "${build_dir}" && -d "${build_dir}" ]]; then
+            echo "${build_dir}"
+        fi
+    fi
+}
+
+# Add RAPIDS dependency paths
+# Check for cudf
+CUDF_BUILD_DIR=$(get_rapids_cmake_dir "cudf")
+if [[ -n "${CUDF_BUILD_DIR}" ]]; then
+    echo "Found cudf build at: ${CUDF_BUILD_DIR}"
+    EXTRA_CMAKE_FLAGS+=" -Dcudf_ROOT=${CUDF_BUILD_DIR}"
+fi
+
+# Check for rmm
+RMM_BUILD_DIR=$(get_rapids_cmake_dir "rmm")
+if [[ -n "${RMM_BUILD_DIR}" ]]; then
+    echo "Found rmm build at: ${RMM_BUILD_DIR}"
+    EXTRA_CMAKE_FLAGS+=" -Drmm_ROOT=${RMM_BUILD_DIR}"
+fi
+
+# Check for kvikio
+KVIKIO_BUILD_DIR=$(get_rapids_cmake_dir "kvikio")
+if [[ -n "${KVIKIO_BUILD_DIR}" ]]; then
+    echo "Found kvikio build at: ${KVIKIO_BUILD_DIR}"
+    EXTRA_CMAKE_FLAGS+=" -Dkvikio_ROOT=${KVIKIO_BUILD_DIR}"
+fi
+
+echo ""
+
+make cmake-and-build BUILD_TYPE="${BUILD_TYPE}" BUILD_DIR="" \
+    BUILD_BASE_DIR="${BUILD_BASE_DIR}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" \
+    NUM_THREADS="${NUM_THREADS}"
+
+echo ""
+echo "=== Build complete ==="
+echo "Binaries in: ${BUILD_BASE_DIR}"

@@ -1,0 +1,33 @@
+#!/bin/bash
+# Clean presto build directory
+# Usage: clean-presto
+
+set -euo pipefail
+
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/presto-build}"
+
+usage() {
+    cat <<EOF
+Usage: clean-presto [OPTIONS]
+
+Clean presto-native-execution build directory.
+
+Options:
+  -h, --help        Show this help message
+
+Environment variables:
+  BUILD_BASE_DIR    Base directory for build output (default: /opt/presto-build)
+EOF
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+echo "Cleaning presto builds in ${BUILD_BASE_DIR}..."
+rm -rf "${BUILD_BASE_DIR:?}"/*
+echo "Done."
