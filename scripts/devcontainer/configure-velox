@@ -71,7 +71,6 @@ EXTRA_CMAKE_FLAGS+=" -DVELOX_MONO_LIBRARY=ON"
 EXTRA_CMAKE_FLAGS+=" -DVELOX_BUILD_SHARED=ON"
 
 # Dependencies that must be built from source (not available as system packages)
-# Note: DuckDB uses mixed-case variable name (DuckDB_SOURCE not duckdb_SOURCE)
 EXTRA_CMAKE_FLAGS+=" -DGTest_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DDuckDB_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dfaiss_SOURCE=BUNDLED"
