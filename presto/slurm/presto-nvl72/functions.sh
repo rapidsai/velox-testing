@@ -67,9 +67,6 @@ function run_coord_image {
     if [ "${type}" == "coord" ]; then
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
---export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${REPO_ROOT}:/workspace,\
 ${CONFIGS}/etc_common:/etc/trino,\
 ${CONFIGS}/etc_coordinator/node.properties:/etc/trino/node.properties,\
@@ -77,13 +74,10 @@ ${CONFIGS}/etc_coordinator/config_native.properties:/etc/trino/config.properties
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/etc/trino/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
+>> ${LOGS}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
---export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${REPO_ROOT}:/workspace,\
 ${CONFIGS}/etc_common:/etc/trino,\
 ${CONFIGS}/etc_coordinator/node.properties:/etc/trino/node.properties,\
@@ -91,7 +85,7 @@ ${CONFIGS}/etc_coordinator/config_native.properties:/etc/trino/config.properties
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/etc/trino/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
+-- bash -lc "${script}" >> ${LOGS}/${log_file} 2>&1
     fi
 }
 
@@ -114,39 +108,7 @@ function run_coordinator {
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
 
-read -r -d '' COORD_SCRIPT <<'EOS' || true
-set -euo pipefail
-unset CONFIG NODE_CONFIG PRESTO_ETC JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPTIONS
-
-export JAVA_HOME=/usr
-export PATH=/usr/bin:$PATH
-/usr/lib/trino/bin/run-trino & srv=$!
-
-# wait for JVM to appear
-for i in {1..60}; do
-  pid="$(pgrep -fa java | awk '/io\.trino\.server\.Server/{print $1; exit}' || true)"
-  [ -n "${pid:-}" ] && break
-  sleep 1
-done
-
-echo "JAVA PID: ${pid:-not-found}"
-if [ -n "${pid:-}" ]; then
-  echo "---- JVM cmdline args ----"
-  xargs -0 -a "/proc/$pid/cmdline" printf "%s\n" | tr ' ' '\n' \
-    | grep -E '^-D(node\.config|config)=|--add-modules|^-Xmx' || true
-
-  if command -v jcmd >/dev/null 2>&1; then
-    echo "---- jcmd VM.system_properties (filtered) ----"
-    jcmd "$pid" VM.system_properties \
-      | grep -E '(^ -Dnode\.config=|^ -Dconfig=|^ -Dhttp-server|^ -Dcom\.sun\.management| -XX:-?UseContainerSupport)' || true
-  fi
-fi
-echo "DONE JAVA PID"
-
-wait "$srv"
-EOS
-
-run_coord_image "$COORD_SCRIPT" "coord"
+run_coord_image ":" "coord"
 }
 
 # Runs a worker on a given node with custom configuration files which are generated as necessary.
