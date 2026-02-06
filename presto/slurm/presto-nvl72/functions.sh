@@ -198,12 +198,27 @@ function run_coordinator {
         fi
         # Remove thrift/glue URIs if present to avoid conflicts
         sed -i '/^hive\.metastore\.uri\s*=/d' "${coord_hive}" 2>/dev/null || true
-        sed -i '/^hive\.metastore\.uris\s*=/d' "${coord_hivme}" 2>/dev/null || true
-        # Ensure local filesystem binding for file:// paths
-        if grep -q '^hive\.file-system=' "${coord_hive}"; then
-            sed -i 's/^hive\.file-system\s*=.*/hive.file-system=local/' "${coord_hive}"
+        sed -i '/^hive\.metastore\.uris\s*=/d' "${coord_hive}" 2>/dev/null || true
+        # Remove unsupported/unused properties
+        sed -i '/^hive\.file-system\s*=/d' "${coord_hive}" 2>/dev/null || true
+        # Provide Hadoop core-site with file scheme and point hive.config.resources to it
+        mkdir -p "${CONFIGS}/etc_common/hadoop"
+        cat > "${CONFIGS}/etc_common/hadoop/core-site.xml" <<'EOF'
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>file:///</value>
+  </property>
+  <property>
+    <name>fs.file.impl</name>
+    <value>org.apache.hadoop.fs.LocalFileSystem</value>
+  </property>
+</configuration>
+EOF
+        if grep -q '^hive\.config\.resources=' "${coord_hive}"; then
+            sed -i 's|^hive\.config\.resources\s*=.*|hive.config.resources=/etc/trino/hadoop/core-site.xml|' "${coord_hive}"
         else
-            echo "hive.file-system=local" >> "${coord_hive}"
+            echo "hive.config.resources=/etc/trino/hadoop/core-site.xml" >> "${coord_hive}"
         fi
     fi
 
@@ -340,11 +355,26 @@ function run_worker {
         # Remove thrift/glue URIs if present to avoid conflicts
         sed -i '/^hive\.metastore\.uri\s*=/d' "${worker_hive}" 2>/dev/null || true
         sed -i '/^hive\.metastore\.uris\s*=/d' "${worker_hive}" 2>/dev/null || true
-        # Ensure local filesystem binding for file:// paths
-        if grep -q '^hive\.file-system=' "${worker_hive}"; then
-            sed -i 's/^hive\.file-system\s*=.*/hive.file-system=local/' "${worker_hive}"
+        # Remove unsupported/unused properties
+        sed -i '/^hive\.file-system\s*=/d' "${worker_hive}" 2>/dev/null || true
+        # Provide Hadoop core-site with file scheme and point hive.config.resources to it
+        mkdir -p "${CONFIGS}/etc_common/hadoop"
+        cat > "${CONFIGS}/etc_common/hadoop/core-site.xml" <<'EOF'
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>file:///</value>
+  </property>
+  <property>
+    <name>fs.file.impl</name>
+    <value>org.apache.hadoop.fs.LocalFileSystem</value>
+  </property>
+</configuration>
+EOF
+        if grep -q '^hive\.config\.resources=' "${worker_hive}"; then
+            sed -i 's|^hive\.config\.resources\s*=.*|hive.config.resources=/etc/trino/hadoop/core-site.xml|' "${worker_hive}"
         else
-            echo "hive.file-system=local" >> "${worker_hive}"
+            echo "hive.config.resources=/etc/trino/hadoop/core-site.xml" >> "${worker_hive}"
         fi
     fi
 
