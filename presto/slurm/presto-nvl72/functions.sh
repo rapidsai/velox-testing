@@ -198,7 +198,7 @@ function run_coordinator {
         fi
         # Remove thrift/glue URIs if present to avoid conflicts
         sed -i '/^hive\.metastore\.uri\s*=/d' "${coord_hive}" 2>/dev/null || true
-        sed -i '/^hive\.metastore\.uris\s*=/d' "${coord_hive}" 2>/dev/null || true
+        sed -i '/^hive\.metastore\.uris\s*=/d' "${coord_hivme}" 2>/dev/null || true
     fi
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
@@ -356,7 +356,7 @@ ${worker_hive}:/etc/trino/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- /bin/bash -c "echo -n "metastore: "; ls -ld /var/lib/presto/data/hive/metastore; /usr/lib/trino/bin/run-trino" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+-- /bin/bash -c "/usr/lib/trino/bin/run-trino" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 #./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
