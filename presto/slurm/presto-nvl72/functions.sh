@@ -356,7 +356,7 @@ ${worker_hive}:/etc/trino/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- /bin/bash -c "ls -l /var/lib/presto/data/hive/metastore; /usr/lib/trino/bin/run-trino" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+-- /bin/bash -c "echo "hello"; ls -l /var/lib/presto/data/hive/metastore; /usr/lib/trino/bin/run-trino" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 #./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
