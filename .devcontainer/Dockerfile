@@ -21,6 +21,7 @@ RUN apt-get update -y && \
     libgoogle-glog-dev \
     liblz4-dev \
     liblzo2-dev \
+    librdkafka-dev \
     libre2-dev \
     libsnappy-dev \
     libsodium-dev \
