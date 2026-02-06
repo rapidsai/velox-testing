@@ -85,7 +85,7 @@ ${CONFIGS}/etc_coordinator/config_native.properties:/etc/trino/config.properties
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/etc/trino/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc "${script}" >> ${LOGS}/${log_file} 2>&1
+-- bash -lc "yum install -y jq; ${script}" >> ${LOGS}/${log_file} 2>&1
     fi
 }
 
