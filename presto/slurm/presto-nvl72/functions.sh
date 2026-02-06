@@ -192,9 +192,9 @@ function run_coordinator {
             echo "hive.metastore=file" >> "${coord_hive}"
         fi
         if grep -q '^hive\.metastore\.catalog\.dir=' "${coord_hive}"; then
-            sed -i 's|^hive\.metastore\.catalog\.dir\s*=.*|hive.metastore.catalog.dir=/var/lib/presto/data/hive/metastore|' "${coord_hive}"
+            sed -i 's|^hive\.metastore\.catalog\.dir\s*=.*|hive.metastore.catalog.dir=file:///var/lib/presto/data/hive/metastore/|' "${coord_hive}"
         else
-            echo "hive.metastore.catalog.dir=/var/lib/presto/data/hive/metastore" >> "${coord_hive}"
+            echo "hive.metastore.catalog.dir=file:///var/lib/presto/data/hive/metastore/" >> "${coord_hive}"
         fi
         # Remove thrift/glue URIs if present to avoid conflicts
         sed -i '/^hive\.metastore\.uri\s*=/d' "${coord_hive}" 2>/dev/null || true
@@ -327,9 +327,9 @@ function run_worker {
             echo "hive.metastore=file" >> "${worker_hive}"
         fi
         if grep -q '^hive\.metastore\.catalog\.dir=' "${worker_hive}"; then
-            sed -i 's|^hive\.metastore\.catalog\.dir\s*=.*|hive.metastore.catalog.dir=/var/lib/presto/data/hive/metastore|' "${worker_hive}"
+            sed -i 's|^hive\.metastore\.catalog\.dir\s*=.*|hive.metastore.catalog.dir=file:///var/lib/presto/data/hive/metastore/|' "${worker_hive}"
         else
-            echo "hive.metastore.catalog.dir=/var/lib/presto/data/hive/metastore" >> "${worker_hive}"
+            echo "hive.metastore.catalog.dir=file:///var/lib/presto/data/hive/metastore/" >> "${worker_hive}"
         fi
         # Remove thrift/glue URIs if present to avoid conflicts
         sed -i '/^hive\.metastore\.uri\s*=/d' "${worker_hive}" 2>/dev/null || true
