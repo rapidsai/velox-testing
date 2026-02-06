@@ -175,6 +175,11 @@ function run_coordinator {
     else
         echo "node.data-dir=/var/lib/presto/data" >> ${coord_node}
     fi
+    # Ensure Trino hive connector name (replace Presto's hive_hadoop2/hive-hadoop2)
+    local coord_hive="${CONFIGS}/etc_coordinator/catalog/hive.properties"
+    if [ -f "${coord_hive}" ]; then
+        sed -i -E 's/^(connector\.name\s*=\s*).*/\1hive/' "${coord_hive}"
+    fi
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
 
@@ -285,6 +290,10 @@ function run_worker {
         sed -i "s+^node\.data-dir=.*+node\.data-dir=/var/lib/presto/data+g" ${worker_node}
     else
         echo "node.data-dir=/var/lib/presto/data" >> ${worker_node}
+    fi
+    # Ensure Trino hive connector name (replace Presto's hive_hadoop2/hive-hadoop2)
+    if [ -f "${worker_hive}" ]; then
+        sed -i -E 's/^(connector\.name\s*=\s*).*/\1hive/' "${worker_hive}"
     fi
 
     # Create unique data dir per worker.
