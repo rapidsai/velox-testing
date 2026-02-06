@@ -4,7 +4,7 @@
 # RAPIDS build utilities and cuDF development.
 
 ARG CUDA_VERSION=12.9
-ARG BASE=rapidsai/devcontainers:latest-cpp-mambaforge
+ARG BASE=rapidsai/devcontainers:latest-cpp-cuda12.9-ucx1.19.0-openmpi5.0.7
 
 FROM ${BASE}
 
@@ -14,6 +14,9 @@ ARG CUDA_VERSION
 # Install velox build dependencies
 RUN apt-get update -y && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    # GCC 14 (avoids GCC 13 false-positive -Wstringop-overflow in fmt)
+    gcc-14 \
+    g++-14 \
     # Velox dependencies not in RAPIDS base
     libc-ares-dev \
     libboost-all-dev \
@@ -40,6 +43,12 @@ RUN apt-get update -y && \
     ninja-build \
     ccache \
     && rm -rf /tmp/* /var/tmp/* /var/cache/apt/* /var/lib/apt/lists/*
+
+# Set GCC 14 as default (GCC 13 has false-positive -Wstringop-overflow in fmt)
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 \
+                        --slave /usr/bin/g++ g++ /usr/bin/g++-14 \
+                        --slave /usr/bin/gcov gcov /usr/bin/gcov-14 && \
+    update-alternatives --set gcc /usr/bin/gcc-14
 
 # Create build directories
 RUN mkdir -p /opt/velox-build /opt/presto-build && \
