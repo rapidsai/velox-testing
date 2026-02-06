@@ -15,6 +15,7 @@ TARGET_PATH=""
 WORK_DIR="velox"
 AUTO_FETCH_PRS="true"
 MANUAL_PR_NUMBERS=""
+EXCLUDE_PR_NUMBERS=""
 PR_LABELS="cudf"
 MANIFEST_TEMPLATE=""
 FORCE_PUSH="false"
@@ -106,6 +107,7 @@ Options:
   --work-dir path                  Directory to clone target repo (default: ${WORK_DIR})
   --auto-fetch-prs true|false      Auto-fetch non-draft PRs with label (default: ${AUTO_FETCH_PRS})
   --manual-pr-numbers "1,2,3"      Comma-separated PR numbers to merge (disables auto-fetch)
+  --exclude-pr-numbers "4,5,6"    Comma-separated PR numbers to exclude from auto-fetch results
   --pr-labels labels               Comma-separated PR labels to auto-fetch (default: ${PR_LABELS})
   --manifest-template path         Manifest template path (default: repo template)
   --force-push true|false          Force push to target branch (default: ${FORCE_PUSH})
@@ -175,6 +177,7 @@ parse_args() {
       --work-dir) WORK_DIR="$2"; shift 2 ;;
       --auto-fetch-prs) AUTO_FETCH_PRS="$2"; shift 2 ;;
       --manual-pr-numbers) MANUAL_PR_NUMBERS="$2"; AUTO_FETCH_PRS="false"; shift 2 ;;
+      --exclude-pr-numbers) EXCLUDE_PR_NUMBERS="$2"; shift 2 ;;
       --pr-labels) PR_LABELS="$2"; shift 2 ;;
       --manifest-template) MANIFEST_TEMPLATE="$2"; shift 2 ;;
       --force-push) FORCE_PUSH="$2"; shift 2 ;;
@@ -296,6 +299,28 @@ fetch_pr_list() {
       --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs || true)"
   else
     pr_list="$(echo "${MANUAL_PR_NUMBERS}" | tr ',' ' ' | xargs || true)"
+  fi
+
+  # Exclude specified PRs
+  if [[ -n "${EXCLUDE_PR_NUMBERS}" ]]; then
+    local exclude_list
+    exclude_list="$(echo "${EXCLUDE_PR_NUMBERS}" | tr ',' ' ')"
+    local filtered=""
+    for pr in ${pr_list}; do
+      local excluded=false
+      for ex in ${exclude_list}; do
+        if [[ "${pr}" == "${ex}" ]]; then
+          excluded=true
+          break
+        fi
+      done
+      if [[ "${excluded}" == "false" ]]; then
+        filtered="${filtered} ${pr}"
+      else
+        log "Excluding PR #${pr}"
+      fi
+    done
+    pr_list="$(echo "${filtered}" | xargs || true)"
   fi
 
   if [[ -z "${pr_list}" ]]; then

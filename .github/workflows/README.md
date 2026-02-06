@@ -52,9 +52,10 @@ The staging workflows create branches that aggregate PRs from upstream repositor
 | `base_branch` | Branch from base repository (e.g., `main`) | Yes |
 | `target_repository` | Fork repository to push staging branch to | Yes |
 | `target_branch` | Name of the staging branch to create | Yes |
-| `auto_fetch_prs` | Auto-fetch non-draft PRs with specified labels | No |
+| `auto_fetch_prs` | Auto-fetch non-draft PRs with specified labels. **Note:** Auto-fetch is automatically disabled if `manual_pr_numbers` is specified. | No |
 | `pr_labels` | Comma-separated PR labels to auto-fetch | No |
-| `manual_pr_numbers` | Comma-separated PR numbers to merge | No |
+| `manual_pr_numbers` | Comma-separated PR numbers to merge. Providing this disables `auto_fetch_prs`. | No |
+| `exclude_pr_numbers` | Comma-separated PR numbers to exclude from auto-fetch results | No |
 | `force_push` | Force push to override existing target branch | No |
 | `additional_repository` | Additional repository to merge from (e.g., `rapidsai/velox`) | No |
 | `additional_branch` | Branch from additional repository to merge (e.g., `cudf-exchange`) | No |
@@ -76,6 +77,9 @@ The additional merge happens **after** the base reset but **before** PR merging.
 
 # Velox: specific PRs
 ./velox/scripts/create_staging.sh --manual-pr-numbers "16075,16050"
+
+# Velox: auto-fetch but exclude specific PRs
+./velox/scripts/create_staging.sh --exclude-pr-numbers "16264,16258"
 
 # Velox: with additional repository merge
 ./velox/scripts/create_staging.sh \
