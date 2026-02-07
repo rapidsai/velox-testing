@@ -1,6 +1,5 @@
 services:
   velox-adapters-dev:
-    container_name: velox-adapters-dev
     image: velox-adapters-dev:latest
     build:
       context: ../../..
@@ -22,6 +21,7 @@ services:
       - ../scripts/ccls_bootstrap.sh:/usr/local/bin/ccls_bootstrap.sh:ro
       # entrypoint to create user + sudo
       - ../scripts/hostuser_entrypoint.sh:/usr/local/bin/hostuser_entrypoint.sh:ro
+      - /home/mgara/software/velox-testing-repro-base/data/sf10dec:/home/mgara/software/velox-testing-repro-base/data/sf10dec
     working_dir: /workspace/velox
     environment:
       HOST_UID: ${HOST_UID:-0}

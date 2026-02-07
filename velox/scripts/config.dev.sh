@@ -1,6 +1,6 @@
 # script which shares common variables and functions for the velox build and test scripts
 
-# container name
+# compose service name
 CONTAINER_NAME="velox-adapters-dev"
 COMPOSE_FILE="../docker/docker-compose.adapters.dev.yml"
 COMPOSE_FILE_SCCACHE="../docker/docker-compose.adapters.dev.sccache.yml"

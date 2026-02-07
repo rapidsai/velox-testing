@@ -36,6 +36,7 @@ SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
 SCCACHE_VERSION="${SCCACHE_VERSION:-latest}"
 UPDATE_NINJA=true
+PROJECT_NAME="${COMPOSE_PROJECT_NAME:-${VELOX_DEV_PROJECT_NAME:-${CONTAINER_NAME}}}"
 
 print_help() {
   cat <<EOF
@@ -59,6 +60,7 @@ Options:
   --install-ccls              Build ccls into the dev image (cached, default: off).
   --force-cxx20               Force C++20 in compile_commands.json (default: off).
   --build-type TYPE           Build type: Release, Debug, or RelWithDebInfo (case insensitive, default: release).
+  --name NAME                 Docker compose project name for the dev container (default: velox-adapters-dev).
   -h, --help                  Show this help message and exit.
 
 Examples:
@@ -79,6 +81,7 @@ Examples:
   $(basename "$0") --build-type Debug
   $(basename "$0") --build-type debug --gpu
   $(basename "$0") --build-type RELWITHDEBINFO --gpu
+  $(basename "$0") --name velox-adapters-dev-alt
 
 By default, the script builds for the Native CUDA architecture (detected on host), uses Docker cache, standard build output, GPU support (CUDF enabled), and benchmarks enabled.
 EOF
@@ -206,6 +209,14 @@ parse_args() {
           exit 1
         fi
         ;;
+      --name|--project-name)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "ERROR: --name requires a value" >&2
+          exit 1
+        fi
+        PROJECT_NAME="$2"
+        shift 2
+        ;;
       --no-ccls)
         ENABLE_CCLS=false
         shift
@@ -274,6 +285,9 @@ detect_cuda_architecture() {
 }
 
 parse_args "$@"
+
+export COMPOSE_PROJECT_NAME="${PROJECT_NAME}"
+echo "Using COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}"
 
 # Validate sccache authentication if sccache is enabled
 validate_sccache_auth
@@ -353,19 +367,19 @@ export HOST_HOME=${HOST_HOME:-/home/${HOST_USER}}
 export HOST_VELOX_ABS BUILD_BASE_DIR
 export FORCE_CXX_STANDARD
 
-docker compose  --project-name velox-adapters-dev -f "$SELECTED_COMPOSE_FILE" down  velox-adapters-dev --remove-orphans
+docker compose --project-name "${COMPOSE_PROJECT_NAME}" -f "$SELECTED_COMPOSE_FILE" down --remove-orphans
 
 if [[ "$LOG_ENABLED" == true ]]; then
   echo "Logging build output to $LOGFILE"
-  docker compose -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
+  docker compose --project-name "${COMPOSE_PROJECT_NAME}" -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}" | tee "$LOGFILE"
   BUILD_EXIT_CODE=${PIPESTATUS[0]}
 else
-  docker compose -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
+  docker compose --project-name "${COMPOSE_PROJECT_NAME}" -f "$SELECTED_COMPOSE_FILE" build "${DOCKER_BUILD_OPTS[@]}"
   BUILD_EXIT_CODE=$?
 fi
 
 
-docker compose --project-name velox-adapters-dev -f "$SELECTED_COMPOSE_FILE" up  -d velox-adapters-dev
+docker compose --project-name "${COMPOSE_PROJECT_NAME}" -f "$SELECTED_COMPOSE_FILE" up -d "${CONTAINER_NAME}"
 BUILD_EXIT_CODE=$?
 
 if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
@@ -373,17 +387,20 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   echo "Waiting for hostuser to be ready..."
   READY=0
   for _ in {1..30}; do
-    if docker exec velox-adapters-dev getent passwd "${HOST_USER}" >/dev/null 2>&1 \
-      && docker exec -u "${HOST_USER}" velox-adapters-dev sudo -n true >/dev/null 2>&1; then
+    if docker compose --project-name "${COMPOSE_PROJECT_NAME}" -f "$SELECTED_COMPOSE_FILE" exec -T "${CONTAINER_NAME}" \
+      getent passwd "${HOST_USER}" >/dev/null 2>&1 \
+      && docker compose --project-name "${COMPOSE_PROJECT_NAME}" -f "$SELECTED_COMPOSE_FILE" exec -T -u "${HOST_USER}" \
+      "${CONTAINER_NAME}" sudo -n true >/dev/null 2>&1; then
       READY=1
       break
     fi
     sleep 1
   done
   if [[ "$READY" -ne 1 ]]; then
-    echo "WARNING: hostuser sudo not ready; check container logs: docker logs velox-adapters-dev"
+    echo "WARNING: hostuser sudo not ready; check container logs: docker compose --project-name ${COMPOSE_PROJECT_NAME} -f ${SELECTED_COMPOSE_FILE} logs ${CONTAINER_NAME}"
   fi
-  echo "Built dev container. Shell as host user: docker exec -it -u ${HOST_USER} velox-adapters-dev /bin/bash"
+  echo "Built dev container. Shell as host user:"
+  echo "  docker compose --project-name ${COMPOSE_PROJECT_NAME} -f ${SELECTED_COMPOSE_FILE} exec -it -u ${HOST_USER} ${CONTAINER_NAME} /bin/bash"
   echo ""
 else
   echo "  ERROR: failed to build dev container, exit code: $BUILD_EXIT_CODE."
