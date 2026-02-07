@@ -15,4 +15,5 @@ base:
 
 additional_merge:
 {{ADDITIONAL_MERGE_SECTION}}
+
 merged_prs:

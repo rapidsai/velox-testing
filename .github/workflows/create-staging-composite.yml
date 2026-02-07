@@ -46,7 +46,7 @@ on:
         required: false
         default: false
       additional_repository:
-        description: 'Additional repository to merge from (e.g., rapidsai/cudf)'
+        description: 'Additional repository to merge from'
         type: string
         required: false
         default: ''

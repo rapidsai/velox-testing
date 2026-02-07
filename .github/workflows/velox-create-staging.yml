@@ -51,12 +51,12 @@ on:
         required: false
         default: false
       additional_repository:
-        description: 'Additional repository to merge from (e.g., IBM/velox for cuDF exchange)'
+        description: 'Additional repository to merge from'
         type: string
         required: false
         default: 'rapidsai/velox'
       additional_branch:
-        description: 'Branch from additional repository to merge (e.g., ibm-research-preview for cuDF exchange)'
+        description: 'Branch from additional repository to merge'
         type: string
         required: false
         default: 'cudf_exchange/rebase_latest/ibm-research-preview'
