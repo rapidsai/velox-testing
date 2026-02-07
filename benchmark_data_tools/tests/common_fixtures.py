@@ -17,10 +17,10 @@ venv_bin_dir = f"{benchmark_data_tools_dir}/.venv/bin"
 assert os.path.exists(venv_bin_dir)
 os.environ["PATH"] += os.pathsep + venv_bin_dir
 
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass  # noqa: E402
+from pathlib import Path  # noqa: E402
 
-from duckdb_utils import drop_benchmark_tables
+from duckdb_utils import drop_benchmark_tables  # noqa: E402
 
 
 @dataclass
