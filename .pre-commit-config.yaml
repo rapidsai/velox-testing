@@ -55,10 +55,8 @@ repos:
         # These will be enabled in a follow-up PR
         exclude: |
           (?x)^(
-            ^benchmark_data_tools/.*$|
             ^presto/.*$|
             ^scripts/.*$|
-            ^template_rendering/.*$|
             ^velox/.*$
           )
 
