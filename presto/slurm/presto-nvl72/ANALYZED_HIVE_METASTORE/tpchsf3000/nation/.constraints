@@ -1,0 +1,29 @@
+[ {
+  "@type" : "notnullconstraint",
+  "name" : "6b173bbe-4a33-4a80-8768-dee867946074",
+  "columns" : [ "n_comment" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "ff6cd0dd-af89-4889-90d0-551a1450f74c",
+  "columns" : [ "n_nationkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "bfb8057e-12fb-49d4-90f6-eceed5bea9aa",
+  "columns" : [ "n_name" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "5dfb860d-4f36-44b3-b598-7e7cb2a06f36",
+  "columns" : [ "n_regionkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+} ]

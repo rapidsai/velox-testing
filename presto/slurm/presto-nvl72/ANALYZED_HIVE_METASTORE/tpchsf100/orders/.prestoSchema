@@ -1,0 +1,118 @@
+{
+  "owner" : "test_user",
+  "tableType" : "EXTERNAL_TABLE",
+  "dataColumns" : [ {
+    "name" : "o_orderkey",
+    "type" : "bigint"
+  }, {
+    "name" : "o_custkey",
+    "type" : "bigint"
+  }, {
+    "name" : "o_orderstatus",
+    "type" : "string"
+  }, {
+    "name" : "o_totalprice",
+    "type" : "double"
+  }, {
+    "name" : "o_orderdate",
+    "type" : "date"
+  }, {
+    "name" : "o_orderpriority",
+    "type" : "string"
+  }, {
+    "name" : "o_clerk",
+    "type" : "string"
+  }, {
+    "name" : "o_shippriority",
+    "type" : "int"
+  }, {
+    "name" : "o_comment",
+    "type" : "string"
+  } ],
+  "partitionColumns" : [ ],
+  "parameters" : {
+    "presto_version" : "testversion",
+    "presto_query_id" : "20260127_202015_00018_9v9nd",
+    "EXTERNAL" : "TRUE",
+    "numFiles" : "0",
+    "numRows" : "150000000",
+    "rawDataSize" : "0",
+    "totalSize" : "0"
+  },
+  "storageFormat" : {
+    "serDe" : "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+    "inputFormat" : "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+    "outputFormat" : "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+  },
+  "storageParameters" : {
+    "preferred_ordering_columns" : ""
+  },
+  "serdeParameters" : { },
+  "externalLocation" : "file:/var/lib/presto/data/hive/data/user_data/date-scale-100/orders",
+  "columnStatistics" : {
+    "o_orderstatus" : {
+      "maxValueSizeInBytes" : 5,
+      "totalSizeInBytes" : 750000000,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 3
+    },
+    "o_clerk" : {
+      "maxValueSizeInBytes" : 19,
+      "totalSizeInBytes" : 2850000000,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 100816
+    },
+    "o_orderdate" : {
+      "dateStatistics" : {
+        "min" : "1992-01-01",
+        "max" : "1998-08-02"
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 2382
+    },
+    "o_shippriority" : {
+      "integerStatistics" : {
+        "min" : 0,
+        "max" : 0
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 1
+    },
+    "o_custkey" : {
+      "integerStatistics" : {
+        "min" : 1,
+        "max" : 14999999
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 10165457
+    },
+    "o_totalprice" : {
+      "doubleStatistics" : {
+        "min" : 811.73,
+        "max" : 591036.15
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 34038282
+    },
+    "o_orderkey" : {
+      "integerStatistics" : {
+        "min" : 1,
+        "max" : 600000000
+      },
+      "nullsCount" : 0,
+      "distinctValuesCount" : 150000000
+    },
+    "o_comment" : {
+      "maxValueSizeInBytes" : 82,
+      "totalSizeInBytes" : 7875038709,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 112463191
+    },
+    "o_orderpriority" : {
+      "maxValueSizeInBytes" : 19,
+      "totalSizeInBytes" : 1860024804,
+      "nullsCount" : 0,
+      "distinctValuesCount" : 5
+    }
+  }
+}

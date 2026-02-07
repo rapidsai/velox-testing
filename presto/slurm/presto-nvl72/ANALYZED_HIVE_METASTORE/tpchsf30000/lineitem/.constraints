@@ -1,0 +1,113 @@
+[ {
+  "@type" : "notnullconstraint",
+  "name" : "f2d9fec6-59b7-4d87-94be-aa8b0b5fefc2",
+  "columns" : [ "l_commitdate" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "fb3929e5-106c-4e4c-b9eb-66b42b5d028b",
+  "columns" : [ "l_returnflag" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "c3daa928-8945-4de2-a73b-0f34ea48a9e5",
+  "columns" : [ "l_linenumber" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "cf607fbd-e503-48c6-ac5e-d1e5f65419b1",
+  "columns" : [ "l_discount" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "a5cd9dd1-38b7-4f0d-94b1-70fb7ccddee1",
+  "columns" : [ "l_orderkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "af981d7d-7228-4952-963f-d4989c2ef32c",
+  "columns" : [ "l_shipdate" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "5c04d7d7-82b1-4432-b64d-4a8309a13c17",
+  "columns" : [ "l_receiptdate" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "bb218101-89ed-45f2-b395-d39c0a8795bf",
+  "columns" : [ "l_shipmode" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "c5d848ed-09b7-483a-9a82-c8ffda3c9204",
+  "columns" : [ "l_suppkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "c45b1e82-d22a-418f-a4ac-4b507645f259",
+  "columns" : [ "l_tax" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "da87a424-1523-407d-be87-50669fcaaae9",
+  "columns" : [ "l_linestatus" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "aa2d6670-6b1f-4381-b437-260f85941b32",
+  "columns" : [ "l_comment" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "3f0db19e-fa30-4d22-808b-85fb833ffcc3",
+  "columns" : [ "l_partkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "ebb70cd8-9c41-4736-8bb4-90a9960eae14",
+  "columns" : [ "l_shipinstruct" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "431bbc39-ff15-43fd-b636-7565eacef2fd",
+  "columns" : [ "l_quantity" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "176cc362-037d-4ad2-881e-28b41860ef11",
+  "columns" : [ "l_extendedprice" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+} ]

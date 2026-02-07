@@ -1,0 +1,36 @@
+[ {
+  "@type" : "notnullconstraint",
+  "name" : "b46b3fcf-fa9b-4acf-b5f2-cb4fa3e67c4f",
+  "columns" : [ "ps_supplycost" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "8f4062e6-d479-46f9-b271-8c68ca842c8e",
+  "columns" : [ "ps_partkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "d742bf91-a272-4823-8c9d-12ca6ab6b1f7",
+  "columns" : [ "ps_availqty" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "e8198077-54f1-4d4f-8db8-c228a86a84fb",
+  "columns" : [ "ps_comment" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+}, {
+  "@type" : "notnullconstraint",
+  "name" : "2f88fb05-0889-4f3e-a67c-9ece4da7b250",
+  "columns" : [ "ps_suppkey" ],
+  "enabled" : true,
+  "rely" : true,
+  "enforced" : true
+} ]

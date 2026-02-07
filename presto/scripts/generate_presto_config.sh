@@ -54,7 +54,7 @@ function duplicate_worker_configs() {
         ${coord_config}/config_native.properties
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
 	${worker_config}/config_native.properties
-  # make cudf.exchange=true if we are running multiple workers
+    # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
   fi
   echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
@@ -84,7 +84,7 @@ RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo_error "ERROR: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
 fi
-if [[ -z ${VCPU_PER_WORKER} ]]; then
+if [[ -z ${VCPU_PER_WORKER:-} ]]; then
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
       VCPU_PER_WORKER=2
   else
@@ -134,16 +134,21 @@ EOF
   fi
 
   COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
+  WORKER_CONFIG="${CONFIG_DIR}/etc_worker/config_native.properties"
   # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
     # for GPU variant, uncomment these optimizer settings
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
+    sed -i 's/query.max-execution-time=.*/query.max-execution-time=10m/g' ${COORD_CONFIG}
+    echo "cudf.exchange.server.port=0000" >> ${WORKER_CONFIG}
 
     if [[ ${NUM_WORKERS} -eq 1 ]]; then
       # Adds a cluster tag for gpu variant
       echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
+    else
+      sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${WORKER_CONFIG}
     fi
   fi
 
@@ -170,7 +175,7 @@ fi
 
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
-if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" && "$VARIANT_TYPE" == "gpu" ]]; then
+if [[ -n "$NUM_WORKERS" && -n "${GPU_IDS:-}" && "$VARIANT_TYPE" == "gpu" ]]; then
   # Count the number of GPU IDs provided
   IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
   for i in "${GPU_ID_ARRAY[@]}"; do
