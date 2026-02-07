@@ -33,7 +33,7 @@ repos:
             ^presto/testing/common/queries/tpcds/queries.json$
           )
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: v1.2.1
+    rev: v1.4.3
     hooks:
       - id: verify-copyright
         args: [--fix, --spdx]
