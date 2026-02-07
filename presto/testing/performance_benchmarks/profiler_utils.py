@@ -25,10 +25,10 @@ def stop_profiler(profile_script_path, profile_output_file_path):
 
 
 def execute_profiler_function(profile_script_path, profile_output_file_path, profiler_function):
-    profiler_command = ["bash", "-c",
-                        f"source {profile_script_path}; {profiler_function} {profile_output_file_path}"]
+    profiler_command = ["bash", "-c", f"source {profile_script_path}; {profiler_function} {profile_output_file_path}"]
     result = subprocess.run(profiler_command, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(
             f"{profiler_function} returned error code: {result.returncode}, "
-            f"stdout: {result.stdout}, stderr: {result.stderr}")
+            f"stdout: {result.stdout}, stderr: {result.stderr}"
+        )
