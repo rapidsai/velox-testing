@@ -20,6 +20,7 @@ OPTIONS:
                          By default, services will be lazily built i.e. a build
                          will only occur if there is no local image for the service.
     -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
+    -t, --tag            Docker image tag to use (default: current username from \$USER).
     -w, --num-workers    Number of GPU workers to start (GPU variant only).
     -g, --gpu-ids        Comma-delimited list of GPU device IDs to use (e.g., "0,1,3,5").
                          Must be used with --num-workers. If not specified, defaults to "0,1,...,N-1"
@@ -39,6 +40,7 @@ EXAMPLES:
     $SCRIPT_NAME -b worker
     $SCRIPT_NAME --build c
     $SCRIPT_NAME -j 8
+    $SCRIPT_NAME -t myusername
     $SCRIPT_NAME -w 4
     $SCRIPT_NAME -w 4 -g 4,5,6,7
     $SCRIPT_NAME --profile
@@ -56,6 +58,7 @@ export PROFILE=OFF
 export NUM_WORKERS=1
 export KVIKIO_THREADS=8
 export VCPU_PER_WORKER=""
+export IMAGE_TAG="${USER:-latest}"
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -66,6 +69,15 @@ parse_args() {
       -n|--no-cache)
         SKIP_CACHE_ARG="--no-cache"
         shift
+        ;;
+      -t|--tag)
+        if [[ -n $2 ]]; then
+          export IMAGE_TAG=$2
+          shift 2
+        else
+          echo "Error: --tag requires a value"
+          exit 1
+        fi
         ;;
       -b|--build)
         if [[ -n $2 ]]; then

@@ -56,7 +56,7 @@ All three repositories must be checked out as sibling directories. **Important:*
    ```bash
    ./build_centos_deps_image.sh
    ```
-   > **Note:** Only internal team members with credentials can fetch a pre-built image (`./fetch_centos_deps_image.sh`). For most users, building locally is required.
+   > **Note:** Images are tagged with your username by default (e.g., `presto/prestissimo-dependency:centos9-$USER`) to avoid conflicts when multiple users work on the same system. You can override this with `--tag customtag`. Only internal team members with credentials can fetch a pre-built image (`./fetch_centos_deps_image.sh`). For most users, building locally is required.
 
 4. Start Presto with GPU workers:
    ```bash

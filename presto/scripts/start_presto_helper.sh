@@ -41,6 +41,8 @@ fi
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
+# Ensure IMAGE_TAG is set (fallback if parse_args didn't set it)
+IMAGE_TAG="${IMAGE_TAG:-${USER:-latest}}"
 
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   echo "Error: the --profile argument is only supported for Presto GPU"
@@ -52,9 +54,6 @@ if [[ "$PROFILE" == "ON" && $(( $NUM_WORKERS > 1 )) && "$SINGLE_CONTAINER" == "f
   exit 1
 fi
 
-# Set IMAGE_TAG with username to avoid conflicts when multiple users build images
-# Falls back to "latest" if USER is not set
-export IMAGE_TAG="${USER:-latest}"
 echo "Using IMAGE_TAG: $IMAGE_TAG"
 
 COORDINATOR_SERVICE="presto-coordinator"
@@ -66,7 +65,7 @@ CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:${IMAGE_TAG}
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
 GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:${IMAGE_TAG}
 
-DEPS_IMAGE="presto/prestissimo-dependency:centos9"
+DEPS_IMAGE="presto/prestissimo-dependency:centos9-${IMAGE_TAG}"
 
 BUILD_TARGET_ARG=()
 
