@@ -8,14 +8,14 @@ import sys
 def get_abs_file_path(relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
 
+
 sys.path.append(get_abs_file_path("../../../benchmark_data_tools"))
 
-import duckdb
-import json
-import pytest
-import sqlglot
 
-from duckdb_utils import create_table
+import duckdb  # noqa: E402
+import pytest  # noqa: E402
+import sqlglot  # noqa: E402
+from duckdb_utils import create_table  # noqa: E402
 
 
 def execute_query_and_compare_results(presto_cursor, queries, query_id):
@@ -98,6 +98,7 @@ def get_orderby_indices(query, column_names):
         pass
 
     return indices
+
 
 def create_duckdb_table(table_name, data_path):
     create_table(table_name, get_abs_file_path(data_path))

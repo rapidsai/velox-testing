@@ -3,10 +3,10 @@
 
 import json
 import statistics
-
 from pathlib import Path
+
+from ..common.conftest import *  # noqa: F403
 from .benchmark_keys import BenchmarkKeys
-from ..common.conftest import *
 
 
 def pytest_addoption(parser):
@@ -33,8 +33,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         assert BenchmarkKeys.AGGREGATE_TIMES_KEY in result
 
         write_line(terminalreporter, text_report, "")
-        write_section(terminalreporter, text_report, f"{benchmark_type} Benchmark Summary", sep="-", bold=True,
-                      yellow=True)
+        write_section(
+            terminalreporter, text_report, f"{benchmark_type} Benchmark Summary", sep="-", bold=True, yellow=True
+        )
 
         write_line(terminalreporter, text_report, "")
         write_line(terminalreporter, text_report, f"Iterations Count: {iterations}")
@@ -44,8 +45,14 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         write_line(terminalreporter, text_report, "")
 
         if iterations > 1:
-            AGG_HEADERS = ["Avg Hot(ms)", "Min Hot(ms)", "Max Hot(ms)", "Median Hot(ms)", "GMean Hot(ms)",
-                           "Lukewarm(ms)"]
+            AGG_HEADERS = [
+                "Avg Hot(ms)",
+                "Min Hot(ms)",
+                "Max Hot(ms)",
+                "Median Hot(ms)",
+                "GMean Hot(ms)",
+                "Lukewarm(ms)",
+            ]
         else:
             AGG_HEADERS = ["Lukewarm(ms)"]
         width = max([len(agg_header) for agg_header in AGG_HEADERS])
@@ -63,7 +70,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
                 for agg_timing in agg_timings:
                     line += f"|{agg_timing:^{width}}"
             else:
-                line += (f"|{'NULL':^{width}}" * len(AGG_HEADERS))
+                line += f"|{'NULL':^{width}}" * len(AGG_HEADERS)
             write_line(terminalreporter, text_report, line)
 
         # Print SUM row.
@@ -75,7 +82,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             for agg_sum in agg_sums:
                 line += f"|{agg_sum:^{width}}"
         else:
-            line += (f"|{'NULL':^{width}}" * len(AGG_HEADERS))
+            line += f"|{'NULL':^{width}}" * len(AGG_HEADERS)
 
         write_line(terminalreporter, text_report, line)
         write_line(terminalreporter, text_report, "")
@@ -83,7 +90,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     bench_output_dir = get_output_dir(config)
     assert bench_output_dir.is_dir()
     with open(f"{bench_output_dir}/benchmark_result.txt", "w") as file:
-        file.write(f"{'\n'.join(text_report)}\n")
+        report_text = "\n".join(text_report)
+        file.write(f"{report_text}\n")
 
 
 def write_line(terminalreporter, text_report, content, **kwargs):
@@ -116,8 +124,14 @@ def pytest_sessionfinish(session, exitstatus):
     bench_output_dir.mkdir(parents=True, exist_ok=True)
 
     if iterations > 1:
-        AGG_KEYS = [BenchmarkKeys.AVG_KEY, BenchmarkKeys.MIN_KEY, BenchmarkKeys.MAX_KEY,
-                    BenchmarkKeys.MEDIAN_KEY, BenchmarkKeys.GMEAN_KEY, BenchmarkKeys.LUKEWARM_KEY]
+        AGG_KEYS = [
+            BenchmarkKeys.AVG_KEY,
+            BenchmarkKeys.MIN_KEY,
+            BenchmarkKeys.MAX_KEY,
+            BenchmarkKeys.MEDIAN_KEY,
+            BenchmarkKeys.GMEAN_KEY,
+            BenchmarkKeys.LUKEWARM_KEY,
+        ]
     else:
         AGG_KEYS = [BenchmarkKeys.LUKEWARM_KEY]
     for benchmark_type, result in session.benchmark_results.items():
@@ -158,9 +172,14 @@ def compute_aggregate_timings(benchmark_results):
             first_iteration = timings[0]
             if len(timings) > 1:
                 hot_timings = timings[1:]
-                stats = (round(statistics.mean(hot_timings), 2), min(hot_timings), max(hot_timings),
-                         statistics.median(hot_timings), round(statistics.geometric_mean(hot_timings), 2),
-                         first_iteration)
+                stats = (
+                    round(statistics.mean(hot_timings), 2),
+                    min(hot_timings),
+                    max(hot_timings),
+                    statistics.median(hot_timings),
+                    round(statistics.geometric_mean(hot_timings), 2),
+                    first_iteration,
+                )
             else:
                 stats = (first_iteration,)
             format_width = max(format_width, *[len(str(stat)) for stat in stats])

@@ -10,10 +10,11 @@ and stores them as a combined JSON file.
 
 import json
 import math
-import requests
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+import requests
 
 
 def collect_metrics(query_id: str, query_name: str, hostname: str, port: int, output_dir: str) -> None:
@@ -146,10 +147,10 @@ def _metrics_to_nested_object(metrics: list) -> dict:
         # Determine the prefix (presto_cpp or velox or other)
         if metric_name.startswith("presto_cpp_"):
             prefix = "presto_cpp"
-            key = metric_name[len("presto_cpp_"):]
+            key = metric_name[len("presto_cpp_") :]
         elif metric_name.startswith("velox_"):
             prefix = "velox"
-            key = metric_name[len("velox_"):]
+            key = metric_name[len("velox_") :]
         else:
             # For other metrics, use the first underscore-separated component
             parts = metric_name.split("_", 1)
