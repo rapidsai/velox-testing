@@ -22,4 +22,7 @@ presto/docker/config/generated*/
 # Generated Presto Docker Compose files
 presto/docker/docker-compose/generated*/
 
+# Presto/Velox source
+presto/docker/docker-compose/generated*/
+
 devstate*

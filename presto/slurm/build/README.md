@@ -15,11 +15,19 @@ Each stage uses `srun` with `--container-save` to create a new `.sqsh` image fil
 ## Prerequisites
 
 - Slurm cluster with enroot support
-- Source code mounted/available at: `/mnt/data/$USER/src/velox-testing/presto/slurm/build`
+- Source code mounted/available at: `/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto`
 - Write access to image storage: `/mnt/data/$USER/images/presto/`
 - Sufficient resources: 144 CPUs, 4 GPUs recommended
 
 ## Quick Reference
+
+Before starting, ensure the Presto/Velox source code is available at: `/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto`. A convenience script is provided for that:
+
+```bash
+./clone.sh
+```
+
+Then run the builds:
 
 ```bash
 # Stage 1: Build dependencies (15-20 minutes)
@@ -28,7 +36,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12 \
   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
   --mpi=pmix_v4 --container-remap-root \
   --container-image=quay.io/centos/centos:stream9 \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
   /presto-build/scripts/build-deps-in-container.sh
 
@@ -38,7 +46,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRES
   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
   --mpi=pmix_v4 --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/presto-native-worker-gpu.sqsh \
   /presto-build/scripts/build-presto.sh
 
@@ -48,12 +56,20 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,PRESTO_VERSION=testing,PRESTO_SOURCE_DIR=/p
   --cpus-per-task=144 \
   --mpi=pmix_v4 --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/presto-coordinator.sqsh \
   /presto-build/scripts/setup-coordinator.sh
 ```
 
 ## Detailed Instructions
+
+### Stage 0: Retrieve Presto and Velox source
+
+Before starting, ensure the Presto/Velox source code is available at: `/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto`. A convenience script is provided for that:
+
+```bash
+./clone.sh
+```
 
 ### Stage 1: Build Dependencies Image
 
@@ -71,7 +87,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12 \
   --mpi=pmix_v4 \
   --container-remap-root \
   --container-image=quay.io/centos/centos:stream9 \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
   /presto-build/scripts/build-deps-in-container.sh
 ```
@@ -109,7 +125,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRES
   --mpi=pmix_v4 \
   --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/presto-native-worker-gpu.sqsh \
   /presto-build/scripts/build-presto.sh
 ```
@@ -147,7 +163,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,GPU=OFF,PRESTO_DIR=/presto-
   --mpi=pmix_v4 \
   --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/presto-native-worker-cpu.sqsh \
   /presto-build/scripts/build-presto.sh
 ```
@@ -166,7 +182,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,PRESTO_VERSION=testing,PRESTO_SOURCE_DIR=/p
   --mpi=pmix_v4 \
   --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/presto-coordinator.sqsh \
   /presto-build/scripts/setup-coordinator.sh
 ```
@@ -181,7 +197,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,PRESTO_VERSION=testing,PRESTO_SOURCE_DIR=/p
   --mpi=pmix_v4 \
   --container-remap-root \
   --container-image=quay.io/centos/centos:stream9 \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/presto-coordinator.sqsh \
   /presto-build/scripts/setup-coordinator.sh
 ```
@@ -224,7 +240,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRES
   --mpi=pmix_v4 \
   --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --pty /bin/bash
 
 # Inside container, build:
@@ -249,7 +265,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12 \
   --mpi=pmix_v4 \
   --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9-with-ucx.sqsh \
   /presto-build/install-ucx.sh
 ```
@@ -270,7 +286,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12 \
   --mpi=pmix_v4 \
   --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/presto-native-worker-gpu.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --pty /bin/bash
 
 # Coordinator image
@@ -350,7 +366,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12 \
   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
   --mpi=pmix_v4 --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --pty /bin/bash
 
 # Inside container, try the build script
@@ -400,18 +416,13 @@ cat /etc/ld.so.conf.d/presto_native.conf
 
 ### Source Code (Host)
 ```
-/mnt/data/$USER/src/velox-testing/presto/slurm/build/
-├── presto/                    # Presto source code
+/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto/
+├── ./                            # Presto source code
+│   ├── ...
 │   ├── presto-native-execution/
-│   └── docker/
-├── velox/                     # Velox source code
-│   └── scripts/
-├── scripts/                   # Build scripts (this repo)
-│   ├── build-deps-in-container.sh
-│   ├── build-presto.sh
-│   ├── setup-coordinator.sh
-│   └── build-all.sh
-└── install-ucx.sh
+│   │   └── velox/                # Velox source code
+│   └── ...
+└── ...
 ```
 
 ### Container Images
@@ -440,7 +451,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12 \
   --nodes=1 --mem=0 --ntasks-per-node=1 --cpus-per-task=144 \
   --gpus-per-task=4 --gres=gpu:4 --mpi=pmix_v4 --container-remap-root \
   --container-image=quay.io/centos/centos:stream9 \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
   /presto-build/scripts/build-deps-in-container.sh
 
@@ -449,7 +460,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRES
   --nodes=1 --mem=0 --ntasks-per-node=1 --cpus-per-task=144 \
   --gpus-per-task=4 --gres=gpu:4 --mpi=pmix_v4 --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/presto-native-worker-gpu.sqsh \
   /presto-build/scripts/build-presto.sh
 
@@ -458,7 +469,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,PRESTO_VERSION=testing,PRESTO_SOURCE_DIR=/p
   --nodes=1 --mem=0 --ntasks-per-node=1 --cpus-per-task=144 \
   --mpi=pmix_v4 --container-remap-root \
   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
+  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
   --container-save=/mnt/data/$USER/images/presto/presto-coordinator.sqsh \
   /presto-build/scripts/setup-coordinator.sh
 
@@ -495,17 +506,3 @@ srun --export=ALL,GLOG_logtostderr=1 \
 6. **Use specific CUDA architectures**: Set `CUDA_ARCHITECTURES` to match your hardware for faster builds and smaller binaries
 
 7. **Monitor build resources**: Use `sstat` or `sacct` to check resource usage
-
-## Next Steps
-
-After building images:
-1. Review and customize configuration files
-2. Set up catalog configurations (Hive, etc.)
-3. Test with sample queries
-4. Monitor performance and adjust resources
-
-## Support Files
-
-- Main documentation: `/veloxtesting/scripts/README.md`
-- This guide: `/veloxtesting/SLURM_BUILD_GUIDE.md`
-- Quick reference: Run `less /presto-build/scripts/README.md` in container
