@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Setup script for Presto Coordinator (Java-based)
 # Replicates the steps from presto/docker/Dockerfile
 # Run this inside a CentOS Stream 9 container

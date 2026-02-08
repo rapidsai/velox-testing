@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Build script for CentOS dependency image
 # Based on presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
 # Run this inside a quay.io/centos/centos:stream9 container

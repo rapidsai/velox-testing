@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Build script for Presto Native Worker
 # Replicates all steps from native_build.dockerfile
 # Run this inside a container with dependencies already built
