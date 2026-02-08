@@ -151,11 +151,18 @@ if ! grep -q "/usr/lib64/presto-native-libs" /etc/ld.so.conf.d/presto_native.con
     echo "✓ Added /usr/lib64/presto-native-libs to ld.so.conf"
 fi
 
+# Step 8: Add libcuda.so.1 to ld.so.conf
+echo ""
+echo "============================================"
+echo "Setting up libcuda.so.1 runtime paths..."
+echo "============================================"
+echo "/usr/local/cuda-13.0/compat" > /etc/ld.so.conf.d/libcuda.conf
+
 # Update library cache
 ldconfig
 echo "✓ Updated library cache"
 
-# Step 8: Final verification
+# Step 9: Final verification
 echo ""
 echo "============================================"
 echo "Final verification..."
