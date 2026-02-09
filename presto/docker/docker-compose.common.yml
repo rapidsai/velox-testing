@@ -25,5 +25,7 @@ services:
     build:
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
+      args:
+        - IMAGE_TAG=${IMAGE_TAG:-latest}
     environment:
       - GLOG_logtostderr=1

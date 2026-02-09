@@ -2,7 +2,9 @@
 
 set -e
 
-IMAGE_NAME='presto/prestissimo-dependency:centos9'
+IMAGE_NAME_BASE='presto/prestissimo-dependency'
+IMAGE_TAG="${USER:-latest}"
+IMAGE_NAME="${IMAGE_NAME_BASE}:centos9-${IMAGE_TAG}"
 NO_CACHE_ARG=''
 
 print_help() {
@@ -18,7 +20,10 @@ WARNING: If an image of the given name already exists, it will be removed prior 
 
 OPTIONS:
     -h, --help           Show this help message
-    -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9)
+    -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9-\$USER).
+                         This option overrides the --tag option and provides full control over the image name.
+    -t, --tag            Docker image tag to use (default: current username from \$USER).
+                         Creates image name: presto/prestissimo-dependency:centos9-<tag>
     -n, --no-cache       Do not use Docker build cache (default: use cache)
 
 EOF
@@ -37,6 +42,16 @@ parse_args() {
           shift 2
         else
           echo "Error: --image-name requires a value"
+          exit 1
+        fi
+        ;;
+      -t|--tag)
+        if [[ -n $2 ]]; then
+          IMAGE_TAG=$2
+          IMAGE_NAME="${IMAGE_NAME_BASE}:centos9-${IMAGE_TAG}"
+          shift 2
+        else
+          echo "Error: --tag requires a value"
           exit 1
         fi
         ;;
@@ -95,6 +110,10 @@ cp -r ../../velox/CMake velox
 # now build
 echo "Building..."
 docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
+
+# Tag the built image with the desired name
+echo "Tagging image as ${IMAGE_NAME}..."
+docker tag centos-native-dependency ${IMAGE_NAME}
 
 # done (will cleanup on exit)
 echo "Presto dependencies/run-time container image built!"
