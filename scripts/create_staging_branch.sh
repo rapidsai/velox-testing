@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 
 # Staging Branch Creator
@@ -6,6 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MERGE_COMMUTE_CMD=(python3 "${PROJECT_ROOT}/scripts/merge_commute.py" --strict-commute)
 
 BASE_REPO=""
 BASE_BRANCH=""
@@ -416,8 +420,7 @@ test_pairwise_compatibility() {
       git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
       git -C "${repo_dir}" clean -fd >/dev/null
 
-      if ! git -C "${repo_dir}" merge --no-edit "${PR_SHA[$pr1]}" >/dev/null 2>&1; then
-        git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
+      if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --auto-continue "${TARGET_BRANCH}" "${PR_SHA[$pr1]}") >/dev/null 2>&1; then
         git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
         conflict_pairs="${conflict_pairs} ${pr1}+${pr2}"
         pair_results["${pr1},${pr2}"]="XX"
@@ -426,7 +429,7 @@ test_pairwise_compatibility() {
         continue
       fi
 
-      if git -C "${repo_dir}" merge --no-commit --no-ff "${PR_SHA[$pr2]}" >/dev/null 2>&1; then
+      if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${PR_SHA[$pr2]}") >/dev/null 2>&1; then
         pair_results["${pr1},${pr2}"]="OK"
       else
         conflict_pairs="${conflict_pairs} ${pr1}+${pr2}"
@@ -536,10 +539,14 @@ merge_prs() {
     fetch_pr_head "${repo_dir}" "${pr_num}"
     local pr_title
     pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "PR #${pr_num}")"
-    if ! git -C "${repo_dir}" merge "${PR_SHA[$pr_num]}" --log -m "Merge PR #${pr_num}: ${pr_title}" 2>&1; then
+    if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}") 2>&1; then
       log "Merge conflict in PR #${pr_num}. Aborting."
-      git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
       exit 1
+    fi
+    if git -C "${repo_dir}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+      git -C "${repo_dir}" commit -m "Merge PR #${pr_num}: ${pr_title}"
+    else
+      log "PR #${pr_num} already up to date; no merge commit created."
     fi
     merged="${merged} ${pr_num}"
     count=$((count + 1))
@@ -555,41 +562,45 @@ merge_prs() {
 
 merge_additional_repository() {
   local repo_dir="$1"
-  
+
   if [[ -z "${ADDITIONAL_REPOSITORY}" || -z "${ADDITIONAL_BRANCH}" ]]; then
     log "No additional repository configured, skipping."
     return 0
   fi
-  
+
   step "Merging additional repository: ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}"
-  
+
   local additional_remote="additional-merge-source"
   local additional_url="https://github.com/${ADDITIONAL_REPOSITORY}.git"
-  
+
   # Add remote if not exists
   if ! git -C "${repo_dir}" remote get-url "${additional_remote}" >/dev/null 2>&1; then
     git -C "${repo_dir}" remote add "${additional_remote}" "${additional_url}"
   fi
-  
+
   # Fetch the branch
   log "Fetching ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY}..."
   if ! git -C "${repo_dir}" fetch "${additional_remote}" "${ADDITIONAL_BRANCH}" 2>&1; then
     die "Failed to fetch ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY}"
   fi
-  
+
   # Merge the branch
   log "Merging ${additional_remote}/${ADDITIONAL_BRANCH}..."
-  if ! git -C "${repo_dir}" merge "${additional_remote}/${ADDITIONAL_BRANCH}" --log -m "Merge ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}" 2>&1; then
+  if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") 2>&1; then
     log "Merge conflict with additional repository. Aborting."
-    git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
     exit 1
   fi
-  
+  if git -C "${repo_dir}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+    git -C "${repo_dir}" commit -m "Merge ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}"
+  else
+    log "Additional branch already up to date; no merge commit created."
+  fi
+
   ADDITIONAL_MERGE_COMMIT="$(git -C "${repo_dir}" rev-parse "${additional_remote}/${ADDITIONAL_BRANCH}")"
   export ADDITIONAL_MERGE_COMMIT
   emit_output ADDITIONAL_MERGE_COMMIT "${ADDITIONAL_MERGE_COMMIT}"
   log "Successfully merged ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH} (${ADDITIONAL_MERGE_COMMIT})"
-  
+
   # Update BASE_COMMIT to current HEAD so subsequent steps preserve the additional merge
   BASE_COMMIT="$(git -C "${repo_dir}" rev-parse HEAD)"
   export BASE_COMMIT
@@ -724,6 +735,7 @@ maybe_confirm_reset() {
 main() {
   require_cmd git
   require_cmd gh
+  require_cmd python3
   parse_args "$@"
   ensure_repo_inputs
   init_repo
