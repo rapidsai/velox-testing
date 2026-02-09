@@ -10,7 +10,7 @@
 #   - Images: /mnt/data/$USER/images/presto
 
 IMAGES_DIR=${IMAGES_DIR:-/mnt/data/$USER/images/presto}
-PRESTO_SLURM_BUILD_DIR=${PRESTO_SLURM_BUILD_DIR=:-/mnt/data/$USER/src/velox-testing/presto/slurm/build}
+PRESTO_SLURM_BUILD_DIR=${PRESTO_SLURM_BUILD_DIR:-/mnt/data/$USER/src/velox-testing/presto/slurm/build}
 
 # ==============================================================================
 # STAGE 1: Build Dependencies Image (Run once, ~30-60 minutes)

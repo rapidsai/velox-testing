@@ -10,7 +10,7 @@
 #   - Images: /mnt/data/$USER/images/presto
 
 IMAGES_DIR=${IMAGES_DIR:-/mnt/data/$USER/images/presto}
-PRESTO_SLURM_BUILD_DIR=${PRESTO_SLURM_BUILD_DIR=:-/mnt/data/$USER/src/velox-testing/presto/slurm/build}
+PRESTO_SLURM_BUILD_DIR=${PRESTO_SLURM_BUILD_DIR:-/mnt/data/$USER/src/velox-testing/presto/slurm/build}
 
 # ==============================================================================
 # Rebuild Native Worker Image (<3 minutes for small amount of changes)
