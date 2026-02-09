@@ -6,8 +6,11 @@
 # Copy and paste these commands to your terminal
 #
 # Adjust paths as needed:
-#   - Source: /mnt/data/$USER/src/velox-testing/presto/slurm/build/presto
+#   - Source: $PRESTO_SLURM_BUILD_DIR
 #   - Images: /mnt/data/$USER/images/presto
+
+IMAGES_DIR=${IMAGES_DIR:-/mnt/data/$USER/images/presto}
+PRESTO_SLURM_BUILD_DIR=${PRESTO_SLURM_BUILD_DIR=:-/mnt/data/$USER/src/velox-testing/presto/slurm/build}
 
 # ==============================================================================
 # STAGE 1: Build Dependencies Image (Run once, ~30-60 minutes)
@@ -17,9 +20,9 @@ srun --export=ALL,PMIX_MCA_gds=^ds12 \
   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
   --mpi=pmix_v4 --container-remap-root \
   --container-image=quay.io/centos/centos:stream9 \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
-  --container-save=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  /presto-build/scripts/build-deps-in-container.sh
+  --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+  --container-save=$IMAGES_DIR/prestissimo-dependency-centos9.sqsh \
+  /presto-build/build-deps-in-container.sh
 
 # ==============================================================================
 # STAGE 2: Build Native Worker Image (~20-40 minutes)
@@ -30,20 +33,20 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRES
   --nodes=1 --mem=0 --ntasks-per-node=1 \
   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
   --mpi=pmix_v4 --container-remap-root \
-  --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
-  --container-save=/mnt/data/$USER/images/presto/presto-native-worker-gpu.sqsh \
-  /presto-build/scripts/build-presto.sh
+  --container-image=$IMAGES_DIR/prestissimo-dependency-centos9.sqsh \
+  --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+  --container-save=$IMAGES_DIR/presto-native-worker-gpu.sqsh \
+  /presto-build/build-presto.sh
 
 # CPU Worker (optional)
 # srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,GPU=OFF,PRESTO_DIR=/presto-build/presto/presto-native-execution,EXTRA_CMAKE_FLAGS="-DPRESTO_ENABLE_TESTING=OFF -DPRESTO_ENABLE_PARQUET=ON -DPRESTO_ENABLE_CUDF=OFF -DVELOX_BUILD_TESTING=OFF" \
 #   --nodes=1 --mem=0 --ntasks-per-node=1 \
 #   --cpus-per-task=144 \
 #   --mpi=pmix_v4 --container-remap-root \
-#   --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-#   --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
-#   --container-save=/mnt/data/$USER/images/presto/presto-native-worker-cpu.sqsh \
-#   /presto-build/scripts/build-presto.sh
+#   --container-image=$IMAGES_DIR/prestissimo-dependency-centos9.sqsh \
+#   --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+#   --container-save=$IMAGES_DIR/presto-native-worker-cpu.sqsh \
+#   /presto-build/build-presto.sh
 
 # ==============================================================================
 # STAGE 3: Build Coordinator Image (Run once, ~30-60 minutes)
@@ -52,10 +55,10 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,PRESTO_VERSION=testing,PRESTO_SOURCE_DIR=/p
   --nodes=1 --mem=0 --ntasks-per-node=1 \
   --cpus-per-task=144 \
   --mpi=pmix_v4 --container-remap-root \
-  --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
-  --container-save=/mnt/data/$USER/images/presto/presto-coordinator.sqsh \
-  /presto-build/scripts/setup-coordinator.sh
+  --container-image=$IMAGES_DIR/prestissimo-dependency-centos9.sqsh \
+  --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+  --container-save=$IMAGES_DIR/presto-coordinator.sqsh \
+  /presto-build/setup-coordinator.sh
 
 # ==============================================================================
 # INCREMENTAL BUILDS (after code changes)
@@ -66,10 +69,10 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,PRESTO_VERSION=testing,PRESTO_SOURCE_DIR=/p
 #   --nodes=1 --mem=0 --ntasks-per-node=1 \
 #   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
 #   --mpi=pmix_v4 --container-remap-root \
-#   --container-image=/mnt/data/$USER/images/presto/presto-native-worker-gpu.sqsh \
-#   --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build/presto:/presto-build \
-#   --container-save=/mnt/data/$USER/images/presto/presto-native-worker-gpu-REBUILD.sqsh \
-#   /presto-build/scripts/build-presto.sh
+#   --container-image=$IMAGES_DIR/presto-native-worker-gpu.sqsh \
+#   --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+#   --container-save=$IMAGES_DIR/presto-native-worker-gpu-REBUILD.sqsh \
+#   /presto-build/build-presto.sh
 
 # ==============================================================================
 # VERIFICATION (inside container)
