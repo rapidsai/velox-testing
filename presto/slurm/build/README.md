@@ -40,7 +40,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12 \
   --container-save=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
   /presto-build/build-deps-in-container.sh
 
-# Stage 2: Build worker (20-40 minutes)
+# Stage 2: Build worker (20-25 minutes)
 srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRESTO_DIR=/presto-build/presto/presto-native-execution \
   --nodes=1 --mem=0 --ntasks-per-node=1 \
   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
@@ -141,7 +141,7 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRES
 
 **Output:**
 - Image: `/mnt/data/$USER/images/presto/presto-native-worker-gpu.sqsh`
-- Time: 15-20 minutes
+- Time: 20-25 minutes
 - Size: ~11 GB
 
 **Environment variables:**
@@ -281,21 +281,9 @@ cat /etc/ld.so.conf.d/presto_native.conf
 cat /etc/ld.so.conf.d/libcuda.conf
 ```
 
-## Resource Recommendations
-
-### Minimum Resources
-- **Dependencies**: 64 CPUs, 128GB RAM, 4 GPUs (for CUDA install)
-- **Worker**: 64 CPUs, 128GB RAM, 1 GPU
-- **Coordinator**: 16 CPUs, 32GB RAM, no GPU
-
-### Recommended Resources (for faster builds)
-- **Dependencies**: 144 CPUs, 256GB RAM, 4 GPUs
-- **Worker**: 144 CPUs, 256GB RAM, 4 GPUs
-- **Coordinator**: 64 CPUs, 128GB RAM
-
-### Build Times on NVL4 node with 144 threads
+## Build Times on NVL4 node with 144 threads
 - Dependencies: 15-20 minutes
-- Worker: 15-20 minutes
+- Worker: 20-25 minutes
 - Coordinator: 15-20 minutes
 
 ## Directory Structure
