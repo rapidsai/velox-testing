@@ -8,8 +8,9 @@ set -x
 # This script creates the Presto schema and tables for existing TPC-H data
 
 # Source helper functions
-source /mnt/home/misiug/veloxtesting/presto-nvl72/echo_helpers.sh
-source /mnt/home/misiug/veloxtesting/presto-nvl72/functions.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source ${SCRIPT_DIR}/echo_helpers.sh
+source ${SCRIPT_DIR}/functions.sh
 
 # ==============================================================================
 # Setup and Validation
@@ -19,9 +20,9 @@ export VARIANT_TYPE=cpu
 setup
 
 worker_config="${CONFIGS}/etc_worker/config_native.properties"
-sed -i "s/system-memory-gb.*/system-memory-gb=400/g" ${worker_config}
-sed -i "s/query-memory-gb.*/query-memory-gb=400/g" ${worker_config}
-sed -i "s/query\.max-memory-per-node.*/query\.max-memory-per-node=400GB/g" ${worker_config}
+sed -i "s/system-memory-gb.*/system-memory-gb=800/g" ${worker_config}
+sed -i "s/query-memory-gb.*/query-memory-gb=600/g" ${worker_config}
+sed -i "s/query\.max-memory-per-node.*/query\.max-memory-per-node=600GB/g" ${worker_config}
 
 coord_config="${CONFIGS}/etc_coordinator/config_native.properties"
 sed -i "s/memory\.heap-headroom-per-node.*/memory\.heap-headroom-per-node=120GB/g" ${coord_config}
@@ -64,7 +65,8 @@ wait_for_workers_to_register $NUM_WORKERS
 # Create Schema and Tables
 # ==============================================================================
 echo "Creating TPC-H schema and tables for scale factor ${SCALE_FACTOR}..."
-setup_benchmark ${SCALE_FACTOR}
+# setup_benchmark ${SCALE_FACTOR}
+sleep inf
 
 echo "========================================"
 echo "Schema creation complete!"

@@ -24,8 +24,10 @@ def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directo
     schemas = get_table_schemas(schemas_dir_path)
     for table_name, schema in schemas:
         presto_cursor.execute(
-            schema.format(file_path=f"/var/lib/presto/data/hive/data/{data_sub_directory}/{table_name}",
+            #schema.format(file_path=f"/var/lib/presto/data/hive/data/{data_sub_directory}/{table_name}",
+            schema.format(file_path=f"/data/{data_sub_directory}/{table_name}",
                           schema=schema_name))
+        presto_cursor.execute(f"ANALYZE hive.{schema_name}.{table_name}");
 
 
 def get_table_schemas(schemas_dir):
@@ -56,7 +58,10 @@ if __name__ == "__main__":
                         help="The name of the directory that contains the benchmark data.")
     args = parser.parse_args()
 
-    conn = prestodb.dbapi.connect(host="localhost", port=8080, user="test_user", catalog="hive")
+    port = os.environ['PORT']
+    hostname = os.environ['HOSTNAME']
+    conn = prestodb.dbapi.connect(host=hostname, port=port, user="test_user", catalog="hive")
     cursor = conn.cursor()
-    data_sub_directory = f"user_data/{args.data_dir_name}"
+    #data_sub_directory = f"user_data/{args.data_dir_name}"
+    data_sub_directory = f"{args.data_dir_name}"
     create_tables(cursor, args.schema_name, args.schemas_dir_path, data_sub_directory)
