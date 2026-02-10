@@ -47,6 +47,7 @@ Environment variables:
 """
 
 import argparse
+import asyncio
 import hashlib
 import json
 import os
@@ -597,19 +598,21 @@ def build_pre_aggregated_payloads(
     return submissions
 
 
-def upload_log_files(
+async def upload_log_files(
     benchmark_dir: Path,
     api_url: str,
     api_key: str,
     timeout: float,
+    max_concurrent: int = 5,
 ) -> list[int]:
-    """Upload all *.log files from benchmark_dir as assets.
+    """Upload all *.log files from benchmark_dir as assets, in parallel.
 
     Args:
         benchmark_dir: Directory to glob for *.log files
         api_url: Base API URL
         api_key: API bearer token
         timeout: Request timeout in seconds
+        max_concurrent: Maximum number of concurrent uploads
 
     Returns:
         List of asset IDs from the uploaded files
@@ -619,51 +622,59 @@ def upload_log_files(
         print("  No *.log files found to upload.", file=sys.stderr)
         return []
 
-    print(f"  Uploading {len(log_files)} log file(s)...", file=sys.stderr)
+    print(f"  Uploading {len(log_files)} log file(s) (max {max_concurrent} concurrent)...", file=sys.stderr)
     url = f"{api_url.rstrip('/')}/api/assets/upload/"
-    headers = {"Authorization": f"Bearer {api_key}"}
-    asset_ids = []
+    semaphore = asyncio.Semaphore(max_concurrent)
 
-    for log_file in log_files:
-        print(f"    Uploading {log_file.name}...", file=sys.stderr, end="")
-        with open(log_file, "rb") as f:
-            response = httpx.post(
-                url,
-                files={"file": (log_file.name, f, "text/plain")},
-                data={"title": log_file.name, "media_type": "text/plain"},
-                headers=headers,
-                timeout=timeout,
-            )
-        if response.status_code >= 400:
-            print(f" FAILED ({response.status_code})", file=sys.stderr)
-            raise RuntimeError(
-                f"Failed to upload {log_file.name}: {response.status_code} {response.text}"
-            )
-        result = response.json()
-        asset_id = result["asset_id"]
-        asset_ids.append(asset_id)
-        print(f" OK (asset_id={asset_id})", file=sys.stderr)
+    transport = httpx.AsyncHTTPTransport(retries=3)
+    async with httpx.AsyncClient(
+        transport=transport,
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=timeout,
+    ) as client:
 
-    return asset_ids
+        async def _upload_one(log_file: Path) -> int:
+            async with semaphore:
+                print(f"    Uploading {log_file.name}...", file=sys.stderr)
+                content = log_file.read_bytes()
+                response = await client.post(
+                    url,
+                    files={"file": (log_file.name, content, "text/plain")},
+                    data={"title": log_file.name, "media_type": "text/plain"},
+                )
+                if response.status_code >= 400:
+                    raise RuntimeError(
+                        f"Failed to upload {log_file.name}: "
+                        f"{response.status_code} {response.text}"
+                    )
+                result = response.json()
+                asset_id = result["asset_id"]
+                print(f"    Uploaded {log_file.name} (asset_id={asset_id})", file=sys.stderr)
+                return asset_id
+
+        asset_ids = await asyncio.gather(*[_upload_one(f) for f in log_files])
+
+    return list(asset_ids)
 
 
-def post_submission(api_url: str, api_key: str, payload: dict, timeout: float) -> tuple[int, str]:
+async def post_submission(api_url: str, api_key: str, payload: dict, timeout: float) -> tuple[int, str]:
     """Post a benchmark submission to the API.
 
     Returns:
         Tuple of (status_code, response_text)
     """
     url = f"{api_url.rstrip('/')}/api/benchmark/"
-    response = httpx.post(
-        url,
-        json=payload,
+    transport = httpx.AsyncHTTPTransport(retries=3)
+    async with httpx.AsyncClient(
+        transport=transport,
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=timeout,
-    )
+    ) as client:
+        response = await client.post(url, json=payload)
     return response.status_code, response.text
 
 
-def process_benchmark_dir(
+async def process_benchmark_dir(
     benchmark_dir: Path,
     *,
     sku_name: str,
@@ -708,7 +719,7 @@ def process_benchmark_dir(
             print(f"  [DRY RUN] Would upload {len(log_files)} log file(s): {[f.name for f in log_files]}", file=sys.stderr)
         else:
             try:
-                asset_ids = upload_log_files(benchmark_dir, api_url, api_key, timeout)
+                asset_ids = await upload_log_files(benchmark_dir, api_url, api_key, timeout)
             except (RuntimeError, httpx.RequestError) as e:
                 print(f"  Error uploading logs: {e}", file=sys.stderr)
                 return 1
@@ -747,7 +758,7 @@ def process_benchmark_dir(
 
     # Post to API
     try:
-        status_code, response_text = post_submission(
+        status_code, response_text = await post_submission(
             api_url, api_key, payload, timeout
         )
         print(f"  Status: {status_code}", file=sys.stderr)
@@ -762,7 +773,7 @@ def process_benchmark_dir(
         return 1
 
 
-def process_pre_aggregated_dir(
+async def process_pre_aggregated_dir(
     benchmark_dir: Path,
     *,
     sku_name: str,
@@ -833,7 +844,7 @@ def process_pre_aggregated_dir(
             print(f"  [DRY RUN] Would upload {len(log_files)} log file(s): {[f.name for f in log_files]}", file=sys.stderr)
         else:
             try:
-                asset_ids = upload_log_files(benchmark_dir, api_url, api_key, timeout)
+                asset_ids = await upload_log_files(benchmark_dir, api_url, api_key, timeout)
             except (RuntimeError, httpx.RequestError) as e:
                 print(f"  Error uploading logs: {e}", file=sys.stderr)
                 return 1
@@ -869,7 +880,7 @@ def process_pre_aggregated_dir(
             continue
 
         try:
-            status_code, response_text = post_submission(
+            status_code, response_text = await post_submission(
                 api_url, api_key, payload, timeout
             )
             print(f"    Status: {status_code}", file=sys.stderr)
@@ -885,7 +896,7 @@ def process_pre_aggregated_dir(
     return 0
 
 
-def main() -> int:
+async def main() -> int:
     args = parse_args()
 
     # Validate required arguments
@@ -937,7 +948,7 @@ def main() -> int:
         else:
             timestamp = datetime.now()
 
-        result = process_pre_aggregated_dir(
+        result = await process_pre_aggregated_dir(
             benchmark_dir,
             sku_name=args.sku_name,
             storage_configuration_name=args.storage_configuration_name,
@@ -970,7 +981,7 @@ def main() -> int:
             )
             return 1
 
-        result = process_benchmark_dir(
+        result = await process_benchmark_dir(
             benchmark_dir,
             sku_name=args.sku_name,
             storage_configuration_name=args.storage_configuration_name,
@@ -991,5 +1002,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(asyncio.run(main()))
 
