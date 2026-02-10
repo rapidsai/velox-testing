@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -26,9 +15,9 @@ This script deploys a Presto server cluster (one coordinator node and one $VARIA
 OPTIONS:
     -h, --help           Show this help message.
     -n, --no-cache       Do not use the builder cache when building the image.
-    -b, --build          Service type to build from source. Possible values are 
+    -b, --build          Service type to build from source. Possible values are
                          "coordinator" or "c", "worker" or "w", and "all" or "a".
-                         By default, services will be lazily built i.e. a build 
+                         By default, services will be lazily built i.e. a build
                          will only occur if there is no local image for the service.
     -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
     -w, --num-workers    Number of GPU workers to start (GPU variant only).
@@ -218,17 +207,17 @@ if [[ -n $GPU_IDS ]]; then
     echo "Error: --gpu-ids requires --num-workers to be set"
     exit 1
   fi
-  
+
   # Validate that GPU_IDS is a comma-delimited list of integers
   if [[ ! $GPU_IDS =~ ^[0-9]+(,[0-9]+)*$ ]]; then
     echo "Error: --gpu-ids must be a comma-delimited list of integers (e.g., '0,1,2,3')"
     exit 1
   fi
-  
+
   # Count the number of GPU IDs provided
   IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
   GPU_ID_COUNT=${#GPU_ID_ARRAY[@]}
-  
+
   # Validate that the count matches NUM_WORKERS
   if [[ $GPU_ID_COUNT -ne $NUM_WORKERS ]]; then
     echo "Error: number of GPU IDs ($GPU_ID_COUNT) must match --num-workers ($NUM_WORKERS)"

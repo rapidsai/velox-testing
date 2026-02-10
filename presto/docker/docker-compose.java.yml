@@ -14,7 +14,7 @@ services:
       file: docker-compose.common.yml
       service: presto-base-java
     container_name: presto-java-worker
-    image: presto-java-worker:latest
+    image: presto-java-worker:${PRESTO_IMAGE_TAG}
     volumes:
       - ./config/generated/java/etc_common:/opt/presto-server/etc
       - ./config/generated/java/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties

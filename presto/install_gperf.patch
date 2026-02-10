@@ -4,7 +4,7 @@ index 4f0dfcd4c5..404e4ff76a 100755
 +++ b/presto-native-execution/scripts/setup-centos.sh
 @@ -38,7 +38,8 @@ function install_presto_deps_from_package_managers {
  }
- 
+
  function install_gperf {
 -  wget ${WGET_OPTIONS} https://ftp.gnu.org/pub/gnu/gperf/gperf-3.1.tar.gz &&
 +  wget ${WGET_OPTIONS} https://ftp.gnu.org/pub/gnu/gperf/gperf-3.1.tar.gz ||

@@ -1,3 +1,6 @@
 #!/bin/bash
 
-VARIANT_TYPE=gpu SCRIPT_NAME=$0 ./start_presto_helper.sh "$@"
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+VARIANT_TYPE=gpu SCRIPT_NAME=$0 "${SCRIPT_DIR}/start_presto_helper.sh" "$@"
