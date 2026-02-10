@@ -64,7 +64,11 @@ if [[ "${CUDAARCHS:-}" == "RAPIDS" || -z "${CUDAARCHS:-}" ]]; then
 fi
 
 # Build CMake flags
-EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_CUDF=ON"
+# Disable C++20 module scanning — GCC 14 ICEs with -fmodules-ts on CMake 4.x
+EXTRA_CMAKE_FLAGS="-DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
+# Suppress false-positive stringop-overflow from system fmt v9 (format_dragon/bigint)
+EXTRA_CMAKE_FLAGS+=" -DCMAKE_CXX_FLAGS=-Wno-error=stringop-overflow"
+EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_CUDF=ON"
 EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_ARROW=ON"
 EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_PARQUET=ON"
 EXTRA_CMAKE_FLAGS+=" -DVELOX_MONO_LIBRARY=ON"
