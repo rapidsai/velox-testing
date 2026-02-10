@@ -63,12 +63,26 @@ on:
       fork_pat:
         description: 'GitHub PAT for target repository'
         required: true
+    outputs:
+      staging_repository:
+        description: 'Target repository for the staging branch'
+        value: ${{ jobs.create-staging.outputs.staging_repository }}
+      staging_branch:
+        description: 'Target staging branch name'
+        value: ${{ jobs.create-staging.outputs.staging_branch }}
+      staging_commit:
+        description: 'Commit SHA of the staging branch HEAD'
+        value: ${{ jobs.create-staging.outputs.staging_commit }}
 
 jobs:
   create-staging:
     runs-on: linux-amd64-cpu4
     permissions:
       contents: write
+    outputs:
+      staging_repository: ${{ steps.staging-info.outputs.staging_repository }}
+      staging_branch: ${{ steps.staging-info.outputs.staging_branch }}
+      staging_commit: ${{ steps.staging-info.outputs.staging_commit }}
     env:
       GH_TOKEN: ${{ secrets.fork_pat }}
       TARGET_REPO: ${{ inputs.target_repository }}
@@ -126,3 +140,11 @@ jobs:
 
       - name: 🚀 Push branches
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step push
+
+      - name: 📌 Capture staging outputs
+        id: staging-info
+        run: |
+          TARGET_DIR=$(echo "${SCRIPT_PATH}" | sed 's|.*/velox-testing/||' | cut -d'/' -f1)
+          echo "staging_repository=${TARGET_REPO}" >> "${GITHUB_OUTPUT}"
+          echo "staging_branch=${{ inputs.target_branch }}" >> "${GITHUB_OUTPUT}"
+          echo "staging_commit=$(git -C "${TARGET_DIR}" rev-parse HEAD)" >> "${GITHUB_OUTPUT}"

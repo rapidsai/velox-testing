@@ -6,15 +6,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  velox-staging:
+    uses: ./.github/workflows/velox-create-staging-if-needed.yml
+    with:
+      force_push: true
+    secrets: inherit
+
   nightly:
+    needs:
+      - velox-staging
+    if: ${{ needs.velox-staging.result == 'success' && needs.velox-staging.outputs.has_staging_branch == 'true' }}
     uses: ./.github/workflows/presto-test.yml
     with:
-      presto_repository: ${{ vars.STABLE_PRESTO_REPO }}
-      presto_commit: ${{ vars.STABLE_PRESTO_COMMIT }}
-      velox_repository: ${{ vars.STABLE_VELOX_REPO }}
-      velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
+      presto_repository: prestodb/presto
+      presto_commit: master
+      velox_repository: ${{ needs.velox-staging.outputs.staging_repository }}
+      velox_commit: ${{ needs.velox-staging.outputs.staging_branch }}
       run_java_tests: true
       run_cpu_tests: true
       run_gpu_tests: true
-      set_velox_backward_compatible: ${{ vars.SET_PRESTO_VELOX_BACKWARD_COMPATIBLE == 'true' }}
+      set_velox_backward_compatible: false
     secrets: inherit

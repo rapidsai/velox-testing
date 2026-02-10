@@ -1,0 +1,114 @@
+name: Velox Create Staging If Needed
+description: Creates a Velox staging branch if it doesn't exist for the current date
+
+on:
+  workflow_call:
+    inputs:
+      target_repository:
+        description: Target Velox repository
+        type: string
+        required: false
+        default: 'rapidsai/velox'
+      branch_prefix:
+        description: Prefix for dated staging branch
+        type: string
+        required: false
+        default: 'staging'
+      force_push:
+        description: Force push to override existing target branch
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      VELOX_FORK_PAT:
+        required: false
+    outputs:
+      staging_repository:
+        description: Target repository for the staging branch
+        value: ${{ jobs.resolve-staging.outputs.staging_repository }}
+      staging_branch:
+        description: Dated staging branch name
+        value: ${{ jobs.resolve-staging.outputs.staging_branch }}
+      dated_staging_branch:
+        description: Dated staging branch name
+        value: ${{ jobs.resolve-staging.outputs.dated_staging_branch }}
+      staging_commit:
+        description: Commit SHA of the dated staging branch HEAD
+        value: ${{ jobs.resolve-staging.outputs.staging_commit }}
+      has_staging_branch:
+        description: Whether the staging branch exists
+        value: ${{ jobs.resolve-staging.outputs.has_staging_branch }}
+
+jobs:
+  check-staging-current-date:
+    runs-on: ubuntu-latest
+    outputs:
+      run_create: ${{ steps.check.outputs.run_create }}
+      dated_staging_branch: ${{ steps.check.outputs.dated_staging_branch }}
+    steps:
+      - name: Check for velox staging branch created for the current date
+        id: check
+        run: |
+          current_date="$(date -u +%m-%d-%Y)"
+          branch="${{ inputs.branch_prefix }}_${current_date}"
+          if [[ -n "$(git ls-remote --heads "https://github.com/${{ inputs.target_repository }}.git" "${branch}")" ]]; then
+            echo "Found ${branch}; skipping create-velox-staging."
+            echo "run_create=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "No ${branch} found; running create-velox-staging."
+            echo "run_create=true" >> "${GITHUB_OUTPUT}"
+          fi
+          echo "dated_staging_branch=${branch}" >> "${GITHUB_OUTPUT}"
+
+  create-velox-staging:
+    needs: check-staging-current-date
+    if: ${{ needs.check-staging-current-date.outputs.run_create == 'true' }}
+    uses: ./.github/workflows/velox-create-staging.yml
+    with:
+      target_repository: ${{ inputs.target_repository }}
+      target_branch: ${{ inputs.branch_prefix }}
+      force_push: ${{ inputs.force_push }}
+    secrets:
+      VELOX_FORK_PAT: ${{ secrets.VELOX_FORK_PAT }}
+
+  resolve-staging:
+    needs:
+      - check-staging-current-date
+      - create-velox-staging
+    if: >-
+      ${{
+        needs.check-staging-current-date.result == 'success' &&
+        (needs.create-velox-staging.result == 'success' || needs.create-velox-staging.result == 'skipped')
+      }}
+    runs-on: ubuntu-latest
+    outputs:
+      staging_repository: ${{ steps.resolve.outputs.staging_repository }}
+      staging_branch: ${{ steps.resolve.outputs.staging_branch }}
+      staging_commit: ${{ steps.resolve.outputs.staging_commit }}
+      dated_staging_branch: ${{ steps.resolve.outputs.dated_staging_branch }}
+      has_staging_branch: ${{ steps.resolve.outputs.has_staging_branch }}
+    steps:
+      - name: Resolve staging branch and commit
+        id: resolve
+        run: |
+          branch="${{ needs.check-staging-current-date.outputs.dated_staging_branch }}"
+          if [[ "${{ needs.create-velox-staging.result }}" == "success" ]]; then
+            staging_repository="${{ needs.create-velox-staging.outputs.staging_repository }}"
+            staging_commit="${{ needs.create-velox-staging.outputs.staging_commit }}"
+            staging_branch="${{ needs.create-velox-staging.outputs.staging_branch }}"
+            dated_branch="${branch}"
+          else
+            staging_repository="${{ inputs.target_repository }}"
+            staging_commit="$(git ls-remote --heads "https://github.com/${{ inputs.target_repository }}.git" "${branch}" | awk '{print $1}')"
+            staging_branch="${{ inputs.branch_prefix }}"
+            dated_branch="${branch}"
+          fi
+          echo "staging_repository=${staging_repository}" >> "${GITHUB_OUTPUT}"
+          echo "dated_staging_branch=${dated_branch}" >> "${GITHUB_OUTPUT}"
+          echo "staging_commit=${staging_commit}" >> "${GITHUB_OUTPUT}"
+          echo "staging_branch=${staging_branch}" >> "${GITHUB_OUTPUT}"
+          if [[ -n "${staging_commit}" ]]; then
+            echo "has_staging_branch=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "has_staging_branch=false" >> "${GITHUB_OUTPUT}"
+          fi

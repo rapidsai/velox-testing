@@ -6,11 +6,20 @@ on:
   workflow_dispatch:
 
 jobs:
-  nightly-test:
-    uses: ./.github/workflows/velox-test.yml
+  velox-staging:
+    uses: ./.github/workflows/velox-create-staging-if-needed.yml
     with:
-      repository: ${{ vars.STABLE_VELOX_REPO }}
-      velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
+      force_push: true
+    secrets: inherit
+
+  nightly-test:
+    needs:
+      - velox-staging
+    uses: ./.github/workflows/velox-test.yml
+    if: ${{ needs.velox-staging.result == 'success' && needs.velox-staging.outputs.has_staging_branch == 'true' }}
+    with:
+      repository: ${{ needs.velox-staging.outputs.staging_repository }}
+      velox_commit: ${{ needs.velox-staging.outputs.staging_branch }}
       build_target: 'all'
       use_upstream_deps_image: ${{ vars.STABLE_VELOX_USE_UPSTREAM_DEPS_IMAGE == 'true' }}
     secrets: inherit

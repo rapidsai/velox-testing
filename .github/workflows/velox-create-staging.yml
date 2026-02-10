@@ -3,63 +3,86 @@ name: Velox Create Staging Branch
 on:
   workflow_dispatch:
     inputs:
-      base_repository:
+      base_repository: &base_repository
         description: Base Velox repository
         type: string
         required: false
         default: 'facebookincubator/velox'
-      base_branch:
+      base_branch: &base_branch
         description: Base Velox branch
         type: string
         required: false
         default: 'main'
-      target_repository:
+      target_repository: &target_repository
         description: Target Velox repository
         type: string
         required: true
         default: 'rapidsai/velox'
-      target_branch:
+      target_branch: &target_branch
         description: Target Velox branch
         type: string
         required: false
         default: 'staging'
-      auto_fetch_prs:
+      auto_fetch_prs: &auto_fetch_prs
         description: >-
           Auto-fetch non-draft PRs with 'cudf' label
           from 'facebookincubator/velox' (https://github.com/facebookincubator/velox)
         type: boolean
         required: false
         default: true
-      pr_labels:
+      pr_labels: &pr_labels
         description: Comma-separated PR labels to auto-fetch
         type: string
         required: false
         default: 'cudf'
-      manual_pr_numbers:
+      manual_pr_numbers: &manual_pr_numbers
         description: "Comma-separated PR numbers to merge (e.g., '12345,12346')"
         type: string
         required: false
         default: ''
-      exclude_pr_numbers:
+      exclude_pr_numbers: &exclude_pr_numbers
         description: "Comma-separated PR numbers to exclude from auto-fetch results (e.g., '12345,12346')"
         type: string
         required: false
         default: ''
-      force_push:
+      force_push: &force_push
         description: Force push to override existing target branch
         type: boolean
         required: false
         default: false
-      additional_repository:
+      additional_repository: &additional_repository
         description: 'Additional repository to merge from'
         type: string
         required: false
         default: 'rapidsai/velox'
-      additional_branch:
+      additional_branch: &additional_branch
         description: 'Branch from additional repository to merge'
         type: string
         required: false
         default: 'cudf_exchange/rebase_latest/ibm-research-preview'
+  workflow_call:
+    inputs:
+      base_repository: *base_repository
+      base_branch: *base_branch
+      target_repository: *target_repository
+      target_branch: *target_branch
+      auto_fetch_prs: *auto_fetch_prs
+      pr_labels: *pr_labels
+      manual_pr_numbers: *manual_pr_numbers
+      exclude_pr_numbers: *exclude_pr_numbers
+      force_push: *force_push
+      additional_repository: *additional_repository
+      additional_branch: *additional_branch
+    outputs:
+      staging_repository:
+        description: 'Target repository for the staging branch'
+        value: ${{ jobs.velox-create-staging.outputs.staging_repository }}
+      staging_branch:
+        description: 'Target staging branch name'
+        value: ${{ jobs.velox-create-staging.outputs.staging_branch }}
+      staging_commit:
+        description: 'Commit SHA of the staging branch HEAD'
+        value: ${{ jobs.velox-create-staging.outputs.staging_commit }}
 
 jobs:
   velox-create-staging:
