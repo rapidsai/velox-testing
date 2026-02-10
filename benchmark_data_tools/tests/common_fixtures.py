@@ -1,16 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 import pytest
 import os
@@ -23,15 +12,28 @@ tests_dir = os.path.dirname(os.path.realpath(__file__))
 benchmark_data_tools_dir = os.path.dirname(tests_dir)
 sys.path.append(benchmark_data_tools_dir)
 
-# Ensure that the tpchgen-cli executable can be found.
-venv_bin_dir = f"{benchmark_data_tools_dir}/.venv/bin"
-assert os.path.exists(venv_bin_dir)
-os.environ['PATH'] += os.pathsep + venv_bin_dir
-
 from dataclasses import dataclass
 from duckdb_utils import drop_benchmark_tables
 from generate_data_files import generate_data_files
 from pathlib import Path
+
+
+def ensure_tpchgen_cli_available():
+    # Ensure that the tpchgen-cli executable can be found.
+    venv_bin_dir = f"{benchmark_data_tools_dir}/.venv/bin"
+    if os.path.exists(venv_bin_dir):
+        os.environ["PATH"] += os.pathsep + venv_bin_dir
+
+    tpchgen_path = shutil.which("tpchgen-cli")
+    assert tpchgen_path is not None, (
+        f"tpchgen-cli not found. Expected {venv_bin_dir} or an active venv "
+        "with tpchgen-cli on PATH."
+    )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def validate_tpchgen_cli():
+    ensure_tpchgen_cli_available()
 
 
 @dataclass
