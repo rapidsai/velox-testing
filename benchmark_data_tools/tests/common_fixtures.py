@@ -20,20 +20,16 @@ from pathlib import Path
 
 def ensure_tpchgen_cli_available():
     # Ensure that the tpchgen-cli executable can be found.
-    venv_bin_dir = f"{benchmark_data_tools_dir}/.venv/bin"
-    if os.path.exists(venv_bin_dir):
-        os.environ["PATH"] += os.pathsep + venv_bin_dir
+    # venv_bin_dir = f"{benchmark_data_tools_dir}/.venv/bin"
+    venv_bin_dir = Path(benchmark_data_tools_dir) / ".venv" / "bin"
+    if venv_bin_dir.exists():
+        os.environ["PATH"] = os.pathsep.join([os.environ["PATH"], str(venv_bin_dir)])
 
     tpchgen_path = shutil.which("tpchgen-cli")
-    assert tpchgen_path is not None, (
-        f"tpchgen-cli not found. Expected {venv_bin_dir} or an active venv "
-        "with tpchgen-cli on PATH."
-    )
-
-
-@pytest.fixture(autouse=True, scope="session")
-def validate_tpchgen_cli():
-    ensure_tpchgen_cli_available()
+    if tpchgen_path is None:
+        raise FileNotFoundError(f"tpchgen-cli not found. Expected {venv_bin_dir} or an active venv "
+                           "with tpchgen-cli on PATH.") from None
+    return
 
 
 @dataclass
