@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
@@ -77,7 +80,7 @@ class BenchmarkMetadata:
     @classmethod
     def from_file(cls, file_path: Path) -> "BenchmarkMetadata":
         data = json.loads(file_path.read_text())
-        
+
         # parse fields, like the timestamp
         data["timestamp"] = datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00"))
 
@@ -1003,4 +1006,3 @@ async def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
-
