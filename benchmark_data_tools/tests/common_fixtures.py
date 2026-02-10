@@ -29,7 +29,7 @@ def ensure_tpchgen_cli_available():
     if tpchgen_path is None:
         raise FileNotFoundError(f"tpchgen-cli not found. Expected {venv_bin_dir} or an active venv "
                            "with tpchgen-cli on PATH.") from None
-    return
+
 
 
 @dataclass
