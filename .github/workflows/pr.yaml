@@ -38,6 +38,7 @@ jobs:
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
+
       - name: Detect changed paths
         id: filter
         uses: dorny/paths-filter@v3
@@ -51,5 +52,8 @@ jobs:
     if: ${{ needs.detect-changes.outputs.benchmark_data_tools == 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@v4
+
       - name: Test benchmark_data_tools
         uses: ./.github/actions/test-benchmark-data-tools
