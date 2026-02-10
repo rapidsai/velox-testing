@@ -29,7 +29,7 @@ echo "============================================"
 # Step 1: Install Java and dependencies
 echo ""
 echo "============================================"
-echo "Step 1/7: Installing Java 17 and dependencies..."
+echo "Step 1/8: Installing Java 17 and dependencies..."
 echo "============================================"
 if ! command -v java &> /dev/null; then
     dnf install -y java-17-openjdk java-17-openjdk-devel less procps python3
@@ -81,7 +81,7 @@ echo "✓ Java version: $("${JAVA_HOME}/bin/java" -version 2>&1 | head -1)"
 # Step 2: Build Presto Java package if needed
 echo ""
 echo "============================================"
-echo "Step 2/7: Building Presto Java package..."
+echo "Step 2/8: Building Presto Java package..."
 echo "============================================"
 
 if [[ ! -f "${PRESTO_BUILD_DIR}/presto-server-${PRESTO_VERSION}.tar.gz" ]]; then
@@ -175,7 +175,7 @@ fi
 # Step 3: Install Presto server
 echo ""
 echo "============================================"
-echo "Step 3/7: Installing Presto server..."
+echo "Step 3/8: Installing Presto server..."
 echo "============================================"
 
 # Find the tarball (use detected version or search)
@@ -197,7 +197,7 @@ echo "✓ Presto server extracted to $PRESTO_HOME"
 # Step 4: Install CLI and function server
 echo ""
 echo "============================================"
-echo "Step 4/7: Installing Presto CLI..."
+echo "Step 4/8: Installing Presto CLI..."
 echo "============================================"
 
 # Find CLI jar (try specific version first, then any)
@@ -230,7 +230,7 @@ fi
 # Step 5: Set up directories
 echo ""
 echo "============================================"
-echo "Step 5/7: Creating directories..."
+echo "Step 5/8: Creating directories..."
 echo "============================================"
 mkdir -p $PRESTO_HOME/etc/catalog
 mkdir -p /var/lib/presto/data
@@ -240,7 +240,7 @@ echo "✓ Directories created"
 # Step 6: Download JMX Prometheus agent
 echo ""
 echo "============================================"
-echo "Step 6/7: Downloading JMX Prometheus agent..."
+echo "Step 6/8: Downloading JMX Prometheus agent..."
 echo "============================================"
 if [[ ! -f "/usr/lib/presto/utils/jmx_prometheus_javaagent-${JMX_PROMETHEUS_JAVAAGENT_VERSION}.jar" ]]; then
     curl -o "/usr/lib/presto/utils/jmx_prometheus_javaagent-${JMX_PROMETHEUS_JAVAAGENT_VERSION}.jar" \
@@ -255,7 +255,7 @@ fi
 # Step 7: Copy configuration files
 echo ""
 echo "============================================"
-echo "Step 7/7: Setting up configuration..."
+echo "Step 7/8: Setting up configuration..."
 echo "============================================"
 
 # Copy config files if they exist in the docker directory
@@ -283,6 +283,16 @@ else
     echo "Warning: Docker config directory not found at ${PRESTO_DOCKER_DIR}/etc"
     echo "You'll need to manually configure Presto in $PRESTO_HOME/etc/"
 fi
+
+# Step 8: Cleanup image to make it smaller and faster to load
+echo ""
+echo "============================================"
+echo "Step 8/8: Cleanup image..."
+echo "============================================"
+yum remove -y cuda*
+rm -rf /opt/rh
+rm -rf /usr/local
+
 
 # Copy entrypoint if it exists
 if [[ -f "${PRESTO_DOCKER_DIR}/entrypoint.sh" ]]; then
