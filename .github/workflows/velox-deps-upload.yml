@@ -66,12 +66,12 @@ jobs:
           # Configure AWS region
           export AWS_DEFAULT_REGION="${S3_BUCKET_REGION}"
           export AWS_REGION="${S3_BUCKET_REGION}"
-          
+
           # Derive writer ARN string from reader ARN
           WRITER_ARN_STRING=$(echo "${AWS_ARN_STRING}" | sed 's/reader/writer/g')
-          
+
           echo "Verifying S3 credentials for bucket: ${S3_BUCKET_NAME}"
-          
+
           # Assume WRITER IAM role
           echo "Assuming WRITER IAM role..."
           WRITER_CREDS_JSON=$(aws sts assume-role \
@@ -79,18 +79,18 @@ jobs:
             --role-session-name "VerifyS3Access" \
             --query "Credentials" \
             --output json)
-          
+
           if [ $? -ne 0 ]; then
             echo "❌ Failed to assume WRITER IAM role."
             exit 1
           fi
           echo "✅ Successfully assumed WRITER IAM role."
-          
+
           # Set writer credentials
           export AWS_ACCESS_KEY_ID=$(echo "$WRITER_CREDS_JSON" | jq -r '.AccessKeyId')
           export AWS_SECRET_ACCESS_KEY=$(echo "$WRITER_CREDS_JSON" | jq -r '.SecretAccessKey')
           export AWS_SESSION_TOKEN=$(echo "$WRITER_CREDS_JSON" | jq -r '.SessionToken')
-          
+
           # Test LIST access
           echo "Testing LIST access..."
           if ! aws s3 ls "s3://${S3_BUCKET_NAME}/" > /dev/null; then
@@ -98,11 +98,11 @@ jobs:
             exit 1
           fi
           echo "✅ LIST access verified."
-          
+
           # Generate unique test file name
           TEST_FILE="s3-access-test-$(date +%s)-${RANDOM}.txt"
           TEST_CONTENT="S3 access verification test - $(date)"
-          
+
           # Test WRITE access
           echo "Testing WRITE access..."
           if ! echo "${TEST_CONTENT}" | aws s3 cp - "s3://${S3_BUCKET_NAME}/${TEST_FILE}"; then
