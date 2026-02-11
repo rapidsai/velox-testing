@@ -184,7 +184,7 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
 wait_for_coordinator() {
     log_info "Waiting for coordinator to start..."
 
-    for i in {1..10}; do
+    for i in {1..60}; do
         state=$(curl -s "http://${COORD}:${PORT}/v1/info/state" 2>/dev/null || echo "")
         if [[ "$state" == '"ACTIVE"' ]]; then
             log_info "Coordinator is active"
@@ -247,7 +247,7 @@ start_all_workers() {
 wait_for_workers() {
     log_info "Waiting for ${NUM_WORKERS} workers to register..."
 
-    for i in {1..10}; do
+    for i in {1..60}; do
         num_registered=$(curl -s "http://${COORD}:${PORT}/v1/node" 2>/dev/null | jq length 2>/dev/null || echo "0")
         if [[ "$num_registered" -eq "$NUM_WORKERS" ]]; then
             log_info "All ${NUM_WORKERS} workers registered"
