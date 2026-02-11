@@ -17,6 +17,18 @@ set -e
 set -x
 
 # ==============================================================================
+# Helper Functions
+# ==============================================================================
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+# ==============================================================================
 # Environment Configuration
 # ==============================================================================
 export PORT=9200
@@ -38,29 +50,29 @@ export NUM_WORKERS=$((NUM_NODES * NUM_GPUS_PER_NODE))
 # Config directory (will be generated)
 export CONFIGS="${SCRIPT_DIR}/configs"
 
-# Memory calculations (simplified, in GB)
-export RAM_GB=900
-export HEAP_SIZE_GB=810
-export HEADROOM_GB=162
-export QUERY_MAX_TOTAL_MEM_GB=648
-export QUERY_MAX_MEM_GB=583
-export SYSTEM_MEM_GB=850
-export QUERY_MEM_GB=807
-export SYSTEM_MEM_LIMIT_GB=845
-export JOIN_MAX_BCAST_MB=9000
+# Dynamic memory calculations based on system RAM
+# Get actual system memory
+RAM_GB=$(lsmem -b 2>/dev/null | grep "Total online memory" | awk '{print int($4 / (1024*1024*1024)); }' || echo "1538")
+
+# Coordinator memory (Java) - matches pbench generated values
+export RAM_GB
+export HEAP_SIZE_GB=$(echo "$RAM_GB" | awk '{printf "%.0f", $1 * 0.9}')
+export HEADROOM_GB=$(echo "$HEAP_SIZE_GB" | awk '{printf "%.0f", $1 * 0.2}')
+export QUERY_MAX_TOTAL_MEM_GB=$(echo "$HEAP_SIZE_GB" | awk '{printf "%.0f", $1 * 0.8}')
+export QUERY_MAX_MEM_GB=$(echo "$QUERY_MAX_TOTAL_MEM_GB" | awk '{printf "%.0f", $1 * 0.9}')
+export JOIN_MAX_BCAST_MB=$(echo "$RAM_GB" | awk '{printf "%.0f", $1 * 0.01 * 1024}')
+
+# Worker memory (Native/C++) - matches pbench generated values
+# Reserve ~35GB for system (proxygen, buffers, etc) based on pbench calculations
+SYS_RESERVED_GB=35
+export SYSTEM_MEM_GB=$(echo "$RAM_GB" | awk -v res=$SYS_RESERVED_GB '{printf "%.0f", $1 - res}')
+export QUERY_MEM_GB=$(echo "$SYSTEM_MEM_GB" | awk '{printf "%.0f", $1 * 0.95}')
+export SYSTEM_MEM_LIMIT_GB=$(echo "$RAM_GB" | awk '{printf "%.0f", $1 - 5}')
+
+# Worker settings
 export MAX_DRIVERS=2
 
-# ==============================================================================
-# Helper Functions
-# ==============================================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+log_info "Memory configuration: RAM=${RAM_GB}GB, Heap=${HEAP_SIZE_GB}GB, Worker System=${SYSTEM_MEM_GB}GB, Worker Query=${QUERY_MEM_GB}GB"
 
 # ==============================================================================
 # Config Generation Functions
