@@ -377,7 +377,7 @@ test_merge_compatibility() {
   for pr_num in ${pr_list}; do
     divider "PR #${pr_num}"
     fetch_pr_head "${repo_dir}" "${pr_num}"
-    if git -C "${repo_dir}" merge --no-commit --no-ff "${PR_SHA[$pr_num]}" >/dev/null 2>&1; then
+    if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}") >/dev/null 2>&1; then
       successful="${successful} ${pr_num}"
     else
       conflicts="${conflicts} ${pr_num}"
