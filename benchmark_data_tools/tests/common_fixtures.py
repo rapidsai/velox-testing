@@ -16,7 +16,6 @@ from dataclasses import dataclass  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from duckdb_utils import drop_benchmark_tables  # noqa: E402
-from generate_data_files import generate_data_files  # noqa: E402
 
 
 def ensure_tpchgen_cli_available():
@@ -28,9 +27,9 @@ def ensure_tpchgen_cli_available():
 
     tpchgen_path = shutil.which("tpchgen-cli")
     if tpchgen_path is None:
-        raise FileNotFoundError(f"tpchgen-cli not found. Expected {venv_bin_dir} or an active venv "
-                           "with tpchgen-cli on PATH.") from None
-
+        raise FileNotFoundError(
+            f"tpchgen-cli not found. Expected {venv_bin_dir} or an active venv with tpchgen-cli on PATH."
+        ) from None
 
 
 @dataclass
