@@ -92,12 +92,12 @@ ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 # Runs a coordinator on a specific node with default configurations.
 # Overrides the config files with the coord node and other needed updates.
 function run_coordinator {
-    validate_environment_preconditions CONFIGS SINGLE_NODE_EXECUTION
+    validate_environment_preconditions CONFIGS
     local coord_config="${CONFIGS}/etc_coordinator/config_native.properties"
-    # Replace placeholder in configs
+
+    # Update configs with assigned node address and port.
     sed -i "s+discovery\.uri.*+discovery\.uri=http://${COORD}:${PORT}+g" ${coord_config}
     sed -i "s+http-server\.http\.port=.*+http-server\.http\.port=${PORT}+g" ${coord_config}
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=${SINGLE_NODE_EXECUTION}+g" ${coord_config}
 
     mkdir -p ${REPO_ROOT}/.hive_metastore
 
@@ -139,36 +139,22 @@ run_coord_image "$COORD_SCRIPT" "coord"
 # Runs a worker on a given node with custom configuration files which are generated as necessary.
 function run_worker {
     [ $# -ne 4 ] && echo_error "$0 expected arguments 'gpu_id', 'image', 'node_id', and 'worker_id'"
-    validate_environment_preconditions LOGS CONFIGS REPO_ROOT COORD SINGLE_NODE_EXECUTION CUDF_LIB DATA
+    validate_environment_preconditions LOGS CONFIGS REPO_ROOT COORD CUDF_LIB DATA
 
-    local gpu_id=$1
-    local image=$2
-    local node=$3
-    local worker_id=$4
-    local worker_two_digit=$(printf "%02d\n" "$worker_id")
+    local gpu_id=$1 image=$2 node=$3 worker_id=$4
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id}"
 
     local worker_image="${IMAGE_DIR}/${image}.sqsh"
     [ ! -f "${worker_image}" ] && echo_error "worker image does not exist at ${worker_image}"
 
     # Make a copy of the worker config that can be given a unique id for this worker.
-    rm -rf "${CONFIGS}/etc_worker_${worker_id}"
-    cp -r "${CONFIGS}/etc_worker" "${CONFIGS}/etc_worker_${worker_id}"
     local worker_config="${CONFIGS}/etc_worker_${worker_id}/config_native.properties"
     local worker_node="${CONFIGS}/etc_worker_${worker_id}/node.properties"
     local worker_hive="${CONFIGS}/etc_worker_${worker_id}/catalog/hive.properties"
     local worker_data="${SCRIPT_DIR}/worker_data_${worker_id}"
 
-    # Create unique configuration/data files for each worker:
-    # Give each worker a unique port.
-    sed -i "s+http-server\.http\.port.*+http-server\.http\.port=10${worker_two_digit}0+g" ${worker_config}
-    # If we are using cudf exchange then the port number is hard coded (in current velox) to port # + 3
-    sed -i "s+cudf\.exchange\.server\.port=.*+cudf\.exchange\.server\.port=10${worker_two_digit}3+g" ${worker_config}
-    # Update discovery based on which node the coordinator is running on.
+    # Each worker needs to be told how to access the coordianator
     sed -i "s+discovery\.uri.*+discovery\.uri=http://${COORD}:${PORT}+g" ${worker_config}
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=${SINGLE_NODE_EXECUTION}+g" ${worker_config}
-    # Give each worker a unique id.
-    sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_node}
 
     # Create unique data dir per worker.
     mkdir -p ${worker_data}
@@ -195,7 +181,7 @@ ${REPO_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 --container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
 --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
 --container-env=GLOG_logtostderr=1 \
--- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; nvidia-smi -L; ls -l /data/date-scale-3000/orders/part0*; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+-- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; nvidia-smi -L; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 #./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
