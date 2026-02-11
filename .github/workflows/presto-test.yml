@@ -60,7 +60,7 @@ jobs:
   java:
     if: ${{ inputs.run_java_tests }}
     uses: ./.github/workflows/presto-test-composite.yml
-    with:      
+    with:
       presto_worker_type: 'java'
       node_label: 'linux-amd64-cpu8'
       presto_repository: ${{ inputs.presto_repository }}

@@ -1,26 +1,13 @@
-# Copyright (c) 2026, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 import json
+
 import pyarrow.parquet as pq
 import pytest
+from generate_data_files import generate_data_files
 
-from .common_fixtures import (
-    setup_and_teardown,
-    get_all_parquet_relative_file_paths,
-    generate_data_files
-)
+from .common_fixtures import get_all_parquet_relative_file_paths
 
 
 def test_row_group_size_match(setup_and_teardown):
@@ -63,12 +50,13 @@ def assert_approx_row_group_bytes_size(data_dir_path, expected_row_group_byte_si
         num_row_groups = parquet_file.num_row_groups
         for row_group_index in range(num_row_groups):
             row_group = parquet_file.metadata.row_group(row_group_index)
-            approx_row_group_byte_size = \
-                (row_group.total_byte_size == pytest.approx(expected_row_group_byte_size, rel=0.25))
+            approx_row_group_byte_size = row_group.total_byte_size == pytest.approx(
+                expected_row_group_byte_size, rel=0.25
+            )
             # The last row group may be much smaller than the expected size.
-            smaller_last_row_group_byte_size = \
-                (row_group_index == num_row_groups - 1 and
-                 row_group.total_byte_size < expected_row_group_byte_size)
+            smaller_last_row_group_byte_size = (
+                row_group_index == num_row_groups - 1 and row_group.total_byte_size < expected_row_group_byte_size
+            )
             assert approx_row_group_byte_size or smaller_last_row_group_byte_size
         max_num_row_groups_per_file = max(max_num_row_groups_per_file, num_row_groups)
     # Ensure test coverage for at least one file with multiple row groups.
@@ -92,7 +80,8 @@ def compare_row_group_sizes(orig_data_dir_path, final_data_dir_path):
             final_row_group = final_parquet_file.metadata.row_group(row_group_index)
             assert orig_row_group.num_rows == final_row_group.num_rows
 
+
 def assert_metadata_approx_row_group_bytes(final_data_dir_path, approx_row_group_bytes):
     with open(f"{final_data_dir_path}/metadata.json") as metadata_file:
         metadata = json.load(metadata_file)
-        assert  metadata["approx_row_group_bytes"] == approx_row_group_bytes
+        assert metadata["approx_row_group_bytes"] == approx_row_group_bytes

@@ -5,8 +5,31 @@ on:
     branches: [ main ]
     types: [opened, synchronize, reopened]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  pr-builder:
+    needs:
+      - checks
+      - detect-changes
+      - test_benchmark_data_tools
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main
+    if: always()
+    with:
+      needs: ${{ toJSON(needs) }}
+
+  checks:
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
+    with:
+      enable_check_size: false
+      enable_check_generated_files: false
+      enable_check_version_files_changed: false
+      enable_check_version_against_tag: false
+
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -14,6 +37,7 @@ jobs:
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@v4
+
       - name: Detect changed paths
         id: filter
         uses: dorny/paths-filter@v3
@@ -27,5 +51,8 @@ jobs:
     if: ${{ needs.detect-changes.outputs.benchmark_data_tools == 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@v4
+
       - name: Test benchmark_data_tools
         uses: ./.github/actions/test-benchmark-data-tools
