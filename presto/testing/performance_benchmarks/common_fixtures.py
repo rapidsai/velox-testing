@@ -6,7 +6,8 @@ from pathlib import Path
 import prestodb
 import pytest
 
-from ..common.fixtures import tpcds_queries as tpcds_queries, tpch_queries as tpch_queries
+from ..common.fixtures import tpcds_queries as tpcds_queries
+from ..common.fixtures import tpch_queries as tpch_queries
 from .benchmark_keys import BenchmarkKeys
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
@@ -31,7 +32,7 @@ def benchmark_result_collector(request):
 
 
 @pytest.fixture(scope="module")
-def benchmark_queries(request, tpch_queries, tpcds_queries):
+def benchmark_queries(request, tpch_queries, tpcds_queries):  # noqa: F811
     if request.node.obj.BENCHMARK_TYPE == "tpch":
         return tpch_queries
     else:
