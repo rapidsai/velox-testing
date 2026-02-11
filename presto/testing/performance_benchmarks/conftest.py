@@ -138,6 +138,7 @@ def pytest_sessionfinish(session, exitstatus):
         compute_aggregate_timings(result)
         json_result[benchmark_type] = {
             BenchmarkKeys.AGGREGATE_TIMES_KEY: {},
+            BenchmarkKeys.RAW_TIMES_KEY: result[BenchmarkKeys.RAW_TIMES_KEY],
             BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
         }
         json_agg_timings = json_result[benchmark_type][BenchmarkKeys.AGGREGATE_TIMES_KEY]
