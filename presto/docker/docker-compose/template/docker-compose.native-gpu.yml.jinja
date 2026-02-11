@@ -2,7 +2,7 @@
 {%- set config_variant = config_variant | default('gpu') -%}
 
 {%- set worker_service_base = 'presto-native-worker-gpu-dev' if dev_mode else 'presto-native-worker-gpu' -%}
-{%- set worker_image = worker_service_base ~ ':${IMAGE_TAG:-latest}' -%}
+{%- set worker_image = worker_service_base ~ ':${PRESTO_IMAGE_TAG}' -%}
 {%- set config_root = '../../config/generated/' ~ config_variant -%}
 
 {%- set dev_env_lines = [
@@ -49,6 +49,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
   security_opt:
     - seccomp=unconfined
   {% endif %}
+    - SYS_ADMIN  # Required for nsys GPU metrics profiling
   pid: host
   ulimits:
     memlock: -1

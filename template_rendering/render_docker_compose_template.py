@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 import os
 import sys
@@ -59,13 +61,13 @@ def main() -> int:
         keep_trailing_newline=True,
     )
     template = env.get_template(os.path.basename(parsed_args.template_path))
-    
+
     # If GPU IDs are provided, use them; otherwise default to range
     if gpu_ids:
         workers = gpu_ids
     else:
         workers = list(range(max(0, parsed_args.num_workers)))
-    
+
     rendered = template.render(
         num_workers=parsed_args.num_workers,
         workers=workers,
@@ -83,5 +85,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-

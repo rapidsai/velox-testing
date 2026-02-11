@@ -106,7 +106,7 @@ jobs:
   velox-gpu:
     if: ${{ inputs.build_target == 'all' || inputs.build_target == 'gpu' }}
     runs-on: linux-amd64-gpu-l4-latest-1
-    
+
     env:
       GH_TOKEN: ${{ github.token }}
       DOCKER_RUNTIME: nvidia

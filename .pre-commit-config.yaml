@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+ci:
+  autofix_commit_msg: "[pre-commit.ci] auto code formatting"
+  autofix_prs: false
+  autoupdate_branch: ""
+  autoupdate_commit_msg: "[pre-commit.ci] pre-commit autoupdate"
+  autoupdate_schedule: quarterly
+  submodules: false
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+# These will be enabled in a follow-up PR
+# - repo: https://github.com/astral-sh/ruff-pre-commit
+#   rev: v0.14.10
+#   hooks:
+#     - id: ruff-check
+#       args: ["--fix"]
+#     - id: ruff-format
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        additional_dependencies: [tomli]
+        args: ["--toml", "pyproject.toml"]
+        exclude: |
+          (?x)^(
+            ^pyproject.toml$|
+            ^presto/testing/common/queries/tpcds/queries.json$
+          )
+  - repo: https://github.com/rapidsai/pre-commit-hooks
+    rev: v1.4.3
+    hooks:
+      - id: verify-copyright
+        args: [--fix, --spdx]
+        files: |
+          (?x)
+            [.](cmake|cpp|cu|cuh|h|hpp|sh|pxd|py|pyx|rs|java)$|
+            CMakeLists[.]txt$|
+            CMakeLists_standalone[.]txt$|
+            meta[.]yaml$|
+            pyproject[.]toml$|
+            setup[.]cfg$|
+            ^[.]pre-commit-config[.]yaml$|
+            Makefile$|
+            recipe[.]yaml$|
+            dependencies[.]yaml$
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        # These will be enabled in a follow-up PR
+        exclude: |
+          (?x)^(
+            ^benchmark_data_tools/.*$|
+            ^presto/.*$|
+            ^scripts/.*$|
+            ^template_rendering/.*$|
+            ^velox/.*$
+          )
+
+default_language_version:
+  python: python3
