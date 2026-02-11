@@ -68,8 +68,6 @@ jobs:
       target_repository: ${{ inputs.target_repository }}
       target_branch: ${{ inputs.branch_prefix }}
       force_push: ${{ inputs.force_push }}
-    secrets:
-      VELOX_FORK_PAT: ${{ secrets.VELOX_FORK_PAT }}
 
   resolve-staging:
     needs:
