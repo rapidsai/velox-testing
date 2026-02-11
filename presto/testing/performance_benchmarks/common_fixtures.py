@@ -8,8 +8,8 @@ import pytest
 
 from .benchmark_keys import BenchmarkKeys
 from .cache_utils import drop_cache
-from .profiler_utils import start_profiler, stop_profiler
 from .metrics_collector import collect_metrics
+from .profiler_utils import start_profiler, stop_profiler
 
 
 @pytest.fixture(scope="module")

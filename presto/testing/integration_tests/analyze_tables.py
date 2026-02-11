@@ -18,16 +18,14 @@ def check_tables_analyzed(presto_cursor, schema_name):
         schema_name: Name of the schema containing tables to check
     """
     tables = presto_cursor.execute(f"SHOW TABLES FROM hive.{schema_name}").fetchall()
-    table_names = [table_name for table_name, in tables]
+    table_names = [table_name for (table_name,) in tables]
 
     if not table_names:
         raise RuntimeError(f"No tables found in schema '{schema_name}'")
 
     tables_missing_stats = []
     for table_name in table_names:
-        presto_cursor.execute(
-            f"SHOW STATS FOR hive.{schema_name}.{table_name}"
-        )
+        presto_cursor.execute(f"SHOW STATS FOR hive.{schema_name}.{table_name}")
         # Find column indices from the cursor description.
         col_names = [desc[0] for desc in presto_cursor.description]
         distinct_idx = col_names.index("distinct_values_count")
@@ -113,7 +111,10 @@ if __name__ == "__main__":
     parser.add_argument("--user", type=str, default="test_user", help="Presto user (default: test_user)")
     parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Enable verbose output")
     parser.add_argument(
-        "--check-only", action="store_true", default=False, help="Only check if tables have been analyzed (do not run ANALYZE)"
+        "--check-only",
+        action="store_true",
+        default=False,
+        help="Only check if tables have been analyzed (do not run ANALYZE)"
     )
 
     args = parser.parse_args()

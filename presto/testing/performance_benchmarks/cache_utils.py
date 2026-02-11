@@ -12,13 +12,19 @@ def drop_cache():
     /proc/sys/vm/drop_caches.
     """
     command = [
-        "docker", "run", "--rm", "--privileged", "--gpus", "all",
-        "alpine:latest", "sh", "-c",
+        "docker",
+        "run",
+        "--rm",
+        "--privileged",
+        "--gpus",
+        "all",
+        "alpine:latest",
+        "sh",
+        "-c",
         "free; echo drop_caches; echo 3 > /proc/sys/vm/drop_caches; free"
     ]
 
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(
-            f"drop_cache returned error code: {result.returncode}, "
-            f"stdout: {result.stdout}, stderr: {result.stderr}")
+            f"drop_cache returned error code: {result.returncode}, stdout: {result.stdout}, stderr: {result.stderr}")
