@@ -1,0 +1,13 @@
+# Generated at runtime
+configs/
+logs/
+result_dir/
+worker_data_*/
+
+# Slurm output files
+*.out
+*.err
+
+# Temporary files
+*.log
+*.tmp
