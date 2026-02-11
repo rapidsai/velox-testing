@@ -114,7 +114,7 @@ if __name__ == "__main__":
         "--check-only",
         action="store_true",
         default=False,
-        help="Only check if tables have been analyzed (do not run ANALYZE)"
+        help="Only check if tables have been analyzed (do not run ANALYZE)",
     )
 
     args = parser.parse_args()
