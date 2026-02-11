@@ -1,15 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+from pathlib import Path
+
 import prestodb
 import pytest
 
-from pathlib import Path
 from .benchmark_keys import BenchmarkKeys
 from .cache_utils import drop_cache
 from .profiler_utils import start_profiler, stop_profiler
 from .metrics_collector import collect_metrics
-from ..common.fixtures import tpch_queries, tpcds_queries
 
 
 @pytest.fixture(scope="module")
@@ -18,8 +18,7 @@ def presto_cursor(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema = request.config.getoption("--schema-name")
-    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive",
-                                  schema=schema)
+    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
     return conn.cursor()
 
 
@@ -81,8 +80,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             result = []
             for _ in range(iterations):
                 cursor = presto_cursor.execute(
-                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" +
-                    benchmark_queries[query_id]
+                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
                 )
                 result.append(cursor.stats["elapsedTimeMillis"])
 
@@ -95,7 +93,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                             query_name=str(query_id),
                             hostname=hostname,
                             port=port,
-                            output_dir=bench_output_dir
+                            output_dir=bench_output_dir,
                         )
             raw_times_dict[query_id] = result
         except Exception as e:
