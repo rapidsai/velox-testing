@@ -56,7 +56,6 @@ export PROFILE=OFF
 export NUM_WORKERS=1
 export KVIKIO_THREADS=8
 export VCPU_PER_WORKER=""
-export MEMORY_PERCENT=""
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -101,15 +100,6 @@ parse_args() {
           shift 2
         else
           echo "Error: --num-drivers requires a value"
-          exit 1
-        fi
-        ;;
-      --memory-percent)
-        if [[ -n $2 ]]; then
-          export MEMORY_PERCENT=$2
-          shift 2
-        else
-          echo "Error: --memory-percent requires a value"
           exit 1
         fi
         ;;

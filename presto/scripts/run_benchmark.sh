@@ -245,6 +245,16 @@ source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
+echo "Checking that ANALYZE TABLE has been run on all tables in schema '${SCHEMA_NAME}'..."
+ANALYZE_CHECK_ARGS=(--schema-name "${SCHEMA_NAME}" --check-only)
+if [[ -n ${HOST_NAME} ]]; then
+  ANALYZE_CHECK_ARGS+=(--host "${HOST_NAME}")
+fi
+if [[ -n ${PORT} ]]; then
+  ANALYZE_CHECK_ARGS+=(--port "${PORT}")
+fi
+python ${TEST_DIR}/integration_tests/analyze_tables.py "${ANALYZE_CHECK_ARGS[@]}"
+
 echo "Running bench"
 export PRESTO_IMAGE_TAG="${USER:-latest}"
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"

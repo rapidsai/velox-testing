@@ -56,15 +56,6 @@ function duplicate_worker_configs() {
 	${worker_config}/config_native.properties
     # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
-    if [[ -n ${MEMORY_PERCENT} ]]; then
-      if ! grep -q "^cudf.memory_resource=.*" ${worker_config}/config_native.properties; then
-        echo "cudf.memory_resource=async" >> ${worker_config}/config_native.properties
-        echo "cudf.memory_percent=${MEMORY_PERCENT}" >> ${worker_config}/config_native.properties
-      else
-        sed -i "s+cudf.memory_resource=.*+cudf.memory_resource=async+g" ${worker_config}/config_native.properties
-        sed -i "s+cudf.memory_percent=.*+cudf.memory_percent=${MEMORY_PERCENT}+g" ${worker_config}/config_native.properties
-      fi
-    fi
   fi
   echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
 
@@ -75,10 +66,6 @@ function duplicate_worker_configs() {
       ${worker_config}/config_native.properties
   sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
       ${worker_config}/config_native.properties
-  if ! grep -q "^cudf.exchange.server.port=80${1}3" ${worker_config}/config_native.properties; then
-    echo "cudf.exchange.server.port=80${1}3" >> ${worker_config}/config_native.properties
-  fi
-  echo "async-data-cache-enabled=false" >> ${worker_config}/config_native.properties
   # Give each worker a unique id.
   sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
 }
