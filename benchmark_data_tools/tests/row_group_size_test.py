@@ -5,8 +5,9 @@ import json
 
 import pyarrow.parquet as pq
 import pytest
+from generate_data_files import generate_data_files
 
-from .common_fixtures import generate_data_files, get_all_parquet_relative_file_paths
+from .common_fixtures import get_all_parquet_relative_file_paths
 
 
 def test_row_group_size_match(setup_and_teardown):

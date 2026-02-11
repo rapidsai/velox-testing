@@ -4,8 +4,9 @@
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from generate_data_files import generate_data_files
 
-from .common_fixtures import generate_data_files, get_all_parquet_relative_file_paths
+from .common_fixtures import get_all_parquet_relative_file_paths
 
 
 def test_data_content_match(setup_and_teardown):
