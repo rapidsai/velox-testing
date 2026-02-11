@@ -91,12 +91,10 @@ generate_configs() {
         SINGLE_NODE_EXEC="true"
         CUDF_EXCHANGE="false"
         JOIN_DIST_TYPE="AUTOMATIC"
-        CLUSTER_TAG="cluster-tag=native-gpu"
     else
         SINGLE_NODE_EXEC="false"
         CUDF_EXCHANGE="true"
         JOIN_DIST_TYPE="PARTITIONED"
-        CLUSTER_TAG="cluster-tag=native-gpu-multinode"
     fi
 
     # Generate coordinator config
@@ -112,7 +110,6 @@ generate_configs() {
         -e "s|__QUERY_MAX_MEM_CLUSTER_GB__|$((QUERY_MAX_MEM_GB * NUM_WORKERS))|g" \
         -e "s|__SINGLE_NODE_EXECUTION__|$SINGLE_NODE_EXEC|g" \
         -e "s|__OPTIMIZER_GPU_SETTINGS__|$OPTIMIZER_GPU_SETTINGS|g" \
-        -e "s|__CLUSTER_TAG__|$CLUSTER_TAG|g" \
         "${SCRIPT_DIR}/config-templates/coordinator/config.properties" \
         > "$CONFIGS/coordinator/config.properties"
 
