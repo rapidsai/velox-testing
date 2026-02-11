@@ -88,12 +88,6 @@ else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
 
-# Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
-if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
-  # Generate default GPU IDs: 0,1,2,...,N-1
-  export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
-fi
-
 "${SCRIPT_DIR}/stop_presto.sh"
 
 "${SCRIPT_DIR}/generate_presto_config.sh"
