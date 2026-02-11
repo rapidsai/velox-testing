@@ -17,6 +17,7 @@ import pytest
 
 from pathlib import Path
 from .benchmark_keys import BenchmarkKeys
+from .cache_utils import drop_cache
 from .profiler_utils import start_profiler, stop_profiler
 from .metrics_collector import collect_metrics
 from ..common.fixtures import tpch_queries, tpcds_queries
@@ -56,6 +57,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     profile = request.config.getoption("--profile")
     profile_script_path = request.config.getoption("--profile-script-path")
     metrics = request.config.getoption("--metrics")
+    drop_cache_enabled = request.config.getoption("--drop-cache")
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     bench_output_dir = request.config.getoption("--output-dir")
     hostname = request.config.getoption("--hostname")
@@ -81,6 +83,8 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     def benchmark_query_function(query_id):
         profile_output_file_path = None
         try:
+            if drop_cache_enabled:
+                drop_cache()
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
