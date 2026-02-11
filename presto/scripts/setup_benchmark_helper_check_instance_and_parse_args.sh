@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -33,7 +22,7 @@ Usage: $0 [OPTIONS]
 
 $SCRIPT_DESCRIPTION
 
-NOTE: The PRESTO_DATA_DIR environment variable must be set before running this script. This environment variable 
+NOTE: The PRESTO_DATA_DIR environment variable must be set before running this script. This environment variable
 must also be set before starting the Presto instance/running the start_*_presto.sh script.
 
 OPTIONS:
@@ -41,6 +30,7 @@ OPTIONS:
     -b, --benchmark-type                Type of benchmark to create tables for. Only "tpch" and "tpcds" are currently supported.
     -s, --schema-name                   Name of the schema that will contain the created tables.
     -d, --data-dir-name                 Name of the directory inside the PRESTO_DATA_DIR path for the benchmark data.
+    --skip-analyze-tables               Skip analyzing tables after creating them. Default is to analyze tables.
     $SCRIPT_EXTRA_OPTIONS_DESCRIPTION
 
 EXAMPLES:
@@ -59,10 +49,7 @@ fi
 # Compute the directory where this script resides (if not already set by caller)
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
-source "${SCRIPT_DIR}/common_functions.sh"
-
-wait_for_worker_node_registration
-
+SKIP_ANALYZE_TABLES=false
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -96,6 +83,10 @@ parse_args() {
           echo "Error: --data-dir-name requires a value"
           exit 1
         fi
+        ;;
+      --skip-analyze-tables)
+        SKIP_ANALYZE_TABLES=true
+        shift
         ;;
       *)
         SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=true
