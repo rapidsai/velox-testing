@@ -587,8 +587,20 @@ merge_additional_repository() {
   # Merge the branch
   log "Merging ${additional_remote}/${ADDITIONAL_BRANCH}..."
   if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") 2>&1; then
-    log "Merge conflict with additional repository. Aborting."
-    exit 1
+    log "Merge conflict with additional repository. Retrying from common ancestor."
+    git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
+    local merge_base
+    merge_base="$(git -C "${repo_dir}" merge-base "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}")"
+    if [[ -z "${merge_base}" ]]; then
+      die "Failed to determine merge-base for ${TARGET_BRANCH} and ${additional_remote}/${ADDITIONAL_BRANCH}"
+    fi
+    log "Resetting ${TARGET_BRANCH} to merge-base ${merge_base}."
+    git -C "${repo_dir}" reset --hard "${merge_base}"
+    log "Retrying merge from merge-base..."
+    if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") 2>&1; then
+      log "Merge conflict with additional repository after merge-base reset. Aborting."
+      exit 1
+    fi
   fi
   if git -C "${repo_dir}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
     git -C "${repo_dir}" commit -m "Merge ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}"
