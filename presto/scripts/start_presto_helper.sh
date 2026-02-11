@@ -19,7 +19,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Get the root of the git repository
-REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+if command -v git &> /dev/null; then
+  REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+else
+  REPO_ROOT="$SCRIPT_DIR/../.."
+fi
+       
 
 # Validate sibling repos
 if [[ "$VARIANT_TYPE" == "java" ]]; then

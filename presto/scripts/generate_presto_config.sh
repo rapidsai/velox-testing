@@ -64,9 +64,9 @@ function duplicate_worker_configs() {
 	${worker_config}/config_native.properties
     # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
-      # This option should be set by default but only applies to multi-worker cases
+    # This option should be set by default but only applies to multi-worker cases
     # It can cause slight overhead in a single-worker environment.
-    echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
+    sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_config}/config_native.properties
   fi
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
@@ -179,11 +179,11 @@ fi
 # we did not re-generate the configs.
 if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
   if [[ -n ${GPU_IDS:-} ]]; then
-      WORKER_IDS=$(echo "$GPU_IDS" | tr ',' ' ')
+      WORKER_IDS=($(echo "$GPU_IDS" | tr ',' ' '))
   else
-      WORKER_IDS=$(seq 0 $((NUM_WORKERS - 1)))
+      WORKER_IDS=($(seq 0 $((NUM_WORKERS - 1))))
   fi
-  for i in "${WORKER_IDS}"; do
+  for i in "${WORKER_IDS[@]}"; do
     duplicate_worker_configs $i
   done
 fi
