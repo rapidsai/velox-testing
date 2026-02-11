@@ -84,18 +84,19 @@ generate_configs() {
     mkdir -p "$CONFIGS"
 
     # Determine single-node execution mode
+    # GPU optimizer settings are always enabled for GPU variant
+    OPTIMIZER_GPU_SETTINGS="optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA\noptimizer.default-filter-factor-enabled=true"
+
     if [[ $NUM_WORKERS -eq 1 ]]; then
         SINGLE_NODE_EXEC="true"
         CUDF_EXCHANGE="false"
         JOIN_DIST_TYPE="AUTOMATIC"
-        OPTIMIZER_GPU_SETTINGS="optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA\noptimizer.default-filter-factor-enabled=true"
         CLUSTER_TAG="cluster-tag=native-gpu"
     else
         SINGLE_NODE_EXEC="false"
         CUDF_EXCHANGE="true"
         JOIN_DIST_TYPE="PARTITIONED"
-        OPTIMIZER_GPU_SETTINGS="# Multi-node GPU settings"
-        CLUSTER_TAG="# Multi-node cluster"
+        CLUSTER_TAG="cluster-tag=native-gpu-multinode"
     fi
 
     # Generate coordinator config
