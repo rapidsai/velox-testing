@@ -6,6 +6,7 @@ from pathlib import Path
 import prestodb
 import pytest
 
+from ..common.fixtures import tpcds_queries as tpcds_queries, tpch_queries as tpch_queries
 from .benchmark_keys import BenchmarkKeys
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
