@@ -46,7 +46,6 @@ function duplicate_worker_configs() {
     # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
   fi
-  echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
   # the cudf.exchange server port is currently hard-coded to be the server port +3
