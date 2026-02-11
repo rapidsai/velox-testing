@@ -164,10 +164,6 @@ parse_args() {
   done
 }
 
-dropcache() {
-  docker run --rm --privileged --gpus all alpine:latest sh -c "free; echo drop_caches; echo 3 > /proc/sys/vm/drop_caches; free"
-}
-
 parse_args "$@"
 
 if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
@@ -229,6 +225,10 @@ if [[ "${METRICS}" == "true" ]]; then
   PYTEST_ARGS+=("--metrics")
 fi
 
+if [[ -z ${SKIP_DROP_CACHE} ]]; then
+  PYTEST_ARGS+=("--drop-cache")
+fi
+
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -244,11 +244,6 @@ pip install -q -r ${TEST_DIR}/requirements.txt
 source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
-
-echo "Dropping cache"
-if [[ -z ${SKIP_DROP_CACHE} ]]; then
-    dropcache;
-fi
 
 echo "Running bench"
 export PRESTO_IMAGE_TAG="${USER:-latest}"
