@@ -162,14 +162,12 @@ generate_configs() {
                 "${SCRIPT_DIR}/config-templates/worker/config.properties" \
                 > "$CONFIGS/worker_${worker_id}/config.properties"
 
-            # Copy catalog configs for worker (only native-supported catalogs)
+            # Copy catalog configs for worker (NO tpcds - match old setup exactly)
             cp "${SCRIPT_DIR}/config-templates/common/hive.properties" \
                "$CONFIGS/worker_${worker_id}/catalog/hive.properties"
             cp "${SCRIPT_DIR}/config-templates/common/tpch.properties" \
                "$CONFIGS/worker_${worker_id}/catalog/tpch.properties"
-            cp "${SCRIPT_DIR}/config-templates/common/tpcds.properties" \
-               "$CONFIGS/worker_${worker_id}/catalog/tpcds.properties"
-            # Note: JMX and Memory connectors are Java-only, not supported by native workers
+            # Note: JMX, Memory, and TPC-DS connectors NOT included for workers (match old setup)
 
             worker_id=$((worker_id + 1))
         done
@@ -242,7 +240,7 @@ start_worker() {
     srun -N1 -w "$node" --ntasks=1 --overlap \
         --container-image="${IMAGE_DIR}/${WORKER_IMAGE}.sqsh" \
         --export=ALL \
-        --container-env=LD_LIBRARY_PATH="/usr/lib64/presto-native-libs:/usr/local/lib:/usr/lib64:${CUDF_LIB}" \
+        --container-env=LD_LIBRARY_PATH="${CUDF_LIB}:\$LD_LIBRARY_PATH" \
         --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
         --container-env=GLOG_logtostderr=1 \
         --container-mounts="${VT_ROOT}:/workspace,\
@@ -252,7 +250,6 @@ ${CONFIGS}/worker_${worker_id}/node.properties:/opt/presto-server/etc/node.prope
 ${CONFIGS}/worker_${worker_id}/config.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/worker_${worker_id}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${CONFIGS}/worker_${worker_id}/catalog/tpch.properties:/opt/presto-server/etc/catalog/tpch.properties,\
-${CONFIGS}/worker_${worker_id}/catalog/tpcds.properties:/opt/presto-server/etc/catalog/tpcds.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA_DIR}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
