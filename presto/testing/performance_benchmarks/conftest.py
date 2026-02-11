@@ -6,6 +6,8 @@ import statistics
 from pathlib import Path
 
 from ..common.conftest import *  # noqa: F403
+from ..common.fixtures import tpcds_queries as tpcds_queries
+from ..common.fixtures import tpch_queries as tpch_queries
 from .benchmark_keys import BenchmarkKeys
 
 
