@@ -105,18 +105,52 @@ jobs:
       - name: 🔄 Reset target branch
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step reset
 
-      - name: 🔗 Merge additional repository/branch
-        if: ${{ inputs.additional_repository != '' && inputs.additional_branch != '' }}
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge-additional
+      - name: 🧪 Test base branch compatibility
+        id: test_bases
+        continue-on-error: true
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step test-bases
 
       - name: 📋 Fetch PR list
+        id: fetch_prs
+        continue-on-error: true
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step fetch-prs
 
       - name: 🧪 Test merge compatibility
+        id: test_merge
+        continue-on-error: true
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step test-merge
 
+      - name: 🧪 Test merge compatibility (merged bases)
+        id: test_merge_merged_bases
+        continue-on-error: true
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step test-merge-merged-bases
+
       - name: 🧪 Test pairwise merge compatibility
+        id: test_pairwise
+        continue-on-error: true
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step test-pairwise
+
+      - name: 🧪 Test pairwise merge compatibility (merged bases)
+        id: test_pairwise_merged_bases
+        continue-on-error: true
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step test-pairwise-merged-bases
+
+      - name: ❌ Fail if any test step failed
+        if: ${{ always() }}
+        run: |
+          if [[ "${{ steps.test_bases.outcome }}" == "failure" ||
+                "${{ steps.fetch_prs.outcome }}" == "failure" ||
+                "${{ steps.test_merge.outcome }}" == "failure" ||
+                "${{ steps.test_merge_merged_bases.outcome }}" == "failure" ||
+                "${{ steps.test_pairwise.outcome }}" == "failure" ||
+                "${{ steps.test_pairwise_merged_bases.outcome }}" == "failure" ]]; then
+            echo "One or more staging test steps failed."
+            exit 1
+          fi
+
+      - name: 🔗 Merge additional repository/branch
+        if: ${{ inputs.additional_repository != '' && inputs.additional_branch != '' }}
+        run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge-additional
 
       - name: 🔀 Merge PRs
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge
