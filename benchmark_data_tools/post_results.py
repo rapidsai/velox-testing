@@ -58,6 +58,7 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -359,6 +360,24 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def normalize_api_url(url: str) -> str:
+    """Normalize a user-provided API URL to a base URL.
+
+    Handles various formats:
+    - https://accel-etl.nvidia.com
+    - https://accel-etl.nvidia.com/
+    - https://accel-etl.nvidia.com/api/benchmark
+    - https://accel-etl.nvidia.com/api/benchmark/
+
+    Returns a normalized base URL (scheme + netloc) without trailing slash.
+    """
+    parsed = urlparse(url)
+    # Reconstruct URL with only scheme and netloc (removes path, query, fragment)
+    normalized = urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+    # Remove trailing slash if present
+    return normalized.rstrip("/")
+
+
 def generate_identifier_hash(timestamp: datetime, engine: str) -> str:
     """Generate a placeholder identifier hash from timestamp and engine.
 
@@ -621,11 +640,12 @@ async def upload_log_files(
         return []
 
     print(f"  Uploading {len(log_files)} log file(s) (max {max_concurrent} concurrent)...", file=sys.stderr)
-    url = f"{api_url.rstrip('/')}/api/assets/upload/"
+    base_url = normalize_api_url(api_url)
     semaphore = asyncio.Semaphore(max_concurrent)
 
     transport = httpx.AsyncHTTPTransport(retries=3)
     async with httpx.AsyncClient(
+        base_url=base_url,
         transport=transport,
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=timeout,
@@ -636,7 +656,7 @@ async def upload_log_files(
                 print(f"    Uploading {log_file.name}...", file=sys.stderr)
                 content = log_file.read_bytes()
                 response = await client.post(
-                    url,
+                    "/api/assets/upload/",
                     files={"file": (log_file.name, content, "text/plain")},
                     data={"title": log_file.name, "media_type": "text/plain"},
                 )
@@ -658,14 +678,15 @@ async def post_submission(api_url: str, api_key: str, payload: dict, timeout: fl
     Returns:
         Tuple of (status_code, response_text)
     """
-    url = f"{api_url.rstrip('/')}/api/benchmark/"
+    base_url = normalize_api_url(api_url)
     transport = httpx.AsyncHTTPTransport(retries=3)
     async with httpx.AsyncClient(
+        base_url=base_url,
         transport=transport,
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=timeout,
     ) as client:
-        response = await client.post(url, json=payload)
+        response = await client.post("/api/benchmark/", json=payload)
     return response.status_code, response.text
 
 
