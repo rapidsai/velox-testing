@@ -867,7 +867,7 @@ main() {
         fetch_pr_list
         ;;
       test-bases)
-        ensure_merged_bases_branch "${WORK_DIR}" || true
+        ensure_merged_bases_branch "${WORK_DIR}"
         ;;
       test-merge)
         require_env_var PR_LIST
