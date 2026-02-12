@@ -1,0 +1,10 @@
+          .build(),
+      FunctionSignatureBuilder()
+          .returnType("varchar")
+          .argumentType("varchar")
+          .build(),
+      FunctionSignatureBuilder()
+          .integerVariable("p")
+          .integerVariable("s")
+          .returnType("decimal(p,s)")
+          .argumentType("decimal(p,s)")

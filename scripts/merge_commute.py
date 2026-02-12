@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import os
 import subprocess
 import sys
@@ -70,7 +71,10 @@ def git_output_bytes(args: Iterable[str], cwd: str) -> bytes:
 
 def blob_exists(repo_root: str, commit: str, path: str) -> bool:
     result = run_git(
-        ["cat-file", "-e", f"{commit}:{path}"], cwd=repo_root, check=False
+        ["cat-file", "-e", f"{commit}:{path}"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
     )
     return result.returncode == 0
 
@@ -280,6 +284,155 @@ def write_result(repo_root: str, path: str, content: Optional[bytes]) -> None:
         handle.write(content)
 
 
+@dataclass(frozen=True)
+class ConflictHunk:
+    start: int  # byte offset of <<<<<<< line
+    end: int    # byte offset after >>>>>>> line
+    ours: bytes
+    base: bytes
+    theirs: bytes
+
+
+def parse_conflict_hunks(content: bytes) -> list[ConflictHunk]:
+    """Parse diff3-style conflict markers into structured hunks."""
+    hunks: list[ConflictHunk] = []
+    lines = content.splitlines(keepends=True)
+    byte_offset = 0
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith(b"<<<<<<<"):
+            hunk_start = byte_offset
+            byte_offset += len(line)
+            i += 1
+            # Collect ours section (until ||||||| or =======)
+            ours_parts: list[bytes] = []
+            while i < len(lines):
+                line = lines[i]
+                if line.startswith(b"|||||||") or line.startswith(b"======="):
+                    break
+                ours_parts.append(line)
+                byte_offset += len(line)
+                i += 1
+            # Collect base section (between ||||||| and =======)
+            base_parts: list[bytes] = []
+            if i < len(lines) and lines[i].startswith(b"|||||||"):
+                byte_offset += len(lines[i])
+                i += 1
+                while i < len(lines):
+                    line = lines[i]
+                    if line.startswith(b"======="):
+                        break
+                    base_parts.append(line)
+                    byte_offset += len(line)
+                    i += 1
+            # Skip =======
+            if i < len(lines) and lines[i].startswith(b"======="):
+                byte_offset += len(lines[i])
+                i += 1
+            # Collect theirs section (until >>>>>>>)
+            theirs_parts: list[bytes] = []
+            while i < len(lines):
+                line = lines[i]
+                if line.startswith(b">>>>>>>"):
+                    byte_offset += len(line)
+                    i += 1
+                    hunks.append(ConflictHunk(
+                        start=hunk_start,
+                        end=byte_offset,
+                        ours=b"".join(ours_parts),
+                        base=b"".join(base_parts),
+                        theirs=b"".join(theirs_parts),
+                    ))
+                    break
+                theirs_parts.append(line)
+                byte_offset += len(line)
+                i += 1
+        else:
+            byte_offset += len(line)
+            i += 1
+    return hunks
+
+
+def compute_per_hunk_key(hunk: ConflictHunk, filepath: str) -> str:
+    """Compute order-independent key for a single conflict hunk.
+
+    Key = sorted(md5(ours), md5(theirs)) + md5(base) + md5(filepath).
+    Sorting ours/theirs hashes makes the key independent of merge direction.
+    """
+    ours_hash = hashlib.md5(hunk.ours).hexdigest()
+    theirs_hash = hashlib.md5(hunk.theirs).hexdigest()
+    base_hash = hashlib.md5(hunk.base).hexdigest()
+    filepath_hash = hashlib.md5(filepath.encode()).hexdigest()
+    sides = sorted([ours_hash, theirs_hash])
+    return sides[0] + sides[1] + base_hash + filepath_hash
+
+
+def apply_hunk_resolutions(
+    conflict_content: bytes,
+    hunks: list[ConflictHunk],
+    resolved_hunks: list[Optional[bytes]],
+) -> bytes:
+    """Replace conflict marker regions with resolved text.
+
+    If a resolved_hunk entry is None, the original conflict markers are kept.
+    """
+    result = bytearray()
+    cursor = 0
+    for hunk, resolved in zip(hunks, resolved_hunks):
+        result.extend(conflict_content[cursor : hunk.start])
+        if resolved is not None:
+            result.extend(resolved)
+        else:
+            result.extend(conflict_content[hunk.start : hunk.end])
+        cursor = hunk.end
+    result.extend(conflict_content[cursor:])
+    return bytes(result)
+
+
+def lookup_resolution(
+    resolutions_dir: str,
+    repo_root: str,
+    path: str,
+) -> tuple[Optional[bytes], int, int]:
+    """Look up per-hunk resolutions from bank.
+
+    Returns (resolved_content, resolved_count, total_count).
+    resolved_content is None if no hunks matched.
+    If partially resolved, the returned content still has conflict markers
+    for unresolved hunks.
+    """
+    abs_path = os.path.join(repo_root, path)
+    if not os.path.isfile(abs_path):
+        return None, 0, 0
+
+    with open(abs_path, "rb") as f:
+        conflict_content = f.read()
+
+    hunks = parse_conflict_hunks(conflict_content)
+    if not hunks:
+        return None, 0, 0
+
+    resolved_hunks: list[Optional[bytes]] = []
+    resolved_count = 0
+
+    for hunk in hunks:
+        key = compute_per_hunk_key(hunk, path)
+        resolution_path = os.path.join(resolutions_dir, "contents", key)
+        if os.path.isfile(resolution_path):
+            with open(resolution_path, "rb") as f:
+                resolved_hunks.append(f.read())
+            resolved_count += 1
+        else:
+            resolved_hunks.append(None)
+
+    if resolved_count == 0:
+        return None, 0, len(hunks)
+
+    result = apply_hunk_resolutions(conflict_content, hunks, resolved_hunks)
+    return result, resolved_count, len(hunks)
+
+
 def ensure_ready(repo_root: str, allow_dirty: bool, auto_continue: bool) -> None:
     if not allow_dirty:
         status = git_output_text(["status", "--porcelain"], cwd=repo_root)
@@ -358,6 +511,15 @@ def main() -> int:
         action="store_true",
         help="fail when same-position inserts would need ordering",
     )
+    parser.add_argument(
+        "--resolutions-dir",
+        help="path to resolutions bank directory for pre-recorded conflict resolutions",
+    )
+    parser.add_argument(
+        "--bank-only",
+        action="store_true",
+        help="only use banked resolutions (skip commuting-merge logic)",
+    )
     args = parser.parse_args()
 
     repo_root = git_output_text(["rev-parse", "--show-toplevel"], cwd=".")
@@ -409,18 +571,50 @@ def main() -> int:
     unresolved: list[str] = []
     try:
         for path in conflicts:
-            safe, result = commuting_merge_result(
-                repo_root,
-                base,
-                args.branch_a,
-                args.branch_b,
-                path,
-                allow_insert_union=not args.strict_commute,
-            )
-            if safe:
-                write_result(repo_root, path, result)
-                run_git(["add", "-A", "--", path], cwd=repo_root)
-            else:
+            resolved = False
+            bank_partial = False
+
+            # 1. Try per-hunk bank resolution (sees raw git conflict markers)
+            if args.resolutions_dir:
+                banked, n_resolved, n_total = lookup_resolution(
+                    args.resolutions_dir,
+                    repo_root,
+                    path,
+                )
+                if banked is not None and n_resolved == n_total:
+                    print(f"resolved from bank: {path} ({n_total} hunks)", file=sys.stderr)
+                    write_result(repo_root, path, banked)
+                    run_git(["add", "-A", "--", path], cwd=repo_root)
+                    resolved = True
+                elif banked is not None and n_resolved > 0:
+                    print(
+                        f"partially resolved from bank: {path} ({n_resolved}/{n_total} hunks)",
+                        file=sys.stderr,
+                    )
+                    # Write partial resolution (still has markers for unresolved hunks)
+                    write_result(repo_root, path, banked)
+                    bank_partial = True
+
+            # 2. Try commuting-merge on full file from blobs (unless --bank-only)
+            if not resolved and not args.bank_only:
+                safe, result = commuting_merge_result(
+                    repo_root,
+                    base,
+                    args.branch_a,
+                    args.branch_b,
+                    path,
+                    allow_insert_union=not args.strict_commute,
+                )
+                if safe:
+                    write_result(repo_root, path, result)
+                    run_git(["add", "-A", "--", path], cwd=repo_root)
+                    resolved = True
+
+            if not resolved:
+                if bank_partial:
+                    # Partial bank resolution already written to working tree;
+                    # remaining markers will appear in conflict dump.
+                    pass
                 unresolved.append(path)
     except Exception as exc:
         if not args.keep_merge:
@@ -448,7 +642,7 @@ def main() -> int:
         print("all conflicts resolved and committed")
         return 0
 
-    print("all conflicts resolved by commuting-merge check")
+    print("all conflicts resolved by auto-resolution")
     return 0
 
 

@@ -1,0 +1,11 @@
+{
+  "hint": "pr15825",
+  "files": [
+    {
+      "filepath": "velox/experimental/cudf/exec/CudfHashAggregation.cpp",
+      "hunk_keys": [
+        "5779170a878f59438272430dc27b5bdc9c7804e9546039bd78addbd829024e6cd41d8cd98f00b204e9800998ecf8427eccf51044124922507b6f8fd95932fdd5"
+      ]
+    }
+  ]
+}

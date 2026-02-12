@@ -30,10 +30,20 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
+BASE_COMMIT_ARGS=()
+SHA_FILE="${SCRIPT_DIR}/../staging_base_commit.sha"
+if [[ -f "${SHA_FILE}" ]]; then
+  BASE_SHA="$(tr -d '[:space:]' < "${SHA_FILE}")"
+  if [[ -n "${BASE_SHA}" ]]; then
+    BASE_COMMIT_ARGS=(--base-commit "${BASE_SHA}")
+  fi
+fi
+
 exec "${PARENT_SCRIPT}" \
   --target-path "${DEFAULT_TARGET_PATH}" \
   --base-repository "facebookincubator/velox" \
   --base-branch "main" \
   --target-branch "staging" \
   --pr-labels "cudf" \
+  "${BASE_COMMIT_ARGS[@]}" \
   "$@"

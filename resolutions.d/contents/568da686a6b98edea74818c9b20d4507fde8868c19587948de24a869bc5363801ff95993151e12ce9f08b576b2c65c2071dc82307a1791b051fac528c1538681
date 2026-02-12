@@ -1,0 +1,1 @@
+    readerOptions_.set_columns_names(mapToPhysicalColumnNames(readColumnNames_));

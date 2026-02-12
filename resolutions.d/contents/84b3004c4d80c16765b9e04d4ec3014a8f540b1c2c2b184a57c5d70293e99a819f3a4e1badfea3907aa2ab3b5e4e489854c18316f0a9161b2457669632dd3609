@@ -1,0 +1,31 @@
+      if (useAstFilter_) {
+        cudfOutputs.push_back(filteredOutputIndices(
+            leftTableView,
+            leftIndicesCol,
+            rightTableView,
+            rightIndicesCol,
+            extendedLeftView,
+            extendedRightView,
+            cudf::join_kind::INNER_JOIN,
+            stream));
+      } else {
+        auto filterFunc = [stream](
+                              std::vector<std::unique_ptr<cudf::column>>&&
+                                  joinedCols,
+                              cudf::column_view filterColumn) {
+          auto filterTable =
+              std::make_unique<cudf::table>(std::move(joinedCols));
+          auto filteredTable =
+              cudf::apply_boolean_mask(*filterTable, filterColumn, stream);
+          return filteredTable->release();
+        };
+        cudfOutputs.push_back(filteredOutput(
+            leftTableView,
+            leftIndicesCol,
+            rightTableView,
+            rightIndicesCol,
+            extendedLeftView,
+            extendedRightView,
+            filterFunc,
+            stream));
+      }

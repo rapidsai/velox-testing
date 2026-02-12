@@ -10,6 +10,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MERGE_COMMUTE_CMD=(python3 "${PROJECT_ROOT}/scripts/merge_commute.py" --strict-commute)
+if [[ -d "${PROJECT_ROOT}/resolutions.d/contents" ]]; then
+  MERGE_COMMUTE_CMD+=(--resolutions-dir "${PROJECT_ROOT}/resolutions.d")
+fi
 
 BASE_REPO=""
 BASE_BRANCH=""
@@ -25,10 +28,14 @@ MANIFEST_TEMPLATE=""
 FORCE_PUSH="false"
 ADDITIONAL_REPOSITORY=""
 ADDITIONAL_BRANCH=""
+BASE_COMMIT_OVERRIDE=""
 GH_TOKEN="${GH_TOKEN:-}"
 USE_LOCAL_PATH="false"
 MODE="local"
 STEP_NAME=""
+DUMP_CONFLICTS="false"
+CONFLICT_REPORT_DIR=""
+SKIPPED_PRS=""
 declare -A PR_SHA
 
 log() { echo "$@" >&2; }
@@ -120,6 +127,7 @@ Required:
 Options:
   --base-repository owner/repo     Base repository (default: ${BASE_REPO})
   --base-branch branch             Base branch (default: ${BASE_BRANCH})
+  --base-commit sha                Pin base to a specific commit (overrides HEAD of base-branch)
   --target-branch branch           Target branch (default: ${TARGET_BRANCH})
   --work-dir path                  Directory to clone target repo (default: ${WORK_DIR})
   --auto-fetch-prs true|false      Auto-fetch non-draft PRs with label (default: ${AUTO_FETCH_PRS})
@@ -132,6 +140,7 @@ Options:
   --additional-branch branch       Branch from additional repository to merge
   --mode local|ci                  Execution mode (default: ${MODE})
   --step name                      Run a single step (see below)
+  --dump-conflicts                 Dump diff3 conflict reports to velox-testing/staging-conflict-report/
   -h, --help                       Show this help
 
 Environment:
@@ -200,8 +209,10 @@ parse_args() {
       --force-push) FORCE_PUSH="$2"; shift 2 ;;
       --additional-repository) ADDITIONAL_REPOSITORY="$2"; shift 2 ;;
       --additional-branch) ADDITIONAL_BRANCH="$2"; shift 2 ;;
+      --base-commit) BASE_COMMIT_OVERRIDE="$2"; shift 2 ;;
       --mode) MODE="$2"; shift 2 ;;
       --step) STEP_NAME="$2"; shift 2 ;;
+      --dump-conflicts) DUMP_CONFLICTS="true"; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "Unknown option: $1" ;;
     esac
@@ -290,6 +301,10 @@ reset_target_branch() {
     log "Resetting ${TARGET_BRANCH} to upstream/${BASE_BRANCH}..."
     git -C "${repo_dir}" checkout -B "${TARGET_BRANCH}" "upstream/${BASE_BRANCH}"
   fi
+  if [[ -n "${BASE_COMMIT_OVERRIDE}" ]]; then
+    log "Pinning base to --base-commit ${BASE_COMMIT_OVERRIDE}"
+    git -C "${repo_dir}" reset --hard "${BASE_COMMIT_OVERRIDE}"
+  fi
   BASE_COMMIT="$(git -C "${repo_dir}" rev-parse HEAD)"
   export BASE_COMMIT
   emit_output BASE_COMMIT "${BASE_COMMIT}"
@@ -367,6 +382,54 @@ fetch_pr_head() {
   fi
 }
 
+dump_conflict_report() {
+  local repo_dir="$1"
+  local pr_num="$2"
+
+  if [[ "${DUMP_CONFLICTS}" != "true" ]]; then
+    return 0
+  fi
+  if [[ -z "${CONFLICT_REPORT_DIR}" ]]; then
+    CONFLICT_REPORT_DIR="${PROJECT_ROOT}/staging-conflict-report"
+    rm -rf "${CONFLICT_REPORT_DIR}"
+    mkdir -p "${CONFLICT_REPORT_DIR}"
+    log "Conflict report directory: ${CONFLICT_REPORT_DIR}"
+  fi
+
+  local pr_dir="${CONFLICT_REPORT_DIR}/${pr_num}"
+  mkdir -p "${pr_dir}"
+
+  local unmerged
+  unmerged="$(git -C "${repo_dir}" diff --name-only --diff-filter=U 2>/dev/null || true)"
+  if [[ -z "${unmerged}" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r filepath; do
+    [[ -z "${filepath}" ]] && continue
+    local safe_name
+    safe_name="$(echo "${filepath}" | tr '/' '_')"
+
+    # Working tree with conflict markers (user edits this to resolve)
+    local wt_file="${repo_dir}/${filepath}"
+    if [[ -f "${wt_file}" ]]; then
+      cp "${wt_file}" "${pr_dir}/${safe_name}.conflict"
+    fi
+
+    # Original filepath (for recording script — safe_name is lossy)
+    echo "${filepath}" > "${pr_dir}/${safe_name}.filepath"
+
+    # Stage 1: base, Stage 2: ours, Stage 3: theirs
+    git -C "${repo_dir}" show ":1:${filepath}" > "${pr_dir}/${safe_name}.base" 2>/dev/null || true
+    git -C "${repo_dir}" show ":2:${filepath}" > "${pr_dir}/${safe_name}.ours" 2>/dev/null || true
+    git -C "${repo_dir}" show ":3:${filepath}" > "${pr_dir}/${safe_name}.theirs" 2>/dev/null || true
+  done <<< "${unmerged}"
+
+  local file_count
+  file_count="$(echo "${unmerged}" | wc -l | xargs)"
+  log "  Dumped conflict report for PR #${pr_num}: ${file_count} file(s) -> ${pr_dir}"
+}
+
 test_merge_compatibility() {
   local repo_dir="$1"
   local pr_list="$2"
@@ -377,24 +440,92 @@ test_merge_compatibility() {
   for pr_num in ${pr_list}; do
     divider "PR #${pr_num}"
     fetch_pr_head "${repo_dir}" "${pr_num}"
-    if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}") >/dev/null 2>&1; then
+    if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}"); then
       successful="${successful} ${pr_num}"
     else
       conflicts="${conflicts} ${pr_num}"
+      dump_conflict_report "${repo_dir}" "PR-${pr_num}"
+      git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
     fi
-    git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
     git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
     git -C "${repo_dir}" clean -fd >/dev/null
   done
 
   if [[ -n "$(echo "${conflicts}" | xargs)" ]]; then
-    log "Conflicts detected for PRs:${conflicts}"
+    log ""
+    log "Conflicts detected (skipping) for PRs:${conflicts}"
     for pr_num in ${conflicts}; do
       log "  PR #${pr_num}: https://github.com/${BASE_REPO}/pull/${pr_num}"
     done
-    exit 1
+    if [[ -n "${CONFLICT_REPORT_DIR}" ]]; then
+      log "Conflict reports saved to: ${CONFLICT_REPORT_DIR}"
+    fi
+    log ""
+    successful="$(echo "${successful}" | xargs)"
+    if [[ -z "${successful}" ]]; then
+      die "No PRs remain after removing conflicts."
+    fi
+    PR_LIST="${successful}"
+    export PR_LIST
+    emit_output PR_LIST "${PR_LIST}"
+    emit_output PR_COUNT "$(echo "${PR_LIST}" | wc -w | xargs)"
+    SKIPPED_PRS="$(echo "${conflicts}" | xargs)"
+    export SKIPPED_PRS
+    log "Continuing with PRs: ${PR_LIST}"
+  else
+    log "All PRs can merge cleanly with ${BASE_BRANCH}."
   fi
-  log "All PRs can merge cleanly with ${BASE_BRANCH}."
+}
+
+dump_pairwise_conflict_report() {
+  local repo_dir="$1"
+  local pr1="$2"
+  local pr2="$3"
+  local which_failed="$4"  # "first" or "second"
+
+  if [[ "${DUMP_CONFLICTS}" != "true" ]]; then
+    return 0
+  fi
+  if [[ -z "${CONFLICT_REPORT_DIR}" ]]; then
+    CONFLICT_REPORT_DIR="${PROJECT_ROOT}/staging-conflict-report"
+    rm -rf "${CONFLICT_REPORT_DIR}"
+    mkdir -p "${CONFLICT_REPORT_DIR}"
+    log "Conflict report directory: ${CONFLICT_REPORT_DIR}"
+  fi
+
+  local pair_dir="${CONFLICT_REPORT_DIR}/pairwise/PR-${pr1}+PR-${pr2}"
+  mkdir -p "${pair_dir}"
+
+  local unmerged
+  unmerged="$(git -C "${repo_dir}" diff --name-only --diff-filter=U 2>/dev/null || true)"
+  if [[ -z "${unmerged}" ]]; then
+    echo "No unmerged files found (${which_failed} merge failed without conflict markers)" > "${pair_dir}/NOTE.txt"
+    return 0
+  fi
+
+  while IFS= read -r filepath; do
+    [[ -z "${filepath}" ]] && continue
+    local safe_name
+    safe_name="$(echo "${filepath}" | tr '/' '_')"
+
+    # Working tree with conflict markers (user edits this to resolve)
+    local wt_file="${repo_dir}/${filepath}"
+    if [[ -f "${wt_file}" ]]; then
+      cp "${wt_file}" "${pair_dir}/${safe_name}.conflict"
+    fi
+
+    # Original filepath (for recording script — safe_name is lossy)
+    echo "${filepath}" > "${pair_dir}/${safe_name}.filepath"
+
+    # Stage 1: base, Stage 2: ours, Stage 3: theirs
+    git -C "${repo_dir}" show ":1:${filepath}" > "${pair_dir}/${safe_name}.base" 2>/dev/null || true
+    git -C "${repo_dir}" show ":2:${filepath}" > "${pair_dir}/${safe_name}.ours" 2>/dev/null || true
+    git -C "${repo_dir}" show ":3:${filepath}" > "${pair_dir}/${safe_name}.theirs" 2>/dev/null || true
+  done <<< "${unmerged}"
+
+  local file_count
+  file_count="$(echo "${unmerged}" | wc -l | xargs)"
+  log "  Dumped pairwise conflict report for PR #${pr1} + PR #${pr2} (${which_failed} merge): ${file_count} file(s) -> ${pair_dir}"
 }
 
 test_pairwise_compatibility() {
@@ -421,6 +552,8 @@ test_pairwise_compatibility() {
       git -C "${repo_dir}" clean -fd >/dev/null
 
       if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --auto-continue "${TARGET_BRANCH}" "${PR_SHA[$pr1]}") >/dev/null 2>&1; then
+        dump_pairwise_conflict_report "${repo_dir}" "${pr1}" "${pr2}" "first"
+        git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
         git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
         conflict_pairs="${conflict_pairs} ${pr1}+${pr2}"
         pair_results["${pr1},${pr2}"]="XX"
@@ -429,9 +562,11 @@ test_pairwise_compatibility() {
         continue
       fi
 
-      if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${PR_SHA[$pr2]}") >/dev/null 2>&1; then
+      if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${TARGET_BRANCH}" "${PR_SHA[$pr2]}") >/dev/null 2>&1; then
         pair_results["${pr1},${pr2}"]="OK"
       else
+        dump_pairwise_conflict_report "${repo_dir}" "${pr1}" "${pr2}" "second"
+        git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
         conflict_pairs="${conflict_pairs} ${pr1}+${pr2}"
         pair_results["${pr1},${pr2}"]="XX"
         conflict_prs["${pr1}"]=1
@@ -539,7 +674,9 @@ merge_prs() {
     fetch_pr_head "${repo_dir}" "${pr_num}"
     local pr_title
     pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "PR #${pr_num}")"
-    if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}") 2>&1; then
+    if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}") 2>&1; then
+      dump_conflict_report "${repo_dir}" "PR-${pr_num}"
+      git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
       log "Merge conflict in PR #${pr_num}. Aborting."
       exit 1
     fi
@@ -584,23 +721,13 @@ merge_additional_repository() {
     die "Failed to fetch ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY}"
   fi
 
-  # Merge the branch
+  # Merge the branch (same resolution approach as PR merges: bank + commuting-merge)
   log "Merging ${additional_remote}/${ADDITIONAL_BRANCH}..."
-  if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") 2>&1; then
-    log "Merge conflict with additional repository. Retrying from common ancestor."
+  if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") 2>&1; then
+    dump_conflict_report "${repo_dir}" "${ADDITIONAL_REPOSITORY//\//_}-${ADDITIONAL_BRANCH//\//_}"
     git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
-    local merge_base
-    merge_base="$(git -C "${repo_dir}" merge-base "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}")"
-    if [[ -z "${merge_base}" ]]; then
-      die "Failed to determine merge-base for ${TARGET_BRANCH} and ${additional_remote}/${ADDITIONAL_BRANCH}"
-    fi
-    log "Resetting ${TARGET_BRANCH} to merge-base ${merge_base}."
-    git -C "${repo_dir}" reset --hard "${merge_base}"
-    log "Retrying merge from merge-base..."
-    if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") 2>&1; then
-      log "Merge conflict with additional repository after merge-base reset. Aborting."
-      exit 1
-    fi
+    log "Merge conflict with additional repository. Aborting."
+    exit 1
   fi
   if git -C "${repo_dir}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
     git -C "${repo_dir}" commit -m "Merge ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}"
@@ -700,6 +827,41 @@ push_branches() {
   fi
 }
 
+
+print_final_report() {
+  step "Staging Branch Report"
+  log ""
+  log "Base: ${BASE_REPO}/${BASE_BRANCH} (${BASE_COMMIT})"
+  if [[ -n "${ADDITIONAL_REPOSITORY}" && -n "${ADDITIONAL_BRANCH}" ]]; then
+    log "Additional: ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH} (${ADDITIONAL_MERGE_COMMIT:-N/A})"
+  fi
+  log ""
+
+  if [[ -n "${MERGED_PRS}" ]]; then
+    log "Merged PRs ($(echo "${MERGED_PRS}" | wc -w | xargs)):"
+    for pr_num in ${MERGED_PRS}; do
+      local pr_title
+      pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "N/A")"
+      log "  #${pr_num}: ${pr_title}"
+      log "    https://github.com/${BASE_REPO}/pull/${pr_num}"
+    done
+  fi
+
+  if [[ -n "${SKIPPED_PRS}" ]]; then
+    log ""
+    log "Skipped PRs - conflicting ($(echo "${SKIPPED_PRS}" | wc -w | xargs)):"
+    for pr_num in ${SKIPPED_PRS}; do
+      local pr_title
+      pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "N/A")"
+      log "  #${pr_num}: ${pr_title}"
+      log "    https://github.com/${BASE_REPO}/pull/${pr_num}"
+    done
+    if [[ -n "${CONFLICT_REPORT_DIR}" ]]; then
+      log "  Conflict reports: ${CONFLICT_REPORT_DIR}"
+    fi
+  fi
+  log ""
+}
 
 init_repo() {
   init_target_repo
@@ -802,6 +964,7 @@ main() {
   merge_prs "${WORK_DIR}" "${PR_LIST}"
   create_manifest "${WORK_DIR}"
   push_branches "${WORK_DIR}"
+  print_final_report
   log "Done."
 }
 

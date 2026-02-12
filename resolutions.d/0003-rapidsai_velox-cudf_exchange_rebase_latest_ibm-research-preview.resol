@@ -1,0 +1,18 @@
+{
+  "hint": "rapidsai_velox-cudf_exchange_rebase_latest_ibm-research-preview",
+  "files": [
+    {
+      "filepath": "velox/experimental/cudf/connectors/hive/CudfHiveDataSource.cpp",
+      "hunk_keys": [
+        "77cb18f4b862a03d9770a6f66f13a1fda6915cd9da51815d5ea2b7e00ca2655c0989038210bebb578d904ea2e10ee38b71dc82307a1791b051fac528c1538681",
+        "568da686a6b98edea74818c9b20d4507fde8868c19587948de24a869bc5363801ff95993151e12ce9f08b576b2c65c2071dc82307a1791b051fac528c1538681"
+      ]
+    },
+    {
+      "filepath": "velox/experimental/cudf/expression/AstExpression.cpp",
+      "hunk_keys": [
+        "20b3527272e20aecc2105ece75534302d41d8cd98f00b204e9800998ecf8427eed6ca8943f93f585c1fa0b6a90e697d01559b17f8cebc46add86b0985c428d36"
+      ]
+    }
+  ]
+}
