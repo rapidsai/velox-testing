@@ -14,7 +14,7 @@ CLI for posting Velox benchmark results to the API.
 This script operates on the parsed output of the benchmark runner. The
 expected directory structure is:
 
-    ../velox-testing-benchmark-viz/2026/01/28/01/
+    ../benchmark-root/
     ├── benchmark.json
     ├── configs
     │   ├── coordinator.config
