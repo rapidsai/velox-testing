@@ -23,7 +23,6 @@ expected directory structure is:
     │   └── slurm-4575179.out
     └── result_dir
         ├── benchmark_cold.json
-        ├── benchmark_full.json
         ├── benchmark_result.json
         ├── benchmark_warm.json
         └── summary.csv
@@ -51,6 +50,7 @@ Environment variables:
 
 import argparse
 import asyncio
+import dataclasses
 import hashlib
 import json
 import os
@@ -58,7 +58,6 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
-import dataclasses
 
 import httpx
 
@@ -106,9 +105,8 @@ class BenchmarkResults:
     def from_file(cls, file_path: Path) -> "BenchmarkResults":
         data = json.loads(file_path.read_text())
 
-        keys = list(data)
-        if keys != ["tpch"]:
-            raise ValueError(f"Unexpected benchmark type: {keys}")
+        if "tpch" not in data.keys():
+            raise KeyError(f"Expected 'tpch' key in {file_path}, got: {sorted(data.keys())}")
 
         raw_times_ms = data["tpch"]["raw_times_ms"]
         failed_queries = data["tpch"]["failed_queries"]
@@ -151,9 +149,7 @@ class PreAggregatedBenchmarkResults:
             benchmark_name = match.group(1)
             scale_factor = int(match.group(2))
         else:
-            raise ValueError(
-                f"Cannot parse schema_name '{schema_name}' into benchmark + scale factor"
-            )
+            raise ValueError(f"Cannot parse schema_name '{schema_name}' into benchmark + scale factor")
 
         # Find the benchmark type key (e.g. "tpch")
         benchmark_keys = [k for k in data if k != "context"]
@@ -253,7 +249,7 @@ def parse_args() -> argparse.Namespace:
         "--data-source",
         choices=["full", "pre-aggregated"],
         default="full",
-        help="Data source type: 'full' reads benchmark_full.json (default), "
+        help="Data source type: 'full' reads benchmark_results.json (default), "
         "'pre-aggregated' reads benchmark_result.json and posts lukewarm + median",
     )
     parser.add_argument(
@@ -302,8 +298,7 @@ def parse_args() -> argparse.Namespace:
         "--upload-logs",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Upload *.log files from the benchmark directory as assets (default: True). "
-        "Use --no-upload-logs to skip.",
+        help="Upload *.log files from the benchmark directory as assets (default: True). Use --no-upload-logs to skip.",
     )
 
     # Pre-aggregated metadata arguments (used when --data-source=pre-aggregated)
@@ -391,7 +386,7 @@ def build_submission_payload(
 
     Args:
         benchmark_metadata: Parsed benchmark.json as BenchmarkMetadata
-        benchmark_results: Parsed benchmark_full.json as BenchmarkResults
+        benchmark_results: Parsed benchmark_results.json as BenchmarkResults
         engine_config: Parsed config files as EngineConfig
         sku_name: Hardware SKU name
         storage_configuration_name: Storage configuration name
@@ -646,10 +641,7 @@ async def upload_log_files(
                     data={"title": log_file.name, "media_type": "text/plain"},
                 )
                 if response.status_code >= 400:
-                    raise RuntimeError(
-                        f"Failed to upload {log_file.name}: "
-                        f"{response.status_code} {response.text}"
-                    )
+                    raise RuntimeError(f"Failed to upload {log_file.name}: {response.status_code} {response.text}")
                 result = response.json()
                 asset_id = result["asset_id"]
                 print(f"    Uploaded {log_file.name} (asset_id={asset_id})", file=sys.stderr)
@@ -704,7 +696,7 @@ async def process_benchmark_dir(
     # Load metadata, results, and config
     try:
         metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark.json")
-        results = BenchmarkResults.from_file(benchmark_dir / "result_dir" / "benchmark_full.json")
+        results = BenchmarkResults.from_file(benchmark_dir / "result_dir" / "benchmark_results.json")
         engine_config = EngineConfig.from_dir(benchmark_dir / "configs")
     except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
         print(f"  Error loading files: {e}", file=sys.stderr)
@@ -719,7 +711,9 @@ async def process_benchmark_dir(
     if upload_logs:
         if dry_run:
             log_files = sorted(benchmark_dir.glob("*.log"))
-            print(f"  [DRY RUN] Would upload {len(log_files)} log file(s): {[f.name for f in log_files]}", file=sys.stderr)
+            print(
+                f"  [DRY RUN] Would upload {len(log_files)} log file(s): {[f.name for f in log_files]}", file=sys.stderr
+            )
         else:
             try:
                 asset_ids = await upload_log_files(benchmark_dir, api_url, api_key, timeout)
@@ -761,9 +755,7 @@ async def process_benchmark_dir(
 
     # Post to API
     try:
-        status_code, response_text = await post_submission(
-            api_url, api_key, payload, timeout
-        )
+        status_code, response_text = await post_submission(api_url, api_key, payload, timeout)
         print(f"  Status: {status_code}", file=sys.stderr)
         if status_code >= 400:
             print(f"  Response: {response_text}", file=sys.stderr)
@@ -812,9 +804,7 @@ async def process_pre_aggregated_dir(
 
     # Load pre-aggregated results
     try:
-        pre_agg_results = PreAggregatedBenchmarkResults.from_file(
-            benchmark_dir / "benchmark_result.json"
-        )
+        pre_agg_results = PreAggregatedBenchmarkResults.from_file(benchmark_dir / "benchmark_result.json")
     except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
         print(f"  Error loading benchmark_result.json: {e}", file=sys.stderr)
         return 1
@@ -844,7 +834,9 @@ async def process_pre_aggregated_dir(
     if upload_logs:
         if dry_run:
             log_files = sorted(benchmark_dir.glob("*.log"))
-            print(f"  [DRY RUN] Would upload {len(log_files)} log file(s): {[f.name for f in log_files]}", file=sys.stderr)
+            print(
+                f"  [DRY RUN] Would upload {len(log_files)} log file(s): {[f.name for f in log_files]}", file=sys.stderr
+            )
         else:
             try:
                 asset_ids = await upload_log_files(benchmark_dir, api_url, api_key, timeout)
@@ -883,9 +875,7 @@ async def process_pre_aggregated_dir(
             continue
 
         try:
-            status_code, response_text = await post_submission(
-                api_url, api_key, payload, timeout
-            )
+            status_code, response_text = await post_submission(api_url, api_key, payload, timeout)
             print(f"    Status: {status_code}", file=sys.stderr)
             if status_code >= 400:
                 print(f"    Response: {response_text}", file=sys.stderr)
