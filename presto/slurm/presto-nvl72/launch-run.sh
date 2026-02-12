@@ -30,6 +30,8 @@ NODES_COUNT=""
 SCALE_FACTOR=""
 NUM_ITERATIONS="1"
 EXTRA_ARGS=()
+NUM_GPUS_PER_NODE="4"
+WORKER_IMAGE="presto-native-worker-gpu"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -n|--nodes)
@@ -37,7 +39,7 @@ while [[ $# -gt 0 ]]; do
                 NODES_COUNT="$2"
                 shift 2
             else
-                echo "Error: -n|--nodes requires a value"
+                echo "Error: -n|--nodes requires a value."
                 echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [additional sbatch options]"
                 exit 1
             fi
@@ -47,7 +49,7 @@ while [[ $# -gt 0 ]]; do
                 SCALE_FACTOR="$2"
                 shift 2
             else
-                echo "Error: -s|--scale-factor requires a value"
+                echo "Error: -s|--scale-factor requires a value."
                 echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [additional sbatch options]"
                 exit 1
             fi
@@ -58,6 +60,26 @@ while [[ $# -gt 0 ]]; do
                 shift 2
             else
                 echo "Error: -i|--iterations requires a value"
+                echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]"
+                exit 1
+            fi
+            ;;
+	-g|--num-gpus-per-node)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                NUM_GPUS_PER_NODE="$2"
+                shift 2
+            else
+                echo "Error: -g|--num-gpus-per-node requires a value"
+                echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]"
+                exit 1
+            fi
+            ;;
+	-w|--worker-image)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                WORKER_IMAGE="$2"
+                shift 2
+            else
+                echo "Error: -w|--worker-image requires a value"
                 echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]"
                 exit 1
             fi
@@ -88,8 +110,8 @@ fi
 OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
 ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
 SCRIPT_DIR="$PWD"
-JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR}" \
---output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" \
+JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE}" \
+--output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" --gres="gpu:${NUM_GPUS_PER_NODE}" \
 run-presto-benchmarks.slurm | awk '{print $NF}')
 OUT_FILE="${OUT_FMT//%j/${JOB_ID}}"
 ERR_FILE="${ERR_FMT//%j/${JOB_ID}}"

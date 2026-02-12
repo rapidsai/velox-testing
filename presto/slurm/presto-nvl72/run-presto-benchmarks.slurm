@@ -1,10 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=presto-tpch-run
-#SBATCH --time=01:00:00
+#SBATCH --time=03:00:00
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=144
 #SBATCH --mem=0
-#SBATCH --gres=gpu:4
 #SBATCH --exclusive
 
 # ==============================================================================
@@ -26,6 +25,11 @@ if [ -z "${SCRIPT_DIR:-}" ]; then
     exit 1
 fi
 export SCRIPT_DIR
+if [ -z "${WORKER_IMAGE:-}" ]; then
+    echo "Error: WORKER_IMAGE is required."
+    exit 1
+fi
+export WORKER_IMAGE
 
 # Assumes the repo root is four steps up from the script directory.  This should refer to velox-testing.
 export REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
@@ -38,9 +42,7 @@ export CONFIGS=$REPO_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 # Container Images
 # Coordinator: ${IMAGE_DIR}/presto-coordinator-test.sqsh
 # Worker: ${IMAGE_DIR}/${WORKER_IMAGE}.sqsh
-export WORKER_IMAGE=presto-native-worker-$VARIANT_TYPE
 export NUM_NODES=$SLURM_JOB_NUM_NODES
-export NUM_GPUS_PER_NODE=4
 
 # Presto Configuration
 export PORT=9200
