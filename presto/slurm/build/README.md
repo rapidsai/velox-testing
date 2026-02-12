@@ -27,39 +27,27 @@ Before starting, ensure the Presto/Velox source code is available at: `/mnt/data
 ./clone.sh
 ```
 
-Then run the builds:
+Then run the builds with the convenience scripts:
 
 ```bash
-# Stage 1: Build dependencies (15-20 minutes)
-srun --export=ALL,PMIX_MCA_gds=^ds12 \
-  --nodes=1 --mem=0 --ntasks-per-node=1 \
-  --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
-  --mpi=pmix_v4 --container-remap-root \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
-  --container-image=quay.io/centos/centos:stream9 \
-  --container-save=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  /presto-build/build-deps-in-container.sh
-
-# Stage 2: Build worker (20-25 minutes)
-srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRESTO_DIR=/presto-build/presto/presto-native-execution \
-  --nodes=1 --mem=0 --ntasks-per-node=1 \
-  --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
-  --mpi=pmix_v4 --container-remap-root \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
-  --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-save=/mnt/data/$USER/images/presto/presto-native-worker-gpu.sqsh \
-  /presto-build/build-presto.sh
-
-# Stage 3: Build coordinator (15-20 minutes)
-srun --export=ALL,PMIX_MCA_gds=^ds12,PRESTO_VERSION=testing,PRESTO_SOURCE_DIR=/presto-build/presto \
-  --nodes=1 --mem=0 --ntasks-per-node=1 \
-  --cpus-per-task=144 \
-  --mpi=pmix_v4 --container-remap-root \
-  --container-mounts=/mnt/data/$USER/src/velox-testing/presto/slurm/build:/presto-build \
-  --container-image=/mnt/data/$USER/images/presto/prestissimo-dependency-centos9.sqsh \
-  --container-save=/mnt/data/$USER/images/presto/presto-coordinator.sqsh \
-  /presto-build/setup-coordinator.sh
+./quick_build.sh
 ```
+
+Or to to store images to a different path set the `IMAGES_DIR` environment variable:
+```bash
+IMAGES_DIR=/tmp/presto ./quick_build.sh
+```
+
+The step above should take around 50 minutes to complete on an NVL4 node and will build three images:
+
+```
+/mnt/data/$USER/images/presto/
+├── prestissimo-dependency-centos9.sqsh    # Dependencies image
+├── presto-native-worker-gpu.sqsh          # GPU worker image
+└── presto-coordinator.sqsh                # Coordinator image
+```
+
+For rebuilding, see the [Incremental Builds](#incremental-builds) section.
 
 ## Detailed Instructions
 
