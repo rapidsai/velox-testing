@@ -45,11 +45,11 @@ x-presto-native-worker-gpu: &gpu_worker_base
     - SYS_PTRACE
     {% endif %}
     - IPC_LOCK
+    - SYS_ADMIN  # Required for nsys GPU metrics profiling
   {% if dev_mode %}
   security_opt:
     - seccomp=unconfined
   {% endif %}
-    - SYS_ADMIN  # Required for nsys GPU metrics profiling
   pid: host
   ulimits:
     memlock: -1
