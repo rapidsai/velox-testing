@@ -69,9 +69,7 @@ def git_output_bytes(args: Iterable[str], cwd: str) -> bytes:
 
 
 def blob_exists(repo_root: str, commit: str, path: str) -> bool:
-    result = run_git(
-        ["cat-file", "-e", f"{commit}:{path}"], cwd=repo_root, check=False
-    )
+    result = run_git(["cat-file", "-e", f"{commit}:{path}"], cwd=repo_root, check=False)
     return result.returncode == 0
 
 
@@ -87,9 +85,7 @@ def split_lines(content: Optional[bytes]) -> list[bytes]:
     return content.splitlines(keepends=True)
 
 
-def edits_from_diff(
-    base_lines: list[bytes], other_lines: list[bytes], side: str
-) -> list[Edit]:
+def edits_from_diff(base_lines: list[bytes], other_lines: list[bytes], side: str) -> list[Edit]:
     matcher = difflib.SequenceMatcher(a=base_lines, b=other_lines, autojunk=False)
     edits: list[Edit] = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -177,16 +173,12 @@ def safe_merge_by_edits(
                 continue
 
             if ours_insert:
-                if insert_overlaps_range(
-                    ours_edit.base_start, theirs_edit.base_start, theirs_edit.base_end
-                ):
+                if insert_overlaps_range(ours_edit.base_start, theirs_edit.base_start, theirs_edit.base_end):
                     return None
                 continue
 
             if theirs_insert:
-                if insert_overlaps_range(
-                    theirs_edit.base_start, ours_edit.base_start, ours_edit.base_end
-                ):
+                if insert_overlaps_range(theirs_edit.base_start, ours_edit.base_start, ours_edit.base_end):
                     return None
                 continue
 
@@ -289,9 +281,7 @@ def ensure_ready(repo_root: str, allow_dirty: bool, auto_continue: bool) -> None
     if auto_continue:
         staged = git_output_text(["diff", "--cached", "--name-only"], cwd=repo_root)
         if staged:
-            raise RuntimeError(
-                "staged changes present; auto-continue would include them"
-            )
+            raise RuntimeError("staged changes present; auto-continue would include them")
 
     in_merge = run_git(
         ["rev-parse", "-q", "--verify", "MERGE_HEAD"],
@@ -315,9 +305,7 @@ def abort_merge(repo_root: str) -> bool:
 
 
 def continue_merge(repo_root: str) -> None:
-    unmerged = git_output_text(
-        ["diff", "--name-only", "--diff-filter=U"], cwd=repo_root
-    )
+    unmerged = git_output_text(["diff", "--name-only", "--diff-filter=U"], cwd=repo_root)
     if unmerged:
         raise RuntimeError("cannot continue; unresolved conflicts remain")
 
@@ -333,9 +321,7 @@ def continue_merge(repo_root: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Merge B into A with commuting-conflict auto-resolution."
-    )
+    parser = argparse.ArgumentParser(description="Merge B into A with commuting-conflict auto-resolution.")
     parser.add_argument("branch_a", help="target branch to merge into")
     parser.add_argument("branch_b", help="source branch to merge from")
     parser.add_argument(
@@ -375,9 +361,7 @@ def main() -> int:
             capture_output=True,
         )
 
-    base = git_output_text(
-        ["merge-base", args.branch_a, args.branch_b], cwd=repo_root
-    )
+    base = git_output_text(["merge-base", args.branch_a, args.branch_b], cwd=repo_root)
 
     run_git(["checkout", args.branch_a], cwd=repo_root)
     merge = run_git(
@@ -398,9 +382,7 @@ def main() -> int:
         print("merge clean: no conflicts (left uncommitted)")
         return 0
 
-    conflicts_raw = git_output_text(
-        ["diff", "--name-only", "--diff-filter=U"], cwd=repo_root
-    )
+    conflicts_raw = git_output_text(["diff", "--name-only", "--diff-filter=U"], cwd=repo_root)
     conflicts = [line for line in conflicts_raw.splitlines() if line]
     if not conflicts:
         print("merge failed without conflicted files", file=sys.stderr)
