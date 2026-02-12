@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+
 import prestodb
 
 
@@ -17,7 +18,7 @@ def analyze_tables(presto_cursor, schema_name, verbose=False):
         if verbose:
             print(f"Discovering tables in schema '{schema_name}'...")
         tables = presto_cursor.execute(f"SHOW TABLES FROM hive.{schema_name}").fetchall()
-        table_names = [table_name for table_name, in tables]
+        table_names = [table_name for (table_name,) in tables]
 
         if not table_names:
             print(f"Warning: No tables found in schema '{schema_name}'")
@@ -25,7 +26,7 @@ def analyze_tables(presto_cursor, schema_name, verbose=False):
 
         if verbose:
             print(f"Found {len(table_names)} table(s): {', '.join(table_names)}")
-            print(f"\nStarting table analysis...")
+            print("\nStarting table analysis...")
 
         success_count = 0
         failure_count = 0
@@ -54,17 +55,17 @@ def analyze_tables(presto_cursor, schema_name, verbose=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Analyze all tables in a Hive schema to collect statistics for query optimization.")
-    parser.add_argument("--schema-name", type=str, required=True,
-                        help="Name of the schema containing the tables to analyze.")
-    parser.add_argument("--host", type=str, default="localhost",
-                        help="Presto coordinator hostname (default: localhost)")
-    parser.add_argument("--port", type=int, default=8080,
-                        help="Presto coordinator port (default: 8080)")
-    parser.add_argument("--user", type=str, default="test_user",
-                        help="Presto user (default: test_user)")
-    parser.add_argument("-v", "--verbose", action="store_true", default=False,
-                        help="Enable verbose output")
+        description="Analyze all tables in a Hive schema to collect statistics for query optimization."
+    )
+    parser.add_argument(
+        "--schema-name", type=str, required=True, help="Name of the schema containing the tables to analyze."
+    )
+    parser.add_argument(
+        "--host", type=str, default="localhost", help="Presto coordinator hostname (default: localhost)"
+    )
+    parser.add_argument("--port", type=int, default=8080, help="Presto coordinator port (default: 8080)")
+    parser.add_argument("--user", type=str, default="test_user", help="Presto user (default: test_user)")
+    parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Enable verbose output")
     args = parser.parse_args()
 
     conn = prestodb.dbapi.connect(host=args.host, port=args.port, user=args.user, catalog="hive")

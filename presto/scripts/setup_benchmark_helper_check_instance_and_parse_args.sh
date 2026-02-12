@@ -30,6 +30,7 @@ OPTIONS:
     -b, --benchmark-type                Type of benchmark to create tables for. Only "tpch" and "tpcds" are currently supported.
     -s, --schema-name                   Name of the schema that will contain the created tables.
     -d, --data-dir-name                 Name of the directory inside the PRESTO_DATA_DIR path for the benchmark data.
+    --skip-analyze-tables               Skip analyzing tables after creating them. Default is to analyze tables.
     $SCRIPT_EXTRA_OPTIONS_DESCRIPTION
 
 EXAMPLES:
@@ -48,10 +49,7 @@ fi
 # Compute the directory where this script resides (if not already set by caller)
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
-source "${SCRIPT_DIR}/common_functions.sh"
-
-wait_for_worker_node_registration
-
+SKIP_ANALYZE_TABLES=false
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -85,6 +83,10 @@ parse_args() {
           echo "Error: --data-dir-name requires a value"
           exit 1
         fi
+        ;;
+      --skip-analyze-tables)
+        SKIP_ANALYZE_TABLES=true
+        shift
         ;;
       *)
         SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=true
