@@ -4,6 +4,8 @@
 import os
 import sys
 
+import pandas as pd
+
 
 def get_abs_file_path(relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
@@ -11,21 +13,57 @@ def get_abs_file_path(relative_path):
 
 sys.path.append(get_abs_file_path("../../../benchmark_data_tools"))
 
-
 import duckdb  # noqa: E402
-import pytest  # noqa: E402
 import sqlglot  # noqa: E402
 from duckdb_utils import create_table  # noqa: E402
 
 
-def execute_query_and_compare_results(presto_cursor, queries, query_id):
+def execute_query_and_compare_results(request_config, presto_cursor, queries, query_id):
     query = queries[query_id]
 
     presto_cursor.execute(query)
     presto_rows = presto_cursor.fetchall()
-    duckdb_rows, types, columns = execute_duckdb_query(query)
+    presto_columns = [desc[0] for desc in presto_cursor.description]
 
-    compare_results(presto_rows, duckdb_rows, types, query, columns)
+    preview_rows_count = request_config.getoption("--preview-rows-count")
+    if request_config.getoption("--show-presto-result-preview"):
+        show_result_preview(presto_columns, presto_rows, preview_rows_count, "Presto", query_id)
+
+    output_dir = request_config.getoption("--output-dir")
+    result_file_name = f"{query_id.lower()}.parquet"
+    if request_config.getoption("--store-presto-results"):
+        write_presto_rows(output_dir, result_file_name, presto_rows, presto_columns)
+
+    reference_results_dir = request_config.getoption("--reference-results-dir")
+    if reference_results_dir:
+        duckdb_relation = duckdb.from_parquet(f"{reference_results_dir}/{result_file_name}")
+    else:
+        duckdb_relation = duckdb.sql(query)
+
+    if request_config.getoption("--store-reference-results"):
+        duckdb_relation.write_parquet(f"{output_dir}/reference_results/{result_file_name}")
+
+    duckdb_rows = duckdb_relation.fetchall()
+    if request_config.getoption("--show-reference-result-preview"):
+        show_result_preview(duckdb_relation.columns, duckdb_rows, preview_rows_count, "Reference", query_id)
+
+    if not request_config.getoption("--skip-reference-comparison"):
+        compare_results(presto_rows, duckdb_rows, duckdb_relation.types, query, duckdb_relation.columns)
+
+
+def show_result_preview(columns, rows, preview_rows_count, result_source, query_id):
+    start_line = f"\n{'-' * 50} {result_source} {query_id} Result Preview {'-' * 50}"
+    print(start_line)
+    preview_rows_count = min(preview_rows_count, len(rows))
+    print(f"Showing {preview_rows_count} of {len(rows)} rows...\n")
+    df = pd.DataFrame(rows[:preview_rows_count], columns=columns)
+    print(df)
+    print("-" * len(start_line))
+
+
+def write_presto_rows(output_dir, result_file_name, rows, columns):
+    df = pd.DataFrame(rows, columns=columns)
+    df.to_parquet(f"{output_dir}/presto_results/{result_file_name}")
 
 
 def get_is_sorted_query(query):
@@ -48,8 +86,7 @@ def compare_results(presto_rows, duckdb_rows, types, query, column_names):
     # will be equal and the resulting order of non-ORDER BY columns will be ambiguous.
     sorted_duckdb_rows = sorted(duckdb_rows, key=none_safe_sort_key)
     sorted_presto_rows = sorted(presto_rows, key=none_safe_sort_key)
-    approx_floats(sorted_duckdb_rows, types)
-    assert sorted_presto_rows == sorted_duckdb_rows
+    assert_rows_equal(sorted_presto_rows, sorted_duckdb_rows, types)
 
     # If we have an ORDER BY clause we want to test that the resulting order of those
     # columns is correct, in addition to overall values being correct.
@@ -58,11 +95,11 @@ def compare_results(presto_rows, duckdb_rows, types, query, column_names):
     # the ORDER BY validation but still validate overall result correctness.
     order_indices = get_orderby_indices(query, column_names)
     if order_indices:
-        approx_floats(duckdb_rows, types)
         # Project both results to ORDER BY columns and compare in original order
         duckdb_proj = [[row[i] for i in order_indices] for row in duckdb_rows]
         presto_proj = [[row[i] for i in order_indices] for row in presto_rows]
-        assert presto_proj == duckdb_proj
+        projected_types = [types[i] for i in order_indices]
+        assert_rows_equal(presto_proj, duckdb_proj, projected_types)
 
 
 def get_orderby_indices(query, column_names):
@@ -104,11 +141,6 @@ def create_duckdb_table(table_name, data_path):
     create_table(table_name, get_abs_file_path(data_path))
 
 
-def execute_duckdb_query(query):
-    relation = duckdb.sql(query)
-    return relation.fetchall(), relation.types, relation.columns
-
-
 def normalize_rows(rows, types):
     return [normalize_row(row, types) for row in rows]
 
@@ -133,8 +165,43 @@ def normalize_row(row, types):
     return normalized_row
 
 
-def approx_floats(rows, types):
-    for col_index, type in enumerate(types):
-        if type.id in FLOATING_POINT_TYPES:
-            for row_index in range(len(rows)):
-                rows[row_index][col_index] = pytest.approx(rows[row_index][col_index], abs=0.02)
+def assert_rows_equal(rows_1, rows_2, types):
+    if len(rows_1) != len(rows_2):
+        raise AssertionError(f"Row count mismatch: {len(rows_1)} vs {len(rows_2)}")
+
+    float_cols = {i for i, t in enumerate(types) if t.id in FLOATING_POINT_TYPES}
+    mismatches = []
+    abs_tolerance = 0.02
+    max_mismatches = 5
+
+    for row_idx, (row_1, row_2) in enumerate(zip(rows_1, rows_2)):
+        if len(row_1) != len(row_2):
+            mismatches.append(f"Row: {row_idx} length mismatch: {len(row_1)} vs {len(row_2)}")
+            if len(mismatches) >= max_mismatches:
+                break
+            continue
+
+        for col_idx, (value_1, value_2) in enumerate(zip(row_1, row_2)):
+            if value_1 is None and value_2 is None:
+                continue
+            if value_1 is None or value_2 is None:
+                mismatches.append(f"Row: {row_idx}, Column: {col_idx}: {value_1} vs {value_2} (null mismatch)")
+            elif col_idx in float_cols:
+                if abs(value_1 - value_2) > abs_tolerance:
+                    mismatches.append(
+                        f"Row: {row_idx}, Column: {col_idx}: {value_1} vs {value_2} "
+                        f"(diff={abs(value_1 - value_2):.6f}, tolerance={abs_tolerance})"
+                    )
+            elif value_1 != value_2:
+                mismatches.append(f"Row: {row_idx}, Column: {col_idx}: {value_1} vs {value_2}")
+
+            if len(mismatches) >= max_mismatches:
+                break
+
+        if len(mismatches) >= max_mismatches:
+            break
+
+    if mismatches:
+        truncated_msg = f" (showing first {max_mismatches})" if len(mismatches) >= max_mismatches else ""
+        mismatch_details = "\n  ".join(mismatches)
+        raise AssertionError(f"Found {len(mismatches)} mismatches{truncated_msg}:\n  {mismatch_details}")
