@@ -30,6 +30,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     iterations = config.getoption("--iterations")
     schema_name = config.getoption("--schema-name")
     tag = config.getoption("--tag")
+    if not hasattr(terminalreporter._session, "benchmark_results"):
+        return
     for benchmark_type, result in terminalreporter._session.benchmark_results.items():
         assert BenchmarkKeys.AGGREGATE_TIMES_KEY in result
 
@@ -135,6 +137,8 @@ def pytest_sessionfinish(session, exitstatus):
         ]
     else:
         AGG_KEYS = [BenchmarkKeys.LUKEWARM_KEY]
+    if not hasattr(session, "benchmark_results"):
+        return
     for benchmark_type, result in session.benchmark_results.items():
         compute_aggregate_timings(result)
         json_result[benchmark_type] = {
