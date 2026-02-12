@@ -249,7 +249,7 @@ def parse_args() -> argparse.Namespace:
         "--data-source",
         choices=["full", "pre-aggregated"],
         default="full",
-        help="Data source type: 'full' reads benchmark_results.json (default), "
+        help="Data source type: 'full' reads benchmark_result.json (default), "
         "'pre-aggregated' reads benchmark_result.json and posts lukewarm + median",
     )
     parser.add_argument(
@@ -386,7 +386,7 @@ def build_submission_payload(
 
     Args:
         benchmark_metadata: Parsed benchmark.json as BenchmarkMetadata
-        benchmark_results: Parsed benchmark_results.json as BenchmarkResults
+        benchmark_results: Parsed benchmark_result.json as BenchmarkResults
         engine_config: Parsed config files as EngineConfig
         sku_name: Hardware SKU name
         storage_configuration_name: Storage configuration name
@@ -696,7 +696,7 @@ async def process_benchmark_dir(
     # Load metadata, results, and config
     try:
         metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark.json")
-        results = BenchmarkResults.from_file(benchmark_dir / "result_dir" / "benchmark_results.json")
+        results = BenchmarkResults.from_file(benchmark_dir / "result_dir" / "benchmark_result.json")
         engine_config = EngineConfig.from_dir(benchmark_dir / "configs")
     except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
         print(f"  Error loading files: {e}", file=sys.stderr)
