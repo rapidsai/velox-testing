@@ -10,13 +10,14 @@ print_help() {
 
 Usage: $SCRIPT_NAME [OPTIONS]
 
-This script builds Presto service images (one for the coordinator node and one for $VARIANT_TYPE worker node).
+This script builds Presto service (coordinator and/or $VARIANT_TYPE worker) images.
 
 OPTIONS:
     -h, --help           Show this help message.
     -n, --no-cache       Do not use the builder cache when building the image.
-    -b, --build          Service type to build from source. Possible values are
+    -s, --service-type   Service type to build from source. Possible values are
                          "coordinator" or "c", "worker" or "w", and "all" or "a".
+                         Default value is "all".
     -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
     --build-type         Build type for native CPU and GPU image builds. Possible values are "release",
                          "relwithdebinfo", or "debug". Values are case insensitive. The default value
@@ -25,8 +26,8 @@ OPTIONS:
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
-    $SCRIPT_NAME -b worker
-    $SCRIPT_NAME --build c
+    $SCRIPT_NAME -s worker
+    $SCRIPT_NAME --service-type c
     $SCRIPT_NAME -j 8
     $SCRIPT_NAME -h
 
@@ -36,6 +37,7 @@ EOF
 NUM_THREADS=$(($(nproc) / 2))
 BUILD_TYPE=release
 ALL_CUDA_ARCHS=false
+SERVICE_TYPE=all
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -48,12 +50,12 @@ parse_args() {
         SKIP_CACHE_ARG="--no-cache"
         shift
         ;;
-      -b|--build)
+      -s|--service-type)
         if [[ -n $2 ]]; then
-          BUILD_TARGET=$2
+          SERVICE_TYPE=$2
           shift 2
         else
-          echo "Error: --build requires a value"
+          echo "Error: --service-type requires a value"
           exit 1
         fi
         ;;
@@ -91,8 +93,8 @@ parse_args() {
 
 parse_args "$@"
 
-if [[ -n ${BUILD_TARGET} && ! ${BUILD_TARGET} =~ ^(coordinator|c|worker|w|all|a)$ ]]; then
-  echo "Error: invalid --build value."
+if [[ -n ${SERVICE_TYPE} && ! ${SERVICE_TYPE} =~ ^(coordinator|c|worker|w|all|a)$ ]]; then
+  echo "Error: invalid --service-type value."
   print_help
   exit 1
 fi

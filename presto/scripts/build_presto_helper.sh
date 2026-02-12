@@ -30,17 +30,6 @@ fi
 
 source "${SCRIPT_DIR}/build_presto_helper_parse_args.sh"
 
-
-if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
-  echo "Error: the --profile argument is only supported for Presto GPU"
-  exit 1
-fi
-
-if [[ "$PROFILE" == "ON" && $NUM_WORKERS -gt 1 && "$SINGLE_CONTAINER" == "false" ]]; then
-  echo "Error: multi-worker --profile argument is only currently supported with the --single-container option"
-  exit 1
-fi
-
 # Set PRESTO_IMAGE_TAG to the username in order to avoid conflicts when multiple users build images.
 # Falls back to "latest" if USER is not set.
 export PRESTO_IMAGE_TAG="${USER:-latest}"
@@ -67,8 +56,8 @@ function conditionally_add_build_target() {
   if is_image_missing $1; then
     echo "Added $2 to the list of services to build because the $1 image is missing"
     BUILD_TARGET_ARG+=($2)
-  elif [[ ${BUILD_TARGET} =~ ^($3|all|a)$ ]]; then
-    echo "Added $2 to the list of services to build because the '$BUILD_TARGET' build target was specified"
+  elif [[ ${SERVICE_TYPE} =~ ^($3|all|a)$ ]]; then
+    echo "Added $2 to the list of services to build because the '$SERVICE_TYPE' service type was specified"
     BUILD_TARGET_ARG+=($2)
   fi
 }
@@ -119,7 +108,8 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
 
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
 
-  "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH"
+  "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" \
+  "--output-path $RENDERED_PATH" "--num-workers 1" "--single-container true"
 
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
