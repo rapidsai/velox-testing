@@ -16,7 +16,7 @@ expected directory structure is:
 
     ../benchmark-root/
     ├── benchmark.json
-    ├── configs
+    ├── configs  # optional
     │   ├── coordinator.config
     │   └── worker.config
     ├── logs
@@ -371,7 +371,7 @@ def generate_identifier_hash(timestamp: datetime, engine: str) -> str:
 def build_submission_payload(
     benchmark_metadata: BenchmarkMetadata,
     benchmark_results: BenchmarkResults,
-    engine_config: EngineConfig,
+    engine_config: EngineConfig | None,
     sku_name: str,
     storage_configuration_name: str,
     cache_state: str,
@@ -387,7 +387,7 @@ def build_submission_payload(
     Args:
         benchmark_metadata: Parsed benchmark.json as BenchmarkMetadata
         benchmark_results: Parsed benchmark_result.json as BenchmarkResults
-        engine_config: Parsed config files as EngineConfig
+        engine_config: Parsed config files as EngineConfig, optional
         sku_name: Hardware SKU name
         storage_configuration_name: Storage configuration name
         cache_state: Cache state (cold/warm/hot)
@@ -480,7 +480,7 @@ def build_submission_payload(
         "node_count": benchmark_metadata.n_workers,
         "query_logs": query_logs,
         "concurrency_streams": 1,
-        "engine_config": engine_config.serialize(),
+        "engine_config": engine_config.serialize() if engine_config else {},
         "extra_info": extra_info,
         "is_official": is_official,
         "asset_ids": asset_ids,
@@ -697,10 +697,14 @@ async def process_benchmark_dir(
     try:
         metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark.json")
         results = BenchmarkResults.from_file(benchmark_dir / "result_dir" / "benchmark_result.json")
-        engine_config = EngineConfig.from_dir(benchmark_dir / "configs")
     except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
         print(f"  Error loading files: {e}", file=sys.stderr)
         return 1
+
+    if (benchmark_dir / "configs").exists():
+        engine_config = EngineConfig.from_dir(benchmark_dir / "configs")
+    else:
+        engine_config = None
 
     print(f"  Timestamp: {metadata.timestamp}", file=sys.stderr)
     print(f"  Engine: {metadata.engine}", file=sys.stderr)
