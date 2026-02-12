@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from ..common.conftest import *  # noqa: F403
+from .common_fixtures import *  # noqa: F403
 
 
 def pytest_addoption(parser):
