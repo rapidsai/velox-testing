@@ -357,6 +357,46 @@ print_table_header() {
   printf "%-4s-|-%-18s-|-%-8s-|-%-8s-|-%-8s\n" "----" "------------------" "--------" "--------" "--------"
 }
 
+upstream_repo_for_label() {
+  local label="$1"
+  if echo "${label}" | grep -qi "velox"; then
+    echo "facebookincubator/velox"
+  elif echo "${label}" | grep -qi "presto"; then
+    echo "prestodb/presto"
+  else
+    echo ""
+  fi
+}
+
+extract_search_query() {
+  local text="$1"
+  local line
+  line="$(echo "${text}" | sed '/^$/d' | head -n 1 | tr -d '\r' | sed 's/["'\'']//g')"
+  echo "${line:0:120}"
+}
+
+print_related_issues_and_prs() {
+  local repo="$1"
+  local query="$2"
+  local since_date="$3"
+
+  if [[ -z "${repo}" || -z "${query}" ]]; then
+    return 0
+  fi
+
+  echo ""
+  echo "  Related issues (last 7 days):"
+  gh_retry gh search issues --repo "${repo}" --limit 5 --json title,url,number \
+    "\"${query}\" created:>=${since_date}" \
+    | jq -r '.[] | "    - #\(.number) \(.title) (\(.url))"' || echo "    - (search failed)"
+
+  echo ""
+  echo "  Related PRs (last 7 days):"
+  gh_retry gh search prs --repo "${repo}" --limit 5 --json title,url,number \
+    "\"${query}\" created:>=${since_date}" \
+    | jq -r '.[] | "    - #\(.number) \(.title) (\(.url))"' || echo "    - (search failed)"
+}
+
 print_failure_details() {
   local label="$1"  # e.g. "Velox Build / Upstream"
   local run_json="$2"
@@ -379,6 +419,8 @@ print_failure_details() {
   # Fetch logs if needed for printing or AI analysis
   local log_out=""
   LOG_TAIL_LINES="${LOG_TAIL_LINES:-150}"
+  local since_date
+  since_date="$(date -u -d "7 days ago" +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)"
   
   if [[ "${PRINT_LOGS}" == "true" || "${ANALYZE_CAUSE}" == "true" ]]; then
     log_out="$(gh_retry gh run view -R "${REPO}" "${run_id}" --log-failed 2>/dev/null)" || true
@@ -482,6 +524,13 @@ FIX:Check the run link above for details"
         echo "    - Cause: _${cause}_"
         if [[ "${ANALYZE_FIX}" == "true" ]]; then
           echo "    - Fix: _${fix}_"
+        fi
+
+        local repo query
+        repo="$(upstream_repo_for_label "${label}")"
+        query="$(extract_search_query "${clean_stacktrace}")"
+        if [[ -n "${query}" ]]; then
+          print_related_issues_and_prs "${repo}" "${query}" "${since_date}"
         fi
       fi
       
@@ -694,6 +743,8 @@ print_slack_failure_details() {
   run_url="$(jq -r '.url' <<<"${run_json}")"
   wf_name="$(jq -r '.workflowName' <<<"${run_json}")"
   conclusion="$(jq -r '.conclusion' <<<"${run_json}")"
+  local since_date
+  since_date="$(date -u -d "7 days ago" +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)"
 
   echo ""
   echo "*${idx}. ${label}*"
@@ -806,6 +857,20 @@ FIX:Check the run link above for details"
         echo "    *Cause:* _${cause}_"
         if [[ "${ANALYZE_FIX}" == "true" ]]; then
           echo "    *Fix:* _${fix}_"
+        fi
+
+        local repo query
+        repo="$(upstream_repo_for_label "${label}")"
+        query="$(extract_search_query "${clean_stacktrace}")"
+        if [[ -n "${query}" ]]; then
+          echo ""
+          echo "    *Related issues/PRs (last 7 days):*"
+          gh_retry gh search issues --repo "${repo}" --limit 5 --json title,url,number \
+            "\"${query}\" created:>=${since_date}" \
+            | jq -r '.[] | "    • #\(.number) \(.title) (\(.url))"' || echo "    • (issue search failed)"
+          gh_retry gh search prs --repo "${repo}" --limit 5 --json title,url,number \
+            "\"${query}\" created:>=${since_date}" \
+            | jq -r '.[] | "    • #\(.number) \(.title) (\(.url))"' || echo "    • (PR search failed)"
         fi
       fi
       
