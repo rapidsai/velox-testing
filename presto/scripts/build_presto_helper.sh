@@ -88,16 +88,6 @@ else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
 
-# Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
-if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
-  # Generate default GPU IDs: 0,1,2,...,N-1
-  export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
-fi
-
-"${SCRIPT_DIR}/stop_presto.sh"
-
-"${SCRIPT_DIR}/generate_presto_config.sh"
-
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
 if [[ "$VARIANT_TYPE" == "gpu" && "$ALL_CUDA_ARCHS" == "true" ]]; then
@@ -126,17 +116,14 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   RENDERED_DIR="${SCRIPT_DIR}/../docker/docker-compose/generated"
   mkdir -p "$RENDERED_DIR"
   RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
-  # Default to 0 if not provided, which results in no per-GPU workers being rendered.
-  LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
-  if [[ -n $GPU_IDS ]]; then
-    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS"
-  else
-    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS"
-  fi
+
+  "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH"
+
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
+
 if (( ${#BUILD_TARGET_ARG[@]} )); then
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
@@ -157,6 +144,3 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
   ${BUILD_TARGET_ARG[@]}
 fi
-
-# Start all services defined in the rendered docker-compose file.
-docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
