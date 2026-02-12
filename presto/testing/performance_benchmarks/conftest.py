@@ -120,6 +120,11 @@ def pytest_sessionfinish(session, exitstatus):
                     BenchmarkKeys.MEDIAN_KEY, BenchmarkKeys.GMEAN_KEY, BenchmarkKeys.LUKEWARM_KEY]
     else:
         AGG_KEYS = [BenchmarkKeys.LUKEWARM_KEY]
+
+    # Check if benchmark_results exists (it may not if test collection failed)
+    if not hasattr(session, 'benchmark_results'):
+        return
+
     for benchmark_type, result in session.benchmark_results.items():
         compute_aggregate_timings(result)
         json_result[benchmark_type] = {

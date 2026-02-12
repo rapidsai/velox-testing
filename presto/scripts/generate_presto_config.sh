@@ -41,37 +41,43 @@ if [ ! -x "${SCRIPT_DIR}/../pbench/pbench" ]; then
   echo_error "ERROR: generate_presto_config.sh script cannot find pbench at ${SCRIPT_DIR}/../pbench/pbench"
 fi
 
+# This function duplicates the worker configs when we are running multiple workers.
+# It also adds certain config options to the workers if those options apply only to multi-worker environments.
 function duplicate_worker_configs() {
-  echo "Duplicating worker configs for GPU ID $1"
-  local worker_config="${CONFIG_DIR}/etc_worker_${1}"
+  local worker_id=$1
+  echo "Duplicating worker configs for GPU ID $worker_id"
+  local worker_config="${CONFIG_DIR}/etc_worker_${worker_id}"
   local coord_config="${CONFIG_DIR}/etc_coordinator"
+  # Need to stagger the port numbers because ucx exchange currently expects to be exactly
+  # 3 higher than the http port.
+  local http_port="10$(printf "%02d\n" "$worker_id")0"
+  local exch_port="10$(printf "%02d\n" "$worker_id")3"
   rm -rf ${worker_config}
   cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
 
-  # Single node execution needs to be disabled if we are running multiple workers.
+  # Some configs should only be applied if we are in a multi-worker environment.
   if [[ ${NUM_WORKERS} -gt 1 ]]; then
+    # Single node execution needs to be disabled if we are running multiple workers.
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
         ${coord_config}/config_native.properties
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
 	${worker_config}/config_native.properties
     # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
+    # This option should be set by default but only applies to multi-worker cases
+    # It can cause slight overhead in a single-worker environment.
+    sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_config}/config_native.properties
   fi
-  echo "join-distribution-type=PARTITIONED" >> ${coord_config}/config_native.properties
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
   # the cudf.exchange server port is currently hard-coded to be the server port +3
   # and that needs to be unique for each worker.
-  sed -i "s+http-server\.http\.port.*+http-server\.http\.port=80${1}0+g" \
+  sed -i "s+http-server\.http\.port.*+http-server\.http\.port=${http_port}+g" \
       ${worker_config}/config_native.properties
-  sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
+  sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=${exch_port}+g" \
       ${worker_config}/config_native.properties
-  if ! grep -q "^cudf.exchange.server.port=80${1}3" ${worker_config}/config_native.properties; then
-    echo "cudf.exchange.server.port=80${1}3" >> ${worker_config}/config_native.properties
-  fi
-  echo "async-data-cache-enabled=false" >> ${worker_config}/config_native.properties
   # Give each worker a unique id.
-  sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
+  sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
 }
 
 # get host values
@@ -141,14 +147,10 @@ EOF
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
-    sed -i 's/query.max-execution-time=.*/query.max-execution-time=10m/g' ${COORD_CONFIG}
-    echo "cudf.exchange.server.port=0000" >> ${WORKER_CONFIG}
 
     if [[ ${NUM_WORKERS} -eq 1 ]]; then
       # Adds a cluster tag for gpu variant
       echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
-    else
-      sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${WORKER_CONFIG}
     fi
   fi
 
@@ -175,10 +177,13 @@ fi
 
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
-if [[ -n "$NUM_WORKERS" && -n "${GPU_IDS:-}" && "$VARIANT_TYPE" == "gpu" ]]; then
-  # Count the number of GPU IDs provided
-  IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
-  for i in "${GPU_ID_ARRAY[@]}"; do
+if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
+  if [[ -n ${GPU_IDS:-} ]]; then
+      WORKER_IDS=($(echo "$GPU_IDS" | tr ',' ' '))
+  else
+      WORKER_IDS=($(seq 0 $((NUM_WORKERS - 1))))
+  fi
+  for i in "${WORKER_IDS[@]}"; do
     duplicate_worker_configs $i
   done
 fi

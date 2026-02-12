@@ -23,12 +23,12 @@ fi
 export SCRIPT_DIR
 
 # Directory Configuration
-export REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
+export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 export DATA=/mnt/data/tpch-rs
 export IMAGE_DIR=/mnt/data/images/presto
 export LOGS=$SCRIPT_DIR/logs
 export VARIANT_TYPE=cpu
-export CONFIGS=$REPO_ROOT/presto/docker/config/generated/$VARIANT_TYPE
+export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
 # Container Images
 # Coordinator: ${IMAGE_DIR}/presto-coordinator-test.sqsh
@@ -74,7 +74,7 @@ echo "========================================"
 # Create necessary directories
 mkdir -p ${LOGS}
 mkdir -p ${DATA}
-mkdir -p ${REPO_ROOT}/.hive_metastore
+mkdir -p ${VT_ROOT}/.hive_metastore
 
 # Launch the job script
-bash ${REPO_ROOT}/veloxtesting/presto-nvl72/create-presto-benchmarks.sh
+bash ${VT_ROOT}/veloxtesting/presto-nvl72/create-presto-benchmarks.sh

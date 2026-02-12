@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 
 # Staging Branch Creator
@@ -555,28 +558,28 @@ merge_prs() {
 
 merge_additional_repository() {
   local repo_dir="$1"
-  
+
   if [[ -z "${ADDITIONAL_REPOSITORY}" || -z "${ADDITIONAL_BRANCH}" ]]; then
     log "No additional repository configured, skipping."
     return 0
   fi
-  
+
   step "Merging additional repository: ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}"
-  
+
   local additional_remote="additional-merge-source"
   local additional_url="https://github.com/${ADDITIONAL_REPOSITORY}.git"
-  
+
   # Add remote if not exists
   if ! git -C "${repo_dir}" remote get-url "${additional_remote}" >/dev/null 2>&1; then
     git -C "${repo_dir}" remote add "${additional_remote}" "${additional_url}"
   fi
-  
+
   # Fetch the branch
   log "Fetching ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY}..."
   if ! git -C "${repo_dir}" fetch "${additional_remote}" "${ADDITIONAL_BRANCH}" 2>&1; then
     die "Failed to fetch ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY}"
   fi
-  
+
   # Merge the branch
   log "Merging ${additional_remote}/${ADDITIONAL_BRANCH}..."
   if ! git -C "${repo_dir}" merge "${additional_remote}/${ADDITIONAL_BRANCH}" --log -m "Merge ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}" 2>&1; then
@@ -584,12 +587,12 @@ merge_additional_repository() {
     git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
     exit 1
   fi
-  
+
   ADDITIONAL_MERGE_COMMIT="$(git -C "${repo_dir}" rev-parse "${additional_remote}/${ADDITIONAL_BRANCH}")"
   export ADDITIONAL_MERGE_COMMIT
   emit_output ADDITIONAL_MERGE_COMMIT "${ADDITIONAL_MERGE_COMMIT}"
   log "Successfully merged ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH} (${ADDITIONAL_MERGE_COMMIT})"
-  
+
   # Update BASE_COMMIT to current HEAD so subsequent steps preserve the additional merge
   BASE_COMMIT="$(git -C "${repo_dir}" rev-parse HEAD)"
   export BASE_COMMIT

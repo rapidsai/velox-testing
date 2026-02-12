@@ -32,12 +32,12 @@ fi
 export WORKER_IMAGE
 
 # Assumes the repo root is four steps up from the script directory.  This should refer to velox-testing.
-export REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
+export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 export DATA=/mnt/data/tpch-rs
 export IMAGE_DIR=/mnt/data/images/presto
 export LOGS=$SCRIPT_DIR/logs
 export VARIANT_TYPE=gpu
-export CONFIGS=$REPO_ROOT/presto/docker/config/generated/$VARIANT_TYPE
+export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
 # Container Images
 # Coordinator: ${IMAGE_DIR}/presto-coordinator-test.sqsh

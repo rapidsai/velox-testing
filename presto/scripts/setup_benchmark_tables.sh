@@ -32,6 +32,15 @@ function cleanup() {
 
 trap cleanup EXIT
 
+# These scripts are used in some non-docker environments, so provide the option to skip
+# the docker setup/teardown.
+if [[ -z "$NO_DOCKER" ]]; then
+  "${SCRIPT_DIR}/start_native_cpu_presto.sh"
+  source "${SCRIPT_DIR}/common_functions.sh"
+  wait_for_worker_node_registration
+fi
+
+
 "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p $SCHEMA_GEN_SCRIPT_PATH \
                                --benchmark-type $BENCHMARK_TYPE \
                                --schemas-dir-path $TEMP_SCHEMA_DIR \
@@ -42,3 +51,11 @@ trap cleanup EXIT
                                --schema-name $SCHEMA_NAME \
                                --schemas-dir-path $TEMP_SCHEMA_DIR \
                                --data-dir-name $DATA_DIR_NAME
+
+if [[ "$SKIP_ANALYZE_TABLES" == "false" ]]; then
+  "${SCRIPT_DIR}/analyze_tables.sh" -s $SCHEMA_NAME
+fi
+
+if [[ -z "$NO_DOCKER" ]]; then
+  "${SCRIPT_DIR}/stop_presto.sh"
+fi
