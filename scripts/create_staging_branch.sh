@@ -395,6 +395,27 @@ list_conflict_files() {
   git -C "${repo_dir}" diff --name-only --diff-filter=U | xargs || true
 }
 
+# Print a table of conflicting PR details.
+print_conflicting_prs_table() {
+  local pr_list="$1"
+  log ""
+  log "Conflicting PR Details:"
+  log ""
+  log "$(printf "| %-10s | %-20s | %-50s | %-55s |" "PR" "Author" "Title" "URL")"
+  log "$(printf "| %-10s | %-20s | %-50s | %-55s |" "----------" "--------------------" "--------------------------------------------------" "-------------------------------------------------------")"
+
+  for pr_num in ${pr_list}; do
+    local pr_author pr_title pr_url
+    pr_author="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json author --jq '.author.login' 2>/dev/null || echo "N/A")"
+    pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "N/A")"
+    pr_url="https://github.com/${BASE_REPO}/pull/${pr_num}"
+    if [[ ${#pr_title} -gt 47 ]]; then
+      pr_title="${pr_title:0:47}..."
+    fi
+    log "$(printf "| %-10s | %-20s | %-50s | %-55s |" "#${pr_num}" "${pr_author}" "${pr_title}" "${pr_url}")"
+  done
+}
+
 # Create merged bases branch if possible.
 ensure_merged_bases_branch() {
   local repo_dir="$1"
@@ -486,6 +507,7 @@ test_merge_compatibility() {
     for pr_num in ${conflicts}; do
       log "  PR #${pr_num}: https://github.com/${BASE_REPO}/pull/${pr_num}"
     done
+    print_conflicting_prs_table "${conflicts}"
     exit 1
   fi
   log "All PRs can merge cleanly with ${label}."
