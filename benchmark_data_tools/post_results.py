@@ -393,6 +393,7 @@ def build_submission_payload(
     engine_config: EngineConfig | None,
     sku_name: str,
     storage_configuration_name: str,
+    benchmark_definition_name: str,
     cache_state: str,
     engine_name: str | None,
     identifier_hash: str | None,
@@ -487,7 +488,7 @@ def build_submission_payload(
     return {
         "sku_name": sku_name,
         "storage_configuration_name": storage_configuration_name,
-        "benchmark_definition_name": benchmark_metadata.get_benchmark_definition_name(),
+        "benchmark_definition_name": benchmark_definition_name,
         "cache_state": cache_state,
         "query_engine": {
             "engine_name": engine,
@@ -706,6 +707,7 @@ async def process_benchmark_dir(
     api_key: str | None,
     timeout: float,
     upload_logs: bool = True,
+    benchmark_definition_name: str | None = None,
 ) -> int:
     """Process a benchmark directory and post results to API.
 
@@ -746,12 +748,14 @@ async def process_benchmark_dir(
                 print(f"  Error uploading logs: {e}", file=sys.stderr)
                 return 1
 
+    benchmark_definition_name = benchmark_definition_name or metadata.get_benchmark_definition_name()
     # Build submission payload
     try:
         payload = build_submission_payload(
             benchmark_metadata=metadata,
             benchmark_results=results,
             engine_config=engine_config,
+            benchmark_definition_name=benchmark_definition_name,
             sku_name=sku_name,
             storage_configuration_name=storage_configuration_name,
             cache_state=cache_state,
@@ -849,7 +853,8 @@ async def process_pre_aggregated_dir(
         engine=engine_name,
     )
 
-    print(f"  Benchmark: {metadata.get_benchmark_definition_name()}", file=sys.stderr)
+    benchmark_definition_name = benchmark_definition_name or metadata.get_benchmark_definition_name()
+    print(f"  Benchmark: {benchmark_definition_name}", file=sys.stderr)
     print(f"  Engine: {engine_name}", file=sys.stderr)
     print(f"  Node count: {n_workers}", file=sys.stderr)
     print(f"  Iterations: {pre_agg_results.iterations_count}", file=sys.stderr)
@@ -1014,6 +1019,7 @@ async def main() -> int:
             api_key=args.api_key,
             timeout=args.timeout,
             upload_logs=args.upload_logs,
+            benchmark_definition_name=args.benchmark_definition_name,
         )
 
     return result
