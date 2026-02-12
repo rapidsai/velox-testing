@@ -71,7 +71,11 @@ if [[ ${#SCHEMA_ARRAY[@]} -eq 0 ]]; then
     exit 1
 fi
 
-export PRESTO_DATA_DIR=${PRESTO_DATA_DIR:-/raid/ocs_benchmark_data/tpch/experimental}
+if [[ -z ${PRESTO_DATA_DIR} ]]; then
+    echo "Error: --data-dir is required or PRESTO_DATA_DIR must be set in the environment."
+    exit 1
+fi
+
 for schema in "${SCHEMA_ARRAY[@]}"; do
     for kvikio in "${KVIKIO_ARRAY[@]}"; do
         for drivers in "${DRIVERS_ARRAY[@]}"; do

@@ -30,7 +30,7 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
-    --skip-drop-cache	    Skip cache dropping (will drop cache by default).
+    --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
 
@@ -225,8 +225,8 @@ if [[ "${METRICS}" == "true" ]]; then
   PYTEST_ARGS+=("--metrics")
 fi
 
-if [[ -z ${SKIP_DROP_CACHE} ]]; then
-  PYTEST_ARGS+=("--drop-cache")
+if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
+  PYTEST_ARGS+=("--skip-drop-cache")
 fi
 
 # Compute the directory where this script resides
@@ -244,16 +244,6 @@ pip install -q -r ${TEST_DIR}/requirements.txt
 source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
-
-echo "Checking that ANALYZE TABLE has been run on all tables in schema '${SCHEMA_NAME}'..."
-ANALYZE_CHECK_ARGS=(--schema-name "${SCHEMA_NAME}" --check-only)
-if [[ -n ${HOST_NAME} ]]; then
-  ANALYZE_CHECK_ARGS+=(--host "${HOST_NAME}")
-fi
-if [[ -n ${PORT} ]]; then
-  ANALYZE_CHECK_ARGS+=(--port "${PORT}")
-fi
-python ${TEST_DIR}/integration_tests/analyze_tables.py "${ANALYZE_CHECK_ARGS[@]}"
 
 echo "Running bench"
 export PRESTO_IMAGE_TAG="${USER:-latest}"

@@ -6,10 +6,27 @@ from pathlib import Path
 import prestodb
 import pytest
 
+from ..integration_tests.analyze_tables import check_tables_analyzed
 from .benchmark_keys import BenchmarkKeys
 from .cache_utils import drop_cache
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
+
+
+@pytest.fixture(scope="session", autouse=True)
+def verify_tables_analyzed(request):
+    """Session-scoped setup that verifies ANALYZE TABLE has been run on all tables."""
+    hostname = request.config.getoption("--hostname")
+    port = request.config.getoption("--port")
+    user = request.config.getoption("--user")
+    schema = request.config.getoption("--schema-name")
+    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
+    cursor = conn.cursor()
+    try:
+        check_tables_analyzed(cursor, schema)
+    finally:
+        cursor.close()
+        conn.close()
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +62,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     profile = request.config.getoption("--profile")
     profile_script_path = request.config.getoption("--profile-script-path")
     metrics = request.config.getoption("--metrics")
-    drop_cache_enabled = request.config.getoption("--drop-cache")
+    drop_cache_enabled = not request.config.getoption("--skip-drop-cache")
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     bench_output_dir = request.config.getoption("--output-dir")
     hostname = request.config.getoption("--hostname")
