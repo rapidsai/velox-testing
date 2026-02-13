@@ -15,6 +15,7 @@ import decimal
 import json
 import pytest
 import sqlglot
+from collections import Counter
 
 from duckdb_utils import create_table
 
@@ -34,9 +35,20 @@ def execute_query_and_compare_results(presto_cursor, queries, query_id):
     try:
         compare_results(presto_rows, duckdb_rows, types, query, columns)
     except AssertionError as e:
+        mismatch_debug = _debug_result_mismatch(
+            presto_cursor,
+            query_id,
+            query,
+            presto_rows,
+            duckdb_rows,
+            types,
+        )
+        details = [str(e)]
         if debug_info:
-            raise AssertionError(f"{e}\n{debug_info}") from e
-        raise
+            details.append(debug_info)
+        if mismatch_debug:
+            details.append(mismatch_debug)
+        raise AssertionError("\n".join(details)) from e
 
 
 def get_is_sorted_query(query):
@@ -174,12 +186,191 @@ def _debug_none_result(presto_cursor, query_id, query):
         return "No debug info available."
     return "\n".join(lines)
 
+
+def _format_row_sample(rows, limit=5):
+    sample = [list(row) for row in rows[:limit]]
+    return json.dumps(sample, default=str)
+
+
+def _row_to_key(row):
+    key = []
+    for value in row:
+        if isinstance(value, decimal.Decimal):
+            key.append(str(value))
+        else:
+            key.append(value)
+    return tuple(key)
+
+
+def _run_debug_query(presto_cursor, query):
+    presto_result = presto_cursor.execute(query).fetchall()
+    duckdb_result = duckdb.sql(query).fetchall()
+    return presto_result, duckdb_result
+
+
+def _append_debug_query(lines, presto_cursor, label, query):
+    try:
+        presto_result, duckdb_result = _run_debug_query(presto_cursor, query)
+        lines.append(
+            f"{label}: presto={json.dumps(presto_result, default=str)} "
+            f"duckdb={json.dumps(duckdb_result, default=str)}"
+        )
+    except Exception as exc:
+        lines.append(f"{label}: debug query failed: {exc}")
+
+
+def _debug_q17_mismatch(presto_cursor):
+    lines = ["Q17 deep debug:"]
+    q17_rewritten = (
+        "WITH thresholds AS ( "
+        "  SELECT l_partkey, 0.2 * avg(l_quantity) AS threshold "
+        "  FROM lineitem "
+        "  GROUP BY l_partkey "
+        ") "
+        "SELECT "
+        "  count(*) AS qualifying_rows, "
+        "  count(DISTINCT l.l_partkey) AS qualifying_parts, "
+        "  sum(l.l_extendedprice) AS sum_extendedprice, "
+        "  sum(l.l_extendedprice) / 7.0 AS avg_yearly "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "JOIN thresholds t ON t.l_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' "
+        "  AND p.p_container = 'MED BOX' "
+        "  AND l.l_quantity < t.threshold"
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 rewritten aggregate check",
+        q17_rewritten,
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 qualifying parts",
+        "SELECT count(*) FROM part WHERE p_brand = 'Brand#23' AND p_container = 'MED BOX'",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 quantity stats for qualifying parts",
+        "SELECT count(*) AS rows, avg(l.l_quantity), min(l.l_quantity), max(l.l_quantity) "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX'",
+    )
+    return "\n".join(lines)
+
+
+def _debug_q22_mismatch(presto_cursor):
+    lines = ["Q22 deep debug:"]
+    avg_threshold_query = (
+        "SELECT avg(c_acctbal) AS avg_positive_bal "
+        "FROM customer "
+        "WHERE c_acctbal > 0.00 "
+        "  AND substring(c_phone FROM 1 FOR 2) IN ('13', '31', '23', '29', '30', '18', '17')"
+    )
+    _append_debug_query(lines, presto_cursor, "Q22 threshold", avg_threshold_query)
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q22 candidate customers",
+        "SELECT count(*) "
+        "FROM customer "
+        "WHERE substring(c_phone FROM 1 FOR 2) IN ('13', '31', '23', '29', '30', '18', '17')",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q22 customers above threshold",
+        "WITH avg_bal AS ( "
+        "  SELECT avg(c_acctbal) AS v "
+        "  FROM customer "
+        "  WHERE c_acctbal > 0.00 "
+        "    AND substring(c_phone FROM 1 FOR 2) IN ('13', '31', '23', '29', '30', '18', '17') "
+        ") "
+        "SELECT count(*) "
+        "FROM customer, avg_bal "
+        "WHERE substring(c_phone FROM 1 FOR 2) IN ('13', '31', '23', '29', '30', '18', '17') "
+        "  AND c_acctbal > avg_bal.v",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q22 customers above threshold with no orders",
+        "WITH avg_bal AS ( "
+        "  SELECT avg(c_acctbal) AS v "
+        "  FROM customer "
+        "  WHERE c_acctbal > 0.00 "
+        "    AND substring(c_phone FROM 1 FOR 2) IN ('13', '31', '23', '29', '30', '18', '17') "
+        ") "
+        "SELECT count(*) "
+        "FROM customer, avg_bal "
+        "WHERE substring(c_phone FROM 1 FOR 2) IN ('13', '31', '23', '29', '30', '18', '17') "
+        "  AND c_acctbal > avg_bal.v "
+        "  AND NOT EXISTS (SELECT * FROM orders WHERE o_custkey = c_custkey)",
+    )
+    return "\n".join(lines)
+
+
+def _debug_result_mismatch(
+    presto_cursor,
+    query_id,
+    query,
+    presto_rows,
+    duckdb_rows,
+    types,
+):
+    lines = [
+        f"Mismatch debug for {query_id}: presto_rows={len(presto_rows)} "
+        f"duckdb_rows={len(duckdb_rows)}",
+        f"Query text: {query}",
+    ]
+    try:
+        normalized_presto_rows = normalize_rows(presto_rows, types)
+        normalized_duckdb_rows = normalize_rows(duckdb_rows, types)
+        lines.append(
+            "Presto first rows: "
+            + _format_row_sample(normalized_presto_rows)
+        )
+        lines.append(
+            "DuckDB first rows: "
+            + _format_row_sample(normalized_duckdb_rows)
+        )
+
+        presto_counter = Counter(_row_to_key(row) for row in normalized_presto_rows)
+        duckdb_counter = Counter(_row_to_key(row) for row in normalized_duckdb_rows)
+        presto_only = list((presto_counter - duckdb_counter).elements())[:5]
+        duckdb_only = list((duckdb_counter - presto_counter).elements())[:5]
+        if presto_only:
+            lines.append(
+                "Rows only in Presto sample: "
+                + json.dumps([list(row) for row in presto_only], default=str)
+            )
+        if duckdb_only:
+            lines.append(
+                "Rows only in DuckDB sample: "
+                + json.dumps([list(row) for row in duckdb_only], default=str)
+            )
+    except Exception as exc:
+        lines.append(f"Mismatch normalization debug failed: {exc}")
+
+    if query_id == "Q17":
+        lines.append(_debug_q17_mismatch(presto_cursor))
+    elif query_id == "Q22":
+        lines.append(_debug_q22_mismatch(presto_cursor))
+
+    return "\n".join(lines)
+
 def normalize_rows(rows, types):
     return [normalize_row(row, types) for row in rows]
 
 
 FLOATING_POINT_TYPES = ("double", "float")
 DECIMAL_TYPE = "decimal"
+FLOAT_ABS_TOLERANCE = 0.02
+FLOAT_REL_TOLERANCE = 1e-9
 
 
 def normalize_row(row, types):
@@ -208,4 +399,8 @@ def approx_floats(rows, types):
     for col_index, type in enumerate(types):
         if type.id in FLOATING_POINT_TYPES:
             for row_index in range(len(rows)):
-                rows[row_index][col_index] = pytest.approx(rows[row_index][col_index], abs=0.02)
+                rows[row_index][col_index] = pytest.approx(
+                    rows[row_index][col_index],
+                    abs=FLOAT_ABS_TOLERANCE,
+                    rel=FLOAT_REL_TOLERANCE,
+                )
