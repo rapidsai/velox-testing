@@ -107,6 +107,9 @@ cd velox-testing/velox/scripts
 # Run TPC-H Q6 on GPU with profiling enabled
 ./benchmark_velox.sh --queries 6 --device-type gpu --profile true
 
+# Run TPC-H Q6 on GPU with profiling and GPU metrics enabled
+./benchmark_velox.sh --queries 6 --device-type gpu --profile true --enable-gpu-metrics
+
 # Custom output directory for results
 ./benchmark_velox.sh --queries 6 --device-type gpu --profile true -o ./my-results
 
@@ -116,6 +119,14 @@ cd velox-testing/velox/scripts
 # Use custom data directory
 ./benchmark_velox.sh --queries 6 --device-type cpu --data-dir /path/to/data
 ```
+
+### GPU Metrics Collection
+GPU metrics collection during profiling is **disabled by default** to avoid excessive data generation, especially in multi-GPU environments. When enabled, GPU metrics provide detailed hardware counter information but can significantly increase profiling overhead and data size.
+
+To enable GPU metrics:
+- Use the `--enable-gpu-metrics` flag when running benchmarks with profiling enabled
+- GPU metrics are only collected when both `--profile true` and `--enable-gpu-metrics` are specified
+- Requires GPU compute capability > 7 and nvidia-smi availability
 
 ### Results
 The benchmark results are automatically available in the specified output directory and can be analyzed using standard tools like NVIDIA Nsight Systems for the profiling data. Note that NVIDIA Nsight Systems is pre-installed in the Velox container, so profiling data can be examined directly within the container.
