@@ -36,7 +36,15 @@ function start_profiler() {
 
   local docker_exec_command
   docker_exec_command=$(get_docker_exec_command)
-  $docker_exec_command nsys start --gpu-metrics-devices=all -o /presto_profiles/$(basename $profile_output_file_path).nsys-rep
+  
+  # GPU metrics are disabled by default. Set ENABLE_GPU_METRICS=true to enable.
+  local gpu_metrics_args=""
+  if [[ "${ENABLE_GPU_METRICS:-false}" == "true" ]]; then
+    gpu_metrics_args="--gpu-metrics-devices=all"
+    echo "GPU metrics enabled"
+  fi
+  
+  $docker_exec_command nsys start $gpu_metrics_args -o /presto_profiles/$(basename $profile_output_file_path).nsys-rep
 }
 
 function stop_profiler() {
