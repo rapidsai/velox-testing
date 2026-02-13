@@ -113,18 +113,17 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 result.append(cursor.stats["elapsedTimeMillis"])
 
                 # Save query results to Parquet (only on first iteration)
-                if iteration_num == 0:
-                    rows = cursor.fetchall()
-                    columns = [desc[0] for desc in cursor.description]
-                    df = pd.DataFrame(rows, columns=columns)
+                rows = cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description]
+                df = pd.DataFrame(rows, columns=columns)
 
-                    # Save to Parquet format to match expected results
-                    results_dir = Path(f"{bench_output_dir}/query_results")
-                    results_dir.mkdir(parents=True, exist_ok=True)
-                    parquet_path = results_dir / f"{query_id.lower()}.parquet"
-                    df.to_parquet(parquet_path, index=False)
+                # Save to Parquet format to match expected results
+                results_dir = Path(f"{bench_output_dir}/query_results")
+                results_dir.mkdir(parents=True, exist_ok=True)
+                parquet_path = results_dir / f"{query_id.lower()}.parquet"
+                df.to_parquet(parquet_path, index=False)
 
-                    print(f"Saved {query_id} results to {parquet_path}")
+                print(f"Saved {query_id} results to {parquet_path}")
 
                 # Collect metrics after each query iteration if enabled
                 if metrics:
