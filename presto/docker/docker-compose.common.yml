@@ -1,7 +1,7 @@
 services:
   presto-base-volumes:
     volumes:
-      - ./.hive_metastore:/var/lib/presto/data/hive/metastore
+      - ${PRESTO_DATA_DIR:-.}/hive_metastore:/var/lib/presto/data/hive/metastore
       - ../testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
       - ${PRESTO_DATA_DIR:-/dev/null}:/var/lib/presto/data/hive/data/user_data
 
