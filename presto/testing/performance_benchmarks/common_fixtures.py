@@ -9,6 +9,7 @@ import pytest
 from ..common.fixtures import tpcds_queries as tpcds_queries
 from ..common.fixtures import tpch_queries as tpch_queries
 from .benchmark_keys import BenchmarkKeys
+from .conftest import get_output_dir
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
 
@@ -47,7 +48,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     profile_script_path = request.config.getoption("--profile-script-path")
     metrics = request.config.getoption("--metrics")
     benchmark_type = request.node.obj.BENCHMARK_TYPE
-    bench_output_dir = request.config.getoption("--output-dir")
+    bench_output_dir = get_output_dir(request.config)
     hostname = request.config.getoption("--hostname")
     port = request.config.getoption("--port")
 
