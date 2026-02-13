@@ -162,11 +162,13 @@ A couple of utility scripts have been added to facilitate the process of setting
 The Presto benchmarks are implemented using the [pytest](https://docs.pytest.org/en/stable/) framework and builds on top of infrastructure that was implemented for general Presto testing. Specifically, the `start_*` scripts mentioned in the "Presto Testing" section can be used to start up a Presto variant (make sure the `PRESTO_DATA_DIR` environment variable is set appropriately before running the script), and the benchmark can be run by executing the `run_benchmark.sh` script from within the `velox-testing/presto/scripts` directory. Execute `./run_benchmark.sh --help` to get more details about the benchmark script options.
 
 ### GPU Metrics in Presto Profiling
-GPU metrics collection during profiling is **disabled by default** to avoid excessive data generation in multi-GPU environments. To enable GPU metrics when running Presto benchmarks with profiling:
+GPU metrics collection during profiling is **disabled by default** to avoid excessive data generation in multi-GPU environments. To enable GPU metrics, pass profiler arguments when starting Presto:
 
 ```bash
-# Enable GPU metrics for profiling
-export ENABLE_GPU_METRICS=true
+# Start Presto with GPU metrics enabled for profiling
+./start_native_gpu_presto.sh --profile --profile-args "--gpu-metrics-devices=all"
+
+# Then run benchmarks with profiling
 ./run_benchmark.sh -b tpch -s bench_sf100 --profile
 ```
 
