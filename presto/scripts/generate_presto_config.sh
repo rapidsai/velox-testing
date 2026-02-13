@@ -1,18 +1,7 @@
 #!/usr/bin/env bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
 
@@ -48,6 +37,8 @@ function duplicate_worker_configs() {
   echo "Duplicating worker configs for GPU ID $worker_id"
   local worker_config="${CONFIG_DIR}/etc_worker_${worker_id}"
   local coord_config="${CONFIG_DIR}/etc_coordinator"
+  local worker_native_config="${worker_config}/config_native.properties"
+  local coord_native_config="${coord_config}/config_native.properties"
   # Need to stagger the port numbers because ucx exchange currently expects to be exactly
   # 3 higher than the http port.
   local http_port="10$(printf "%02d\n" "$worker_id")0"
@@ -57,25 +48,20 @@ function duplicate_worker_configs() {
 
   # Some configs should only be applied if we are in a multi-worker environment.
   if [[ ${NUM_WORKERS} -gt 1 ]]; then
-    # Single node execution needs to be disabled if we are running multiple workers.
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
-        ${coord_config}/config_native.properties
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
-	${worker_config}/config_native.properties
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${coord_native_config}
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${worker_native_config}
     # make cudf.exchange=true if we are running multiple workers
-    sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
-    # This option should be set by default but only applies to multi-worker cases
-    # It can cause slight overhead in a single-worker environment.
-    sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_config}/config_native.properties
+    sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_native_config}
+    # make join-distribution-type=PARTITIONED if we are running multiple workers
+    # (ucx exchange does not currently support BROADCAST partition type)
+    sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_native_config}
   fi
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
   # the cudf.exchange server port is currently hard-coded to be the server port +3
   # and that needs to be unique for each worker.
-  sed -i "s+http-server\.http\.port.*+http-server\.http\.port=${http_port}+g" \
-      ${worker_config}/config_native.properties
-  sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=${exch_port}+g" \
-      ${worker_config}/config_native.properties
+  sed -i "s+http-server\.http\.port.*+http-server\.http\.port=${http_port}+g" ${worker_native_config}
+  sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=${exch_port}+g" ${worker_native_config}
   # Give each worker a unique id.
   sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
 }
@@ -92,7 +78,7 @@ if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
 fi
 if [[ -z ${VCPU_PER_WORKER:-} ]]; then
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
-      VCPU_PER_WORKER=2
+    VCPU_PER_WORKER=2
   else
     VCPU_PER_WORKER=${NPROC}
   fi

@@ -9,9 +9,27 @@ import pandas as pd
 
 from ..common.fixtures import tpcds_queries as tpcds_queries
 from ..common.fixtures import tpch_queries as tpch_queries
+from ..integration_tests.analyze_tables import check_tables_analyzed
 from .benchmark_keys import BenchmarkKeys
+from .cache_utils import drop_cache
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
+
+
+@pytest.fixture(scope="session", autouse=True)
+def verify_tables_analyzed(request):
+    """Session-scoped setup that verifies ANALYZE TABLE has been run on all tables."""
+    hostname = request.config.getoption("--hostname")
+    port = request.config.getoption("--port")
+    user = request.config.getoption("--user")
+    schema = request.config.getoption("--schema-name")
+    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
+    cursor = conn.cursor()
+    try:
+        check_tables_analyzed(cursor, schema)
+    finally:
+        cursor.close()
+        conn.close()
 
 
 @pytest.fixture(scope="module")
@@ -30,6 +48,17 @@ def benchmark_result_collector(request):
     yield benchmark_results
 
     request.session.benchmark_results = benchmark_results
+
+
+@pytest.fixture(scope="session", autouse=True)
+def drop_cache_once(request):
+    """Session-scoped fixture that drops the cache once at the start of the benchmark run."""
+    drop_cache_enabled = not request.config.getoption("--skip-drop-cache")
+    if drop_cache_enabled:
+        drop_cache()
+        print("[Cache] System cache dropped successfully.")
+    else:
+        print("[Cache] Skipping cache drop (--skip-drop-cache flag set).")
 
 
 @pytest.fixture(scope="module")
