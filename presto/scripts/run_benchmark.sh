@@ -30,6 +30,7 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
+    --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
 
@@ -146,6 +147,10 @@ parse_args() {
         PROFILE=true
         shift
         ;;
+      --skip-drop-cache)
+        SKIP_DROP_CACHE=true
+        shift
+        ;;
       -m|--metrics)
         METRICS=true
         shift
@@ -220,6 +225,10 @@ if [[ "${METRICS}" == "true" ]]; then
   PYTEST_ARGS+=("--metrics")
 fi
 
+if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
+  PYTEST_ARGS+=("--skip-drop-cache")
+fi
+
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -236,8 +245,9 @@ source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
+echo "Running bench"
 export PRESTO_IMAGE_TAG="${USER:-latest}"
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
