@@ -24,7 +24,7 @@ if command -v git &> /dev/null; then
 else
   REPO_ROOT="$SCRIPT_DIR/../.."
 fi
-       
+
 
 # Validate sibling repos
 if [[ "$VARIANT_TYPE" == "java" ]]; then

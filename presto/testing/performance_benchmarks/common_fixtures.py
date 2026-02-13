@@ -3,9 +3,9 @@
 
 from pathlib import Path
 
+import pandas as pd
 import prestodb
 import pytest
-import pandas as pd
 
 from ..common.fixtures import tpcds_queries as tpcds_queries
 from ..common.fixtures import tpch_queries as tpch_queries

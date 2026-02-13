@@ -9,6 +9,7 @@ import duckdb
 def quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
+
 def init_benchmark_tables(benchmark_type, scale_factor):
     tables = duckdb.sql("SHOW TABLES").fetchall()
     assert len(tables) == 0
@@ -24,7 +25,7 @@ def init_benchmark_tables(benchmark_type, scale_factor):
 
 def drop_benchmark_tables():
     tables = duckdb.sql("SHOW TABLES").fetchall()
-    for table, in tables:
+    for (table,) in tables:
         duckdb.sql(f"DROP TABLE {quote_ident(table)}")
 
 
