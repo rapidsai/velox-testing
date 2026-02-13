@@ -107,9 +107,6 @@ cd velox-testing/velox/scripts
 # Run TPC-H Q6 on GPU with profiling enabled
 ./benchmark_velox.sh --queries 6 --device-type gpu --profile true
 
-# Run TPC-H Q6 on GPU with profiling and GPU metrics enabled
-./benchmark_velox.sh --queries 6 --device-type gpu --profile true --enable-gpu-metrics
-
 # Custom output directory for results
 ./benchmark_velox.sh --queries 6 --device-type gpu --profile true -o ./my-results
 
@@ -119,14 +116,6 @@ cd velox-testing/velox/scripts
 # Use custom data directory
 ./benchmark_velox.sh --queries 6 --device-type cpu --data-dir /path/to/data
 ```
-
-### GPU Metrics Collection
-GPU metrics collection during profiling is **disabled by default** to avoid excessive data generation, especially in multi-GPU environments. When enabled, GPU metrics provide detailed hardware counter information but can significantly increase profiling overhead and data size.
-
-To enable GPU metrics:
-- Use the `--enable-gpu-metrics` flag when running benchmarks with profiling enabled
-- GPU metrics are only collected when both `--profile true` and `--enable-gpu-metrics` are specified
-- Requires GPU compute capability > 7 and nvidia-smi availability
 
 ### Results
 The benchmark results are automatically available in the specified output directory and can be analyzed using standard tools like NVIDIA Nsight Systems for the profiling data. Note that NVIDIA Nsight Systems is pre-installed in the Velox container, so profiling data can be examined directly within the container.
@@ -160,17 +149,5 @@ A couple of utility scripts have been added to facilitate the process of setting
 
 ## Presto Benchmarking
 The Presto benchmarks are implemented using the [pytest](https://docs.pytest.org/en/stable/) framework and builds on top of infrastructure that was implemented for general Presto testing. Specifically, the `start_*` scripts mentioned in the "Presto Testing" section can be used to start up a Presto variant (make sure the `PRESTO_DATA_DIR` environment variable is set appropriately before running the script), and the benchmark can be run by executing the `run_benchmark.sh` script from within the `velox-testing/presto/scripts` directory. Execute `./run_benchmark.sh --help` to get more details about the benchmark script options.
-
-### GPU Metrics in Presto Profiling
-GPU metrics collection during profiling is **disabled by default** to avoid excessive data generation in multi-GPU environments. To enable GPU metrics, pass profiler arguments when starting Presto:
-
-```bash
-# Start Presto with GPU metrics enabled for profiling
-./start_native_gpu_presto.sh --profile --profile-args "--gpu-metrics-devices=all"
-
-# Then run benchmarks with profiling
-./run_benchmark.sh -b tpch -s bench_sf100 --profile
-```
-
 > [!TIP]
 ANALYZE TABLES `velox-testing/presto/scripts/analyze_tables.sh` must be run on CPU Presto before GPU benchmarks because aggregation is not yet supported on GPU. Statistics are stored in the Hive metastore and automatically benefit GPU query execution, improving performance and reducing OOM failures.

@@ -20,7 +20,6 @@ QUERIES=""  # Will be set to benchmark-specific defaults if not provided
 DEVICE_TYPE="cpu gpu"
 BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
 PROFILE="false"
-ENABLE_GPU_METRICS="false"
 DATA_DIR="${REPO_ROOT}/../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
 NUM_REPEATS=2
 
@@ -42,7 +41,6 @@ Benchmark Options:
   -q, --queries "1 2 ..."                 Query numbers to run, specified as a space-separated list of query numbers (default: all queries for benchmark type)
   -d, --device-type "cpu gpu"             Devices to test: cpu, gpu, or "cpu gpu" (default: "cpu gpu")
   -p, --profile BOOL                      Enable profiling: true or false (default: false)
-  --enable-gpu-metrics                    Enable GPU metrics collection during profiling (default: disabled)
   --data-dir DIR                          Path to benchmark data directory (default: ../../../velox-benchmark-data/tpch)
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
 
@@ -57,7 +55,6 @@ Examples:
   $(basename "$0") --queries 6 --device-type cpu        # Run Q6 on CPU only
   $(basename "$0") --queries "1 6" --device-type "cpu gpu"  # Run Q1 and Q6 on both CPU and GPU
   $(basename "$0") --queries 6 --device-type gpu --profile true  # Run Q6 on GPU with profiling
-  $(basename "$0") --queries 6 --device-type gpu --profile true --enable-gpu-metrics  # Run Q6 with GPU metrics enabled
   $(basename "$0") --queries 6 --device-type gpu -o /tmp/results  # Custom output directory
   $(basename "$0") --queries 6 --device-type cpu --data-dir /path/to/data  # Custom data directory
   $(basename "$0") --queries 6 --device-type cpu --num-repeats 5  # Run Q6 with 5 repetitions
@@ -142,10 +139,6 @@ parse_args() {
           exit 1
         fi
         ;;
-      --enable-gpu-metrics)
-        ENABLE_GPU_METRICS="true"
-        shift
-        ;;
       -h|--help)
         print_help
         exit 0
@@ -180,7 +173,6 @@ run_in_container() {
 
   docker compose -f "$COMPOSE_FILE" --env-file "${SCRIPT_DIR}/.env" run --rm \
     --cap-add=SYS_ADMIN \
-    -e ENABLE_GPU_METRICS="${ENABLE_GPU_METRICS}" \
     "$CONTAINER_NAME" bash -c "$cmd"
 }
 
