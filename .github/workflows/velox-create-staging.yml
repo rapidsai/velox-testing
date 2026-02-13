@@ -45,6 +45,11 @@ on:
         type: string
         required: false
         default: ''
+      additional_pr_numbers:
+        description: "Comma-separated PR numbers to append to fetched/manual list (e.g., '12345,12346')"
+        type: string
+        required: false
+        default: ''
       force_push:
         description: Force push to override existing target branch
         type: boolean
@@ -73,6 +78,7 @@ jobs:
       pr_labels: ${{ inputs.pr_labels }}
       manual_pr_numbers: ${{ inputs.manual_pr_numbers }}
       exclude_pr_numbers: ${{ inputs.exclude_pr_numbers }}
+      additional_pr_numbers: ${{ inputs.additional_pr_numbers }}
       force_push: ${{ inputs.force_push }}
       additional_repository: ${{ inputs.additional_repository }}
       additional_branch: ${{ inputs.additional_branch }}

@@ -21,14 +21,15 @@ TARGET_BRANCH="staging"
 TARGET_PATH=""
 WORK_DIR=""
 AUTO_FETCH_PRS="true"
+AUTO_FETCH_PR_LIMIT=200
 MANUAL_PR_NUMBERS=""
 EXCLUDE_PR_NUMBERS=""
+ADDITIONAL_PR_NUMBERS=""
 PR_LABELS=""
 MANIFEST_TEMPLATE=""
 FORCE_PUSH="false"
 ADDITIONAL_REPOSITORY=""
 ADDITIONAL_BRANCH=""
-BASE_COMMIT_OVERRIDE=""
 GH_TOKEN="${GH_TOKEN:-}"
 USE_LOCAL_PATH="false"
 MODE="local"
@@ -36,7 +37,10 @@ STEP_NAME=""
 DUMP_CONFLICTS="false"
 CONFLICT_REPORT_DIR=""
 SKIPPED_PRS=""
+RESET_BASE_COMMIT=""
+PURGE_UNUSED_RESOLUTIONS="false"
 declare -A PR_SHA
+RESOLUTION_STATS_DIR=""
 
 log() { echo "$@" >&2; }
 die() { log "ERROR: $*"; exit 1; }
@@ -51,6 +55,77 @@ divider() {
 normalize_repo_url() {
   local url="$1"
   echo "${url}" | awk -F'[:/]' '{print $(NF-1)"/"$NF}' | sed 's/\.git$//'
+}
+
+ensure_conflict_report_dir() {
+  if [[ "${DUMP_CONFLICTS}" != "true" ]]; then
+    return 1
+  fi
+  if [[ -z "${CONFLICT_REPORT_DIR}" ]]; then
+    CONFLICT_REPORT_DIR="${PROJECT_ROOT}/staging-conflict-report"
+    rm -rf "${CONFLICT_REPORT_DIR}"
+    mkdir -p "${CONFLICT_REPORT_DIR}"
+    log "Conflict report directory: ${CONFLICT_REPORT_DIR}"
+  fi
+  return 0
+}
+
+safe_report_name() {
+  local filepath="$1"
+  local normalized
+  normalized="$(echo "${filepath}" | tr '/' '_')"
+  local path_hash
+  path_hash="$(printf '%s' "${filepath}" | git hash-object --stdin | cut -c1-12)"
+  echo "${normalized}__${path_hash}"
+}
+
+write_conflict_context() {
+  local report_dir="$1"
+  local conflict_kind="$2"
+  local source_repo="$3"
+  local source_ref="$4"
+  local source_url="$5"
+  local note="${6:-}"
+  local generated_at
+  generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  local reset_source_commit="${RESET_BASE_COMMIT:-${BASE_COMMIT:-unknown}}"
+  local additional_enabled="false"
+  local effective_base_description="${BASE_REPO}/${BASE_BRANCH}"
+  local additional_source_url=""
+  if [[ -n "${ADDITIONAL_REPOSITORY}" && -n "${ADDITIONAL_BRANCH}" ]]; then
+    additional_enabled="true"
+    effective_base_description="${effective_base_description} + ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}"
+    additional_source_url="https://github.com/${ADDITIONAL_REPOSITORY}/tree/${ADDITIONAL_MERGE_COMMIT:-${ADDITIONAL_BRANCH}}"
+  fi
+
+  {
+    echo "generated_at_utc=${generated_at}"
+    echo "mode=${MODE}"
+    echo "reset_source_repository=${BASE_REPO}"
+    echo "reset_source_branch=${BASE_BRANCH}"
+    echo "reset_source_commit=${reset_source_commit}"
+    echo "base_repository=${BASE_REPO}"
+    echo "base_branch=${BASE_BRANCH}"
+    echo "base_commit=${reset_source_commit}"
+    echo "effective_base_description=${effective_base_description}"
+    echo "effective_base_commit=${BASE_COMMIT:-unknown}"
+    echo "includes_additional_merge=${additional_enabled}"
+    echo "additional_repository=${ADDITIONAL_REPOSITORY:-none}"
+    echo "additional_branch=${ADDITIONAL_BRANCH:-none}"
+    echo "additional_merge_commit=${ADDITIONAL_MERGE_COMMIT:-none}"
+    if [[ -n "${additional_source_url}" ]]; then
+      echo "additional_source_url=${additional_source_url}"
+    fi
+    echo "target_repository=${TARGET_REPO:-unknown}"
+    echo "target_branch=${TARGET_BRANCH}"
+    echo "conflict_kind=${conflict_kind}"
+    echo "source_repository=${source_repo}"
+    echo "source_ref=${source_ref}"
+    echo "source_url=${source_url}"
+    if [[ -n "${note}" ]]; then
+      echo "note=${note}"
+    fi
+  } > "${report_dir}/CONFLICT_CONTEXT.txt"
 }
 
 ensure_sibling_layout() {
@@ -127,12 +202,12 @@ Required:
 Options:
   --base-repository owner/repo     Base repository (default: ${BASE_REPO})
   --base-branch branch             Base branch (default: ${BASE_BRANCH})
-  --base-commit sha                Pin base to a specific commit (overrides HEAD of base-branch)
   --target-branch branch           Target branch (default: ${TARGET_BRANCH})
   --work-dir path                  Directory to clone target repo (default: ${WORK_DIR})
   --auto-fetch-prs true|false      Auto-fetch non-draft PRs with label (default: ${AUTO_FETCH_PRS})
   --manual-pr-numbers "1,2,3"      Comma-separated PR numbers to merge (disables auto-fetch)
   --exclude-pr-numbers "4,5,6"    Comma-separated PR numbers to exclude from auto-fetch results
+  --additional-pr-numbers "7,8"   Comma-separated PR numbers to append to fetched/manual list
   --pr-labels labels               Comma-separated PR labels to auto-fetch (default: ${PR_LABELS})
   --manifest-template path         Manifest template path (default: repo template)
   --force-push true|false          Force push to target branch (default: ${FORCE_PUSH})
@@ -141,6 +216,8 @@ Options:
   --mode local|ci                  Execution mode (default: ${MODE})
   --step name                      Run a single step (see below)
   --dump-conflicts                 Dump diff3 conflict reports to velox-testing/staging-conflict-report/
+  --purge-unused-resolutions       Remove banked resolutions not used in this run
+                                   (includes CONFLICT_CONTEXT.txt and FILE_INDEX.tsv per report)
   -h, --help                       Show this help
 
 Environment:
@@ -168,6 +245,13 @@ Examples:
     --base-repository facebookincubator/velox \\
     --manual-pr-numbers "12345,12346,12347"
 
+  # Auto-fetch + explicitly include extra PRs (e.g., draft/unlabeled):
+  ./scripts/create_staging_branch.sh \\
+    --target-path ../velox \\
+    --base-repository facebookincubator/velox \\
+    --pr-labels "cudf" \\
+    --additional-pr-numbers "17001,17005"
+
   # Merge with additional repository (e.g., cuDF exchange):
   ./scripts/create_staging_branch.sh \\
     --target-path ../velox \\
@@ -186,6 +270,10 @@ Examples:
 Notes:
   - In local mode (default), push to remote is skipped.
   - If --target-path is provided, the script will prompt before resetting.
+  - Auto-fetch queries at most ${AUTO_FETCH_PR_LIMIT} open PRs from GitHub.
+    If more matching PRs exist, use narrower labels/exclusions or --manual-pr-numbers.
+  - Option --additional-pr-numbers appends explicit PRs to the list built from
+    auto-fetch or --manual-pr-numbers.
 EOF
 }
 
@@ -204,15 +292,16 @@ parse_args() {
       --auto-fetch-prs) AUTO_FETCH_PRS="$2"; shift 2 ;;
       --manual-pr-numbers) MANUAL_PR_NUMBERS="$2"; AUTO_FETCH_PRS="false"; shift 2 ;;
       --exclude-pr-numbers) EXCLUDE_PR_NUMBERS="$2"; shift 2 ;;
+      --additional-pr-numbers) ADDITIONAL_PR_NUMBERS="$2"; shift 2 ;;
       --pr-labels) PR_LABELS="$2"; shift 2 ;;
       --manifest-template) MANIFEST_TEMPLATE="$2"; shift 2 ;;
       --force-push) FORCE_PUSH="$2"; shift 2 ;;
       --additional-repository) ADDITIONAL_REPOSITORY="$2"; shift 2 ;;
       --additional-branch) ADDITIONAL_BRANCH="$2"; shift 2 ;;
-      --base-commit) BASE_COMMIT_OVERRIDE="$2"; shift 2 ;;
       --mode) MODE="$2"; shift 2 ;;
       --step) STEP_NAME="$2"; shift 2 ;;
       --dump-conflicts) DUMP_CONFLICTS="true"; shift ;;
+      --purge-unused-resolutions) PURGE_UNUSED_RESOLUTIONS="true"; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "Unknown option: $1" ;;
     esac
@@ -239,6 +328,9 @@ setup_git_config() {
   if ! git -C "${repo_dir}" config user.email >/dev/null 2>&1; then
     git -C "${repo_dir}" config user.email "velox-staging-bot@users.noreply.github.com"
   fi
+  # diff3 conflict style ensures conflict markers include the base section,
+  # matching git merge-file --diff3 used by the resolution bank.
+  git -C "${repo_dir}" config merge.conflictstyle diff3
 }
 
 init_target_repo() {
@@ -301,13 +393,11 @@ reset_target_branch() {
     log "Resetting ${TARGET_BRANCH} to upstream/${BASE_BRANCH}..."
     git -C "${repo_dir}" checkout -B "${TARGET_BRANCH}" "upstream/${BASE_BRANCH}"
   fi
-  if [[ -n "${BASE_COMMIT_OVERRIDE}" ]]; then
-    log "Pinning base to --base-commit ${BASE_COMMIT_OVERRIDE}"
-    git -C "${repo_dir}" reset --hard "${BASE_COMMIT_OVERRIDE}"
-  fi
   BASE_COMMIT="$(git -C "${repo_dir}" rev-parse HEAD)"
-  export BASE_COMMIT
+  RESET_BASE_COMMIT="${BASE_COMMIT}"
+  export BASE_COMMIT RESET_BASE_COMMIT
   emit_output BASE_COMMIT "${BASE_COMMIT}"
+  emit_output RESET_BASE_COMMIT "${RESET_BASE_COMMIT}"
   log "Base commit: ${BASE_COMMIT}"
 }
 
@@ -315,6 +405,7 @@ fetch_pr_list() {
   local pr_list=""
   if [[ "${AUTO_FETCH_PRS}" == "true" ]]; then
     step "Auto-fetch PRs with labels: ${PR_LABELS}"
+    log "Auto-fetch query limit: ${AUTO_FETCH_PR_LIMIT} PRs"
     local label_args=()
     local labels=()
     IFS=',' read -r -a labels <<< "${PR_LABELS}"
@@ -327,10 +418,44 @@ fetch_pr_list() {
       --repo "${BASE_REPO}" \
       "${label_args[@]}" \
       --state open \
+      --limit "${AUTO_FETCH_PR_LIMIT}" \
       --json number,isDraft \
       --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs || true)"
+    local fetched_count
+    fetched_count="$(echo "${pr_list}" | wc -w | xargs)"
+    if [[ "${fetched_count}" -ge "${AUTO_FETCH_PR_LIMIT}" ]]; then
+      log "WARN: Auto-fetch returned ${fetched_count} PRs (limit ${AUTO_FETCH_PR_LIMIT})."
+      log "WARN: Additional matching PRs may exist but were not included."
+      log "WARN: Use narrower labels/exclusions or provide --manual-pr-numbers."
+    fi
   else
     pr_list="$(echo "${MANUAL_PR_NUMBERS}" | tr ',' ' ' | xargs || true)"
+  fi
+
+  # Append explicitly requested PRs (e.g., drafts or unlabeled PRs).
+  if [[ -n "${ADDITIONAL_PR_NUMBERS}" ]]; then
+    local additional_list
+    additional_list="$(echo "${ADDITIONAL_PR_NUMBERS}" | tr ',' ' ' | xargs || true)"
+    for pr in ${additional_list}; do
+      [[ "${pr}" =~ ^[0-9]+$ ]] || die "Invalid PR number in --additional-pr-numbers: ${pr}"
+      pr_list="${pr_list} ${pr}"
+    done
+    pr_list="$(echo "${pr_list}" | xargs || true)"
+    log "Appended additional PRs: ${additional_list}"
+  fi
+
+  # Dedupe while preserving order.
+  if [[ -n "${pr_list}" ]]; then
+    local deduped=""
+    declare -A seen_prs=()
+    for pr in ${pr_list}; do
+      [[ "${pr}" =~ ^[0-9]+$ ]] || die "Invalid PR number in computed PR list: ${pr}"
+      if [[ -z "${seen_prs[$pr]:-}" ]]; then
+        seen_prs["$pr"]=1
+        deduped="${deduped} ${pr}"
+      fi
+    done
+    pr_list="$(echo "${deduped}" | xargs || true)"
   fi
 
   # Exclude specified PRs
@@ -382,22 +507,38 @@ fetch_pr_head() {
   fi
 }
 
+get_pr_source_ref() {
+  local pr_num="$1"
+  local source_ref
+  source_ref="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" \
+    --json headRepositoryOwner,headRefName \
+    --jq 'if .headRepositoryOwner and .headRepositoryOwner.login and .headRefName then (.headRepositoryOwner.login + ":" + .headRefName) else empty end' \
+    2>/dev/null || true)"
+  if [[ -n "${source_ref}" ]]; then
+    echo "${source_ref}"
+  else
+    echo "pull/${pr_num}/head"
+  fi
+}
+
 dump_conflict_report() {
   local repo_dir="$1"
-  local pr_num="$2"
+  local report_key="$2"
+  local conflict_kind="$3"
+  local source_repo="$4"
+  local source_ref="$5"
+  local source_url="$6"
+  local note="${7:-}"
 
-  if [[ "${DUMP_CONFLICTS}" != "true" ]]; then
+  if ! ensure_conflict_report_dir; then
     return 0
   fi
-  if [[ -z "${CONFLICT_REPORT_DIR}" ]]; then
-    CONFLICT_REPORT_DIR="${PROJECT_ROOT}/staging-conflict-report"
-    rm -rf "${CONFLICT_REPORT_DIR}"
-    mkdir -p "${CONFLICT_REPORT_DIR}"
-    log "Conflict report directory: ${CONFLICT_REPORT_DIR}"
-  fi
 
-  local pr_dir="${CONFLICT_REPORT_DIR}/${pr_num}"
-  mkdir -p "${pr_dir}"
+  local report_dir="${CONFLICT_REPORT_DIR}/${report_key}"
+  rm -rf "${report_dir}"
+  mkdir -p "${report_dir}"
+  write_conflict_context "${report_dir}" "${conflict_kind}" "${source_repo}" "${source_ref}" "${source_url}" "${note}"
+  : > "${report_dir}/FILE_INDEX.tsv"
 
   local unmerged
   unmerged="$(git -C "${repo_dir}" diff --name-only --diff-filter=U 2>/dev/null || true)"
@@ -408,26 +549,27 @@ dump_conflict_report() {
   while IFS= read -r filepath; do
     [[ -z "${filepath}" ]] && continue
     local safe_name
-    safe_name="$(echo "${filepath}" | tr '/' '_')"
+    safe_name="$(safe_report_name "${filepath}")"
 
     # Working tree with conflict markers (user edits this to resolve)
     local wt_file="${repo_dir}/${filepath}"
     if [[ -f "${wt_file}" ]]; then
-      cp "${wt_file}" "${pr_dir}/${safe_name}.conflict"
+      cp "${wt_file}" "${report_dir}/${safe_name}.conflict"
     fi
 
-    # Original filepath (for recording script — safe_name is lossy)
-    echo "${filepath}" > "${pr_dir}/${safe_name}.filepath"
+    # Original filepath (for recording script)
+    echo "${filepath}" > "${report_dir}/${safe_name}.filepath"
+    printf '%s\t%s\n' "${safe_name}" "${filepath}" >> "${report_dir}/FILE_INDEX.tsv"
 
     # Stage 1: base, Stage 2: ours, Stage 3: theirs
-    git -C "${repo_dir}" show ":1:${filepath}" > "${pr_dir}/${safe_name}.base" 2>/dev/null || true
-    git -C "${repo_dir}" show ":2:${filepath}" > "${pr_dir}/${safe_name}.ours" 2>/dev/null || true
-    git -C "${repo_dir}" show ":3:${filepath}" > "${pr_dir}/${safe_name}.theirs" 2>/dev/null || true
+    git -C "${repo_dir}" show ":1:${filepath}" > "${report_dir}/${safe_name}.base" 2>/dev/null || true
+    git -C "${repo_dir}" show ":2:${filepath}" > "${report_dir}/${safe_name}.ours" 2>/dev/null || true
+    git -C "${repo_dir}" show ":3:${filepath}" > "${report_dir}/${safe_name}.theirs" 2>/dev/null || true
   done <<< "${unmerged}"
 
   local file_count
   file_count="$(echo "${unmerged}" | wc -l | xargs)"
-  log "  Dumped conflict report for PR #${pr_num}: ${file_count} file(s) -> ${pr_dir}"
+  log "  Dumped conflict report for ${report_key}: ${file_count} file(s) -> ${report_dir}"
 }
 
 test_merge_compatibility() {
@@ -440,11 +582,21 @@ test_merge_compatibility() {
   for pr_num in ${pr_list}; do
     divider "PR #${pr_num}"
     fetch_pr_head "${repo_dir}" "${pr_num}"
-    if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}"); then
+    local resol_log="${RESOLUTION_STATS_DIR}/PR-${pr_num}.tsv"
+    : > "${resol_log}"
+    if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge --resolution-log "${resol_log}" "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}"); then
       successful="${successful} ${pr_num}"
     else
       conflicts="${conflicts} ${pr_num}"
-      dump_conflict_report "${repo_dir}" "PR-${pr_num}"
+      local pr_source_ref
+      pr_source_ref="$(get_pr_source_ref "${pr_num}")"
+      dump_conflict_report \
+        "${repo_dir}" \
+        "PR-${pr_num}" \
+        "pr" \
+        "${BASE_REPO}" \
+        "${pr_source_ref}@${PR_SHA[$pr_num]}" \
+        "https://github.com/${BASE_REPO}/pull/${pr_num}"
       git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
     fi
     git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
@@ -483,18 +635,21 @@ dump_pairwise_conflict_report() {
   local pr2="$3"
   local which_failed="$4"  # "first" or "second"
 
-  if [[ "${DUMP_CONFLICTS}" != "true" ]]; then
+  if ! ensure_conflict_report_dir; then
     return 0
-  fi
-  if [[ -z "${CONFLICT_REPORT_DIR}" ]]; then
-    CONFLICT_REPORT_DIR="${PROJECT_ROOT}/staging-conflict-report"
-    rm -rf "${CONFLICT_REPORT_DIR}"
-    mkdir -p "${CONFLICT_REPORT_DIR}"
-    log "Conflict report directory: ${CONFLICT_REPORT_DIR}"
   fi
 
   local pair_dir="${CONFLICT_REPORT_DIR}/pairwise/PR-${pr1}+PR-${pr2}"
+  rm -rf "${pair_dir}"
   mkdir -p "${pair_dir}"
+  write_conflict_context \
+    "${pair_dir}" \
+    "pairwise-prs" \
+    "${BASE_REPO}" \
+    "pull/${pr1}/head@${PR_SHA[$pr1]:-unknown} + pull/${pr2}/head@${PR_SHA[$pr2]:-unknown}" \
+    "https://github.com/${BASE_REPO}/pull/${pr1},https://github.com/${BASE_REPO}/pull/${pr2}" \
+    "failed_on=${which_failed}_merge"
+  : > "${pair_dir}/FILE_INDEX.tsv"
 
   local unmerged
   unmerged="$(git -C "${repo_dir}" diff --name-only --diff-filter=U 2>/dev/null || true)"
@@ -506,7 +661,7 @@ dump_pairwise_conflict_report() {
   while IFS= read -r filepath; do
     [[ -z "${filepath}" ]] && continue
     local safe_name
-    safe_name="$(echo "${filepath}" | tr '/' '_')"
+    safe_name="$(safe_report_name "${filepath}")"
 
     # Working tree with conflict markers (user edits this to resolve)
     local wt_file="${repo_dir}/${filepath}"
@@ -514,8 +669,9 @@ dump_pairwise_conflict_report() {
       cp "${wt_file}" "${pair_dir}/${safe_name}.conflict"
     fi
 
-    # Original filepath (for recording script — safe_name is lossy)
+    # Original filepath (for recording script)
     echo "${filepath}" > "${pair_dir}/${safe_name}.filepath"
+    printf '%s\t%s\n' "${safe_name}" "${filepath}" >> "${pair_dir}/FILE_INDEX.tsv"
 
     # Stage 1: base, Stage 2: ours, Stage 3: theirs
     git -C "${repo_dir}" show ":1:${filepath}" > "${pair_dir}/${safe_name}.base" 2>/dev/null || true
@@ -674,8 +830,18 @@ merge_prs() {
     fetch_pr_head "${repo_dir}" "${pr_num}"
     local pr_title
     pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "PR #${pr_num}")"
-    if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}") 2>&1; then
-      dump_conflict_report "${repo_dir}" "PR-${pr_num}"
+    local resol_log="${RESOLUTION_STATS_DIR}/PR-${pr_num}.tsv"
+    : > "${resol_log}"
+    if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge --resolution-log "${resol_log}" "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}") 2>&1; then
+      local pr_source_ref
+      pr_source_ref="$(get_pr_source_ref "${pr_num}")"
+      dump_conflict_report \
+        "${repo_dir}" \
+        "PR-${pr_num}" \
+        "pr" \
+        "${BASE_REPO}" \
+        "${pr_source_ref}@${PR_SHA[$pr_num]}" \
+        "https://github.com/${BASE_REPO}/pull/${pr_num}"
       git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
       log "Merge conflict in PR #${pr_num}. Aborting."
       exit 1
@@ -710,21 +876,40 @@ merge_additional_repository() {
   local additional_remote="additional-merge-source"
   local additional_url="https://github.com/${ADDITIONAL_REPOSITORY}.git"
 
-  # Add remote if not exists
-  if ! git -C "${repo_dir}" remote get-url "${additional_remote}" >/dev/null 2>&1; then
+  # Add remote if missing; if present, ensure it points to the requested repository.
+  local existing_additional_url
+  existing_additional_url="$(git -C "${repo_dir}" remote get-url "${additional_remote}" 2>/dev/null || true)"
+  if [[ -z "${existing_additional_url}" ]]; then
     git -C "${repo_dir}" remote add "${additional_remote}" "${additional_url}"
+  else
+    local normalized_existing
+    normalized_existing="$(normalize_repo_url "${existing_additional_url}")"
+    if [[ "${normalized_existing}" != "${ADDITIONAL_REPOSITORY}" ]]; then
+      log "Remote ${additional_remote} points to ${normalized_existing}; updating to ${ADDITIONAL_REPOSITORY}."
+      git -C "${repo_dir}" remote set-url "${additional_remote}" "${additional_url}"
+    fi
   fi
 
   # Fetch the branch
   log "Fetching ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY}..."
-  if ! git -C "${repo_dir}" fetch "${additional_remote}" "${ADDITIONAL_BRANCH}" 2>&1; then
+  if ! retry git -C "${repo_dir}" fetch "${additional_remote}" "${ADDITIONAL_BRANCH}" 2>&1; then
     die "Failed to fetch ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY}"
   fi
 
   # Merge the branch (same resolution approach as PR merges: bank + commuting-merge)
   log "Merging ${additional_remote}/${ADDITIONAL_BRANCH}..."
-  if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") 2>&1; then
-    dump_conflict_report "${repo_dir}" "${ADDITIONAL_REPOSITORY//\//_}-${ADDITIONAL_BRANCH//\//_}"
+  local additional_sha
+  additional_sha="$(git -C "${repo_dir}" rev-parse "${additional_remote}/${ADDITIONAL_BRANCH}" 2>/dev/null || true)"
+  local resol_log="${RESOLUTION_STATS_DIR}/additional.tsv"
+  : > "${resol_log}"
+  if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge --resolution-log "${resol_log}" "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") 2>&1; then
+    dump_conflict_report \
+      "${repo_dir}" \
+      "${ADDITIONAL_REPOSITORY//\//_}-${ADDITIONAL_BRANCH//\//_}" \
+      "additional-branch" \
+      "${ADDITIONAL_REPOSITORY}" \
+      "${ADDITIONAL_BRANCH}${additional_sha:+@${additional_sha}}" \
+      "https://github.com/${ADDITIONAL_REPOSITORY}/tree/${ADDITIONAL_BRANCH}"
     git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
     log "Merge conflict with additional repository. Aborting."
     exit 1
@@ -828,12 +1013,48 @@ push_branches() {
 }
 
 
+# Summarize resolution stats from a TSV log file.
+# Outputs: "N hunks (B bank, C commute, U unresolved)" or empty if no conflicts.
+format_resolution_stats() {
+  local stats_file="$1"
+  if [[ ! -s "${stats_file}" ]]; then
+    return
+  fi
+  local total=0 bank=0 commute=0
+  while IFS=$'\t' read -r _path file_total file_bank file_commute; do
+    total=$((total + file_total))
+    bank=$((bank + file_bank))
+    commute=$((commute + file_commute))
+  done < "${stats_file}"
+  local unresolved=$((total - bank - commute))
+  local parts=()
+  if [[ ${bank} -gt 0 ]]; then
+    parts+=("${bank} bank")
+  fi
+  if [[ ${commute} -gt 0 ]]; then
+    parts+=("${commute} commute")
+  fi
+  if [[ ${unresolved} -gt 0 ]]; then
+    parts+=("${unresolved} unresolved")
+  fi
+  local detail=""
+  if [[ ${#parts[@]} -gt 0 ]]; then
+    detail="$(IFS=', '; echo "${parts[*]}")"
+  fi
+  echo "${total} hunks (${detail})"
+}
+
 print_final_report() {
   step "Staging Branch Report"
   log ""
   log "Base: ${BASE_REPO}/${BASE_BRANCH} (${BASE_COMMIT})"
   if [[ -n "${ADDITIONAL_REPOSITORY}" && -n "${ADDITIONAL_BRANCH}" ]]; then
     log "Additional: ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH} (${ADDITIONAL_MERGE_COMMIT:-N/A})"
+    local additional_stats
+    additional_stats="$(format_resolution_stats "${RESOLUTION_STATS_DIR}/additional.tsv")"
+    if [[ -n "${additional_stats}" ]]; then
+      log "  Conflicts: ${additional_stats}"
+    fi
   fi
   log ""
 
@@ -844,6 +1065,13 @@ print_final_report() {
       pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "N/A")"
       log "  #${pr_num}: ${pr_title}"
       log "    https://github.com/${BASE_REPO}/pull/${pr_num}"
+      local pr_stats
+      pr_stats="$(format_resolution_stats "${RESOLUTION_STATS_DIR}/PR-${pr_num}.tsv")"
+      if [[ -n "${pr_stats}" ]]; then
+        log "    Conflicts: ${pr_stats}"
+      else
+        log "    Conflicts: none"
+      fi
     done
   fi
 
@@ -855,12 +1083,101 @@ print_final_report() {
       pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "N/A")"
       log "  #${pr_num}: ${pr_title}"
       log "    https://github.com/${BASE_REPO}/pull/${pr_num}"
+      local pr_stats
+      pr_stats="$(format_resolution_stats "${RESOLUTION_STATS_DIR}/PR-${pr_num}.tsv")"
+      if [[ -n "${pr_stats}" ]]; then
+        log "    Conflicts: ${pr_stats}"
+      fi
     done
     if [[ -n "${CONFLICT_REPORT_DIR}" ]]; then
       log "  Conflict reports: ${CONFLICT_REPORT_DIR}"
     fi
   fi
+
+  # Bank usage summary
+  if [[ -d "${PROJECT_ROOT}/resolutions.d/contents" ]]; then
+    local bank_total used_count unused_count
+    bank_total="$(ls "${PROJECT_ROOT}/resolutions.d/contents" 2>/dev/null | wc -l | xargs)"
+    if [[ ${bank_total} -gt 0 ]]; then
+      # Collect all used keys across every .keys file
+      local all_used_keys_file="${RESOLUTION_STATS_DIR}/all_used.keys"
+      cat "${RESOLUTION_STATS_DIR}"/*.keys 2>/dev/null | sort -u > "${all_used_keys_file}" || true
+      used_count="$(wc -l < "${all_used_keys_file}" | xargs)"
+      unused_count=$((bank_total - used_count))
+      log ""
+      log "Resolution bank: ${used_count} used, ${unused_count} unused, ${bank_total} total"
+      if [[ ${unused_count} -gt 0 ]]; then
+        # List unused keys (show filepath from .resol metadata if possible)
+        local bank_key
+        while IFS= read -r bank_key; do
+          [[ -z "${bank_key}" ]] && continue
+          if ! grep -qFx "${bank_key}" "${all_used_keys_file}" 2>/dev/null; then
+            log "  unused: ${bank_key:0:32}..."
+          fi
+        done < <(ls "${PROJECT_ROOT}/resolutions.d/contents")
+      fi
+    fi
+  fi
   log ""
+}
+
+purge_unused_resolutions() {
+  if [[ "${PURGE_UNUSED_RESOLUTIONS}" != "true" ]]; then
+    return 0
+  fi
+  local contents_dir="${PROJECT_ROOT}/resolutions.d/contents"
+  if [[ ! -d "${contents_dir}" ]]; then
+    return 0
+  fi
+  local all_used_keys_file="${RESOLUTION_STATS_DIR}/all_used.keys"
+  if [[ ! -s "${all_used_keys_file}" ]]; then
+    log "No used keys recorded — skipping purge (would delete everything)."
+    return 0
+  fi
+
+  local purged=0
+  local bank_key
+  for bank_key in "${contents_dir}"/*; do
+    [[ -f "${bank_key}" ]] || continue
+    local key_name
+    key_name="$(basename "${bank_key}")"
+    if ! grep -qFx "${key_name}" "${all_used_keys_file}" 2>/dev/null; then
+      rm "${bank_key}"
+      purged=$((purged + 1))
+    fi
+  done
+
+  if [[ ${purged} -gt 0 ]]; then
+    log "Purged ${purged} unused resolution(s) from bank."
+    # Clean up .resol files that reference only purged keys
+    local f
+    while IFS= read -r f; do
+      [[ -z "${f}" ]] && continue
+      [[ -f "${f}" ]] || continue
+      local has_live="false"
+      local key
+      while IFS= read -r key; do
+        [[ -z "${key}" ]] && continue
+        if [[ -f "${contents_dir}/${key}" ]]; then
+          has_live="true"
+          break
+        fi
+      done < <(python3 -c "
+import json, sys
+with open('${f}') as fh:
+    data = json.load(fh)
+for fi in data.get('files', []):
+    for k in fi.get('hunk_keys', []):
+        print(k)
+" 2>/dev/null || true)
+      if [[ "${has_live}" == "false" ]]; then
+        log "  Removing empty .resol: $(basename "${f}")"
+        rm "${f}"
+      fi
+    done < <(compgen -G "${PROJECT_ROOT}/resolutions.d/*.resol" || true)
+  else
+    log "No unused resolutions to purge."
+  fi
 }
 
 init_repo() {
@@ -914,6 +1231,10 @@ main() {
   ensure_repo_inputs
   init_repo
 
+  # Per-merge resolution stats (one file per merge key, containing TSV lines)
+  RESOLUTION_STATS_DIR="$(mktemp -d)"
+  trap 'rm -rf "${RESOLUTION_STATS_DIR}"' EXIT
+
   if [[ -n "${STEP_NAME}" && "${STEP_NAME}" != "all" ]]; then
     case "${STEP_NAME}" in
       reset)
@@ -965,6 +1286,7 @@ main() {
   create_manifest "${WORK_DIR}"
   push_branches "${WORK_DIR}"
   print_final_report
+  purge_unused_resolutions
   log "Done."
 }
 

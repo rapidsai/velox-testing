@@ -135,7 +135,9 @@ def reconstruct_conflict(ours_path: str, base_path: str, theirs_path: str) -> by
 
     try:
         subprocess.run(
-            ["git", "merge-file", "--diff3", tmp_path, base_path, theirs_path],
+            ["git", "merge-file", "--diff3",
+             "-L", "ours", "-L", "base", "-L", "theirs",
+             tmp_path, base_path, theirs_path],
             check=False,
             capture_output=True,
         )

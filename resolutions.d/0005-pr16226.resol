@@ -1,0 +1,11 @@
+{
+  "hint": "pr16226",
+  "files": [
+    {
+      "filepath": "velox/experimental/cudf/connectors/hive/CudfHiveDataSource.cpp",
+      "hunk_keys": [
+        "701025b6726e94372b29bc3e5f90f451b39009cdc2a6b3d19245e36de8a32cf177a2754d4a28257f75e9440a477905f171dc82307a1791b051fac528c1538681"
+      ]
+    }
+  ]
+}

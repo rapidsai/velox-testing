@@ -2,9 +2,9 @@
   "hint": "pr15825",
   "files": [
     {
-      "filepath": "velox/experimental/cudf/exec/CudfHashAggregation.cpp",
+      "filepath": "velox/experimental/cudf/connectors/hive/CudfHiveDataSource.cpp",
       "hunk_keys": [
-        "5779170a878f59438272430dc27b5bdc9c7804e9546039bd78addbd829024e6cd41d8cd98f00b204e9800998ecf8427eccf51044124922507b6f8fd95932fdd5"
+        "170129f344ce49518c38dc51240d22ac7668787f3d3890def9d047925cb082e5d41d8cd98f00b204e9800998ecf8427e71dc82307a1791b051fac528c1538681"
       ]
     }
   ]

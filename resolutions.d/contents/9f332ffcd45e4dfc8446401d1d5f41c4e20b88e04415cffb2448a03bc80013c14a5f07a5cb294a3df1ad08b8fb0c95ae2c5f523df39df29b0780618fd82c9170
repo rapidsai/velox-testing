@@ -1,0 +1,33 @@
+        if (!adapter && isValidPlanNodeId(op->planNodeId())) {
+          if (auto topNRowNumberOp =
+                  dynamic_cast<const exec::TopNRowNumber*>(op)) {
+            auto topNRowNumberNode =
+                std::dynamic_pointer_cast<const core::TopNRowNumberNode>(
+                    getPlanNode(topNRowNumberOp->planNodeId()));
+            if (topNRowNumberNode &&
+                CudfTopNRowNumber::shouldReplace(topNRowNumberNode)) {
+              props.canRunOnGPU = true;
+              props.acceptsGpuInput = true;
+              props.producesGpuOutput = true;
+            }
+          } else if (
+              CudfConfig::getInstance().exchange &&
+              isAnyOf<exec::Exchange, exec::MergeExchange>(op)) {
+            props.canRunOnGPU = true;
+            props.acceptsGpuInput = false;
+            props.producesGpuOutput = true;
+          } else if (
+              CudfConfig::getInstance().exchange &&
+              isAnyOf<exec::PartitionedOutput>(op)) {
+            auto partitionedOutputNode =
+                std::dynamic_pointer_cast<const core::PartitionedOutputNode>(
+                    getPlanNode(op->planNodeId()));
+            if (partitionedOutputNode &&
+                !partitionedOutputNode->isRootFragment()) {
+              props.canRunOnGPU = true;
+              props.acceptsGpuInput = true;
+              props.producesGpuOutput = false;
+            }
+          }
+        }
+        return props;

@@ -14,6 +14,7 @@ Target path: ${DEFAULT_TARGET_PATH}
 
 Examples:
   ./presto/scripts/create_staging.sh --manual-pr-numbers "1,2,3"   # Merge specific PRs (required)
+  ./presto/scripts/create_staging.sh --manual-pr-numbers "1,2,3" --additional-pr-numbers "4"  # Append PR(s)
   ./presto/scripts/create_staging.sh --auto-fetch-prs true --pr-labels "gpu"  # Auto-fetch by label
   ./presto/scripts/create_staging.sh --manual-pr-numbers "1,2" --force-push true  # Force push
 

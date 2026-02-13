@@ -1,0 +1,5 @@
+      // Filter row groups using row group byte ranges
+      if (readerOptions_.get_skip_bytes() > 0 or
+          readerOptions_.get_num_bytes().has_value()) {
+        rowGroupIndices = exptSplitReader_->filter_row_groups_with_byte_range(
+            rowGroupIndices, readerOptions_);

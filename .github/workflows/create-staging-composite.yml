@@ -40,6 +40,11 @@ on:
         type: string
         required: false
         default: ''
+      additional_pr_numbers:
+        description: 'Comma-separated PR numbers to append to fetched/manual list'
+        type: string
+        required: false
+        default: ''
       force_push:
         description: 'Force push to target branch'
         type: boolean
@@ -82,6 +87,7 @@ jobs:
         ${{ inputs.pr_labels && format('--pr-labels {0}', inputs.pr_labels) || '' }}
         ${{ inputs.manual_pr_numbers && format('--manual-pr-numbers {0}', inputs.manual_pr_numbers) || '' }}
         ${{ inputs.exclude_pr_numbers && format('--exclude-pr-numbers {0}', inputs.exclude_pr_numbers) || '' }}
+        ${{ inputs.additional_pr_numbers && format('--additional-pr-numbers {0}', inputs.additional_pr_numbers) || '' }}
         ${{ inputs.additional_repository && format('--additional-repository {0}', inputs.additional_repository) || '' }}
         ${{ inputs.additional_branch && format('--additional-branch {0}', inputs.additional_branch) || '' }}
         --force-push ${{ inputs.force_push }}

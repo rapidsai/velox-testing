@@ -1,0 +1,87 @@
+    } else if (
+        auto topNRowNumberOp = dynamic_cast<exec::TopNRowNumber*>(oper)) {
+      auto topNRowNumberNode =
+          std::dynamic_pointer_cast<const core::TopNRowNumberNode>(
+              getPlanNode(topNRowNumberOp->planNodeId()));
+      if (topNRowNumberNode &&
+          CudfTopNRowNumber::shouldReplace(topNRowNumberNode)) {
+        replaceOp.push_back(
+            std::make_unique<CudfTopNRowNumber>(id, ctx, topNRowNumberNode));
+        keepOperator = 0;
+        isPureCpuOperator = false;
+      } else {
+        isPureCpuOperator = true;
+      }
+    } else if (
+        auto partitionOp = dynamic_cast<exec::PartitionedOutput*>(oper)) {
+      auto partitionedOutputNode =
+          std::dynamic_pointer_cast<const core::PartitionedOutputNode>(
+              getPlanNode(partitionOp->planNodeId()));
+      if (CudfConfig::getInstance().exchange && partitionedOutputNode &&
+          !partitionedOutputNode->isRootFragment()) {
+        replaceOp.push_back(std::make_unique<CudfPartitionedOutput>(
+            id, ctx, partitionedOutputNode, partitionOp->getEagerFlush()));
+        keepOperator = 0;
+        isPureCpuOperator = false;
+      } else {
+        isPureCpuOperator = true;
+      }
+    } else if (auto exchangeOp = dynamic_cast<exec::Exchange*>(oper)) {
+      auto exchangeNode = std::dynamic_pointer_cast<const core::ExchangeNode>(
+          getPlanNode(exchangeOp->planNodeId()));
+      if (CudfConfig::getInstance().exchange && exchangeNode) {
+        auto key = TaskPipelineKey(oper->taskId(), ctx->pipelineId);
+        std::shared_ptr<ExchangeClientFacade> client = nullptr;
+        {
+          std::lock_guard<std::mutex> lock(getExchangeClientFacadeMapMutex());
+          auto& facadeMap = getExchangeClientFacadeMap();
+          auto clientIter = facadeMap.find(key);
+          if (clientIter == facadeMap.end()) {
+            auto veloxExchangeClient = exchangeOp->releaseExchangeClient();
+            VELOX_CHECK_NOT_NULL(
+                veloxExchangeClient, "Velox exchange client can't be null.");
+            auto cudfClient = std::make_shared<CudfExchangeClient>(
+                oper->taskId(),
+                veloxExchangeClient->getDestination(),
+                veloxExchangeClient->getNumberOfConsumers());
+            client = std::make_shared<ExchangeClientFacade>(
+                oper->taskId(),
+                ctx->pipelineId,
+                std::move(cudfClient),
+                std::move(veloxExchangeClient));
+            facadeMap.emplace(key, client);
+          } else {
+            client = clientIter->second;
+            exchangeOp->resetExchangeClient();
+          }
+        }
+        replaceOp.push_back(
+            std::make_unique<HybridExchange>(id, ctx, exchangeNode, client));
+        keepOperator = 0;
+        isPureCpuOperator = false;
+      } else {
+        isPureCpuOperator = true;
+      }
+    } else if (
+        auto mergeExchangeOp = dynamic_cast<exec::MergeExchange*>(oper)) {
+      auto mergeExchangeNode =
+          std::dynamic_pointer_cast<const core::MergeExchangeNode>(
+              getPlanNode(mergeExchangeOp->planNodeId()));
+      if (CudfConfig::getInstance().exchange && mergeExchangeNode) {
+        replaceOp.push_back(std::make_unique<HybridExchange>(
+            id, ctx, mergeExchangeNode, nullptr));
+        replaceOp.push_back(
+            std::make_unique<CudfOrderBy>(id, ctx, mergeExchangeNode));
+        keepOperator = 0;
+        isPureCpuOperator = false;
+      } else {
+        isPureCpuOperator = true;
+      }
+    } else {
+      // special case for CudfOperator
+      if (isAnyOf<CudfOperator>(oper)) {
+        isPureCpuOperator = false;
+      } else {
+        // CPU operator without adapter
+        isPureCpuOperator = true;
+      }

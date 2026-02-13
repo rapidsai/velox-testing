@@ -52,10 +52,11 @@ The staging workflows create branches that aggregate PRs from upstream repositor
 | `base_branch` | Branch from base repository (e.g., `main`) | Yes |
 | `target_repository` | Fork repository to push staging branch to | Yes |
 | `target_branch` | Name of the staging branch to create | Yes |
-| `auto_fetch_prs` | Auto-fetch non-draft PRs with specified labels. **Note:** Auto-fetch is automatically disabled if `manual_pr_numbers` is specified. | No |
+| `auto_fetch_prs` | Auto-fetch non-draft PRs with specified labels. **Notes:** Auto-fetch is automatically disabled if `manual_pr_numbers` is specified. Auto-fetch currently queries up to 200 matching open PRs per run. | No |
 | `pr_labels` | Comma-separated PR labels to auto-fetch | No |
 | `manual_pr_numbers` | Comma-separated PR numbers to merge. Providing this disables `auto_fetch_prs`. | No |
 | `exclude_pr_numbers` | Comma-separated PR numbers to exclude from auto-fetch results | No |
+| `additional_pr_numbers` | Comma-separated PR numbers to append to the computed list (auto-fetched or manual). Useful for draft/unlabeled PRs. | No |
 | `force_push` | Force push to override existing target branch | No |
 | `additional_repository` | Additional repository to merge from (e.g., `rapidsai/velox`) | No |
 | `additional_branch` | Branch from additional repository to merge (e.g., `cudf-exchange`) | No |
@@ -87,11 +88,18 @@ The additional merge happens **after** the base reset but **before** PR merging.
   --additional-branch "feature/cudf-exchange" \
   --manual-pr-numbers "16075"
 
+# Velox: auto-fetch by label + add a draft/unlabeled PR explicitly
+./velox/scripts/create_staging.sh \
+  --pr-labels "cudf" \
+  --additional-pr-numbers "17001"
+
 # Presto: must specify PRs (no auto-fetch)
 ./presto/scripts/create_staging.sh --manual-pr-numbers "27057,27054"
 ```
 
-**Note:** In local mode, push to remote is skipped. Use `--mode ci` to enable pushing.
+**Notes:**
+- In local mode, push to remote is skipped. Use `--mode ci` to enable pushing.
+- Auto-fetch currently queries up to 200 matching open PRs. If your label query could exceed that, narrow labels/exclusions or use `--manual-pr-numbers`.
 
 ---
 

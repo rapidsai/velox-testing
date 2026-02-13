@@ -1,0 +1,17 @@
+  // Build column name mapping from logical (DDL) to physical (parquet) names.
+  // This handles cases where DDL column names differ from parquet column names
+  // (e.g., case differences like "_col_0" vs "_COL_0", or completely different
+  // names). The mapping is done by matching columns at the same index position.
+  buildColumnNameMapping(cudf::io::source_info{split_->filePath});
+
+  // Set skip_bytes and num_bytes if available.
+  if (split_->start != 0) {
+    readerOptions_.set_skip_bytes(split_->start);
+  }
+  if (split_->size() != std::numeric_limits<uint64_t>::max()) {
+    readerOptions_.set_num_bytes(split_->size());
+  }
+
+  // Set num_rows only if available.
+  if (cudfHiveConfig_->numRows().has_value()) {
+    readerOptions_.set_num_rows(cudfHiveConfig_->numRows().value());

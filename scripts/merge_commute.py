@@ -29,6 +29,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -390,10 +391,54 @@ def apply_hunk_resolutions(
     return bytes(result)
 
 
+def reconstruct_conflict_from_index(repo_root: str, path: str) -> Optional[bytes]:
+    """Reconstruct conflict file from git index stages using git merge-file --diff3.
+
+    This ensures consistent hunk boundaries with the recording tool
+    (compute_hunk_resolution.py), which also uses git merge-file --diff3.
+    git merge (ort strategy) can combine adjacent conflicts with small gaps,
+    producing different hunk boundaries than git merge-file.
+    """
+    try:
+        base = git_output_bytes(["show", f":1:{path}"], cwd=repo_root)
+        ours = git_output_bytes(["show", f":2:{path}"], cwd=repo_root)
+        theirs = git_output_bytes(["show", f":3:{path}"], cwd=repo_root)
+    except Exception:
+        return None
+
+    fd_ours, tmp_ours = tempfile.mkstemp(suffix=".ours")
+    fd_base, tmp_base = tempfile.mkstemp(suffix=".base")
+    fd_theirs, tmp_theirs = tempfile.mkstemp(suffix=".theirs")
+    try:
+        os.write(fd_ours, ours)
+        os.close(fd_ours)
+        os.write(fd_base, base)
+        os.close(fd_base)
+        os.write(fd_theirs, theirs)
+        os.close(fd_theirs)
+
+        subprocess.run(
+            ["git", "merge-file", "--diff3",
+             "-L", "ours", "-L", "base", "-L", "theirs",
+             tmp_ours, tmp_base, tmp_theirs],
+            check=False,
+            capture_output=True,
+        )
+        with open(tmp_ours, "rb") as f:
+            return f.read()
+    finally:
+        for p in (tmp_ours, tmp_base, tmp_theirs):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
 def lookup_resolution(
     resolutions_dir: str,
     repo_root: str,
     path: str,
+    used_keys: Optional[list[str]] = None,
 ) -> tuple[Optional[bytes], int, int]:
     """Look up per-hunk resolutions from bank.
 
@@ -401,13 +446,15 @@ def lookup_resolution(
     resolved_content is None if no hunks matched.
     If partially resolved, the returned content still has conflict markers
     for unresolved hunks.
-    """
-    abs_path = os.path.join(repo_root, path)
-    if not os.path.isfile(abs_path):
-        return None, 0, 0
 
-    with open(abs_path, "rb") as f:
-        conflict_content = f.read()
+    Uses git merge-file --diff3 to reconstruct the conflict from index stages,
+    ensuring hunk boundaries match those used during resolution recording.
+    If used_keys list is provided, matched keys are appended to it.
+    """
+    # Reconstruct conflict via git merge-file --diff3 for consistent hunk boundaries
+    conflict_content = reconstruct_conflict_from_index(repo_root, path)
+    if conflict_content is None:
+        return None, 0, 0
 
     hunks = parse_conflict_hunks(conflict_content)
     if not hunks:
@@ -423,7 +470,10 @@ def lookup_resolution(
             with open(resolution_path, "rb") as f:
                 resolved_hunks.append(f.read())
             resolved_count += 1
+            if used_keys is not None:
+                used_keys.append(key)
         else:
+            print(f"  bank miss: {path} hunk key {key[:32]}...", file=sys.stderr)
             resolved_hunks.append(None)
 
     if resolved_count == 0:
@@ -520,6 +570,10 @@ def main() -> int:
         action="store_true",
         help="only use banked resolutions (skip commuting-merge logic)",
     )
+    parser.add_argument(
+        "--resolution-log",
+        help="path to file for logging per-file resolution stats (TSV)",
+    )
     args = parser.parse_args()
 
     repo_root = git_output_text(["rev-parse", "--show-toplevel"], cwd=".")
@@ -568,23 +622,35 @@ def main() -> int:
         print("merge failed without conflicted files", file=sys.stderr)
         return 1
 
+    if args.resolutions_dir:
+        contents_dir = os.path.join(args.resolutions_dir, "contents")
+        n_bank_files = len(os.listdir(contents_dir)) if os.path.isdir(contents_dir) else 0
+        print(f"resolution bank: {contents_dir} ({n_bank_files} entries)", file=sys.stderr)
+
     unresolved: list[str] = []
+    resolution_stats: list[tuple[str, int, int, int]] = []  # (path, total, bank, commute)
+    all_used_keys: list[str] = []
     try:
         for path in conflicts:
             resolved = False
             bank_partial = False
+            file_total = 0
+            file_bank = 0
 
-            # 1. Try per-hunk bank resolution (sees raw git conflict markers)
+            # 1. Try per-hunk bank resolution
             if args.resolutions_dir:
                 banked, n_resolved, n_total = lookup_resolution(
                     args.resolutions_dir,
                     repo_root,
                     path,
+                    used_keys=all_used_keys,
                 )
+                file_total = n_total
                 if banked is not None and n_resolved == n_total:
                     print(f"resolved from bank: {path} ({n_total} hunks)", file=sys.stderr)
                     write_result(repo_root, path, banked)
                     run_git(["add", "-A", "--", path], cwd=repo_root)
+                    file_bank = n_total
                     resolved = True
                 elif banked is not None and n_resolved > 0:
                     print(
@@ -593,6 +659,7 @@ def main() -> int:
                     )
                     # Write partial resolution (still has markers for unresolved hunks)
                     write_result(repo_root, path, banked)
+                    file_bank = n_resolved
                     bank_partial = True
 
             # 2. Try commuting-merge on full file from blobs (unless --bank-only)
@@ -608,9 +675,24 @@ def main() -> int:
                 if safe:
                     write_result(repo_root, path, result)
                     run_git(["add", "-A", "--", path], cwd=repo_root)
+                    # Commute resolves all hunks; if bank was partial its work is overwritten
+                    if file_total == 0:
+                        recon = reconstruct_conflict_from_index(repo_root, path)
+                        if recon:
+                            file_total = len(parse_conflict_hunks(recon))
+                    resolution_stats.append((path, file_total, 0, file_total))
                     resolved = True
 
+            if resolved and path not in [s[0] for s in resolution_stats]:
+                # Resolved by bank (not commute)
+                resolution_stats.append((path, file_total, file_bank, 0))
+
             if not resolved:
+                if file_total == 0:
+                    recon = reconstruct_conflict_from_index(repo_root, path)
+                    if recon:
+                        file_total = len(parse_conflict_hunks(recon))
+                resolution_stats.append((path, file_total, file_bank, 0))
                 if bank_partial:
                     # Partial bank resolution already written to working tree;
                     # remaining markers will appear in conflict dump.
@@ -622,6 +704,18 @@ def main() -> int:
             if not aborted:
                 print("warning: failed to abort merge", file=sys.stderr)
         raise exc
+
+    # Write resolution stats log
+    if args.resolution_log:
+        if resolution_stats:
+            with open(args.resolution_log, "a") as f:
+                for path, total, bank, commute in resolution_stats:
+                    f.write(f"{path}\t{total}\t{bank}\t{commute}\n")
+        if all_used_keys:
+            keys_file = args.resolution_log.replace(".tsv", ".keys")
+            with open(keys_file, "a") as f:
+                for key in all_used_keys:
+                    f.write(key + "\n")
 
     if unresolved:
         print("unresolved conflicts remain:", file=sys.stderr)

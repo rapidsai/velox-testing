@@ -1,0 +1,6 @@
+  // Set num_rows only if available.
+  if (cudfHiveConfig_->numRows().has_value()) {
+    readerOptions_.set_num_rows(cudfHiveConfig_->numRows().value());
+  }
+
+  // Set filter expression created in constructor if any subfield filters

@@ -1,0 +1,14 @@
+    if (debugEnabled) {
+      VLOG(1) << "Operator: ID " << oper->operatorId() << ": "
+              << oper->toString() << ", keepOperator = " << keepOperator
+              << ", isPureCpuOperator = " << isPureCpuOperator
+              << ", replaceOp.size() = " << replaceOp.size()
+              << ", previousOperatorIsNotGpu = " << previousOperatorIsNotGpu
+              << ", nextOperatorIsNotGpu = " << nextOperatorIsNotGpu
+              << ", isLastOperatorOfTask = " << isLastOperatorOfTask
+              << ", canRunOnGPU[" << operatorIndex
+              << "] = " << thisOpProps.canRunOnGPU << ", acceptsGpuInput["
+              << operatorIndex << "] = " << thisOpProps.acceptsGpuInput
+              << ", producesGpuOutput[" << operatorIndex
+              << "] = " << thisOpProps.producesGpuOutput
+              << ", planNode = " << bool(planNode);

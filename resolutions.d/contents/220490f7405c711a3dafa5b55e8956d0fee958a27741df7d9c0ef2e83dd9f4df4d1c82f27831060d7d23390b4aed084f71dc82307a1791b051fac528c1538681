@@ -1,0 +1,7 @@
+  }
+
+  // Add fields in the filter to the columns to read if not there
+  for (const auto& [field, _] : subfieldFilters_) {
+    if (readColumnSet_.count(field.toString()) == 0) {
+      readColumnSet_.emplace(field.toString());
+      readColumnNames_.emplace_back(field.toString());
