@@ -219,6 +219,154 @@ def _append_debug_query(lines, presto_cursor, label, query):
         lines.append(f"{label}: debug query failed: {exc}")
 
 
+def _debug_q3_mismatch(presto_cursor):
+    lines = ["Q3 deep debug:"]
+    grouped = (
+        "SELECT "
+        "  l_orderkey, "
+        "  sum(l_extendedprice * (1 - l_discount)) AS revenue, "
+        "  o_orderdate, "
+        "  o_shippriority "
+        "FROM customer, orders, lineitem "
+        "WHERE c_mktsegment = 'BUILDING' "
+        "  AND c_custkey = o_custkey "
+        "  AND l_orderkey = o_orderkey "
+        "  AND o_orderdate < CAST('1995-03-15' AS date) "
+        "  AND l_shipdate > CAST('1995-03-15' AS date) "
+        "GROUP BY l_orderkey, o_orderdate, o_shippriority"
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q3 grouped row count",
+        f"SELECT count(*) FROM ({grouped}) q3_grouped",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q3 deterministic top15",
+        f"{grouped} ORDER BY revenue DESC, o_orderdate, l_orderkey LIMIT 15",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q3 boundary tie count at rank 10",
+        "WITH grouped AS ( "
+        + grouped
+        + "), boundary AS ( "
+        "  SELECT revenue, o_orderdate "
+        "  FROM grouped "
+        "  ORDER BY revenue DESC, o_orderdate "
+        "  LIMIT 1 OFFSET 9 "
+        ") "
+        "SELECT count(*) "
+        "FROM grouped, boundary "
+        "WHERE grouped.revenue = boundary.revenue "
+        "  AND grouped.o_orderdate = boundary.o_orderdate",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q3 boundary tie rows",
+        "WITH grouped AS ( "
+        + grouped
+        + "), boundary AS ( "
+        "  SELECT revenue, o_orderdate "
+        "  FROM grouped "
+        "  ORDER BY revenue DESC, o_orderdate "
+        "  LIMIT 1 OFFSET 9 "
+        ") "
+        "SELECT l_orderkey, revenue, o_orderdate, o_shippriority "
+        "FROM grouped, boundary "
+        "WHERE grouped.revenue = boundary.revenue "
+        "  AND grouped.o_orderdate = boundary.o_orderdate "
+        "ORDER BY l_orderkey "
+        "LIMIT 20",
+    )
+    return "\n".join(lines)
+
+
+def _debug_q18_mismatch(presto_cursor):
+    lines = ["Q18 deep debug:"]
+    qualifying_orders = (
+        "SELECT l_orderkey "
+        "FROM lineitem "
+        "GROUP BY l_orderkey "
+        "HAVING sum(l_quantity) > 300"
+    )
+    grouped = (
+        "SELECT "
+        "  c_name, "
+        "  c_custkey, "
+        "  o_orderkey, "
+        "  o_orderdate, "
+        "  o_totalprice, "
+        "  sum(l_quantity) AS sum_quantity "
+        "FROM customer, orders, lineitem "
+        "WHERE o_orderkey IN ( "
+        + qualifying_orders
+        + ") "
+        "  AND c_custkey = o_custkey "
+        "  AND o_orderkey = l_orderkey "
+        "GROUP BY c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice"
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 qualifying orderkey count",
+        f"SELECT count(*) FROM ({qualifying_orders}) q18_orders",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 grouped row count",
+        f"SELECT count(*) FROM ({grouped}) q18_grouped",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 deterministic top110",
+        f"{grouped} ORDER BY o_totalprice DESC, o_orderdate, o_orderkey, c_custkey LIMIT 110",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 boundary tie count at rank 100",
+        "WITH grouped AS ( "
+        + grouped
+        + "), boundary AS ( "
+        "  SELECT o_totalprice, o_orderdate "
+        "  FROM grouped "
+        "  ORDER BY o_totalprice DESC, o_orderdate "
+        "  LIMIT 1 OFFSET 99 "
+        ") "
+        "SELECT count(*) "
+        "FROM grouped, boundary "
+        "WHERE grouped.o_totalprice = boundary.o_totalprice "
+        "  AND grouped.o_orderdate = boundary.o_orderdate",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 boundary tie rows",
+        "WITH grouped AS ( "
+        + grouped
+        + "), boundary AS ( "
+        "  SELECT o_totalprice, o_orderdate "
+        "  FROM grouped "
+        "  ORDER BY o_totalprice DESC, o_orderdate "
+        "  LIMIT 1 OFFSET 99 "
+        ") "
+        "SELECT c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, sum_quantity "
+        "FROM grouped, boundary "
+        "WHERE grouped.o_totalprice = boundary.o_totalprice "
+        "  AND grouped.o_orderdate = boundary.o_orderdate "
+        "ORDER BY o_orderkey, c_custkey "
+        "LIMIT 20",
+    )
+    return "\n".join(lines)
+
+
 def _debug_q17_mismatch(presto_cursor):
     lines = ["Q17 deep debug:"]
     q17_rewritten = (
@@ -259,6 +407,46 @@ def _debug_q17_mismatch(presto_cursor):
         "FROM lineitem l "
         "JOIN part p ON p.p_partkey = l.l_partkey "
         "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX'",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 avg quantity + type for qualifying parts",
+        "SELECT avg(l.l_quantity), typeof(avg(l.l_quantity)) "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX'",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 threshold distribution on qualifying parts",
+        "WITH thresholds AS ( "
+        "  SELECT l_partkey, 0.2 * avg(l_quantity) AS threshold "
+        "  FROM lineitem "
+        "  GROUP BY l_partkey "
+        ") "
+        "SELECT count(*), min(t.threshold), max(t.threshold), avg(t.threshold) "
+        "FROM thresholds t "
+        "JOIN part p ON p.p_partkey = t.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX'",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 near-threshold candidate rows",
+        "WITH thresholds AS ( "
+        "  SELECT l_partkey, 0.2 * avg(l_quantity) AS threshold "
+        "  FROM lineitem "
+        "  GROUP BY l_partkey "
+        ") "
+        "SELECT count(*) "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "JOIN thresholds t ON t.l_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' "
+        "  AND p.p_container = 'MED BOX' "
+        "  AND abs(l.l_quantity - t.threshold) <= 0.01",
     )
     return "\n".join(lines)
 
@@ -356,8 +544,12 @@ def _debug_result_mismatch(
     except Exception as exc:
         lines.append(f"Mismatch normalization debug failed: {exc}")
 
-    if query_id == "Q17":
+    if query_id == "Q3":
+        lines.append(_debug_q3_mismatch(presto_cursor))
+    elif query_id == "Q17":
         lines.append(_debug_q17_mismatch(presto_cursor))
+    elif query_id == "Q18":
+        lines.append(_debug_q18_mismatch(presto_cursor))
     elif query_id == "Q22":
         lines.append(_debug_q22_mismatch(presto_cursor))
 
