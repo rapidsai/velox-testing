@@ -250,4 +250,4 @@ export PRESTO_IMAGE_TAG="${USER:-latest}"
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}

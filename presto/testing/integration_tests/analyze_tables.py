@@ -47,7 +47,7 @@ def check_tables_analyzed(presto_cursor, schema_name):
             f"'{schema_name}': {missing}. "
             f"Run analyze_tables.sh on a CPU Presto instance before benchmarking."
         )
-    print(f"All {len(table_names)} table(s) in schema '{schema_name}' have statistics.")
+    print(f"[Analyze] All {len(table_names)} table(s) in schema '{schema_name}' have statistics.")
 
 
 def analyze_tables(presto_cursor, schema_name, verbose=False):

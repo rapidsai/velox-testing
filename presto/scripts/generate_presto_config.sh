@@ -31,31 +31,35 @@ if [ ! -x "${SCRIPT_DIR}/../pbench/pbench" ]; then
 fi
 
 function duplicate_worker_configs() {
-  echo "Duplicating worker configs for GPU ID $1"
-  local worker_config="${CONFIG_DIR}/etc_worker_${1}"
+  local worker_id=$1
+  echo "Duplicating worker configs for GPU ID $worker_id"
+  local worker_config="${CONFIG_DIR}/etc_worker_${worker_id}"
+  local worker_native_config="${worker_config}/config_native.properties"
   local coord_config="${CONFIG_DIR}/etc_coordinator"
+  local coord_native_config="${coord_config}/config_native.properties"
+  local http_port="10$(printf "%02d\n" "$worker_id")0"
+  local exch_port="10$(printf "%02d\n" "$worker_id")3"
   rm -rf ${worker_config}
   cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
 
   # Single node execution needs to be disabled if we are running multiple workers.
   if [[ ${NUM_WORKERS} -gt 1 ]]; then
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
-        ${coord_config}/config_native.properties
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" \
-	${worker_config}/config_native.properties
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${coord_native_config}
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${worker_native_config}
     # make cudf.exchange=true if we are running multiple workers
-    sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_config}/config_native.properties
+    sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_native_config}
+    # make join-distribution-type=PARTITIONED if we are running multiple workers
+    # (ucx exchange does not currently support BROADCAST partition type)
+    sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_native_config}
   fi
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
   # the cudf.exchange server port is currently hard-coded to be the server port +3
   # and that needs to be unique for each worker.
-  sed -i "s+http-server\.http\.port.*+http-server\.http\.port=80${1}0+g" \
-      ${worker_config}/config_native.properties
-  sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=80${1}3+g" \
-      ${worker_config}/config_native.properties
+  sed -i "s+http-server\.http\.port.*+http-server\.http\.port=${http_port}+g" ${worker_native_config}
+  sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=${exch_port}+g" ${worker_native_config}
   # Give each worker a unique id.
-  sed -i "s+node\.id.*+node\.id=worker_${1}+g" ${worker_config}/node.properties
+  sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
 }
 
 # get host values

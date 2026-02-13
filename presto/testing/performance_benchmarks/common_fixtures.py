@@ -49,6 +49,17 @@ def benchmark_result_collector(request):
     request.session.benchmark_results = benchmark_results
 
 
+@pytest.fixture(scope="session", autouse=True)
+def drop_cache_once(request):
+    """Session-scoped fixture that drops the cache once at the start of the benchmark run."""
+    drop_cache_enabled = not request.config.getoption("--skip-drop-cache")
+    if drop_cache_enabled:
+        drop_cache()
+        print("[Cache] System cache dropped successfully.")
+    else:
+        print("[Cache] Skipping cache drop (--skip-drop-cache flag set).")
+
+
 @pytest.fixture(scope="module")
 def benchmark_queries(request, tpch_queries, tpcds_queries):  # noqa: F811
     if request.node.obj.BENCHMARK_TYPE == "tpch":
@@ -64,7 +75,6 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     profile = request.config.getoption("--profile")
     profile_script_path = request.config.getoption("--profile-script-path")
     metrics = request.config.getoption("--metrics")
-    drop_cache_enabled = not request.config.getoption("--skip-drop-cache")
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     bench_output_dir = request.config.getoption("--output-dir")
     hostname = request.config.getoption("--hostname")
@@ -90,8 +100,6 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     def benchmark_query_function(query_id):
         profile_output_file_path = None
         try:
-            if drop_cache_enabled:
-                drop_cache()
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
