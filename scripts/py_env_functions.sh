@@ -35,14 +35,24 @@ function init_conda() {
   echo "Conda initialization completed"
 }
 
-function init_python_virtual_env() {
-  rm -rf .venv
+function activate_python_virtual_env() {
+  local venv_dir=${1:-".venv"}
 
-  if python3.12 -m venv .venv; then
-    echo "Created virtual environment using the venv module"
-
+  if [[ -f "$venv_dir/pyvenv.cfg" ]]; then
     echo "Activating venv environment"
-    source .venv/bin/activate
+    source $venv_dir/bin/activate
+  else
+    echo "Activating conda environment"
+    conda activate "$(readlink -f $venv_dir)"
+  fi
+}
+
+function init_python_virtual_env() {
+  local venv_dir=${1:-".venv"}
+  rm -rf $venv_dir
+
+  if python3 -m venv $venv_dir &>/dev/null; then
+    echo "Created virtual environment using the venv module"
   else
     if [[ -z $MINIFORGE_HOME ]]; then
         echo "Error: MINIFORGE_HOME must be set when attempting to create a virtual environment with conda"
@@ -57,14 +67,15 @@ function init_python_virtual_env() {
     init_conda
 
     echo "Creating virtual environment using conda"
-    conda create -q -y --prefix ".venv" python=3.12 > /dev/null
-
-    echo "Activating conda environment"
-    conda activate "$(readlink -f .venv)"
+    conda create -q -y --prefix "$venv_dir" python=3.12 > /dev/null
   fi
+
+  activate_python_virtual_env $venv_dir
 }
 
 function delete_python_virtual_env() {
+  local venv_dir=${1:-".venv"}
+
   if [ -n "$LOCAL_CONDA_INIT" ] && command -v conda &> /dev/null; then
       echo "Deactivating conda environment"
       conda deactivate
@@ -74,6 +85,6 @@ function delete_python_virtual_env() {
     deactivate
   fi
 
-  echo "Deleting .venv directory"
-  rm -rf .venv
+  echo "Deleting $venv_dir directory"
+  rm -rf $venv_dir
 }
