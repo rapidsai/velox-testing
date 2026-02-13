@@ -372,7 +372,9 @@ extract_search_query() {
   local text="$1"
   local line
   line="$(echo "${text}" | sed '/^$/d' | head -n 1 | tr -d '\r' | sed 's/["'\'']//g')"
-  echo "${line:0:120}"
+  line="${line:0:120}"
+  # GitHub search treats ':' as starting qualifiers; colons in the phrase break the query.
+  echo "${line//:/ }"
 }
 
 print_related_issues_and_prs() {
