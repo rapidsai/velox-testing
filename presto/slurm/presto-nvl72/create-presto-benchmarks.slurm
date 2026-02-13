@@ -1,9 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=presto-tpch-create
-#SBATCH --output=/mnt/home/misiug/veloxtesting/presto-nvl72/%x_%j.out
-#SBATCH --error=/mnt/home/misiug/veloxtesting/presto-nvl72/%x_%j.err
 #SBATCH --time=01:00:00
-#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=144
 #SBATCH --mem=0
@@ -14,21 +11,31 @@
 # User Configuration - Edit these values directly
 # ==============================================================================
 # TPC-H Configuration
-export SCALE_FACTOR=10000
+if [ -z "${SCALE_FACTOR:-}" ]; then
+    echo "Error: SCALE_FACTOR is required. Set via launcher: -s|--scale-factor" >&2
+    exit 1
+fi
+export SCALE_FACTOR
+if [ -z "${SCRIPT_DIR:-}" ]; then
+    echo "Error: SCRIPT_DIR is required."
+    exit 1
+fi
+export SCRIPT_DIR
 
 # Directory Configuration
-export WORKSPACE=/mnt/home/misiug
+export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 export DATA=/mnt/data/tpch-rs
-export IMAGE_DIR=/mnt/home/misiug/images
-export LOGS=/mnt/home/misiug/veloxtesting/presto-nvl72/logs
-export CONFIGS=${WORKSPACE}/config/generated/cpu
+export IMAGE_DIR=/mnt/data/images/presto
+export LOGS=$SCRIPT_DIR/logs
+export VARIANT_TYPE=cpu
+export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
 # Container Images
 # Coordinator: ${IMAGE_DIR}/presto-coordinator-test.sqsh
 # Worker: ${IMAGE_DIR}/${WORKER_IMAGE}.sqsh (CPU workers required for ANALYZE)
-export WORKER_IMAGE=presto-native-worker-cpu
-export NUM_NODES=1
-export NUM_GPUS_PER_NODE=1
+export WORKER_IMAGE=presto-native-worker-$VARIANT_TYPE
+export NUM_NODES=$SLURM_JOB_NUM_NODES
+export NUM_GPUS_PER_NODE=4
 
 # Presto Configuration
 export PORT=9200
@@ -67,7 +74,7 @@ echo "========================================"
 # Create necessary directories
 mkdir -p ${LOGS}
 mkdir -p ${DATA}
-mkdir -p ${WORKSPACE}/.hive_metastore
+mkdir -p ${VT_ROOT}/.hive_metastore
 
 # Launch the job script
-bash ${WORKSPACE}/veloxtesting/presto-nvl72/create-presto-benchmarks.sh
+bash ${VT_ROOT}/veloxtesting/presto-nvl72/create-presto-benchmarks.sh

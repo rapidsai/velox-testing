@@ -137,8 +137,10 @@ def pytest_sessionfinish(session, exitstatus):
         ]
     else:
         AGG_KEYS = [BenchmarkKeys.LUKEWARM_KEY]
+
     if not hasattr(session, "benchmark_results"):
         return
+
     for benchmark_type, result in session.benchmark_results.items():
         compute_aggregate_timings(result)
         json_result[benchmark_type] = {
