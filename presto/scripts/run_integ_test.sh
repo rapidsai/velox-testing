@@ -155,16 +155,30 @@ if [[ -n ${SCHEMA_NAME} ]]; then
   PYTEST_ARGS+=("--schema-name ${SCHEMA_NAME}")
 fi
 
-source ../../scripts/py_env_functions.sh
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
 trap delete_python_virtual_env EXIT
 
 init_python_virtual_env
 
-TEST_DIR=$(readlink -f ../testing)
-pip install -q -r ${TEST_DIR}/requirements.txt
+TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
+# PyPI can occasionally be slow/flaky on GitHub-hosted runners; harden pip with retries/timeouts.
+# You can override these if needed:
+#   PIP_TIMEOUT=180 PIP_RETRIES=12 ./run_integ_test.sh ...
+PIP_TIMEOUT="${PIP_TIMEOUT:-120}"
+PIP_RETRIES="${PIP_RETRIES:-8}"
+python -m pip install \
+  --disable-pip-version-check \
+  --no-input \
+  --progress-bar off \
+  --retries "${PIP_RETRIES}" \
+  --timeout "${PIP_TIMEOUT}" \
+  -q -r "${TEST_DIR}/requirements.txt"
 
-source ./common_functions.sh
+source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 

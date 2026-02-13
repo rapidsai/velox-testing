@@ -55,8 +55,14 @@ parse_args() {
 
 parse_args "$@"
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Get the root of the git repository
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+
 # verify sibling Presto and Velox clones
-if [[ ! -d "../../../presto/presto-native-execution" || ! -d "../../../velox" ]]; then
+if [[ ! -d "${REPO_ROOT}/../presto/presto-native-execution" || ! -d "${REPO_ROOT}/../velox" ]]; then
   echo "Error: Sibling Presto and/or Velox clone not found"
   exit 1
 fi
@@ -77,7 +83,7 @@ function cleanup {
 trap cleanup EXIT
 
 # move to Presto Velox
-pushd ../../../presto/presto-native-execution > /dev/null
+pushd "${REPO_ROOT}/../presto/presto-native-execution" > /dev/null
 
 # override Presto Velox build config
 echo "Overriding Presto Velox build config from sibling Velox clone..."

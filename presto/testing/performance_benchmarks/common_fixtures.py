@@ -1,24 +1,16 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+
+from pathlib import Path
 
 import prestodb
 import pytest
 
-from pathlib import Path
+from ..common.fixtures import tpcds_queries as tpcds_queries
+from ..common.fixtures import tpch_queries as tpch_queries
 from .benchmark_keys import BenchmarkKeys
+from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
-from ..common.fixtures import tpch_queries, tpcds_queries
 
 
 @pytest.fixture(scope="module")
@@ -27,8 +19,7 @@ def presto_cursor(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema = request.config.getoption("--schema-name")
-    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive",
-                                  schema=schema)
+    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
     return conn.cursor()
 
 
@@ -41,7 +32,7 @@ def benchmark_result_collector(request):
 
 
 @pytest.fixture(scope="module")
-def benchmark_queries(request, tpch_queries, tpcds_queries):
+def benchmark_queries(request, tpch_queries, tpcds_queries):  # noqa: F811
     if request.node.obj.BENCHMARK_TYPE == "tpch":
         return tpch_queries
     else:
@@ -54,11 +45,14 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     iterations = request.config.getoption("--iterations")
     profile = request.config.getoption("--profile")
     profile_script_path = request.config.getoption("--profile-script-path")
+    metrics = request.config.getoption("--metrics")
     benchmark_type = request.node.obj.BENCHMARK_TYPE
+    bench_output_dir = request.config.getoption("--output-dir")
+    hostname = request.config.getoption("--hostname")
+    port = request.config.getoption("--port")
 
     if profile:
         assert profile_script_path is not None
-        bench_output_dir = request.config.getoption("--output-dir")
         profile_output_dir_path = Path(f"{bench_output_dir}/profiles/{benchmark_type}")
         profile_output_dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -75,23 +69,37 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     assert failed_queries_dict == {}
 
     def benchmark_query_function(query_id):
+        profile_output_file_path = None
         try:
             if profile:
-                profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}.nsys-rep"
+                # Base path without .nsys-rep extension: {dir}/{query_id}
+                profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
                 start_profiler(profile_script_path, profile_output_file_path)
-            result = [
-                presto_cursor.execute("--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" +
-                                      benchmark_queries[query_id])
-                .stats["elapsedTimeMillis"]
-                for _ in range(iterations)
-            ]
+            result = []
+            for _ in range(iterations):
+                cursor = presto_cursor.execute(
+                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
+                )
+                result.append(cursor.stats["elapsedTimeMillis"])
+
+                # Collect metrics after each query iteration if enabled
+                if metrics:
+                    presto_query_id = cursor._query.query_id
+                    if presto_query_id:
+                        collect_metrics(
+                            query_id=presto_query_id,
+                            query_name=str(query_id),
+                            hostname=hostname,
+                            port=port,
+                            output_dir=bench_output_dir,
+                        )
             raw_times_dict[query_id] = result
         except Exception as e:
             failed_queries_dict[query_id] = f"{e.error_type}: {e.error_name}"
             raw_times_dict[query_id] = None
             raise
         finally:
-            if profile:
+            if profile and profile_output_file_path is not None:
                 stop_profiler(profile_script_path, profile_output_file_path)
 
     return benchmark_query_function

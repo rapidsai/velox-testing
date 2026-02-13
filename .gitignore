@@ -17,4 +17,9 @@ __pycache__/
 benchmark_output
 
 # Generated Presto Config
-presto/docker/config/generated/
+presto/docker/config/generated*/
+
+# Generated Presto Docker Compose files
+presto/docker/docker-compose/generated*/
+
+devstate*

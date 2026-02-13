@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+
+[tool.codespell]
+# note: pre-commit passes explicit lists of files here, which this skip file list doesn't override -
+# this is only to allow you to run codespell interactively
+skip = "./.git,./pyproject.toml"
+# ignore short words, and typename parameters like OffsetT
+ignore-regex = "\\b(.{1,4}|[A-Z]\\w*T)\\b"
+ignore-words-list = "thirdparty,couldn"
+builtin = "clear"
+quiet-level = 3
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle Error
+    "E",
+    # Pyflakes
+    "F",
+    # pycodestyle Warning
+    "W",
+    # isort
+    "I",
+    # Ruff-specific rules
+    "RUF",
+]
+ignore = [
+    # whitespace before :
+    "E203",
+    # line-too-long (due to Copyright header)
+    "E501",
+    # String contains ambiguous character
+    "RUF001",
+    # Parenthesize `a and b` expressions when chaining `and` and `or`
+    # together, to make the precedence clear
+    "RUF021",
+]
+fixable = ["ALL"]

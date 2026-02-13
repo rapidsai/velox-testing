@@ -49,7 +49,7 @@ runs:
         set +e
         ./fetch_centos_deps_image.sh
         status=$?
-        
+
         if [[ $status -eq 0 ]]; then
           echo "Successfully fetched and loaded deps image from S3"
           echo "fetch_status=success" >> $GITHUB_OUTPUT
@@ -58,7 +58,7 @@ runs:
           echo "Deps image not found in S3 or failed to load"
           echo "fetch_status=not_found" >> $GITHUB_OUTPUT
           echo "needs_build=true" >> $GITHUB_OUTPUT
-          
+
           # Check if we should fail instead of building
           if [[ "${{ inputs.fail_on_fetch_error }}" == "true" ]]; then
             echo "ERROR: fail_on_fetch_error is enabled. Exiting workflow."
