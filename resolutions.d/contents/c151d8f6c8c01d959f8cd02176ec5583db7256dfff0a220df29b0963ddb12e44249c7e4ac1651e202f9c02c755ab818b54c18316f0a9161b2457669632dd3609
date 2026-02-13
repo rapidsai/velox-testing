@@ -1,3 +1,0 @@
-          auto leftCudfDataType =
-              veloxToCudfDataType(probeType-_>childAt(probeChannel));
-          auto nullScalar = cudf::make_default_constructed_scalar(leftCudfDataType);

@@ -1148,32 +1148,42 @@ purge_unused_resolutions() {
   done
 
   if [[ ${purged} -gt 0 ]]; then
-    log "Purged ${purged} unused resolution(s) from bank."
-    # Clean up .resol files that reference only purged keys
+    log "Purged ${purged} unused content file(s) from bank."
+    # Clean up .resol files: remove dangling keys, drop empty files/resols
     local f
     while IFS= read -r f; do
       [[ -z "${f}" ]] && continue
       [[ -f "${f}" ]] || continue
-      local has_live="false"
-      local key
-      while IFS= read -r key; do
-        [[ -z "${key}" ]] && continue
-        if [[ -f "${contents_dir}/${key}" ]]; then
-          has_live="true"
-          break
-        fi
-      done < <(python3 -c "
-import json, sys
+      python3 -c "
+import json, os
+contents_dir = '${contents_dir}'
 with open('${f}') as fh:
     data = json.load(fh)
-for fi in data.get('files', []):
-    for k in fi.get('hunk_keys', []):
-        print(k)
-" 2>/dev/null || true)
-      if [[ "${has_live}" == "false" ]]; then
-        log "  Removing empty .resol: $(basename "${f}")"
-        rm "${f}"
-      fi
+orig_files = data.get('files', [])
+pruned_files = []
+for fi in orig_files:
+    live_keys = [k for k in fi.get('hunk_keys', []) if os.path.isfile(os.path.join(contents_dir, k))]
+    if live_keys:
+        fi['hunk_keys'] = live_keys
+        pruned_files.append(fi)
+if not pruned_files:
+    os.unlink('${f}')
+    print('removed')
+elif len(pruned_files) < len(orig_files) or any(
+    len(pf['hunk_keys']) != len(of.get('hunk_keys', []))
+    for pf, of in zip(pruned_files, orig_files) if pf['filepath'] == of['filepath']
+):
+    data['files'] = pruned_files
+    with open('${f}', 'w') as fh:
+        json.dump(data, fh, indent=2)
+        fh.write('\n')
+    print('pruned')
+" 2>/dev/null | while IFS= read -r action; do
+        case "${action}" in
+          removed) log "  Removed empty .resol: $(basename "${f}")" ;;
+          pruned) log "  Pruned dangling keys from: $(basename "${f}")" ;;
+        esac
+      done
     done < <(compgen -G "${PROJECT_ROOT}/resolutions.d/*.resol" || true)
   else
     log "No unused resolutions to purge."
