@@ -13,13 +13,12 @@ function setup {
     [ -z "$NUM_GPUS_PER_NODE" ] && echo "NUM_GPUS_PER_NODE env variable must be set" && exit 1
     [ ! -d "$VT_ROOT" ] && echo "VT_ROOT must be a valid directory" && exit 1
     [ ! -d "$DATA" ] && echo "DATA must be a valid directory" && exit 1
-    [ ! -d ${CONFIGS} ] && generate_configs
+    generate_configs
 
     validate_config_directory
 }
 
 function generate_configs {
-    echo "GENERATING NEW CONFIGS"
     mkdir -p ${CONFIGS}
     pushd ${VT_ROOT}/presto/scripts
     OVERWRITE_CONFIG=true ./generate_presto_config.sh
