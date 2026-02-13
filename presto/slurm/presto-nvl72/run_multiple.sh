@@ -9,7 +9,7 @@ while [[ $# -gt 0 ]]; do
                 shift 2
             else
 		echo "Error: -n|--nodes requires a set of comma separated values.  E.g. (2,4,8)"
-                echo "Usage: $0 -n|--nodes <count1,count2> -s|--scale-factor <sf1,sf2> -w <image_name> [additional sbatch options]"
+                echo "Usage: $0 -n|--nodes <count1,count2> -s|--scale-factor <sf1,sf2> -w <image_name> -c <image_name> [additional sbatch options]"
                 exit 1
             fi
             ;;
@@ -19,7 +19,7 @@ while [[ $# -gt 0 ]]; do
                 shift 2
             else
 		echo "Error: -s|--scale-factor requires a set of comma separated values. E.g. (1000,3000)"
-		echo "Usage: $0 -n|--nodes <count1,count2> -s|--scale-factor <sf1,sf2> -w <image_name> [additional sbatch options]"
+		echo "Usage: $0 -n|--nodes <count1,count2> -s|--scale-factor <sf1,sf2> -w <image_name> -c <image_name> [additional sbatch options]"
                 exit 1
             fi
             ;;
@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
                 shift 2
             else
                 echo "Error: -i|--iterations requires a value"
-		echo "Usage: $0 -n|--nodes <count1,count2> -s|--scale-factor <sf1,sf2> -w <image_name> [additional sbatch options]"
+		echo "Usage: $0 -n|--nodes <count1,count2> -s|--scale-factor <sf1,sf2> -w <image_name> -c <image_name> [additional sbatch options]"
                 exit 1
             fi
             ;;
@@ -39,7 +39,17 @@ while [[ $# -gt 0 ]]; do
                 shift 2
             else
                 echo "Error: -w|--worker-image requires a value"
-		echo "Usage: $0 -n|--nodes <count1,count2> -s|--scale-factor <sf1,sf2> -w <image_name> [additional sbatch options]"
+		echo "Usage: $0 -n|--nodes <count1,count2> -s|--scale-factor <sf1,sf2> -w <image_name> -c <image_name> [additional sbatch options]"
+                exit 1
+            fi
+            ;;
+	-c|--coord-image)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                COORD_IMAGE="$2"
+                shift 2
+            else
+                echo "Error: -c|--coord-image requires a value"
+		echo "Usage: $0 -n|--nodes <count1,count2> -s|--scale-factor <sf1,sf2> -w <image_name> -c <image_name> [additional sbatch options]"
                 exit 1
             fi
             ;;
@@ -62,6 +72,11 @@ if [[ -z "${WORKER_IMAGE}" ]]; then
     echo "Error: -w|--worker-image is required"
     exit 1
 fi
+if [[ -z "${COORD_IMAGE}" ]]; then
+    echo "Error: -c|--coord-image is required"
+    exit 1
+fi
+
 
 mkdir -p kept_results
 
@@ -69,7 +84,7 @@ IFS=',' read -ra NODES_ARRAY <<< "$NODES_COUNT"
 IFS=',' read -ra SF_ARRAY <<< "$SCALE_FACTOR"
 for s in "${SF_ARRAY[@]}"; do
     for n in "${NODES_ARRAY[@]}"; do
-        ./launch-run.sh -s $s -n $n -i 2 -w $WORKER_IMAGE
-        cp logs/cli.log kept_results/${WORKER_IMAGE}-${n}N-${s}SF-summary.txt
+        ./launch-run.sh -s $s -n $n -i 2 -w $WORKER_IMAGE -c $COORD_IMAGE
+        cp logs/cli.log kept_results/${n}N-${s}SF-summary.txt
     done
 done

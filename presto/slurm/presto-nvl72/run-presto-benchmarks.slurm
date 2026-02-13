@@ -30,6 +30,11 @@ if [ -z "${WORKER_IMAGE:-}" ]; then
     exit 1
 fi
 export WORKER_IMAGE
+if [ -z "${COORD_IMAGE:-}" ]; then
+    echo "Error: COORD_IMAGE is required."
+    exit 1
+fi
+export COORD_IMAGE
 
 # Assumes the repo root is four steps up from the script directory.  This should refer to velox-testing.
 export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
@@ -78,6 +83,7 @@ echo "Nodes: $SLURM_JOB_NUM_NODES"
 echo "Node list: $SLURM_JOB_NODELIST"
 echo "Coordinator node: $COORD"
 echo "Worker image: $WORKER_IMAGE"
+echo "Coord image: $COORD_IMAGE"
 echo "Scale factor: $SCALE_FACTOR"
 echo "Iterations: $NUM_ITERATIONS"
 echo "Data directory: $DATA"

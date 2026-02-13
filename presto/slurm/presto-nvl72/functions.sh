@@ -46,13 +46,13 @@ function validate_environment_preconditions {
 # Execute script through the coordinator image (used for coordinator and cli executables)
 function run_coord_image {
     [ $# -ne 2 ] && echo_error "$0 expected one argument for '<script>' and one for '<coord/cli>'"
-    validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD DATA
+    validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD DATA COORD_IMAGE
     local script=$1
     local type=$2
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
     local log_file="${type}.log"
 
-    local coord_image="${IMAGE_DIR}/presto-coordinator.sqsh"
+    local coord_image="${IMAGE_DIR}/${COORD_IMAGE}.sqsh"
     [ ! -f "${coord_image}" ] && echo_error "coord image does not exist at ${coord_image}"
 
     # Coordinator runs as a background process, whereas we want to wait for cli
