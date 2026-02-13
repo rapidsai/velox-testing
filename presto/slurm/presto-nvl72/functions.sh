@@ -13,6 +13,16 @@ function setup {
     [ -z "$NUM_GPUS_PER_NODE" ] && echo "NUM_GPUS_PER_NODE env variable must be set" && exit 1
     [ ! -d "$VT_ROOT" ] && echo "VT_ROOT must be a valid directory" && exit 1
     [ ! -d "$DATA" ] && echo "DATA must be a valid directory" && exit 1
+
+    if [ ! -d ${VT_ROOT}/.hive_metastore ]; then
+        echo "Copying hive metastore from data source."
+        copy_hive_metastore
+    else
+        echo "Hive metastore already exists.  Reusing."
+    fi
+
+    [ ! -d ${VT_ROOT}/.hive_metastore/tpchsf${SCALE_FACTOR} ] && echo "Schema for SF ${SCALE_FACTOR} does not exist in hive metastore." && exit 1
+
     generate_configs
 
     validate_config_directory
@@ -23,6 +33,7 @@ function generate_configs {
     pushd ${VT_ROOT}/presto/scripts
     OVERWRITE_CONFIG=true ./generate_presto_config.sh
     popd
+    # These options are require to run in some cluster contexts.
     echo "--add-modules=java.management,jdk.management" >> ${CONFIGS}/etc_common/jvm.config
     echo "-Dcom.sun.management.jmxremote=false" >> ${CONFIGS}/etc_common/jvm.config
     echo "-XX:-UseContainerSupport" >> ${CONFIGS}/etc_common/jvm.config
@@ -183,6 +194,10 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 -- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; nvidia-smi -L; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
+function copy_hive_metastore {
+    cp -r /mnt/data/tpch-rs/HIVE-METASTORE-MG-260313 ${VT_ROOT}/.hive_metastore
+}
+
 #./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
 function setup_benchmark {
     echo "setting up benchmark"
@@ -191,7 +206,7 @@ function setup_benchmark {
     local data_path="/data/date-scale-${scale_factor}"
     run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 -y; yum install jq -y; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor} --skip-analyze-tables --no-docker; " "cli"
 
-    # Copy the hive metastore from the source of truth to the container.  This means we don't have to create
+    # Copy the hive metastore from a local copy.  This means we don't have to create
     # or analyze the tables.
     for dataset in $(ls ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE); do
 	if [[ -d ${VT_ROOT}/.hive_metastore/${dataset} ]]; then
@@ -214,7 +229,14 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 jq -y > /dev/null; cd /workspace/presto/scripts; ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir" "cli"
+    # We currently skip dropping cache because it requires docker (not available on the cluster).
+    run_coord_image "export PORT=$PORT; \
+    export HOSTNAME=$COORD; \
+    export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
+    yum install python3.12 jq -y > /dev/null; \
+    cd /workspace/presto/scripts; \
+    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} \
+        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.

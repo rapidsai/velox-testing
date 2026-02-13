@@ -45,11 +45,9 @@ done
 echo "Waiting for ${NUM_WORKERS} workers to register with coordinator..."
 wait_for_workers_to_register $NUM_WORKERS
 
-# ==============================================================================
-# Create Schema and Register Tables
-# ==============================================================================
-echo "Creating TPC-H schema and registering tables for scale factor ${SCALE_FACTOR}..."
-setup_benchmark ${SCALE_FACTOR}
+# Not currently needed because we are copying the hive metastore from the data source.
+#echo "Creating TPC-H schema and registering tables for scale factor ${SCALE_FACTOR}..."
+#setup_benchmark ${SCALE_FACTOR}
 
 # ==============================================================================
 # Run Queries
