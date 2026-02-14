@@ -36,6 +36,8 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
     cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin && \
     replay_bin="" && \
     for candidate in \
+      "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tools/velox_cudf_hashagg_replay" \
+      "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tests/velox_cudf_hashagg_replay" \
       "${BUILD_BASE_DIR}/velox/experimental/cudf/tools/velox_cudf_hashagg_replay" \
       "${BUILD_BASE_DIR}/velox/experimental/cudf/tests/velox_cudf_hashagg_replay" \
       "${BUILD_BASE_DIR}/velox_cudf_hashagg_replay"; do \
