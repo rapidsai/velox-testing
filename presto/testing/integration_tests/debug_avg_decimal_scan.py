@@ -30,12 +30,22 @@ DEFAULT_PORT = _default_port()
 DEFAULT_SCHEMA = "tpch_test"
 DEFAULT_MAX_PARTKEY = 33554431
 DEFAULT_REQUIRED_MIN_MAX_PARTKEY = 20000000
+DEFAULT_MODE = "q17_predicate"
+DEFAULT_DECIMAL_ABS_TOL = "0.000001"
 DEFAULT_MAJOR_DECIMAL_ABS_DIFF = decimal.Decimal("0.01")
-DEFAULT_MAJOR_DOUBLE_ABS_DIFF = 1e-6
+DEFAULT_MAJOR_DOUBLE_ABS_DIFF = 0.01
 
 
 def get_abs_file_path(relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
+
+
+def _progress(message):
+    print(f"PROGRESS,{message}", flush=True)
+
+
+def _escape_sql_string(value):
+    return value.replace("'", "''")
 
 
 def _get_table_external_location(schema_name, table, presto_cursor):
@@ -77,7 +87,9 @@ def _get_table_external_location(schema_name, table, presto_cursor):
 
 
 def _setup_tables(presto_cursor, schema_name, create_tables):
+    _progress(f"phase=setup,event=start,schema={schema_name}")
     if create_tables:
+        _progress(f"phase=setup,event=create_hive_tables_start,schema={schema_name}")
         schemas_dir = test_utils.get_abs_file_path("../common/schemas/tpch")
         create_hive_tables.create_tables(
             presto_cursor,
@@ -85,6 +97,7 @@ def _setup_tables(presto_cursor, schema_name, create_tables):
             schemas_dir,
             "integration_test/tpch",
         )
+        _progress(f"phase=setup,event=create_hive_tables_end,schema={schema_name}")
 
     tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
     if not tables:
@@ -92,10 +105,22 @@ def _setup_tables(presto_cursor, schema_name, create_tables):
             f"No tables found in schema '{schema_name}'. "
             "Pass --schema-name for an existing schema or omit it to auto-create."
         )
+    _progress(f"phase=setup,event=discover_tables,count={len(tables)}")
 
-    for (table,) in tables:
+    for index, (table,) in enumerate(tables, start=1):
+        table_start = time.time()
+        _progress(
+            "phase=setup,event=duckdb_register_start,"
+            f"table={table},index={index}/{len(tables)}"
+        )
         location = _get_table_external_location(schema_name, table, presto_cursor)
         test_utils.create_duckdb_table(table, location)
+        _progress(
+            "phase=setup,event=duckdb_register_end,"
+            f"table={table},index={index}/{len(tables)},"
+            f"seconds={time.time() - table_start:.3f}"
+        )
+    _progress("phase=setup,event=end")
 
 
 def _get_lineitem_partkey_stats(presto_cursor):
@@ -141,15 +166,69 @@ def _generate_exponential_prefix_uppers(max_partkey):
     yield max_partkey
 
 
-def _run_prefix_query(presto_cursor, upper, decimal_cast):
-    query = (
+def _get_mode_metric_labels(mode):
+    if mode == "avg_cast":
+        return "avg_qty_decimal", "avg_qty_double"
+    assert mode == "q17_predicate"
+    return "avg_yearly", "sum_extendedprice"
+
+
+def _build_prefix_query(
+    mode,
+    upper,
+    decimal_cast,
+    q17_brand,
+    q17_container,
+    q17_threshold_mode,
+):
+    if mode == "avg_cast":
+        return (
+            "SELECT "
+            "  count(*) AS row_count, "
+            f"  avg(CAST(l_quantity AS {decimal_cast})) AS avg_qty_decimal, "
+            "  avg(CAST(l_quantity AS DOUBLE)) AS avg_qty_double "
+            "FROM lineitem "
+            f"WHERE l_partkey BETWEEN 1 AND {upper}"
+        )
+
+    assert mode == "q17_predicate"
+    escaped_brand = _escape_sql_string(q17_brand)
+    escaped_container = _escape_sql_string(q17_container)
+    if q17_threshold_mode == "native":
+        threshold_predicate = (
+            "l.l_quantity < ( "
+            "  SELECT 0.2 * avg(li.l_quantity) "
+            "  FROM lineitem li "
+            "  WHERE li.l_partkey = p.p_partkey "
+            f"    AND li.l_partkey BETWEEN 1 AND {upper} "
+            ")"
+        )
+    else:
+        assert q17_threshold_mode == "cast_decimal"
+        threshold_predicate = (
+            f"CAST(l.l_quantity AS {decimal_cast}) < ( "
+            f"  SELECT 0.2 * avg(CAST(li.l_quantity AS {decimal_cast})) "
+            "  FROM lineitem li "
+            "  WHERE li.l_partkey = p.p_partkey "
+            f"    AND li.l_partkey BETWEEN 1 AND {upper} "
+            ")"
+        )
+
+    return (
         "SELECT "
-        "  count(*) AS row_count, "
-        f"  avg(CAST(l_quantity AS {decimal_cast})) AS avg_qty_decimal, "
-        "  avg(CAST(l_quantity AS DOUBLE)) AS avg_qty_double "
-        "FROM lineitem "
-        f"WHERE l_partkey BETWEEN 1 AND {upper}"
+        "  count(*) AS qualifying_rows, "
+        "  sum(l.l_extendedprice) / 7.0 AS avg_yearly, "
+        "  sum(l.l_extendedprice) AS sum_extendedprice "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        f"WHERE p.p_brand = '{escaped_brand}' "
+        f"  AND p.p_container = '{escaped_container}' "
+        f"  AND l.l_partkey BETWEEN 1 AND {upper} "
+        f"  AND {threshold_predicate}"
     )
+
+
+def _run_prefix_query(presto_cursor, query):
     presto_row = presto_cursor.execute(query).fetchone()
     duckdb_row = duckdb.sql(query).fetchone()
     return presto_row, duckdb_row
@@ -185,12 +264,12 @@ def _format_value(value):
     return str(value)
 
 
-def _print_header():
+def _print_header(metric1_label, metric2_label):
     print(
         "range_id,lower,upper,"
         "presto_count,duckdb_count,"
-        "presto_avg_decimal,duckdb_avg_decimal,abs_diff_decimal,"
-        "presto_avg_double,duckdb_avg_double,abs_diff_double,"
+        f"presto_{metric1_label},duckdb_{metric1_label},abs_diff_{metric1_label},"
+        f"presto_{metric2_label},duckdb_{metric2_label},abs_diff_{metric2_label},"
         "query_seconds,status,major_status",
         flush=True,
     )
@@ -215,13 +294,25 @@ def _is_major_mismatch(record, major_decimal_abs_diff, major_double_abs_diff):
 def _evaluate_prefix(
     presto_cursor,
     upper,
+    mode,
     decimal_cast,
+    q17_brand,
+    q17_container,
+    q17_threshold_mode,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
     major_double_abs_diff,
 ):
-    presto_row, duckdb_row = _run_prefix_query(presto_cursor, upper, decimal_cast)
+    query = _build_prefix_query(
+        mode=mode,
+        upper=upper,
+        decimal_cast=decimal_cast,
+        q17_brand=q17_brand,
+        q17_container=q17_container,
+        q17_threshold_mode=q17_threshold_mode,
+    )
+    presto_row, duckdb_row = _run_prefix_query(presto_cursor, query)
 
     count_match = presto_row[0] == duckdb_row[0]
     decimal_diff = _decimal_abs_diff(presto_row[1], duckdb_row[1])
@@ -278,7 +369,11 @@ def _print_record(range_id, record):
 def _run_scan(
     presto_cursor,
     max_partkey,
+    mode,
     decimal_cast,
+    q17_brand,
+    q17_container,
+    q17_threshold_mode,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -288,23 +383,28 @@ def _run_scan(
     records = []
     mismatch_count = 0
     major_mismatch_count = 0
+    metric1_label, metric2_label = _get_mode_metric_labels(mode)
     uppers = list(_generate_exponential_prefix_uppers(max_partkey))
     total_ranges = len(uppers)
     scan_start = time.time()
-    _print_header()
+    _print_header(metric1_label, metric2_label)
 
     for range_id, upper in enumerate(uppers):
         range_start = time.time()
         print(
             "PROGRESS,"
             f"phase=scan,event=start,range_index={range_id + 1}/{total_ranges},"
-            f"upper={upper}",
+            f"upper={upper},mode={mode}",
             flush=True,
         )
         record = _evaluate_prefix(
             presto_cursor=presto_cursor,
             upper=upper,
+            mode=mode,
             decimal_cast=decimal_cast,
+            q17_brand=q17_brand,
+            q17_container=q17_container,
+            q17_threshold_mode=q17_threshold_mode,
             decimal_abs_tol=decimal_abs_tol,
             double_abs_tol=double_abs_tol,
             major_decimal_abs_diff=major_decimal_abs_diff,
@@ -323,7 +423,7 @@ def _run_scan(
             "PROGRESS,"
             f"phase=scan,event=end,range_index={range_id + 1}/{total_ranges},"
             f"upper={upper},query_seconds={record['query_seconds']:.3f},"
-            f"elapsed_seconds={time.time() - scan_start:.3f}",
+            f"elapsed_seconds={time.time() - scan_start:.3f},mode={mode}",
             flush=True,
         )
 
@@ -335,7 +435,7 @@ def _run_scan(
         f"ranges_scanned={total_ranges}, mismatches={mismatch_count}, "
         f"major_mismatches={major_mismatch_count}, "
         f"max_partkey={max_partkey}, decimal_cast={decimal_cast}, "
-        f"total_scan_seconds={time.time() - scan_start:.3f}",
+        f"mode={mode}, total_scan_seconds={time.time() - scan_start:.3f}",
         flush=True,
     )
     return records, mismatch_count, major_mismatch_count
@@ -352,7 +452,11 @@ def _refine_smallest_major_upper(
     presto_cursor,
     known_non_major_upper,
     known_major_upper,
+    mode,
     decimal_cast,
+    q17_brand,
+    q17_container,
+    q17_threshold_mode,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -365,7 +469,11 @@ def _refine_smallest_major_upper(
             cache[upper] = _evaluate_prefix(
                 presto_cursor=presto_cursor,
                 upper=upper,
+                mode=mode,
                 decimal_cast=decimal_cast,
+                q17_brand=q17_brand,
+                q17_container=q17_container,
+                q17_threshold_mode=q17_threshold_mode,
                 decimal_abs_tol=decimal_abs_tol,
                 double_abs_tol=double_abs_tol,
                 major_decimal_abs_diff=major_decimal_abs_diff,
@@ -426,6 +534,15 @@ def main():
     parser.add_argument("--port", default=DEFAULT_PORT, type=int)
     parser.add_argument("--user", default="test_user")
     parser.add_argument(
+        "--mode",
+        choices=["q17_predicate", "avg_cast"],
+        default=DEFAULT_MODE,
+        help=(
+            "Scan mode. q17_predicate reproduces Q17-like correlated threshold "
+            "behavior; avg_cast runs simple prefix avg casts."
+        ),
+    )
+    parser.add_argument(
         "--schema-name",
         help=(
             "Existing Hive schema to use. If omitted, script creates tpch_test "
@@ -446,11 +563,33 @@ def main():
     parser.add_argument(
         "--decimal-cast",
         default="DECIMAL(18, 6)",
-        help="Decimal type used in avg(CAST(l_quantity AS <type>)).",
+        help=(
+            "Decimal type used for casted avg path. "
+            "In q17_predicate mode this is used in threshold comparison."
+        ),
+    )
+    parser.add_argument(
+        "--q17-brand",
+        default="Brand#23",
+        help="Part brand filter for q17_predicate mode.",
+    )
+    parser.add_argument(
+        "--q17-container",
+        default="MED BOX",
+        help="Part container filter for q17_predicate mode.",
+    )
+    parser.add_argument(
+        "--q17-threshold-mode",
+        choices=["native", "cast_decimal"],
+        default="native",
+        help=(
+            "Threshold expression for q17_predicate mode. "
+            "native matches Q17 shape; cast_decimal forces decimal avg path."
+        ),
     )
     parser.add_argument(
         "--decimal-abs-tol",
-        default="0",
+        default=DEFAULT_DECIMAL_ABS_TOL,
         help="Absolute tolerance for decimal avg comparisons.",
     )
     parser.add_argument(
@@ -493,6 +632,10 @@ def main():
 
     schema_name = args.schema_name if args.schema_name else DEFAULT_SCHEMA
     should_create_tables = not bool(args.schema_name)
+    _progress(
+        "phase=main,event=connect_start,"
+        f"host={args.hostname},port={args.port},schema={schema_name}"
+    )
     conn = prestodb.dbapi.connect(
         host=args.hostname,
         port=args.port,
@@ -501,23 +644,32 @@ def main():
         schema=schema_name,
     )
     cursor = conn.cursor()
+    _progress("phase=main,event=connect_end")
 
     try:
         _setup_tables(cursor, schema_name, should_create_tables)
+        _progress("phase=main,event=validate_dataset_start")
         _validate_dataset_scale(
             cursor,
             required_min_max_partkey=args.require_min_max_partkey,
         )
+        _progress("phase=main,event=validate_dataset_end")
+        _progress("phase=main,event=scan_start")
         records, mismatch_count, major_mismatch_count = _run_scan(
             presto_cursor=cursor,
             max_partkey=args.max_partkey,
+            mode=args.mode,
             decimal_cast=args.decimal_cast,
+            q17_brand=args.q17_brand,
+            q17_container=args.q17_container,
+            q17_threshold_mode=args.q17_threshold_mode,
             decimal_abs_tol=decimal.Decimal(args.decimal_abs_tol),
             double_abs_tol=args.double_abs_tol,
             major_decimal_abs_diff=decimal.Decimal(args.major_decimal_abs_diff),
             major_double_abs_diff=args.major_double_abs_diff,
             stop_on_mismatch=args.stop_on_mismatch,
         )
+        _progress("phase=main,event=scan_end")
 
         first_major_idx, first_major_record = _find_first_major_range(records)
         smallest_major_upper = None
@@ -535,7 +687,11 @@ def main():
                     presto_cursor=cursor,
                     known_non_major_upper=previous_upper,
                     known_major_upper=first_major_record["upper"],
+                    mode=args.mode,
                     decimal_cast=args.decimal_cast,
+                    q17_brand=args.q17_brand,
+                    q17_container=args.q17_container,
+                    q17_threshold_mode=args.q17_threshold_mode,
                     decimal_abs_tol=decimal.Decimal(args.decimal_abs_tol),
                     double_abs_tol=args.double_abs_tol,
                     major_decimal_abs_diff=decimal.Decimal(args.major_decimal_abs_diff),

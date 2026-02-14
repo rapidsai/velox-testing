@@ -25,11 +25,15 @@ OPTIONS:
     --hostname HOST               Presto coordinator hostname.
     --port PORT                   Presto coordinator port.
     --user USER                   Presto user.
+    --mode MODE                   Scan mode: q17_predicate (default) or avg_cast.
     --schema-name SCHEMA          Existing Hive schema to use (skip auto table creation).
     --keep-tables                 Keep auto-created tables/schema after script exits.
     --max-partkey N               Highest l_partkey to include in scan.
     --require-min-max-partkey N   Require lineitem max(l_partkey) >= N (default 20000000).
     --decimal-cast TYPE           Decimal type for avg(CAST(l_quantity AS TYPE)).
+    --q17-brand VALUE             Brand filter in q17_predicate mode (default Brand#23).
+    --q17-container VALUE         Container filter in q17_predicate mode (default MED BOX).
+    --q17-threshold-mode MODE     native (Q17 shape) or cast_decimal.
     --decimal-abs-tol VALUE       Absolute tolerance for decimal avg comparison.
     --double-abs-tol VALUE        Absolute tolerance for double avg comparison.
     --major-decimal-abs-diff V    Threshold for major decimal mismatch detection.
@@ -59,9 +63,14 @@ SCRIPT_PATH="${SCRIPT_DIR}/../debug_avg_decimal_scan.py"
 REQUIREMENTS_PATH="${TESTING_DIR}/requirements.txt"
 
 rm -rf .venv
+echo "PROGRESS,phase=wrapper,event=venv_create_start"
 python3 -m venv .venv
 source .venv/bin/activate
+echo "PROGRESS,phase=wrapper,event=venv_create_end"
 
-pip install -q -r "${REQUIREMENTS_PATH}"
+echo "PROGRESS,phase=wrapper,event=pip_install_start,requirements=${REQUIREMENTS_PATH}"
+pip install -r "${REQUIREMENTS_PATH}"
+echo "PROGRESS,phase=wrapper,event=pip_install_end"
 
-python "${SCRIPT_PATH}" "$@"
+echo "PROGRESS,phase=wrapper,event=python_start,script=${SCRIPT_PATH}"
+python -u "${SCRIPT_PATH}" "$@"
