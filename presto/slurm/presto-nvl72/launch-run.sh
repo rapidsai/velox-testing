@@ -9,7 +9,10 @@
 # Simple launcher script to submit the presto benchmark job to slurm
 #
 # Usage:
-#   ./launch-run.sh -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]
+#   ./launch-run.sh -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [-p|--profile] [additional sbatch options]
+#
+# Options:
+#   -p, --profile    Enable profiling of benchmark queries (creates .nsys-rep files for each worker)
 #
 # To change configuration, edit run-presto-benchmarks.slurm directly
 # ==============================================================================
@@ -19,9 +22,10 @@ set -e
 # Change to script directory
 cd "$(dirname "$0")"
 
-# Clean up old output files
-rm -f result_dir/* logs/* *.out *.err 2>/dev/null || true
-mkdir -p result_dir logs
+# Clean up old output files, worker info directory, and worker data directories
+rm -f profiles/* result_dir/* logs/* *.out *.err 2>/dev/null || true
+rm -rf worker_info worker_data 2>/dev/null || true
+mkdir -p result_dir logs worker_info worker_data
 
 echo "Submitting Presto TPC-H benchmark job..."
 echo "Configuration is set in run-presto-benchmarks.slurm"
@@ -35,6 +39,7 @@ EXTRA_ARGS=()
 NUM_GPUS_PER_NODE="4"
 WORKER_IMAGE="presto-native-worker-gpu"
 COORD_IMAGE="presto-coordinator"
+ENABLE_PROFILING="false"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -n|--nodes)
@@ -97,6 +102,10 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        -p|--profile)
+            ENABLE_PROFILING="true"
+            shift
+            ;;
         --)
             shift
             break
@@ -123,7 +132,7 @@ fi
 OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
 ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
 SCRIPT_DIR="$PWD"
-JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE}" \
+JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE},ENABLE_PROFILING=${ENABLE_PROFILING}" \
 --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" --gres="gpu:${NUM_GPUS_PER_NODE}" \
 run-presto-benchmarks.slurm | awk '{print $NF}')
 OUT_FILE="${OUT_FMT//%j/${JOB_ID}}"

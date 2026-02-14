@@ -83,8 +83,10 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
 
     if profile:
         assert profile_script_path is not None
+        print(f"[Profiler] Profiling enabled with script: {profile_script_path}")
         profile_output_dir_path = Path(f"{bench_output_dir}/profiles/{benchmark_type}")
         profile_output_dir_path.mkdir(parents=True, exist_ok=True)
+        print(f"[Profiler] Profile output directory: {profile_output_dir_path}")
 
     benchmark_result_collector[benchmark_type] = {
         BenchmarkKeys.RAW_TIMES_KEY: {},
@@ -104,6 +106,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
+                print(f"[Profiler] Starting profiler for query {query_id}, output: {profile_output_file_path}")
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
             for iteration_num in range(iterations):
@@ -143,6 +146,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             raise
         finally:
             if profile and profile_output_file_path is not None:
+                print(f"[Profiler] Stopping profiler for query {query_id}")
                 stop_profiler(profile_script_path, profile_output_file_path)
 
     return benchmark_query_function

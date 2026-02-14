@@ -59,14 +59,37 @@ echo "Running TPC-H queries (${NUM_ITERATIONS} iterations, scale factor ${SCALE_
 run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
 
 # ==============================================================================
+# Stop Workers (if profiling, this ensures profile files are created)
+# ==============================================================================
+if [ "${ENABLE_PROFILING:-false}" == "true" ]; then
+    echo "Stopping workers to finalize profile files..."
+    stop_workers
+fi
+
+# ==============================================================================
 # Process Results
 # ==============================================================================
 echo "Processing results..."
 mkdir -p ${SCRIPT_DIR}/result_dir
 cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
 
+# Check for profile files if profiling was enabled
+if [ "${ENABLE_PROFILING:-false}" == "true" ]; then
+    echo "Checking for profile files..."
+    if [ -d "${SCRIPT_DIR}/profiles" ]; then
+        profile_count=$(find ${SCRIPT_DIR}/profiles -name "*.nsys-rep" 2>/dev/null | wc -l)
+        echo "Found ${profile_count} profile file(s) in ${SCRIPT_DIR}/profiles"
+        ls -lh ${SCRIPT_DIR}/profiles/*.nsys-rep 2>/dev/null || echo "No .nsys-rep files found (workers may still be running)"
+    else
+        echo "Profiles directory does not exist"
+    fi
+fi
+
 echo "========================================"
 echo "Benchmark complete!"
 echo "Results saved to: ${SCRIPT_DIR}/results_dir"
 echo "Logs available at: ${LOGS}"
+if [ "${ENABLE_PROFILING:-false}" == "true" ]; then
+    echo "Profiles directory: ${SCRIPT_DIR}/profiles"
+fi
 echo "========================================"

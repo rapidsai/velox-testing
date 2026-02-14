@@ -28,6 +28,8 @@ presto/slurm/presto-nvl72/*.err
 presto/slurm/presto-nvl72/*.out
 presto/slurm/presto-nvl72/result_dir/
 presto/slurm/presto-nvl72/kept_results/
-presto/slurm/presto-nvl72/worker_data*
+presto/slurm/presto-nvl72/worker_data/
+presto/slurm/presto-nvl72/profiles/
+presto/slurm/presto-nvl72/worker_info/
 
 devstate*
