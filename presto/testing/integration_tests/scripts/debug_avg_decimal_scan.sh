@@ -28,14 +28,19 @@ OPTIONS:
     --schema-name SCHEMA          Existing Hive schema to use (skip auto table creation).
     --keep-tables                 Keep auto-created tables/schema after script exits.
     --max-partkey N               Highest l_partkey to include in scan.
+    --require-min-max-partkey N   Require lineitem max(l_partkey) >= N (default 20000000).
     --decimal-cast TYPE           Decimal type for avg(CAST(l_quantity AS TYPE)).
     --decimal-abs-tol VALUE       Absolute tolerance for decimal avg comparison.
     --double-abs-tol VALUE        Absolute tolerance for double avg comparison.
+    --major-decimal-abs-diff V    Threshold for major decimal mismatch detection.
+    --major-double-abs-diff V     Threshold for major double mismatch detection.
+    --skip-refine-smallest-major  Skip binary search for smallest major prefix.
+    --fail-on-any-mismatch        Return non-zero for any mismatch.
     --stop-on-mismatch            Stop after the first mismatch.
 
 EXAMPLES:
     $0
-    $0 --schema-name tpch_sf100 --max-partkey 16777215
+    $0 --schema-name tpch_sf100 --max-partkey 33554431
     $0 --decimal-cast "DECIMAL(18, 6)" --decimal-abs-tol 0
 
 EOF

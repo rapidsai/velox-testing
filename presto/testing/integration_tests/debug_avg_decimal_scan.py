@@ -27,7 +27,10 @@ def _default_port():
 DEFAULT_HOST = os.getenv("PRESTO_COORDINATOR_HOST", "localhost")
 DEFAULT_PORT = _default_port()
 DEFAULT_SCHEMA = "tpch_test"
-DEFAULT_MAX_PARTKEY = 16777215
+DEFAULT_MAX_PARTKEY = 33554431
+DEFAULT_REQUIRED_MIN_MAX_PARTKEY = 20000000
+DEFAULT_MAJOR_DECIMAL_ABS_DIFF = decimal.Decimal("0.01")
+DEFAULT_MAJOR_DOUBLE_ABS_DIFF = 1e-6
 
 
 def get_abs_file_path(relative_path):
@@ -94,24 +97,55 @@ def _setup_tables(presto_cursor, schema_name, create_tables):
         test_utils.create_duckdb_table(table, location)
 
 
-def _generate_exponential_ranges(max_partkey):
-    lower = 1
-    width = 1
-    while lower <= max_partkey:
-        upper = min(max_partkey, lower + width - 1)
-        yield lower, upper
-        lower = upper + 1
-        width *= 2
+def _get_lineitem_partkey_stats(presto_cursor):
+    query = "SELECT min(l_partkey), max(l_partkey), count(*) FROM lineitem"
+    presto_stats = presto_cursor.execute(query).fetchone()
+    duckdb_stats = duckdb.sql(query).fetchone()
+    return presto_stats, duckdb_stats
 
 
-def _run_range_query(presto_cursor, lower, upper, decimal_cast):
+def _validate_dataset_scale(presto_cursor, required_min_max_partkey):
+    presto_stats, duckdb_stats = _get_lineitem_partkey_stats(presto_cursor)
+    print(
+        "Dataset stats: "
+        f"presto[min,max,count]={presto_stats}, "
+        f"duckdb[min,max,count]={duckdb_stats}",
+        flush=True,
+    )
+
+    if presto_stats != duckdb_stats:
+        raise RuntimeError(
+            "Presto and DuckDB lineitem stats differ before scan. "
+            f"presto={presto_stats} duckdb={duckdb_stats}"
+        )
+
+    if required_min_max_partkey > 0 and presto_stats[1] < required_min_max_partkey:
+        raise RuntimeError(
+            "Dataset does not reach requested SF100-scale partkey range. "
+            f"max(l_partkey)={presto_stats[1]} is below required "
+            f"{required_min_max_partkey}. "
+            "Use an SF100 schema or lower --require-min-max-partkey."
+        )
+
+    return presto_stats
+
+
+def _generate_exponential_prefix_uppers(max_partkey):
+    upper = 1
+    while upper < max_partkey:
+        yield upper
+        upper = upper * 2 + 1
+    yield max_partkey
+
+
+def _run_prefix_query(presto_cursor, upper, decimal_cast):
     query = (
         "SELECT "
         "  count(*) AS row_count, "
         f"  avg(CAST(l_quantity AS {decimal_cast})) AS avg_qty_decimal, "
         "  avg(CAST(l_quantity AS DOUBLE)) AS avg_qty_double "
         "FROM lineitem "
-        f"WHERE l_partkey BETWEEN {lower} AND {upper}"
+        f"WHERE l_partkey BETWEEN 1 AND {upper}"
     )
     presto_row = presto_cursor.execute(query).fetchone()
     duckdb_row = duckdb.sql(query).fetchone()
@@ -153,7 +187,85 @@ def _print_header():
         "range_id,lower,upper,"
         "presto_count,duckdb_count,"
         "presto_avg_decimal,duckdb_avg_decimal,abs_diff_decimal,"
-        "presto_avg_double,duckdb_avg_double,abs_diff_double,status",
+        "presto_avg_double,duckdb_avg_double,abs_diff_double,status,major_status",
+        flush=True,
+    )
+
+
+def _is_major_mismatch(record, major_decimal_abs_diff, major_double_abs_diff):
+    if not record["count_match"]:
+        return True
+
+    decimal_diff = record["decimal_diff"]
+    double_diff = record["double_diff"]
+
+    if decimal_diff is None or double_diff is None:
+        return True
+
+    return (
+        decimal_diff > major_decimal_abs_diff
+        or double_diff > major_double_abs_diff
+    )
+
+
+def _evaluate_prefix(
+    presto_cursor,
+    upper,
+    decimal_cast,
+    decimal_abs_tol,
+    double_abs_tol,
+    major_decimal_abs_diff,
+    major_double_abs_diff,
+):
+    presto_row, duckdb_row = _run_prefix_query(presto_cursor, upper, decimal_cast)
+
+    count_match = presto_row[0] == duckdb_row[0]
+    decimal_diff = _decimal_abs_diff(presto_row[1], duckdb_row[1])
+    double_diff = _double_abs_diff(presto_row[2], duckdb_row[2])
+
+    decimal_match = decimal_diff is not None and decimal_diff <= decimal_abs_tol
+    double_match = double_diff is not None and double_diff <= double_abs_tol
+    is_match = count_match and decimal_match and double_match
+
+    record = {
+        "lower": 1,
+        "upper": upper,
+        "presto_row": presto_row,
+        "duckdb_row": duckdb_row,
+        "count_match": count_match,
+        "decimal_diff": decimal_diff,
+        "double_diff": double_diff,
+        "status": "MATCH" if is_match else "MISMATCH",
+    }
+    record["major_mismatch"] = _is_major_mismatch(
+        record,
+        major_decimal_abs_diff,
+        major_double_abs_diff,
+    )
+    return record
+
+
+def _print_record(range_id, record):
+    presto_row = record["presto_row"]
+    duckdb_row = record["duckdb_row"]
+    print(
+        ",".join(
+            [
+                str(range_id),
+                str(record["lower"]),
+                str(record["upper"]),
+                _format_value(presto_row[0]),
+                _format_value(duckdb_row[0]),
+                _format_value(presto_row[1]),
+                _format_value(duckdb_row[1]),
+                _format_value(record["decimal_diff"]),
+                _format_value(presto_row[2]),
+                _format_value(duckdb_row[2]),
+                _format_value(record["double_diff"]),
+                record["status"],
+                "MAJOR_MISMATCH" if record["major_mismatch"] else "NOT_MAJOR",
+            ]
+        ),
         flush=True,
     )
 
@@ -164,61 +276,112 @@ def _run_scan(
     decimal_cast,
     decimal_abs_tol,
     double_abs_tol,
+    major_decimal_abs_diff,
+    major_double_abs_diff,
     stop_on_mismatch,
 ):
+    records = []
     mismatch_count = 0
+    major_mismatch_count = 0
     total_ranges = 0
     _print_header()
 
-    for range_id, (lower, upper) in enumerate(_generate_exponential_ranges(max_partkey)):
+    for range_id, upper in enumerate(_generate_exponential_prefix_uppers(max_partkey)):
         total_ranges += 1
-        presto_row, duckdb_row = _run_range_query(presto_cursor, lower, upper, decimal_cast)
-
-        count_match = presto_row[0] == duckdb_row[0]
-        decimal_diff = _decimal_abs_diff(presto_row[1], duckdb_row[1])
-        double_diff = _double_abs_diff(presto_row[2], duckdb_row[2])
-
-        decimal_match = (
-            decimal_diff is not None and decimal_diff <= decimal_abs_tol
+        record = _evaluate_prefix(
+            presto_cursor=presto_cursor,
+            upper=upper,
+            decimal_cast=decimal_cast,
+            decimal_abs_tol=decimal_abs_tol,
+            double_abs_tol=double_abs_tol,
+            major_decimal_abs_diff=major_decimal_abs_diff,
+            major_double_abs_diff=major_double_abs_diff,
         )
-        double_match = (
-            double_diff is not None and double_diff <= double_abs_tol
-        )
+        records.append(record)
 
-        is_match = count_match and decimal_match and double_match
-        if not is_match:
+        if record["status"] != "MATCH":
             mismatch_count += 1
+        if record["major_mismatch"]:
+            major_mismatch_count += 1
 
-        print(
-            ",".join(
-                [
-                    str(range_id),
-                    str(lower),
-                    str(upper),
-                    _format_value(presto_row[0]),
-                    _format_value(duckdb_row[0]),
-                    _format_value(presto_row[1]),
-                    _format_value(duckdb_row[1]),
-                    _format_value(decimal_diff),
-                    _format_value(presto_row[2]),
-                    _format_value(duckdb_row[2]),
-                    _format_value(double_diff),
-                    "MATCH" if is_match else "MISMATCH",
-                ]
-            ),
-            flush=True,
-        )
+        _print_record(range_id, record)
 
-        if stop_on_mismatch and not is_match:
+        if stop_on_mismatch and record["status"] != "MATCH":
             break
 
     print(
         "\nSummary: "
         f"ranges_scanned={total_ranges}, mismatches={mismatch_count}, "
+        f"major_mismatches={major_mismatch_count}, "
         f"max_partkey={max_partkey}, decimal_cast={decimal_cast}",
         flush=True,
     )
-    return mismatch_count
+    return records, mismatch_count, major_mismatch_count
+
+
+def _find_first_major_range(records):
+    for idx, record in enumerate(records):
+        if record["major_mismatch"]:
+            return idx, record
+    return None, None
+
+
+def _refine_smallest_major_upper(
+    presto_cursor,
+    known_non_major_upper,
+    known_major_upper,
+    decimal_cast,
+    decimal_abs_tol,
+    double_abs_tol,
+    major_decimal_abs_diff,
+    major_double_abs_diff,
+):
+    cache = {}
+
+    def eval_upper(upper):
+        if upper not in cache:
+            cache[upper] = _evaluate_prefix(
+                presto_cursor=presto_cursor,
+                upper=upper,
+                decimal_cast=decimal_cast,
+                decimal_abs_tol=decimal_abs_tol,
+                double_abs_tol=double_abs_tol,
+                major_decimal_abs_diff=major_decimal_abs_diff,
+                major_double_abs_diff=major_double_abs_diff,
+            )
+        return cache[upper]
+
+    lo = known_non_major_upper + 1
+    hi = known_major_upper
+    smallest_major_upper = known_major_upper
+    smallest_major_record = eval_upper(known_major_upper)
+
+    print(
+        "Refining smallest major prefix with binary search: "
+        f"low={lo}, high={hi}",
+        flush=True,
+    )
+
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        mid_record = eval_upper(mid)
+        print(
+            "BSEARCH,"
+            f"upper={mid},"
+            f"status={mid_record['status']},"
+            f"major_status={'MAJOR_MISMATCH' if mid_record['major_mismatch'] else 'NOT_MAJOR'},"
+            f"abs_diff_decimal={_format_value(mid_record['decimal_diff'])},"
+            f"abs_diff_double={_format_value(mid_record['double_diff'])}",
+            flush=True,
+        )
+        if mid_record["major_mismatch"]:
+            smallest_major_upper = mid
+            smallest_major_record = mid_record
+            hi = mid - 1
+        else:
+            lo = mid + 1
+
+    return smallest_major_upper, smallest_major_record
 
 
 def main():
@@ -241,6 +404,15 @@ def main():
     parser.add_argument("--keep-tables", action="store_true", default=False)
     parser.add_argument("--max-partkey", type=int, default=DEFAULT_MAX_PARTKEY)
     parser.add_argument(
+        "--require-min-max-partkey",
+        type=int,
+        default=DEFAULT_REQUIRED_MIN_MAX_PARTKEY,
+        help=(
+            "Require lineitem max(l_partkey) to be at least this value. "
+            "Set to 0 to disable."
+        ),
+    )
+    parser.add_argument(
         "--decimal-cast",
         default="DECIMAL(18, 6)",
         help="Decimal type used in avg(CAST(l_quantity AS <type>)).",
@@ -255,6 +427,35 @@ def main():
         default=1e-12,
         type=float,
         help="Absolute tolerance for double avg comparisons.",
+    )
+    parser.add_argument(
+        "--major-decimal-abs-diff",
+        default=str(DEFAULT_MAJOR_DECIMAL_ABS_DIFF),
+        help=(
+            "Threshold for major decimal mismatch. "
+            "Values above this are treated as major."
+        ),
+    )
+    parser.add_argument(
+        "--major-double-abs-diff",
+        default=DEFAULT_MAJOR_DOUBLE_ABS_DIFF,
+        type=float,
+        help=(
+            "Threshold for major double mismatch. "
+            "Values above this are treated as major."
+        ),
+    )
+    parser.add_argument(
+        "--skip-refine-smallest-major",
+        action="store_true",
+        default=False,
+        help="Skip binary-search refinement for smallest major prefix.",
+    )
+    parser.add_argument(
+        "--fail-on-any-mismatch",
+        action="store_true",
+        default=False,
+        help="Return non-zero for any mismatch, not just major mismatches.",
     )
     parser.add_argument("--stop-on-mismatch", action="store_true", default=False)
     args = parser.parse_args()
@@ -272,21 +473,66 @@ def main():
 
     try:
         _setup_tables(cursor, schema_name, should_create_tables)
-        mismatch_count = _run_scan(
+        _validate_dataset_scale(
+            cursor,
+            required_min_max_partkey=args.require_min_max_partkey,
+        )
+        records, mismatch_count, major_mismatch_count = _run_scan(
             presto_cursor=cursor,
             max_partkey=args.max_partkey,
             decimal_cast=args.decimal_cast,
             decimal_abs_tol=decimal.Decimal(args.decimal_abs_tol),
             double_abs_tol=args.double_abs_tol,
+            major_decimal_abs_diff=decimal.Decimal(args.major_decimal_abs_diff),
+            major_double_abs_diff=args.major_double_abs_diff,
             stop_on_mismatch=args.stop_on_mismatch,
         )
+
+        first_major_idx, first_major_record = _find_first_major_range(records)
+        smallest_major_upper = None
+        if first_major_record is not None:
+            print(
+                "First exponential major mismatch: "
+                f"upper={first_major_record['upper']}, "
+                f"abs_diff_decimal={_format_value(first_major_record['decimal_diff'])}, "
+                f"abs_diff_double={_format_value(first_major_record['double_diff'])}",
+                flush=True,
+            )
+            if not args.skip_refine_smallest_major:
+                previous_upper = 0 if first_major_idx == 0 else records[first_major_idx - 1]["upper"]
+                smallest_major_upper, smallest_major_record = _refine_smallest_major_upper(
+                    presto_cursor=cursor,
+                    known_non_major_upper=previous_upper,
+                    known_major_upper=first_major_record["upper"],
+                    decimal_cast=args.decimal_cast,
+                    decimal_abs_tol=decimal.Decimal(args.decimal_abs_tol),
+                    double_abs_tol=args.double_abs_tol,
+                    major_decimal_abs_diff=decimal.Decimal(args.major_decimal_abs_diff),
+                    major_double_abs_diff=args.major_double_abs_diff,
+                )
+                print(
+                    "Smallest major mismatch prefix found: "
+                    f"l_partkey BETWEEN 1 AND {smallest_major_upper}, "
+                    f"presto_count={smallest_major_record['presto_row'][0]}, "
+                    f"duckdb_count={smallest_major_record['duckdb_row'][0]}, "
+                    f"abs_diff_decimal={_format_value(smallest_major_record['decimal_diff'])}, "
+                    f"abs_diff_double={_format_value(smallest_major_record['double_diff'])}",
+                    flush=True,
+                )
+        else:
+            print(
+                "No major mismatch found in scanned prefix ranges.",
+                flush=True,
+            )
     finally:
         if should_create_tables and not args.keep_tables:
             create_hive_tables.drop_schema(cursor, schema_name)
         cursor.close()
         conn.close()
 
-    if mismatch_count > 0:
+    if args.fail_on_any_mismatch and mismatch_count > 0:
+        return 1
+    if major_mismatch_count > 0:
         return 1
     return 0
 
