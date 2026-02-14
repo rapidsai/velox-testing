@@ -670,7 +670,7 @@ def _debug_q17_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
-        "Q17 step 07 - predicate application row counts (dec vs dbl vs dbl_round3)",
+        "Q17 step 07 - predicate counts from independent inputs (actual dec + reset dbl controls)",
         "WITH lf AS ("
         + lineitem_filtered
         + "), td AS ("
@@ -704,7 +704,7 @@ def _debug_q17_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
-        "Q17 step 08 - predicate mismatch sample rows (decimal vs double thresholds)",
+        "Q17 step 08 - mismatch sample (actual decimal predicate vs reset double control)",
         "WITH lf AS ("
         + lineitem_filtered
         + "), td AS ("
@@ -741,7 +741,7 @@ def _debug_q17_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
-        "Q17 step 09 - qualifying aggregate (original decimal threshold path)",
+        "Q17 step 09 - qualifying aggregate from actual decimal threshold path",
         "WITH lf AS ("
         + lineitem_filtered
         + "), td AS ("
@@ -758,7 +758,7 @@ def _debug_q17_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
-        "Q17 step 10 - qualifying aggregate (DuckDB control: double threshold)",
+        "Q17 step 10 - qualifying aggregate from RESET control input (double threshold)",
         "WITH lf AS ("
         + lineitem_filtered
         + "), tb AS ("
@@ -775,7 +775,7 @@ def _debug_q17_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
-        "Q17 step 11 - qualifying aggregate (double threshold rounded to decimal(16,3))",
+        "Q17 step 11 - qualifying aggregate from RESET control input (double threshold rounded to decimal(16,3))",
         "WITH lf AS ("
         + lineitem_filtered
         + "), tr AS ("
@@ -792,7 +792,7 @@ def _debug_q17_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
-        "Q17 step 12 - final query shape rewritten with decimal thresholds",
+        "Q17 step 12 - full query shape from actual decimal threshold path",
         "WITH thresholds AS ( "
         "  SELECT l_partkey, 0.2 * avg(l_quantity) AS threshold "
         "  FROM lineitem "
@@ -812,7 +812,7 @@ def _debug_q17_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
-        "Q17 step 13 - final query shape rewritten with double-threshold control",
+        "Q17 step 13 - full query shape from RESET control input (double-threshold control)",
         "SELECT "
         "  count(*) AS qualifying_rows, "
         "  sum(l.l_extendedprice) AS sum_extendedprice, "
@@ -826,6 +826,40 @@ def _debug_q17_mismatch(presto_cursor):
         "    FROM lineitem li "
         "    WHERE li.l_partkey = p.p_partkey "
         "  )",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 14 - mixed path (avg in DOUBLE, compare in DECIMAL(16,3))",
+        "SELECT "
+        "  count(*) AS qualifying_rows, "
+        "  sum(l.l_extendedprice) AS sum_extendedprice, "
+        "  sum(l.l_extendedprice) / 7.0 AS avg_yearly "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' "
+        "  AND p.p_container = 'MED BOX' "
+        "  AND CAST(l.l_quantity AS DECIMAL(16, 3)) < ( "
+        "    SELECT CAST(0.2 * avg(CAST(li.l_quantity AS DOUBLE)) AS DECIMAL(16, 3)) "
+        "    FROM lineitem li "
+        "    WHERE li.l_partkey = p.p_partkey "
+        "  )",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 15 - mixed path threshold sample (avg DOUBLE -> DECIMAL(16,3))",
+        "SELECT "
+        "  l.l_partkey, "
+        "  count(*) AS n_rows, "
+        "  avg(CAST(l.l_quantity AS DOUBLE)) AS avg_q_double, "
+        "  CAST(0.2 * avg(CAST(l.l_quantity AS DOUBLE)) AS DECIMAL(16, 3)) AS threshold_dec_from_double "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
+        "GROUP BY l.l_partkey "
+        "ORDER BY l.l_partkey "
+        "LIMIT 25",
     )
     return "\n".join(lines)
 
