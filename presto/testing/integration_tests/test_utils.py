@@ -244,6 +244,12 @@ def _debug_q3_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
+        "Q3 original top15",
+        f"{grouped} ORDER BY revenue DESC, o_orderdate LIMIT 15",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
         "Q3 deterministic top15",
         f"{grouped} ORDER BY revenue DESC, o_orderdate, l_orderkey LIMIT 15",
     )
@@ -253,11 +259,18 @@ def _debug_q3_mismatch(presto_cursor):
         "Q3 boundary tie count at rank 10",
         "WITH grouped AS ( "
         + grouped
-        + "), boundary AS ( "
-        "  SELECT revenue, o_orderdate "
+        + "), ranked AS ( "
+        "  SELECT "
+        "    l_orderkey, "
+        "    revenue, "
+        "    o_orderdate, "
+        "    o_shippriority, "
+        "    row_number() OVER (ORDER BY revenue DESC, o_orderdate) AS rn "
         "  FROM grouped "
-        "  ORDER BY revenue DESC, o_orderdate "
-        "  LIMIT 1 OFFSET 9 "
+        "), boundary AS ( "
+        "  SELECT revenue, o_orderdate "
+        "  FROM ranked "
+        "  WHERE rn = 10 "
         ") "
         "SELECT count(*) "
         "FROM grouped, boundary "
@@ -270,11 +283,18 @@ def _debug_q3_mismatch(presto_cursor):
         "Q3 boundary tie rows",
         "WITH grouped AS ( "
         + grouped
-        + "), boundary AS ( "
-        "  SELECT revenue, o_orderdate "
+        + "), ranked AS ( "
+        "  SELECT "
+        "    l_orderkey, "
+        "    revenue, "
+        "    o_orderdate, "
+        "    o_shippriority, "
+        "    row_number() OVER (ORDER BY revenue DESC, o_orderdate) AS rn "
         "  FROM grouped "
-        "  ORDER BY revenue DESC, o_orderdate "
-        "  LIMIT 1 OFFSET 9 "
+        "), boundary AS ( "
+        "  SELECT revenue, o_orderdate "
+        "  FROM ranked "
+        "  WHERE rn = 10 "
         ") "
         "SELECT l_orderkey, revenue, o_orderdate, o_shippriority "
         "FROM grouped, boundary "
@@ -325,6 +345,12 @@ def _debug_q18_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
+        "Q18 original top110",
+        f"{grouped} ORDER BY o_totalprice DESC, o_orderdate LIMIT 110",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
         "Q18 deterministic top110",
         f"{grouped} ORDER BY o_totalprice DESC, o_orderdate, o_orderkey, c_custkey LIMIT 110",
     )
@@ -334,11 +360,20 @@ def _debug_q18_mismatch(presto_cursor):
         "Q18 boundary tie count at rank 100",
         "WITH grouped AS ( "
         + grouped
-        + "), boundary AS ( "
-        "  SELECT o_totalprice, o_orderdate "
+        + "), ranked AS ( "
+        "  SELECT "
+        "    c_name, "
+        "    c_custkey, "
+        "    o_orderkey, "
+        "    o_orderdate, "
+        "    o_totalprice, "
+        "    sum_quantity, "
+        "    row_number() OVER (ORDER BY o_totalprice DESC, o_orderdate) AS rn "
         "  FROM grouped "
-        "  ORDER BY o_totalprice DESC, o_orderdate "
-        "  LIMIT 1 OFFSET 99 "
+        "), boundary AS ( "
+        "  SELECT o_totalprice, o_orderdate "
+        "  FROM ranked "
+        "  WHERE rn = 100 "
         ") "
         "SELECT count(*) "
         "FROM grouped, boundary "
@@ -351,11 +386,20 @@ def _debug_q18_mismatch(presto_cursor):
         "Q18 boundary tie rows",
         "WITH grouped AS ( "
         + grouped
-        + "), boundary AS ( "
-        "  SELECT o_totalprice, o_orderdate "
+        + "), ranked AS ( "
+        "  SELECT "
+        "    c_name, "
+        "    c_custkey, "
+        "    o_orderkey, "
+        "    o_orderdate, "
+        "    o_totalprice, "
+        "    sum_quantity, "
+        "    row_number() OVER (ORDER BY o_totalprice DESC, o_orderdate) AS rn "
         "  FROM grouped "
-        "  ORDER BY o_totalprice DESC, o_orderdate "
-        "  LIMIT 1 OFFSET 99 "
+        "), boundary AS ( "
+        "  SELECT o_totalprice, o_orderdate "
+        "  FROM ranked "
+        "  WHERE rn = 100 "
         ") "
         "SELECT c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, sum_quantity "
         "FROM grouped, boundary "
@@ -447,6 +491,58 @@ def _debug_q17_mismatch(presto_cursor):
         "WHERE p.p_brand = 'Brand#23' "
         "  AND p.p_container = 'MED BOX' "
         "  AND abs(l.l_quantity - t.threshold) <= 0.01",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 per-part threshold sample (decimal avg)",
+        "SELECT "
+        "  l.l_partkey, "
+        "  count(*) AS n_rows, "
+        "  sum(l.l_quantity) AS sum_q, "
+        "  avg(l.l_quantity) AS avg_q, "
+        "  0.2 * avg(l.l_quantity) AS threshold_q "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
+        "GROUP BY l.l_partkey "
+        "ORDER BY l.l_partkey "
+        "LIMIT 25",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 per-part threshold sample (double cast)",
+        "SELECT "
+        "  l.l_partkey, "
+        "  count(*) AS n_rows, "
+        "  sum(CAST(l.l_quantity AS DOUBLE)) AS sum_q_double, "
+        "  avg(CAST(l.l_quantity AS DOUBLE)) AS avg_q_double, "
+        "  0.2 * avg(CAST(l.l_quantity AS DOUBLE)) AS threshold_q_double "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
+        "GROUP BY l.l_partkey "
+        "ORDER BY l.l_partkey "
+        "LIMIT 25",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 qualifying aggregate (double-threshold control)",
+        "SELECT "
+        "  count(*) AS qualifying_rows, "
+        "  sum(l.l_extendedprice) AS sum_extendedprice, "
+        "  sum(l.l_extendedprice) / 7.0 AS avg_yearly "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' "
+        "  AND p.p_container = 'MED BOX' "
+        "  AND CAST(l.l_quantity AS DOUBLE) < ( "
+        "    SELECT 0.2 * avg(CAST(li.l_quantity AS DOUBLE)) "
+        "    FROM lineitem li "
+        "    WHERE li.l_partkey = p.p_partkey "
+        "  )",
     )
     return "\n".join(lines)
 
