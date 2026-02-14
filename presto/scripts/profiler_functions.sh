@@ -36,7 +36,8 @@ function start_profiler() {
 
   local docker_exec_command
   docker_exec_command=$(get_docker_exec_command)
-  $docker_exec_command nsys start --gpu-metrics-devices=all -o /presto_profiles/$(basename $profile_output_file_path).nsys-rep
+  
+  $docker_exec_command nsys start $PROFILE_ARGS -o /presto_profiles/$(basename $profile_output_file_path).nsys-rep
 }
 
 function stop_profiler() {
