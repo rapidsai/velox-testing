@@ -915,6 +915,34 @@ def _debug_q22_mismatch(presto_cursor):
     return "\n".join(lines)
 
 
+def _get_q23_ranges():
+    ranges = []
+    lower = 1
+    upper = 1
+    while lower <= 16777216:
+        ranges.append((lower, upper))
+        lower = upper + 1
+        upper = upper * 2 + 1
+    return ranges
+
+
+def _debug_q23_mismatch(presto_cursor):
+    lines = ["Q23 deep debug:"]
+    for range_id, (lower, upper) in enumerate(_get_q23_ranges()):
+        _append_debug_query(
+            lines,
+            presto_cursor,
+            f"Q23 range {range_id} [{lower}, {upper}]",
+            "SELECT "
+            "  count(*) AS row_count, "
+            "  avg(l_quantity) AS avg_qty_decimal, "
+            "  avg(CAST(l_quantity AS DOUBLE)) AS avg_qty_double "
+            "FROM lineitem "
+            f"WHERE l_partkey BETWEEN {lower} AND {upper}",
+        )
+    return "\n".join(lines)
+
+
 def _debug_result_mismatch(
     presto_cursor,
     query_id,
@@ -965,6 +993,8 @@ def _debug_result_mismatch(
         lines.append(_debug_q18_mismatch(presto_cursor))
     elif query_id == "Q22":
         lines.append(_debug_q22_mismatch(presto_cursor))
+    elif query_id == "Q23":
+        lines.append(_debug_q23_mismatch(presto_cursor))
 
     return "\n".join(lines)
 

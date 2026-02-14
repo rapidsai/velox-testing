@@ -15,7 +15,7 @@
 def pytest_generate_tests(metafunc):
     TPCH_FIXTURE_NAME = "tpch_query_id"
     if TPCH_FIXTURE_NAME in metafunc.fixturenames:
-        TPCH_NUM_QUERIES = 22
+        TPCH_NUM_QUERIES = 23
         set_query_id_param(metafunc, TPCH_FIXTURE_NAME, TPCH_NUM_QUERIES, [])
 
     TPCDS_FIXTURE_NAME = "tpcds_query_id"
