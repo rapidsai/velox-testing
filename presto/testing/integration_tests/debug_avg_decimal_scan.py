@@ -6,6 +6,7 @@ import decimal
 import os
 import re
 import sys
+import time
 
 import duckdb
 import prestodb
@@ -105,11 +106,13 @@ def _get_lineitem_partkey_stats(presto_cursor):
 
 
 def _validate_dataset_scale(presto_cursor, required_min_max_partkey):
-    presto_stats, duckdb_stats = _get_lineitem_partkey_stats(presto_cursor)
+    presto_stats_raw, duckdb_stats_raw = _get_lineitem_partkey_stats(presto_cursor)
+    presto_stats = tuple(presto_stats_raw)
+    duckdb_stats = tuple(duckdb_stats_raw)
     print(
         "Dataset stats: "
-        f"presto[min,max,count]={presto_stats}, "
-        f"duckdb[min,max,count]={duckdb_stats}",
+        f"presto[min,max,count]={presto_stats_raw}, "
+        f"duckdb[min,max,count]={duckdb_stats_raw}",
         flush=True,
     )
 
@@ -187,7 +190,8 @@ def _print_header():
         "range_id,lower,upper,"
         "presto_count,duckdb_count,"
         "presto_avg_decimal,duckdb_avg_decimal,abs_diff_decimal,"
-        "presto_avg_double,duckdb_avg_double,abs_diff_double,status,major_status",
+        "presto_avg_double,duckdb_avg_double,abs_diff_double,"
+        "query_seconds,status,major_status",
         flush=True,
     )
 
@@ -262,6 +266,7 @@ def _print_record(range_id, record):
                 _format_value(presto_row[2]),
                 _format_value(duckdb_row[2]),
                 _format_value(record["double_diff"]),
+                _format_value(f"{record['query_seconds']:.3f}"),
                 record["status"],
                 "MAJOR_MISMATCH" if record["major_mismatch"] else "NOT_MAJOR",
             ]
@@ -283,11 +288,19 @@ def _run_scan(
     records = []
     mismatch_count = 0
     major_mismatch_count = 0
-    total_ranges = 0
+    uppers = list(_generate_exponential_prefix_uppers(max_partkey))
+    total_ranges = len(uppers)
+    scan_start = time.time()
     _print_header()
 
-    for range_id, upper in enumerate(_generate_exponential_prefix_uppers(max_partkey)):
-        total_ranges += 1
+    for range_id, upper in enumerate(uppers):
+        range_start = time.time()
+        print(
+            "PROGRESS,"
+            f"phase=scan,event=start,range_index={range_id + 1}/{total_ranges},"
+            f"upper={upper}",
+            flush=True,
+        )
         record = _evaluate_prefix(
             presto_cursor=presto_cursor,
             upper=upper,
@@ -297,6 +310,7 @@ def _run_scan(
             major_decimal_abs_diff=major_decimal_abs_diff,
             major_double_abs_diff=major_double_abs_diff,
         )
+        record["query_seconds"] = time.time() - range_start
         records.append(record)
 
         if record["status"] != "MATCH":
@@ -305,6 +319,13 @@ def _run_scan(
             major_mismatch_count += 1
 
         _print_record(range_id, record)
+        print(
+            "PROGRESS,"
+            f"phase=scan,event=end,range_index={range_id + 1}/{total_ranges},"
+            f"upper={upper},query_seconds={record['query_seconds']:.3f},"
+            f"elapsed_seconds={time.time() - scan_start:.3f}",
+            flush=True,
+        )
 
         if stop_on_mismatch and record["status"] != "MATCH":
             break
@@ -313,7 +334,8 @@ def _run_scan(
         "\nSummary: "
         f"ranges_scanned={total_ranges}, mismatches={mismatch_count}, "
         f"major_mismatches={major_mismatch_count}, "
-        f"max_partkey={max_partkey}, decimal_cast={decimal_cast}",
+        f"max_partkey={max_partkey}, decimal_cast={decimal_cast}, "
+        f"total_scan_seconds={time.time() - scan_start:.3f}",
         flush=True,
     )
     return records, mismatch_count, major_mismatch_count
@@ -362,8 +384,16 @@ def _refine_smallest_major_upper(
         flush=True,
     )
 
+    step = 0
     while lo <= hi:
+        step += 1
         mid = (lo + hi) // 2
+        step_start = time.time()
+        print(
+            "PROGRESS,"
+            f"phase=refine,event=start,step={step},upper={mid}",
+            flush=True,
+        )
         mid_record = eval_upper(mid)
         print(
             "BSEARCH,"
@@ -371,7 +401,8 @@ def _refine_smallest_major_upper(
             f"status={mid_record['status']},"
             f"major_status={'MAJOR_MISMATCH' if mid_record['major_mismatch'] else 'NOT_MAJOR'},"
             f"abs_diff_decimal={_format_value(mid_record['decimal_diff'])},"
-            f"abs_diff_double={_format_value(mid_record['double_diff'])}",
+            f"abs_diff_double={_format_value(mid_record['double_diff'])},"
+            f"query_seconds={time.time() - step_start:.3f}",
             flush=True,
         )
         if mid_record["major_mismatch"]:
