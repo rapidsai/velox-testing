@@ -314,6 +314,20 @@ def _debug_q18_mismatch(presto_cursor):
         "GROUP BY l_orderkey "
         "HAVING sum(l_quantity) > 300"
     )
+    qualifying_orders_double = (
+        "SELECT l_orderkey "
+        "FROM lineitem "
+        "GROUP BY l_orderkey "
+        "HAVING sum(CAST(l_quantity AS DOUBLE)) > 300"
+    )
+    per_order_sums = (
+        "SELECT "
+        "  l_orderkey, "
+        "  sum(l_quantity) AS sum_quantity_dec, "
+        "  sum(CAST(l_quantity AS DOUBLE)) AS sum_quantity_double "
+        "FROM lineitem "
+        "GROUP BY l_orderkey"
+    )
     grouped = (
         "SELECT "
         "  c_name, "
@@ -339,8 +353,147 @@ def _debug_q18_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
+        "Q18 qualifying orderkey count (double HAVING)",
+        f"SELECT count(*) FROM ({qualifying_orders_double}) q18_orders_double",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 per-order sum threshold stats",
+        "WITH per_order AS ( "
+        + per_order_sums
+        + ") "
+        "SELECT "
+        "  count(*) AS order_count, "
+        "  min(sum_quantity_dec) AS min_sum_quantity, "
+        "  max(sum_quantity_dec) AS max_sum_quantity, "
+        "  avg(sum_quantity_dec) AS avg_sum_quantity, "
+        "  sum(CASE WHEN sum_quantity_dec > 300 THEN 1 ELSE 0 END) AS gt_300_count, "
+        "  sum(CASE WHEN sum_quantity_dec = 300 THEN 1 ELSE 0 END) AS eq_300_count, "
+        "  sum(CASE WHEN sum_quantity_dec < 300 THEN 1 ELSE 0 END) AS lt_300_count "
+        "FROM per_order",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 decimal-vs-double qualifying overlap",
+        "WITH per_order AS ( "
+        + per_order_sums
+        + "), dec_q AS ( "
+        "  SELECT l_orderkey FROM per_order WHERE sum_quantity_dec > 300 "
+        "), dbl_q AS ( "
+        "  SELECT l_orderkey FROM per_order WHERE sum_quantity_double > 300 "
+        ") "
+        "SELECT "
+        "  (SELECT count(*) FROM dec_q) AS dec_count, "
+        "  (SELECT count(*) FROM dbl_q) AS dbl_count, "
+        "  (SELECT count(*) FROM dec_q d JOIN dbl_q b ON d.l_orderkey = b.l_orderkey) AS overlap_count, "
+        "  (SELECT count(*) FROM dec_q d LEFT JOIN dbl_q b ON d.l_orderkey = b.l_orderkey WHERE b.l_orderkey IS NULL) AS dec_only_count, "
+        "  (SELECT count(*) FROM dbl_q b LEFT JOIN dec_q d ON d.l_orderkey = b.l_orderkey WHERE d.l_orderkey IS NULL) AS dbl_only_count",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 decimal-only qualifying sample",
+        "WITH per_order AS ( "
+        + per_order_sums
+        + "), dec_q AS ( "
+        "  SELECT l_orderkey FROM per_order WHERE sum_quantity_dec > 300 "
+        "), dbl_q AS ( "
+        "  SELECT l_orderkey FROM per_order WHERE sum_quantity_double > 300 "
+        ") "
+        "SELECT p.l_orderkey, p.sum_quantity_dec, p.sum_quantity_double "
+        "FROM per_order p "
+        "JOIN dec_q d ON d.l_orderkey = p.l_orderkey "
+        "LEFT JOIN dbl_q b ON b.l_orderkey = p.l_orderkey "
+        "WHERE b.l_orderkey IS NULL "
+        "ORDER BY p.sum_quantity_dec DESC, p.l_orderkey "
+        "LIMIT 20",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 double-only qualifying sample",
+        "WITH per_order AS ( "
+        + per_order_sums
+        + "), dec_q AS ( "
+        "  SELECT l_orderkey FROM per_order WHERE sum_quantity_dec > 300 "
+        "), dbl_q AS ( "
+        "  SELECT l_orderkey FROM per_order WHERE sum_quantity_double > 300 "
+        ") "
+        "SELECT p.l_orderkey, p.sum_quantity_dec, p.sum_quantity_double "
+        "FROM per_order p "
+        "JOIN dbl_q b ON b.l_orderkey = p.l_orderkey "
+        "LEFT JOIN dec_q d ON d.l_orderkey = p.l_orderkey "
+        "WHERE d.l_orderkey IS NULL "
+        "ORDER BY p.sum_quantity_double DESC, p.l_orderkey "
+        "LIMIT 20",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
         "Q18 grouped row count",
         f"SELECT count(*) FROM ({grouped}) q18_grouped",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 grouped rows violating HAVING threshold count",
+        "WITH grouped AS ( "
+        + grouped
+        + ") "
+        "SELECT count(*) "
+        "FROM grouped "
+        "WHERE sum_quantity <= 300",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 grouped rows violating HAVING threshold sample",
+        "WITH grouped AS ( "
+        + grouped
+        + ") "
+        "SELECT c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, sum_quantity "
+        "FROM grouped "
+        "WHERE sum_quantity <= 300 "
+        "ORDER BY sum_quantity DESC, o_orderkey, c_custkey "
+        "LIMIT 20",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 qualifying keys missing in orders",
+        "SELECT count(*) "
+        "FROM ( "
+        "  SELECT q.l_orderkey "
+        "  FROM ( "
+        + qualifying_orders
+        + ") q "
+        "  LEFT JOIN orders o ON o.o_orderkey = q.l_orderkey "
+        "  WHERE o.o_orderkey IS NULL "
+        ") q18_missing_orders",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q18 IN-vs-join filtered orderkey count",
+        "WITH qualifying AS ( "
+        + qualifying_orders
+        + "), in_filtered AS ( "
+        "  SELECT o_orderkey "
+        "  FROM orders "
+        "  WHERE o_orderkey IN (SELECT l_orderkey FROM qualifying) "
+        "), join_filtered AS ( "
+        "  SELECT o.o_orderkey "
+        "  FROM orders o "
+        "  JOIN qualifying q ON q.l_orderkey = o.o_orderkey "
+        ") "
+        "SELECT "
+        "  (SELECT count(*) FROM in_filtered) AS in_count, "
+        "  (SELECT count(*) FROM join_filtered) AS join_count, "
+        "  (SELECT count(*) FROM in_filtered i JOIN join_filtered j ON i.o_orderkey = j.o_orderkey) AS overlap_count, "
+        "  (SELECT count(*) FROM in_filtered i LEFT JOIN join_filtered j ON i.o_orderkey = j.o_orderkey WHERE j.o_orderkey IS NULL) AS in_only_count, "
+        "  (SELECT count(*) FROM join_filtered j LEFT JOIN in_filtered i ON i.o_orderkey = j.o_orderkey WHERE i.o_orderkey IS NULL) AS join_only_count",
     )
     _append_debug_query(
         lines,
@@ -401,11 +554,17 @@ def _debug_q18_mismatch(presto_cursor):
         "  FROM ranked "
         "  WHERE rn = 100 "
         ") "
-        "SELECT c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, sum_quantity "
+        "SELECT "
+        "  grouped.c_name, "
+        "  grouped.c_custkey, "
+        "  grouped.o_orderkey, "
+        "  grouped.o_orderdate, "
+        "  grouped.o_totalprice, "
+        "  grouped.sum_quantity "
         "FROM grouped, boundary "
         "WHERE grouped.o_totalprice = boundary.o_totalprice "
         "  AND grouped.o_orderdate = boundary.o_orderdate "
-        "ORDER BY o_orderkey, c_custkey "
+        "ORDER BY grouped.o_orderkey, grouped.c_custkey "
         "LIMIT 20",
     )
     return "\n".join(lines)
