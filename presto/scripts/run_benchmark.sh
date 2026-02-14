@@ -5,6 +5,42 @@
 
 set -e
 
+TPCH_TABLES=(customer lineitem nation orders part partsupp region supplier)
+HIVE_METASTORE_DIR="$(readlink -f ../docker/.hive_metastore)"
+
+verify_schema_stats() {
+  local schema=$1
+  local missing=0
+
+  if [[ ! -d "$HIVE_METASTORE_DIR/$schema" ]]; then
+    echo "Error: Hive metastore directory not found for schema '$schema' at $HIVE_METASTORE_DIR/$schema"
+    exit 1
+  fi
+
+  for table in "${TPCH_TABLES[@]}"; do
+    local stats_file="$HIVE_METASTORE_DIR/$schema/$table/.prestoSchema"
+    if [[ ! -s "$stats_file" ]]; then
+      echo "Missing column statistics for $schema.$table ($stats_file)"
+      missing=1
+      continue
+    fi
+    if ! grep -q '"columnStatistics"' "$stats_file"; then
+      echo "Column statistics entry absent for $schema.$table ($stats_file)"
+      missing=1
+    fi
+  done
+
+  if [[ $missing -ne 0 ]]; then
+    cat <<EOF
+
+Column statistics are required before running TPCH benchmarks.
+Run ./analyze_tables.sh --schema-name '$schema' (and optional connection args) before retrying.
+
+EOF
+    exit 1
+  fi
+}
+
 print_help() {
   cat << EOF
 
@@ -242,6 +278,11 @@ TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
 pip install -q -r ${TEST_DIR}/requirements.txt
 
 source "${SCRIPT_DIR}/common_functions.sh"
+
+if [[ ${BENCHMARK_TYPE} == "tpch" ]]; then
+  echo "Verifying Hive column statistics for schema '${SCHEMA_NAME}'..."
+  verify_schema_stats "${SCHEMA_NAME}"
+fi
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
