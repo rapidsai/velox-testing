@@ -495,6 +495,66 @@ def _debug_q17_mismatch(presto_cursor):
     _append_debug_query(
         lines,
         presto_cursor,
+        "Q17 grouped avg sample (no order/limit)",
+        "SELECT "
+        "  l.l_partkey, "
+        "  count(*) AS n_rows, "
+        "  avg(l.l_quantity) AS avg_q, "
+        "  0.2 * avg(l.l_quantity) AS threshold_q "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' "
+        "  AND p.p_container = 'MED BOX' "
+        "  AND l.l_partkey BETWEEN 1 AND 500 "
+        "GROUP BY l.l_partkey",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 grouped keys TopN (no decimal aggregates)",
+        "SELECT l.l_partkey "
+        "FROM lineitem l "
+        "JOIN part p ON p.p_partkey = l.l_partkey "
+        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
+        "GROUP BY l.l_partkey "
+        "ORDER BY l.l_partkey "
+        "LIMIT 25",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 grouped avg TopN (project key only)",
+        "WITH grouped AS ( "
+        "  SELECT l.l_partkey, avg(l.l_quantity) AS avg_q "
+        "  FROM lineitem l "
+        "  JOIN part p ON p.p_partkey = l.l_partkey "
+        "  WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
+        "  GROUP BY l.l_partkey "
+        ") "
+        "SELECT l_partkey "
+        "FROM grouped "
+        "ORDER BY l_partkey "
+        "LIMIT 25",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 grouped avg TopN (include decimal avg output)",
+        "WITH grouped AS ( "
+        "  SELECT l.l_partkey, avg(l.l_quantity) AS avg_q "
+        "  FROM lineitem l "
+        "  JOIN part p ON p.p_partkey = l.l_partkey "
+        "  WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
+        "  GROUP BY l.l_partkey "
+        ") "
+        "SELECT l_partkey, avg_q "
+        "FROM grouped "
+        "ORDER BY l_partkey "
+        "LIMIT 25",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
         "Q17 per-part threshold sample (decimal avg)",
         "SELECT "
         "  l.l_partkey, "

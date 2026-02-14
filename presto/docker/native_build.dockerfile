@@ -33,7 +33,8 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
     make --directory="/presto_native_staging/presto" cmake-and-build BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR} && \
     !(LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | grep "not found" | grep -v -E "libcuda\\.so|libnvidia") && \
     LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 && $3 != "not" && $1 !~ /libcuda\\.so|libnvidia/ { system("cp " $3 " /runtime-libraries") }' && \
-    cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin
+    cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin && \
+    cp ${BUILD_BASE_DIR}/velox/experimental/cudf/tools/velox_cudf_hashagg_replay /usr/bin
 
 RUN mkdir /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
