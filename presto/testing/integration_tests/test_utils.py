@@ -571,8 +571,228 @@ def _debug_q18_mismatch(presto_cursor):
 
 
 def _debug_q17_mismatch(presto_cursor):
-    lines = ["Q17 deep debug:"]
-    q17_rewritten = (
+    lines = ["Q17 deep debug (operator-step):"]
+    part_keys = (
+        "SELECT p_partkey "
+        "FROM part "
+        "WHERE p_brand = 'Brand#23' AND p_container = 'MED BOX'"
+    )
+    lineitem_filtered = (
+        "SELECT l.l_partkey, l.l_quantity, l.l_extendedprice "
+        "FROM lineitem l "
+        "JOIN ("
+        + part_keys
+        + ") p ON p.p_partkey = l.l_partkey"
+    )
+    thresholds_decimal = (
+        "SELECT l_partkey, 0.2 * avg(l_quantity) AS threshold_dec "
+        "FROM lineitem "
+        "GROUP BY l_partkey"
+    )
+    thresholds_double = (
+        "SELECT l_partkey, 0.2 * avg(CAST(l_quantity AS DOUBLE)) AS threshold_dbl "
+        "FROM lineitem "
+        "GROUP BY l_partkey"
+    )
+    thresholds_double_round3 = (
+        "SELECT "
+        "  l_partkey, "
+        "  CAST(CAST(0.2 * avg(CAST(l_quantity AS DOUBLE)) AS DECIMAL(16, 3)) AS DOUBLE) "
+        "    AS threshold_dbl_round3 "
+        "FROM lineitem "
+        "GROUP BY l_partkey"
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 01 - part filter (brand/container) key count",
+        "SELECT count(*) AS part_key_count FROM (" + part_keys + ") q17_part_keys",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 02 - join input rows after part filter",
+        "SELECT "
+        "  count(*) AS join_rows, "
+        "  sum(l_extendedprice) AS join_sum_extendedprice "
+        "FROM (" + lineitem_filtered + ") q17_lineitem_filtered",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 03 - per-part threshold rows (decimal path)",
+        "SELECT count(*) AS threshold_rows_dec "
+        "FROM (" + thresholds_decimal + ") q17_thresholds_dec",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 04 - per-part threshold rows (DuckDB control: double)",
+        "SELECT count(*) AS threshold_rows_dbl "
+        "FROM (" + thresholds_double + ") q17_thresholds_dbl",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 05 - aggregate type check on filtered input",
+        "SELECT "
+        "  avg(l_quantity) AS avg_q_dec, "
+        "  typeof(avg(l_quantity)) AS avg_q_dec_type, "
+        "  avg(CAST(l_quantity AS DOUBLE)) AS avg_q_dbl, "
+        "  typeof(avg(CAST(l_quantity AS DOUBLE))) AS avg_q_dbl_type "
+        "FROM (" + lineitem_filtered + ") q17_lineitem_filtered",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 06 - threshold sample per part (dec vs dbl vs dbl_round3)",
+        "WITH td AS ("
+        + thresholds_decimal
+        + "), tb AS ("
+        + thresholds_double
+        + "), tr AS ("
+        + thresholds_double_round3
+        + "), pk AS ("
+        + part_keys
+        + ") "
+        "SELECT "
+        "  pk.p_partkey, "
+        "  td.threshold_dec, "
+        "  tb.threshold_dbl, "
+        "  tr.threshold_dbl_round3 "
+        "FROM pk "
+        "JOIN td ON td.l_partkey = pk.p_partkey "
+        "JOIN tb ON tb.l_partkey = pk.p_partkey "
+        "JOIN tr ON tr.l_partkey = pk.p_partkey "
+        "ORDER BY pk.p_partkey "
+        "LIMIT 25",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 07 - predicate application row counts (dec vs dbl vs dbl_round3)",
+        "WITH lf AS ("
+        + lineitem_filtered
+        + "), td AS ("
+        + thresholds_decimal
+        + "), tb AS ("
+        + thresholds_double
+        + "), tr AS ("
+        + thresholds_double_round3
+        + "), paired AS ( "
+        "  SELECT "
+        "    lf.l_partkey, "
+        "    lf.l_quantity, "
+        "    lf.l_extendedprice, "
+        "    td.threshold_dec, "
+        "    tb.threshold_dbl, "
+        "    tr.threshold_dbl_round3 "
+        "  FROM lf "
+        "  JOIN td ON td.l_partkey = lf.l_partkey "
+        "  JOIN tb ON tb.l_partkey = lf.l_partkey "
+        "  JOIN tr ON tr.l_partkey = lf.l_partkey "
+        ") "
+        "SELECT "
+        "  count(*) AS input_rows, "
+        "  sum(CASE WHEN l_quantity < threshold_dec THEN 1 ELSE 0 END) AS rows_dec_pred, "
+        "  sum(CASE WHEN CAST(l_quantity AS DOUBLE) < threshold_dbl THEN 1 ELSE 0 END) AS rows_dbl_pred, "
+        "  sum(CASE WHEN CAST(l_quantity AS DOUBLE) < threshold_dbl_round3 THEN 1 ELSE 0 END) AS rows_dbl_round3_pred, "
+        "  sum(CASE WHEN l_quantity < threshold_dec AND NOT (CAST(l_quantity AS DOUBLE) < threshold_dbl) THEN 1 ELSE 0 END) AS dec_only_rows, "
+        "  sum(CASE WHEN NOT (l_quantity < threshold_dec) AND CAST(l_quantity AS DOUBLE) < threshold_dbl THEN 1 ELSE 0 END) AS dbl_only_rows "
+        "FROM paired",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 08 - predicate mismatch sample rows (decimal vs double thresholds)",
+        "WITH lf AS ("
+        + lineitem_filtered
+        + "), td AS ("
+        + thresholds_decimal
+        + "), tb AS ("
+        + thresholds_double
+        + "), tr AS ("
+        + thresholds_double_round3
+        + "), paired AS ( "
+        "  SELECT "
+        "    lf.l_partkey, "
+        "    lf.l_quantity, "
+        "    td.threshold_dec, "
+        "    tb.threshold_dbl, "
+        "    tr.threshold_dbl_round3 "
+        "  FROM lf "
+        "  JOIN td ON td.l_partkey = lf.l_partkey "
+        "  JOIN tb ON tb.l_partkey = lf.l_partkey "
+        "  JOIN tr ON tr.l_partkey = lf.l_partkey "
+        ") "
+        "SELECT "
+        "  l_partkey, "
+        "  l_quantity, "
+        "  threshold_dec, "
+        "  threshold_dbl, "
+        "  threshold_dbl_round3, "
+        "  CAST(l_quantity AS DOUBLE) - threshold_dbl AS delta_dbl "
+        "FROM paired "
+        "WHERE (l_quantity < threshold_dec AND NOT (CAST(l_quantity AS DOUBLE) < threshold_dbl)) "
+        "   OR (NOT (l_quantity < threshold_dec) AND CAST(l_quantity AS DOUBLE) < threshold_dbl) "
+        "ORDER BY l_partkey, l_quantity "
+        "LIMIT 25",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 09 - qualifying aggregate (original decimal threshold path)",
+        "WITH lf AS ("
+        + lineitem_filtered
+        + "), td AS ("
+        + thresholds_decimal
+        + ") "
+        "SELECT "
+        "  count(*) AS qualifying_rows_dec, "
+        "  sum(lf.l_extendedprice) AS sum_extendedprice_dec, "
+        "  sum(lf.l_extendedprice) / 7.0 AS avg_yearly_dec "
+        "FROM lf "
+        "JOIN td ON td.l_partkey = lf.l_partkey "
+        "WHERE lf.l_quantity < td.threshold_dec",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 10 - qualifying aggregate (DuckDB control: double threshold)",
+        "WITH lf AS ("
+        + lineitem_filtered
+        + "), tb AS ("
+        + thresholds_double
+        + ") "
+        "SELECT "
+        "  count(*) AS qualifying_rows_dbl, "
+        "  sum(lf.l_extendedprice) AS sum_extendedprice_dbl, "
+        "  sum(lf.l_extendedprice) / 7.0 AS avg_yearly_dbl "
+        "FROM lf "
+        "JOIN tb ON tb.l_partkey = lf.l_partkey "
+        "WHERE CAST(lf.l_quantity AS DOUBLE) < tb.threshold_dbl",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 11 - qualifying aggregate (double threshold rounded to decimal(16,3))",
+        "WITH lf AS ("
+        + lineitem_filtered
+        + "), tr AS ("
+        + thresholds_double_round3
+        + ") "
+        "SELECT "
+        "  count(*) AS qualifying_rows_dbl_round3, "
+        "  sum(lf.l_extendedprice) AS sum_extendedprice_dbl_round3, "
+        "  sum(lf.l_extendedprice) / 7.0 AS avg_yearly_dbl_round3 "
+        "FROM lf "
+        "JOIN tr ON tr.l_partkey = lf.l_partkey "
+        "WHERE CAST(lf.l_quantity AS DOUBLE) < tr.threshold_dbl_round3",
+    )
+    _append_debug_query(
+        lines,
+        presto_cursor,
+        "Q17 step 12 - final query shape rewritten with decimal thresholds",
         "WITH thresholds AS ( "
         "  SELECT l_partkey, 0.2 * avg(l_quantity) AS threshold "
         "  FROM lineitem "
@@ -580,7 +800,6 @@ def _debug_q17_mismatch(presto_cursor):
         ") "
         "SELECT "
         "  count(*) AS qualifying_rows, "
-        "  count(DISTINCT l.l_partkey) AS qualifying_parts, "
         "  sum(l.l_extendedprice) AS sum_extendedprice, "
         "  sum(l.l_extendedprice) / 7.0 AS avg_yearly "
         "FROM lineitem l "
@@ -588,167 +807,12 @@ def _debug_q17_mismatch(presto_cursor):
         "JOIN thresholds t ON t.l_partkey = l.l_partkey "
         "WHERE p.p_brand = 'Brand#23' "
         "  AND p.p_container = 'MED BOX' "
-        "  AND l.l_quantity < t.threshold"
+        "  AND l.l_quantity < t.threshold",
     )
     _append_debug_query(
         lines,
         presto_cursor,
-        "Q17 rewritten aggregate check",
-        q17_rewritten,
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 qualifying parts",
-        "SELECT count(*) FROM part WHERE p_brand = 'Brand#23' AND p_container = 'MED BOX'",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 quantity stats for qualifying parts",
-        "SELECT count(*) AS rows, avg(l.l_quantity), min(l.l_quantity), max(l.l_quantity) "
-        "FROM lineitem l "
-        "JOIN part p ON p.p_partkey = l.l_partkey "
-        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX'",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 avg quantity + type for qualifying parts",
-        "SELECT avg(l.l_quantity), typeof(avg(l.l_quantity)) "
-        "FROM lineitem l "
-        "JOIN part p ON p.p_partkey = l.l_partkey "
-        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX'",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 threshold distribution on qualifying parts",
-        "WITH thresholds AS ( "
-        "  SELECT l_partkey, 0.2 * avg(l_quantity) AS threshold "
-        "  FROM lineitem "
-        "  GROUP BY l_partkey "
-        ") "
-        "SELECT count(*), min(t.threshold), max(t.threshold), avg(t.threshold) "
-        "FROM thresholds t "
-        "JOIN part p ON p.p_partkey = t.l_partkey "
-        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX'",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 near-threshold candidate rows",
-        "WITH thresholds AS ( "
-        "  SELECT l_partkey, 0.2 * avg(l_quantity) AS threshold "
-        "  FROM lineitem "
-        "  GROUP BY l_partkey "
-        ") "
-        "SELECT count(*) "
-        "FROM lineitem l "
-        "JOIN part p ON p.p_partkey = l.l_partkey "
-        "JOIN thresholds t ON t.l_partkey = l.l_partkey "
-        "WHERE p.p_brand = 'Brand#23' "
-        "  AND p.p_container = 'MED BOX' "
-        "  AND abs(l.l_quantity - t.threshold) <= 0.01",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 grouped avg sample (no order/limit)",
-        "SELECT "
-        "  l.l_partkey, "
-        "  count(*) AS n_rows, "
-        "  avg(l.l_quantity) AS avg_q, "
-        "  0.2 * avg(l.l_quantity) AS threshold_q "
-        "FROM lineitem l "
-        "JOIN part p ON p.p_partkey = l.l_partkey "
-        "WHERE p.p_brand = 'Brand#23' "
-        "  AND p.p_container = 'MED BOX' "
-        "  AND l.l_partkey BETWEEN 1 AND 500 "
-        "GROUP BY l.l_partkey",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 grouped keys TopN (no decimal aggregates)",
-        "SELECT l.l_partkey "
-        "FROM lineitem l "
-        "JOIN part p ON p.p_partkey = l.l_partkey "
-        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
-        "GROUP BY l.l_partkey "
-        "ORDER BY l.l_partkey "
-        "LIMIT 25",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 grouped avg TopN (project key only)",
-        "WITH grouped AS ( "
-        "  SELECT l.l_partkey, avg(l.l_quantity) AS avg_q "
-        "  FROM lineitem l "
-        "  JOIN part p ON p.p_partkey = l.l_partkey "
-        "  WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
-        "  GROUP BY l.l_partkey "
-        ") "
-        "SELECT l_partkey "
-        "FROM grouped "
-        "ORDER BY l_partkey "
-        "LIMIT 25",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 grouped avg TopN (include decimal avg output)",
-        "WITH grouped AS ( "
-        "  SELECT l.l_partkey, avg(l.l_quantity) AS avg_q "
-        "  FROM lineitem l "
-        "  JOIN part p ON p.p_partkey = l.l_partkey "
-        "  WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
-        "  GROUP BY l.l_partkey "
-        ") "
-        "SELECT l_partkey, avg_q "
-        "FROM grouped "
-        "ORDER BY l_partkey "
-        "LIMIT 25",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 per-part threshold sample (decimal avg)",
-        "SELECT "
-        "  l.l_partkey, "
-        "  count(*) AS n_rows, "
-        "  sum(l.l_quantity) AS sum_q, "
-        "  avg(l.l_quantity) AS avg_q, "
-        "  0.2 * avg(l.l_quantity) AS threshold_q "
-        "FROM lineitem l "
-        "JOIN part p ON p.p_partkey = l.l_partkey "
-        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
-        "GROUP BY l.l_partkey "
-        "ORDER BY l.l_partkey "
-        "LIMIT 25",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 per-part threshold sample (double cast)",
-        "SELECT "
-        "  l.l_partkey, "
-        "  count(*) AS n_rows, "
-        "  sum(CAST(l.l_quantity AS DOUBLE)) AS sum_q_double, "
-        "  avg(CAST(l.l_quantity AS DOUBLE)) AS avg_q_double, "
-        "  0.2 * avg(CAST(l.l_quantity AS DOUBLE)) AS threshold_q_double "
-        "FROM lineitem l "
-        "JOIN part p ON p.p_partkey = l.l_partkey "
-        "WHERE p.p_brand = 'Brand#23' AND p.p_container = 'MED BOX' "
-        "GROUP BY l.l_partkey "
-        "ORDER BY l.l_partkey "
-        "LIMIT 25",
-    )
-    _append_debug_query(
-        lines,
-        presto_cursor,
-        "Q17 qualifying aggregate (double-threshold control)",
+        "Q17 step 13 - final query shape rewritten with double-threshold control",
         "SELECT "
         "  count(*) AS qualifying_rows, "
         "  sum(l.l_extendedprice) AS sum_extendedprice, "
