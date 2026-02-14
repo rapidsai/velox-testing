@@ -34,23 +34,27 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
     !(LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | grep "not found" | grep -v -E "libcuda\\.so|libnvidia") && \
     LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 && $3 != "not" && $1 !~ /libcuda\\.so|libnvidia/ { system("cp " $3 " /runtime-libraries") }' && \
     cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin && \
-    replay_bin="" && \
-    for candidate in \
-      "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tools/velox_cudf_hashagg_replay" \
-      "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tests/velox_cudf_hashagg_replay" \
-      "${BUILD_BASE_DIR}/velox/experimental/cudf/tools/velox_cudf_hashagg_replay" \
-      "${BUILD_BASE_DIR}/velox/experimental/cudf/tests/velox_cudf_hashagg_replay" \
-      "${BUILD_BASE_DIR}/velox_cudf_hashagg_replay"; do \
-      if [[ -f "$candidate" ]]; then \
-        replay_bin="$candidate"; \
-        break; \
+    if [[ "${GPU}" == "ON" ]]; then \
+      replay_bin=""; \
+      for candidate in \
+        "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tools/velox_cudf_hashagg_replay" \
+        "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tests/velox_cudf_hashagg_replay" \
+        "${BUILD_BASE_DIR}/velox/experimental/cudf/tools/velox_cudf_hashagg_replay" \
+        "${BUILD_BASE_DIR}/velox/experimental/cudf/tests/velox_cudf_hashagg_replay" \
+        "${BUILD_BASE_DIR}/velox_cudf_hashagg_replay"; do \
+        if [[ -f "$candidate" ]]; then \
+          replay_bin="$candidate"; \
+          break; \
+        fi; \
+      done; \
+      if [[ -z "$replay_bin" ]]; then \
+        echo "ERROR: velox_cudf_hashagg_replay binary not found in build output"; \
+        exit 1; \
       fi; \
-    done && \
-    if [[ -z "$replay_bin" ]]; then \
-      echo "ERROR: velox_cudf_hashagg_replay binary not found in build output"; \
-      exit 1; \
-    fi && \
-    cp "$replay_bin" /usr/bin
+      cp "$replay_bin" /usr/bin; \
+    else \
+      echo "Skipping velox_cudf_hashagg_replay copy for CPU-only build (GPU=${GPU})"; \
+    fi
 
 RUN mkdir /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
