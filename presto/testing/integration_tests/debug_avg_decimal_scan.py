@@ -1974,14 +1974,6 @@ def main():
                     stop_on_mismatch=args.stop_on_mismatch,
                 )
                 _progress("phase=main,event=scan_end")
-
-        if args.single_key_checks:
-            keys = [
-                int(item.strip())
-                for item in args.single_key_checks.split(",")
-                if item.strip()
-            ]
-            _run_single_key_checks(cursor, keys)
                 saw_any_mismatch = saw_any_mismatch or mismatch_count > 0
                 saw_any_major = saw_any_major or major_mismatch_count > 0
 
@@ -2136,6 +2128,14 @@ def main():
                     "No major mismatch found in scanned prefix ranges.",
                     flush=True,
                 )
+
+        if args.single_key_checks:
+            keys = [
+                int(item.strip())
+                for item in args.single_key_checks.split(",")
+                if item.strip()
+            ]
+            _run_single_key_checks(cursor, keys)
     finally:
         if should_create_tables and not args.keep_tables:
             create_hive_tables.drop_schema(cursor, schema_name)
