@@ -169,6 +169,10 @@ def _generate_exponential_prefix_uppers(max_partkey):
 def _get_mode_metric_labels(mode):
     if mode == "avg_cast":
         return "avg_qty_decimal", "avg_qty_double"
+    if mode == "threshold_correlated_only":
+        return "avg_threshold", "sum_threshold"
+    if mode == "threshold_grouped_only":
+        return "avg_threshold", "sum_threshold"
     assert mode == "q17_predicate"
     return "avg_yearly", "sum_extendedprice"
 
@@ -189,6 +193,46 @@ def _build_prefix_query(
             "  avg(CAST(l_quantity AS DOUBLE)) AS avg_qty_double "
             "FROM lineitem "
             f"WHERE l_partkey BETWEEN 1 AND {upper}"
+        )
+
+    if mode == "threshold_correlated_only":
+        return (
+            "SELECT "
+            "  count(*) AS key_count, "
+            "  avg(t.threshold) AS avg_threshold, "
+            "  sum(t.threshold) AS sum_threshold "
+            "FROM ( "
+            "  SELECT "
+            "    keys.p_partkey, "
+            "    ( "
+            "      SELECT 0.2 * avg(li.l_quantity) "
+            "      FROM lineitem li "
+            "      WHERE li.l_partkey = keys.p_partkey "
+            f"        AND li.l_partkey BETWEEN 1 AND {upper} "
+            "    ) AS threshold "
+            "  FROM ( "
+            "    SELECT DISTINCT l_partkey AS p_partkey "
+            "    FROM lineitem "
+            f"    WHERE l_partkey BETWEEN 1 AND {upper} "
+            "  ) keys "
+            ") t "
+            "WHERE t.threshold IS NOT NULL"
+        )
+
+    if mode == "threshold_grouped_only":
+        return (
+            "SELECT "
+            "  count(*) AS key_count, "
+            "  avg(t.threshold) AS avg_threshold, "
+            "  sum(t.threshold) AS sum_threshold "
+            "FROM ( "
+            "  SELECT "
+            "    l_partkey, "
+            "    0.2 * avg(l_quantity) AS threshold "
+            "  FROM lineitem "
+            f"  WHERE l_partkey BETWEEN 1 AND {upper} "
+            "  GROUP BY l_partkey "
+            ") t"
         )
 
     assert mode == "q17_predicate"
@@ -369,6 +413,7 @@ def _print_record(range_id, record):
 def _run_scan(
     presto_cursor,
     max_partkey,
+    single_upper,
     mode,
     decimal_cast,
     q17_brand,
@@ -384,7 +429,10 @@ def _run_scan(
     mismatch_count = 0
     major_mismatch_count = 0
     metric1_label, metric2_label = _get_mode_metric_labels(mode)
-    uppers = list(_generate_exponential_prefix_uppers(max_partkey))
+    if single_upper is not None:
+        uppers = [single_upper]
+    else:
+        uppers = list(_generate_exponential_prefix_uppers(max_partkey))
     total_ranges = len(uppers)
     scan_start = time.time()
     _print_header(metric1_label, metric2_label)
@@ -535,11 +583,18 @@ def main():
     parser.add_argument("--user", default="test_user")
     parser.add_argument(
         "--mode",
-        choices=["q17_predicate", "avg_cast"],
+        choices=[
+            "q17_predicate",
+            "avg_cast",
+            "threshold_correlated_only",
+            "threshold_grouped_only",
+        ],
         default=DEFAULT_MODE,
         help=(
             "Scan mode. q17_predicate reproduces Q17-like correlated threshold "
-            "behavior; avg_cast runs simple prefix avg casts."
+            "behavior; avg_cast runs simple prefix avg casts; "
+            "threshold_correlated_only isolates the correlated threshold subquery; "
+            "threshold_grouped_only runs grouped-threshold equivalent."
         ),
     )
     parser.add_argument(
@@ -551,6 +606,14 @@ def main():
     )
     parser.add_argument("--keep-tables", action="store_true", default=False)
     parser.add_argument("--max-partkey", type=int, default=DEFAULT_MAX_PARTKEY)
+    parser.add_argument(
+        "--single-upper",
+        type=int,
+        help=(
+            "Run exactly one prefix upper bound instead of exponential scan "
+            "(e.g. --single-upper 19412735)."
+        ),
+    )
     parser.add_argument(
         "--require-min-max-partkey",
         type=int,
@@ -658,6 +721,7 @@ def main():
         records, mismatch_count, major_mismatch_count = _run_scan(
             presto_cursor=cursor,
             max_partkey=args.max_partkey,
+            single_upper=args.single_upper,
             mode=args.mode,
             decimal_cast=args.decimal_cast,
             q17_brand=args.q17_brand,
@@ -681,7 +745,9 @@ def main():
                 f"abs_diff_double={_format_value(first_major_record['double_diff'])}",
                 flush=True,
             )
-            if not args.skip_refine_smallest_major:
+            if args.single_upper is not None:
+                _progress("phase=main,event=refine_skipped,single_upper_mode=true")
+            elif not args.skip_refine_smallest_major:
                 previous_upper = 0 if first_major_idx == 0 else records[first_major_idx - 1]["upper"]
                 smallest_major_upper, smallest_major_record = _refine_smallest_major_upper(
                     presto_cursor=cursor,

@@ -25,10 +25,11 @@ OPTIONS:
     --hostname HOST               Presto coordinator hostname.
     --port PORT                   Presto coordinator port.
     --user USER                   Presto user.
-    --mode MODE                   Scan mode: q17_predicate (default) or avg_cast.
+    --mode MODE                   q17_predicate, avg_cast, threshold_correlated_only, threshold_grouped_only.
     --schema-name SCHEMA          Existing Hive schema to use (skip auto table creation).
     --keep-tables                 Keep auto-created tables/schema after script exits.
     --max-partkey N               Highest l_partkey to include in scan.
+    --single-upper N              Run only one upper bound (no exponential scan).
     --require-min-max-partkey N   Require lineitem max(l_partkey) >= N (default 20000000).
     --decimal-cast TYPE           Decimal type for avg(CAST(l_quantity AS TYPE)).
     --q17-brand VALUE             Brand filter in q17_predicate mode (default Brand#23).
