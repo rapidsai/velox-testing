@@ -1096,6 +1096,15 @@ def _run_auto_simplify(
     ]
 
     first_major_in_order = major_results[0] if major_results else None
+    tested_subquery_only = any(
+        result["mode"] == "threshold_correlated_only" for result in results
+    )
+    tested_correlated = any(
+        result["mode"] in ("threshold_correlated_only", "q17_predicate")
+        for result in results
+    )
+    tested_q17 = any(result["mode"] == "q17_predicate" for result in results)
+
     first_subquery_only = next(
         (result for result in major_results if result["mode"] == "threshold_correlated_only"),
         None,
@@ -1153,7 +1162,16 @@ def _run_auto_simplify(
             flush=True,
         )
     else:
-        print("AUTO_SIMPLIFY_RESULT_SUBQUERY_ONLY,none", flush=True)
+        if tested_subquery_only:
+            print(
+                "AUTO_SIMPLIFY_RESULT_SUBQUERY_ONLY,tested_no_major_repro",
+                flush=True,
+            )
+        else:
+            print(
+                "AUTO_SIMPLIFY_RESULT_SUBQUERY_ONLY,not_tested",
+                flush=True,
+            )
 
     if first_correlated:
         print(
@@ -1170,7 +1188,16 @@ def _run_auto_simplify(
             flush=True,
         )
     else:
-        print("AUTO_SIMPLIFY_RESULT_CORRELATED,none", flush=True)
+        if tested_correlated:
+            print(
+                "AUTO_SIMPLIFY_RESULT_CORRELATED,tested_no_major_repro",
+                flush=True,
+            )
+        else:
+            print(
+                "AUTO_SIMPLIFY_RESULT_CORRELATED,not_tested",
+                flush=True,
+            )
 
     if first_q17:
         print(
@@ -1187,7 +1214,10 @@ def _run_auto_simplify(
             flush=True,
         )
     else:
-        print("AUTO_SIMPLIFY_RESULT_Q17,none", flush=True)
+        if tested_q17:
+            print("AUTO_SIMPLIFY_RESULT_Q17,tested_no_major_repro", flush=True)
+        else:
+            print("AUTO_SIMPLIFY_RESULT_Q17,not_tested", flush=True)
 
     repro_results = [
         result
