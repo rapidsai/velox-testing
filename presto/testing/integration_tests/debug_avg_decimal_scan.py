@@ -366,6 +366,50 @@ def _escape_sql_string(value):
     return value.replace("'", "''")
 
 
+def _get_column_type_from_describe(rows, column_name):
+    target = column_name.lower()
+    for row in rows:
+        if not row:
+            continue
+        name = str(row[0]).lower()
+        if name == target:
+            return str(row[1])
+    return None
+
+
+def _log_lineitem_column_types(presto_cursor):
+    presto_type = None
+    duckdb_type = None
+    presto_error = None
+    duckdb_error = None
+    try:
+        presto_rows = presto_cursor.execute("DESCRIBE lineitem").fetchall()
+        presto_type = _get_column_type_from_describe(presto_rows, "l_quantity")
+    except Exception as exc:
+        presto_error = str(exc)
+    try:
+        duckdb_rows = duckdb.sql("DESCRIBE lineitem").fetchall()
+        duckdb_type = _get_column_type_from_describe(duckdb_rows, "l_quantity")
+    except Exception as exc:
+        duckdb_error = str(exc)
+
+    if presto_type is None or duckdb_type is None:
+        print(
+            "SCHEMA_CHECK,lineitem,l_quantity,"
+            f"presto_type={presto_type},duckdb_type={duckdb_type},"
+            f"presto_error={presto_error},duckdb_error={duckdb_error}",
+            flush=True,
+        )
+    else:
+        match = presto_type.lower() == duckdb_type.lower()
+        print(
+            "SCHEMA_CHECK,lineitem,l_quantity,"
+            f"presto_type={presto_type},duckdb_type={duckdb_type},"
+            f"match={str(match).lower()}",
+            flush=True,
+        )
+
+
 def _range_predicate(column_name, upper, range_style):
     if range_style == "between":
         return f"{column_name} BETWEEN 1 AND {upper}"
@@ -1800,6 +1844,7 @@ def main():
 
     try:
         _setup_tables(cursor, schema_name, should_create_tables)
+        _log_lineitem_column_types(cursor)
         _progress("phase=main,event=validate_dataset_start")
         _validate_dataset_scale(
             cursor,
