@@ -25,7 +25,7 @@ OPTIONS:
     --hostname HOST               Presto coordinator hostname.
     --port PORT                   Presto coordinator port.
     --user USER                   Presto user.
-    --mode MODE                   q17_predicate, avg_cast, threshold_correlated_only, threshold_grouped_only.
+    --mode MODE                   q17_predicate, avg_cast, threshold_correlated_only, threshold_grouped_only, grouped_avg_only, grouped_avg_double_only.
     --schema-name SCHEMA          Existing Hive schema to use (skip auto table creation).
     --keep-tables                 Keep auto-created tables/schema after script exits.
     --max-partkey N               Highest l_partkey to include in scan.
@@ -35,18 +35,23 @@ OPTIONS:
     --q17-brand VALUE             Brand filter in q17_predicate mode (default Brand#23).
     --q17-container VALUE         Container filter in q17_predicate mode (default MED BOX).
     --q17-threshold-mode MODE     native (Q17 shape) or cast_decimal.
+    --q17-filter-mode MODE        none, brand_only, or brand_and_container.
+    --range-style MODE            between or bounds (>= and <=).
     --decimal-abs-tol VALUE       Absolute tolerance for decimal avg comparison.
     --double-abs-tol VALUE        Absolute tolerance for double avg comparison.
     --major-decimal-abs-diff V    Threshold for major decimal mismatch detection.
     --major-double-abs-diff V     Threshold for major double mismatch detection.
     --skip-refine-smallest-major  Skip binary search for smallest major prefix.
     --fail-on-any-mismatch        Return non-zero for any mismatch.
+    --auto-simplify               Auto-run multiple forms and print repro/non-repro lists.
+    --auto-forms LIST             Comma-separated forms for auto simplify.
     --stop-on-mismatch            Stop after the first mismatch.
 
 EXAMPLES:
     $0
     $0 --schema-name tpch_sf100 --max-partkey 33554431
     $0 --decimal-cast "DECIMAL(18, 6)" --decimal-abs-tol 0
+    $0 --schema-name decimal_sf100 --single-upper 19412603 --auto-simplify
 
 EOF
 }
