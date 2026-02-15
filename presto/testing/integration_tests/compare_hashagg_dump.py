@@ -191,11 +191,139 @@ def _compare_dump_to_duckdb(
     return mismatches, checked, first
 
 
+def _read_session_index(session_dir):
+    index_path = os.path.join(session_dir, "hashagg_dump_index.txt")
+    if not os.path.exists(index_path):
+        raise RuntimeError(f"hashagg_dump_index.txt not found in {session_dir}")
+    dump_dirs = []
+    with open(index_path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            dump_dirs.append(line)
+    if not dump_dirs:
+        raise RuntimeError(f"No dump paths found in {index_path}")
+    return dump_dirs
+
+
+def _compare_single_dump(dump_dir, args):
+    manifest_path = os.path.join(dump_dir, "manifest.txt")
+    if not os.path.exists(manifest_path):
+        raise RuntimeError(f"manifest.txt not found in {dump_dir}")
+
+    manifest = _parse_manifest(manifest_path)
+    key_type_id = int(manifest["key.0.type_id"])
+    key_size = int(manifest["key.0.size"])
+    key_scale = int(manifest.get("key.0.scale", "0"))
+    key_data_file = manifest["key.0.data_file"]
+    key_mask_file = manifest.get("key.0.null_mask_file", "")
+
+    value_type_id = int(manifest["request.0.type_id"])
+    value_scale = int(manifest["request.0.scale"])
+    value_data_file = manifest["request.0.data_file"]
+    value_mask_file = manifest.get("request.0.null_mask_file", "")
+
+    if key_scale != 0:
+        raise RuntimeError(
+            f"Key scale is not zero (scale={key_scale}) in {dump_dir}"
+        )
+
+    key_path = os.path.join(dump_dir, key_data_file)
+    val_path = os.path.join(dump_dir, value_data_file)
+
+    start = time.time()
+    if key_type_id not in (TYPE_ID_INT64, TYPE_ID_DECIMAL64, TYPE_ID_DECIMAL128):
+        raise RuntimeError(f"Unsupported key type_id={key_type_id}")
+    if value_type_id not in (TYPE_ID_DECIMAL64, TYPE_ID_DECIMAL128):
+        raise RuntimeError(f"Unsupported value type_id={value_type_id}")
+
+    if key_type_id == TYPE_ID_DECIMAL128:
+        keys = _load_int128_column(key_path, max_rows=args.max_int128_rows)
+    else:
+        keys = _load_int64_column(key_path)
+
+    if value_type_id == TYPE_ID_DECIMAL128:
+        values = _load_int128_column(val_path, max_rows=args.max_int128_rows)
+    else:
+        values = _load_int64_column(val_path)
+
+    if len(keys) != len(values):
+        raise RuntimeError(
+            f"Key/value size mismatch keys={len(keys)} values={len(values)}"
+        )
+    if len(keys) != key_size:
+        raise RuntimeError(
+            f"Key size mismatch manifest={key_size} actual={len(keys)}"
+        )
+
+    key_mask = _load_null_mask(
+        os.path.join(dump_dir, key_mask_file) if key_mask_file else None
+    )
+    val_mask = _load_null_mask(
+        os.path.join(dump_dir, value_mask_file) if value_mask_file else None
+    )
+    print(
+        f"[compare_hashagg_dump] dump={dump_dir} loaded rows={len(keys)} "
+        f"key_type_id={key_type_id} value_type_id={value_type_id} "
+        f"scale={value_scale} seconds={time.time() - start:.2f}",
+        flush=True,
+    )
+
+    if value_type_id == TYPE_ID_DECIMAL128 or key_type_id == TYPE_ID_DECIMAL128:
+        raise RuntimeError(
+            "DECIMAL128 comparison requires a specialized path; "
+            "rerun with DECIMAL64 or add a DECIMAL128 compare mode."
+        )
+
+    sums, min_key, max_key = _compute_dense_sums(
+        keys, values, key_mask, val_mask, args.max_dense_keys
+    )
+    print(
+        f"[compare_hashagg_dump] dump={dump_dir} key_range={min_key}-{max_key} "
+        f"scale={value_scale} seconds={time.time() - start:.2f}",
+        flush=True,
+    )
+
+    mismatches, checked, first = _compare_dump_to_duckdb(
+        sums,
+        min_key,
+        max_key,
+        value_scale,
+        args.batch_size,
+    )
+
+    if first is None:
+        print(
+            f"[compare_hashagg_dump] dump={dump_dir} "
+            f"checked={checked} mismatches=0",
+            flush=True,
+        )
+        return 0
+
+    key, expected, actual = first
+    diff = expected - actual
+    print(
+        "[compare_hashagg_dump] "
+        f"dump={dump_dir} checked={checked} mismatches={mismatches} "
+        f"first_key={key} expected_scaled={expected} actual_scaled={actual} "
+        f"diff_scaled={diff} "
+        f"expected={_format_scaled(expected, value_scale)} "
+        f"actual={_format_scaled(actual, value_scale)}",
+        flush=True,
+    )
+    return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compare HashAgg dump input sums to DuckDB."
     )
-    parser.add_argument("--dump-dir", required=True, help="Dump directory to inspect.")
+    parser.add_argument("--dump-dir", help="Dump directory to inspect.")
+    parser.add_argument(
+        "--session",
+        help="Session directory containing hashagg_dump_index.txt.",
+    )
     parser.add_argument(
         "--schema-name",
         help="Hive schema name to locate lineitem parquet (uses Presto).",
@@ -227,76 +355,11 @@ def main():
     )
     args = parser.parse_args()
 
-    manifest_path = os.path.join(args.dump_dir, "manifest.txt")
-    if not os.path.exists(manifest_path):
-        raise RuntimeError(f"manifest.txt not found in {args.dump_dir}")
+    if not args.dump_dir and not args.session:
+        raise RuntimeError("Need --dump-dir or --session.")
 
-    manifest = _parse_manifest(manifest_path)
-    key_type_id = int(manifest["key.0.type_id"])
-    key_size = int(manifest["key.0.size"])
-    key_data_file = manifest["key.0.data_file"]
-    key_mask_file = manifest.get("key.0.null_mask_file", "")
-
-    value_type_id = int(manifest["request.0.type_id"])
-    value_scale = int(manifest["request.0.scale"])
-    value_data_file = manifest["request.0.data_file"]
-    value_mask_file = manifest.get("request.0.null_mask_file", "")
-
-    key_path = os.path.join(args.dump_dir, key_data_file)
-    val_path = os.path.join(args.dump_dir, value_data_file)
-
-    start = time.time()
-    if key_type_id not in (TYPE_ID_INT64, TYPE_ID_DECIMAL64, TYPE_ID_DECIMAL128):
-        raise RuntimeError(f"Unsupported key type_id={key_type_id}")
-    if value_type_id not in (TYPE_ID_DECIMAL64, TYPE_ID_DECIMAL128):
-        raise RuntimeError(f"Unsupported value type_id={value_type_id}")
-
-    if key_type_id == TYPE_ID_DECIMAL128:
-        keys = _load_int128_column(key_path, max_rows=args.max_int128_rows)
-    else:
-        keys = _load_int64_column(key_path)
-
-    if value_type_id == TYPE_ID_DECIMAL128:
-        values = _load_int128_column(val_path, max_rows=args.max_int128_rows)
-    else:
-        values = _load_int64_column(val_path)
-
-    if len(keys) != len(values):
-        raise RuntimeError(
-            f"Key/value size mismatch keys={len(keys)} values={len(values)}"
-        )
-    if len(keys) != key_size:
-        raise RuntimeError(
-            f"Key size mismatch manifest={key_size} actual={len(keys)}"
-        )
-
-    key_mask = _load_null_mask(
-        os.path.join(args.dump_dir, key_mask_file) if key_mask_file else None
-    )
-    val_mask = _load_null_mask(
-        os.path.join(args.dump_dir, value_mask_file) if value_mask_file else None
-    )
-    print(
-        f"[compare_hashagg_dump] loaded rows={len(keys)} "
-        f"key_type_id={key_type_id} value_type_id={value_type_id} "
-        f"scale={value_scale} seconds={time.time() - start:.2f}",
-        flush=True,
-    )
-
-    if value_type_id == TYPE_ID_DECIMAL128 or key_type_id == TYPE_ID_DECIMAL128:
-        raise RuntimeError(
-            "DECIMAL128 comparison requires a specialized path; "
-            "rerun with DECIMAL64 or add a DECIMAL128 compare mode."
-        )
-
-    sums, min_key, max_key = _compute_dense_sums(
-        keys, values, key_mask, val_mask, args.max_dense_keys
-    )
-    print(
-        f"[compare_hashagg_dump] key_range={min_key}-{max_key} "
-        f"scale={value_scale} seconds={time.time() - start:.2f}",
-        flush=True,
-    )
+    if args.session and args.dump_dir:
+        raise RuntimeError("Use only one of --dump-dir or --session.")
 
     if args.lineitem_path:
         lineitem_path = args.lineitem_path
@@ -315,33 +378,24 @@ def main():
             args.schema_name, "lineitem", cursor
         )
 
-    _register_lineitem(lineitem_path)
-    mismatches, checked, first = _compare_dump_to_duckdb(
-        sums,
-        min_key,
-        max_key,
-        value_scale,
-        args.batch_size,
-    )
+    if args.session:
+        dump_dirs = _read_session_index(args.session)
+    else:
+        dump_dirs = [args.dump_dir]
 
-    if first is None:
+    failures = 0
+    _register_lineitem(lineitem_path)
+    for dump_dir in dump_dirs:
+        failures += _compare_single_dump(dump_dir, args)
+
+    if failures == 0:
         print(
-            f"[compare_hashagg_dump] checked={checked} mismatches=0",
+            f"[compare_hashagg_dump] session_failures=0 dumps={len(dump_dirs)}",
             flush=True,
         )
         return 0
-
-    key, expected, actual = first
-    diff = expected - actual
     print(
-        "[compare_hashagg_dump] "
-        f"checked={checked} mismatches={mismatches} "
-        f"first_key={key} "
-        f"expected_scaled={expected} "
-        f"actual_scaled={actual} "
-        f"diff_scaled={diff} "
-        f"expected={_format_scaled(expected, value_scale)} "
-        f"actual={_format_scaled(actual, value_scale)}",
+        f"[compare_hashagg_dump] session_failures={failures} dumps={len(dump_dirs)}",
         flush=True,
     )
     return 1

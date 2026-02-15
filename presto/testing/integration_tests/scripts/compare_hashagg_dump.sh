@@ -22,7 +22,8 @@ and runs the dump comparison script.
 
 OPTIONS:
     -h, --help                    Show this help message.
-    --dump-dir DIR                Dump directory containing manifest.txt (required).
+    --dump-dir DIR                Dump directory containing manifest.txt.
+    --session DIR                 Session dir with hashagg_dump_index.txt.
     --schema-name SCHEMA          Hive schema to locate lineitem parquet.
     --lineitem-path DIR           Path to lineitem parquet (overrides schema).
     --hostname HOST               Presto coordinator hostname.
@@ -33,6 +34,7 @@ OPTIONS:
 
 EXAMPLES:
     $0 --dump-dir /tmp/hashagg_dump/hashagg_main_000008 --schema-name decimal_sf100
+    $0 --session /tmp/hashagg_dump --schema-name decimal_sf100
     $0 --dump-dir /tmp/hashagg_dump/hashagg_main_000008 --lineitem-path /data/lineitem
 
 EOF
