@@ -37,13 +37,14 @@ OPTIONS:
     --q17-threshold-mode MODE     native (Q17 shape) or cast_decimal.
     --q17-filter-mode MODE        none, brand_only, or brand_and_container.
     --range-style MODE            between or bounds (>= and <=).
+    --subquery-key-source MODE    lineitem or part key source for subquery mode.
     --decimal-abs-tol VALUE       Absolute tolerance for decimal avg comparison.
     --double-abs-tol VALUE        Absolute tolerance for double avg comparison.
     --major-decimal-abs-diff V    Threshold for major decimal mismatch detection.
     --major-double-abs-diff V     Threshold for major double mismatch detection.
     --skip-refine-smallest-major  Skip binary search for smallest major prefix.
     --fail-on-any-mismatch        Return non-zero for any mismatch.
-    --auto-simplify               Auto-run multiple forms and print repro/non-repro lists.
+    --auto-simplify               Auto-run multiple forms and print repro/non-repro/error lists.
     --auto-forms LIST             Comma-separated forms for auto simplify.
     --stop-on-mismatch            Stop after the first mismatch.
 

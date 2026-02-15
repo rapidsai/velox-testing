@@ -36,21 +36,18 @@ DEFAULT_MAJOR_DECIMAL_ABS_DIFF = decimal.Decimal("0.01")
 DEFAULT_MAJOR_DOUBLE_ABS_DIFF = 0.01
 DEFAULT_RANGE_STYLE = "between"
 DEFAULT_Q17_FILTER_MODE = "brand_and_container"
+DEFAULT_SUBQUERY_KEY_SOURCE = "lineitem"
 DEFAULT_AUTO_FORMS = [
-    "grouped_avg_double_only_between",
-    "grouped_avg_double_only_bounds",
-    "grouped_avg_only_between",
-    "grouped_avg_only_bounds",
-    "threshold_grouped_only_between",
-    "threshold_grouped_only_bounds",
-    "threshold_correlated_only_between",
-    "threshold_correlated_only_bounds",
-    "q17_predicate_native_between_no_filters",
-    "q17_predicate_native_bounds_no_filters",
-    "q17_predicate_native_between_brand_only",
-    "q17_predicate_native_bounds_brand_only",
-    "q17_predicate_native_between_full",
-    "q17_predicate_native_bounds_full",
+    "subquery_lineitem_keys_between",
+    "subquery_lineitem_keys_bounds",
+    "subquery_part_keys_between_no_filters",
+    "subquery_part_keys_bounds_no_filters",
+    "subquery_part_keys_between_brand_only",
+    "subquery_part_keys_bounds_brand_only",
+    "subquery_part_keys_between_full",
+    "subquery_part_keys_bounds_full",
+    "subquery_part_keys_between_full_cast_decimal",
+    "subquery_part_keys_bounds_full_cast_decimal",
 ]
 AUTO_FORM_DEFINITIONS = {
     "grouped_avg_double_only": {
@@ -172,6 +169,76 @@ AUTO_FORM_DEFINITIONS = {
         "q17_threshold_mode": "native",
         "q17_filter_mode": "brand_and_container",
         "range_style": "bounds",
+    },
+    "subquery_lineitem_keys_between": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "none",
+        "range_style": "between",
+        "subquery_key_source": "lineitem",
+    },
+    "subquery_lineitem_keys_bounds": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "none",
+        "range_style": "bounds",
+        "subquery_key_source": "lineitem",
+    },
+    "subquery_part_keys_between_no_filters": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "none",
+        "range_style": "between",
+        "subquery_key_source": "part",
+    },
+    "subquery_part_keys_bounds_no_filters": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "none",
+        "range_style": "bounds",
+        "subquery_key_source": "part",
+    },
+    "subquery_part_keys_between_brand_only": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "brand_only",
+        "range_style": "between",
+        "subquery_key_source": "part",
+    },
+    "subquery_part_keys_bounds_brand_only": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "brand_only",
+        "range_style": "bounds",
+        "subquery_key_source": "part",
+    },
+    "subquery_part_keys_between_full": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "between",
+        "subquery_key_source": "part",
+    },
+    "subquery_part_keys_bounds_full": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "bounds",
+        "subquery_key_source": "part",
+    },
+    "subquery_part_keys_between_full_cast_decimal": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "cast_decimal",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "between",
+        "subquery_key_source": "part",
+    },
+    "subquery_part_keys_bounds_full_cast_decimal": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "cast_decimal",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "bounds",
+        "subquery_key_source": "part",
     },
 }
 
@@ -353,10 +420,12 @@ def _build_prefix_query(
     q17_threshold_mode,
     q17_filter_mode,
     range_style,
+    subquery_key_source,
 ):
-    lineitem_range = _range_predicate("l_partkey", upper, range_style)
+    lineitem_range = _range_predicate("l.l_partkey", upper, range_style)
     li_range = _range_predicate("li.l_partkey", upper, range_style)
-    key_range = _range_predicate("l_partkey", upper, range_style)
+    lineitem_key_range = _range_predicate("l_partkey", upper, range_style)
+    part_key_range = _range_predicate("p.p_partkey", upper, range_style)
 
     if mode == "avg_cast":
         return (
@@ -365,10 +434,48 @@ def _build_prefix_query(
             f"  avg(CAST(l_quantity AS {decimal_cast})) AS avg_qty_decimal, "
             "  avg(CAST(l_quantity AS DOUBLE)) AS avg_qty_double "
             "FROM lineitem "
-            f"WHERE {key_range}"
+            f"WHERE {lineitem_key_range}"
         )
 
     if mode == "threshold_correlated_only":
+        escaped_brand = _escape_sql_string(q17_brand)
+        escaped_container = _escape_sql_string(q17_container)
+        part_filter = _q17_filter_predicate(
+            q17_filter_mode=q17_filter_mode,
+            escaped_brand=escaped_brand,
+            escaped_container=escaped_container,
+        )
+        if subquery_key_source == "part":
+            key_source = (
+                "SELECT p.p_partkey AS p_partkey "
+                "FROM part p "
+                f"WHERE {part_key_range} "
+                f"  AND {part_filter} "
+            )
+        else:
+            assert subquery_key_source == "lineitem"
+            key_source = (
+                "SELECT DISTINCT l_partkey AS p_partkey "
+                "FROM lineitem "
+                f"WHERE {lineitem_key_range} "
+            )
+
+        if q17_threshold_mode == "native":
+            threshold_subquery = (
+                "SELECT 0.2 * avg(li.l_quantity) "
+                "FROM lineitem li "
+                "WHERE li.l_partkey = keys.p_partkey "
+                f"  AND {li_range} "
+            )
+        else:
+            assert q17_threshold_mode == "cast_decimal"
+            threshold_subquery = (
+                f"SELECT 0.2 * avg(CAST(li.l_quantity AS {decimal_cast})) "
+                "FROM lineitem li "
+                "WHERE li.l_partkey = keys.p_partkey "
+                f"  AND {li_range} "
+            )
+
         return (
             "SELECT "
             "  count(*) AS key_count, "
@@ -378,16 +485,9 @@ def _build_prefix_query(
             "  SELECT "
             "    keys.p_partkey, "
             "    ( "
-            "      SELECT 0.2 * avg(li.l_quantity) "
-            "      FROM lineitem li "
-            "      WHERE li.l_partkey = keys.p_partkey "
-            f"        AND {li_range} "
+            f"      {threshold_subquery}"
             "    ) AS threshold "
-            "  FROM ( "
-            "    SELECT DISTINCT l_partkey AS p_partkey "
-            "    FROM lineitem "
-            f"    WHERE {key_range} "
-            "  ) keys "
+            "  FROM ( " + key_source + " ) keys "
             ") t "
             "WHERE t.threshold IS NOT NULL"
         )
@@ -403,7 +503,7 @@ def _build_prefix_query(
             "    l_partkey, "
             "    0.2 * avg(l_quantity) AS threshold "
             "  FROM lineitem "
-            f"  WHERE {key_range} "
+            f"  WHERE {lineitem_key_range} "
             "  GROUP BY l_partkey "
             ") t"
         )
@@ -419,7 +519,7 @@ def _build_prefix_query(
             "    l_partkey, "
             "    avg(l_quantity) AS group_avg "
             "  FROM lineitem "
-            f"  WHERE {key_range} "
+            f"  WHERE {lineitem_key_range} "
             "  GROUP BY l_partkey "
             ") t"
         )
@@ -435,7 +535,7 @@ def _build_prefix_query(
             "    l_partkey, "
             "    avg(CAST(l_quantity AS DOUBLE)) AS group_avg "
             "  FROM lineitem "
-            f"  WHERE {key_range} "
+            f"  WHERE {lineitem_key_range} "
             "  GROUP BY l_partkey "
             ") t"
         )
@@ -517,6 +617,14 @@ def _format_value(value):
     return str(value)
 
 
+def _format_error(exc):
+    message = str(exc).replace("\n", " ").replace("\r", " ").strip()
+    message = message.replace(",", ";")
+    if len(message) > 500:
+        return message[:497] + "..."
+    return message
+
+
 def _print_header(metric1_label, metric2_label):
     print(
         "range_id,lower,upper,"
@@ -554,6 +662,7 @@ def _evaluate_prefix(
     q17_threshold_mode,
     q17_filter_mode,
     range_style,
+    subquery_key_source,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -568,6 +677,7 @@ def _evaluate_prefix(
         q17_threshold_mode=q17_threshold_mode,
         q17_filter_mode=q17_filter_mode,
         range_style=range_style,
+        subquery_key_source=subquery_key_source,
     )
     presto_row, duckdb_row = _run_prefix_query(presto_cursor, query)
 
@@ -634,6 +744,7 @@ def _run_scan(
     q17_threshold_mode,
     q17_filter_mode,
     range_style,
+    subquery_key_source,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -670,6 +781,7 @@ def _run_scan(
             q17_threshold_mode=q17_threshold_mode,
             q17_filter_mode=q17_filter_mode,
             range_style=range_style,
+            subquery_key_source=subquery_key_source,
             decimal_abs_tol=decimal_abs_tol,
             double_abs_tol=double_abs_tol,
             major_decimal_abs_diff=major_decimal_abs_diff,
@@ -724,6 +836,7 @@ def _refine_smallest_major_upper(
     q17_threshold_mode,
     q17_filter_mode,
     range_style,
+    subquery_key_source,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -743,6 +856,7 @@ def _refine_smallest_major_upper(
                 q17_threshold_mode=q17_threshold_mode,
                 q17_filter_mode=q17_filter_mode,
                 range_style=range_style,
+                subquery_key_source=subquery_key_source,
                 decimal_abs_tol=decimal_abs_tol,
                 double_abs_tol=double_abs_tol,
                 major_decimal_abs_diff=major_decimal_abs_diff,
@@ -814,6 +928,8 @@ def _resolve_auto_forms(auto_forms_arg):
             form["q17_filter_mode"] = DEFAULT_Q17_FILTER_MODE
         if "range_style" not in form:
             form["range_style"] = DEFAULT_RANGE_STYLE
+        if "subquery_key_source" not in form:
+            form["subquery_key_source"] = DEFAULT_SUBQUERY_KEY_SOURCE
         forms.append(form)
     return forms
 
@@ -827,6 +943,7 @@ def _run_auto_simplify(
     q17_container,
     q17_filter_mode,
     range_style,
+    subquery_key_source,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -838,11 +955,11 @@ def _run_auto_simplify(
         flush=True,
     )
     print(
-        "auto_index,form_name,mode,q17_threshold_mode,q17_filter_mode,range_style,upper,"
+        "auto_index,form_name,mode,q17_threshold_mode,q17_filter_mode,range_style,subquery_key_source,upper,"
         "presto_count,duckdb_count,"
         "metric1_label,metric2_label,"
         "abs_diff_metric1,abs_diff_metric2,"
-        "status,major_status,query_seconds",
+        "status,major_status,query_seconds,result,error",
         flush=True,
     )
 
@@ -852,98 +969,243 @@ def _run_auto_simplify(
         q17_threshold_mode = form["q17_threshold_mode"]
         form_q17_filter_mode = form.get("q17_filter_mode", q17_filter_mode)
         form_range_style = form.get("range_style", range_style)
+        form_subquery_key_source = form.get(
+            "subquery_key_source",
+            subquery_key_source,
+        )
         metric1_label, metric2_label = _get_mode_metric_labels(mode)
         _progress(
             "phase=auto_simplify,event=start,"
             f"index={index}/{len(forms)},form={form['name']},upper={upper}"
         )
         start = time.time()
-        record = _evaluate_prefix(
-            presto_cursor=presto_cursor,
-            upper=upper,
-            mode=mode,
-            decimal_cast=decimal_cast,
-            q17_brand=q17_brand,
-            q17_container=q17_container,
-            q17_threshold_mode=q17_threshold_mode,
-            q17_filter_mode=form_q17_filter_mode,
-            range_style=form_range_style,
-            decimal_abs_tol=decimal_abs_tol,
-            double_abs_tol=double_abs_tol,
-            major_decimal_abs_diff=major_decimal_abs_diff,
-            major_double_abs_diff=major_double_abs_diff,
-        )
-        query_seconds = time.time() - start
-        print(
-            ",".join(
-                [
-                    str(index),
-                    form["name"],
-                    mode,
-                    q17_threshold_mode,
-                    form_q17_filter_mode,
-                    form_range_style,
-                    str(upper),
-                    _format_value(record["presto_row"][0]),
-                    _format_value(record["duckdb_row"][0]),
-                    metric1_label,
-                    metric2_label,
-                    _format_value(record["decimal_diff"]),
-                    _format_value(record["double_diff"]),
-                    record["status"],
-                    "MAJOR_MISMATCH" if record["major_mismatch"] else "NOT_MAJOR",
-                    f"{query_seconds:.3f}",
-                ]
-            ),
-            flush=True,
-        )
-        _progress(
-            "phase=auto_simplify,event=end,"
-            f"index={index}/{len(forms)},form={form['name']},"
-            f"query_seconds={query_seconds:.3f}"
-        )
-        results.append(
-            {
-                "form_name": form["name"],
-                "mode": mode,
-                "q17_threshold_mode": q17_threshold_mode,
-                "q17_filter_mode": form_q17_filter_mode,
-                "range_style": form_range_style,
-                "record": record,
-                "query_seconds": query_seconds,
-            }
-        )
+        try:
+            record = _evaluate_prefix(
+                presto_cursor=presto_cursor,
+                upper=upper,
+                mode=mode,
+                decimal_cast=decimal_cast,
+                q17_brand=q17_brand,
+                q17_container=q17_container,
+                q17_threshold_mode=q17_threshold_mode,
+                q17_filter_mode=form_q17_filter_mode,
+                range_style=form_range_style,
+                subquery_key_source=form_subquery_key_source,
+                decimal_abs_tol=decimal_abs_tol,
+                double_abs_tol=double_abs_tol,
+                major_decimal_abs_diff=major_decimal_abs_diff,
+                major_double_abs_diff=major_double_abs_diff,
+            )
+            query_seconds = time.time() - start
+            print(
+                ",".join(
+                    [
+                        str(index),
+                        form["name"],
+                        mode,
+                        q17_threshold_mode,
+                        form_q17_filter_mode,
+                        form_range_style,
+                        form_subquery_key_source,
+                        str(upper),
+                        _format_value(record["presto_row"][0]),
+                        _format_value(record["duckdb_row"][0]),
+                        metric1_label,
+                        metric2_label,
+                        _format_value(record["decimal_diff"]),
+                        _format_value(record["double_diff"]),
+                        record["status"],
+                        "MAJOR_MISMATCH" if record["major_mismatch"] else "NOT_MAJOR",
+                        f"{query_seconds:.3f}",
+                        "OK",
+                        "",
+                    ]
+                ),
+                flush=True,
+            )
+            _progress(
+                "phase=auto_simplify,event=end,"
+                f"index={index}/{len(forms)},form={form['name']},"
+                f"query_seconds={query_seconds:.3f}"
+            )
+            results.append(
+                {
+                    "form_name": form["name"],
+                    "mode": mode,
+                    "q17_threshold_mode": q17_threshold_mode,
+                    "q17_filter_mode": form_q17_filter_mode,
+                    "range_style": form_range_style,
+                    "subquery_key_source": form_subquery_key_source,
+                    "record": record,
+                    "error": None,
+                    "query_seconds": query_seconds,
+                }
+            )
+        except Exception as exc:
+            query_seconds = time.time() - start
+            error_message = _format_error(exc)
+            print(
+                ",".join(
+                    [
+                        str(index),
+                        form["name"],
+                        mode,
+                        q17_threshold_mode,
+                        form_q17_filter_mode,
+                        form_range_style,
+                        form_subquery_key_source,
+                        str(upper),
+                        "NULL",
+                        "NULL",
+                        metric1_label,
+                        metric2_label,
+                        "NULL",
+                        "NULL",
+                        "ERROR",
+                        "ERROR",
+                        f"{query_seconds:.3f}",
+                        "ERROR",
+                        error_message,
+                    ]
+                ),
+                flush=True,
+            )
+            _progress(
+                "phase=auto_simplify,event=error,"
+                f"index={index}/{len(forms)},form={form['name']},"
+                f"query_seconds={query_seconds:.3f}"
+            )
+            results.append(
+                {
+                    "form_name": form["name"],
+                    "mode": mode,
+                    "q17_threshold_mode": q17_threshold_mode,
+                    "q17_filter_mode": form_q17_filter_mode,
+                    "range_style": form_range_style,
+                    "subquery_key_source": form_subquery_key_source,
+                    "record": None,
+                    "error": error_message,
+                    "query_seconds": query_seconds,
+                }
+            )
 
-    simplest = next(
-        (result for result in results if result["record"]["major_mismatch"]),
+    major_results = [
+        result
+        for result in results
+        if result["record"] is not None and result["record"]["major_mismatch"]
+    ]
+
+    first_major_in_order = major_results[0] if major_results else None
+    first_subquery_only = next(
+        (result for result in major_results if result["mode"] == "threshold_correlated_only"),
         None,
     )
-    if simplest:
+    first_correlated = next(
+        (
+            result
+            for result in major_results
+            if result["mode"] in ("threshold_correlated_only", "q17_predicate")
+        ),
+        None,
+    )
+    first_q17 = next(
+        (result for result in major_results if result["mode"] == "q17_predicate"),
+        None,
+    )
+
+    if first_major_in_order:
         print(
-            "AUTO_SIMPLIFY_RESULT,"
-            f"simplest_major_repro_form={simplest['form_name']},"
-            f"mode={simplest['mode']},"
-            f"q17_threshold_mode={simplest['q17_threshold_mode']},"
-            f"q17_filter_mode={simplest['q17_filter_mode']},"
-            f"range_style={simplest['range_style']},"
+            "AUTO_SIMPLIFY_RESULT_FIRST_IN_ORDER,"
+            f"form={first_major_in_order['form_name']},"
+            f"mode={first_major_in_order['mode']},"
+            f"q17_threshold_mode={first_major_in_order['q17_threshold_mode']},"
+            f"q17_filter_mode={first_major_in_order['q17_filter_mode']},"
+            f"range_style={first_major_in_order['range_style']},"
+            f"subquery_key_source={first_major_in_order['subquery_key_source']},"
             f"upper={upper},"
-            f"abs_diff_metric1={_format_value(simplest['record']['decimal_diff'])},"
-            f"abs_diff_metric2={_format_value(simplest['record']['double_diff'])}",
+            f"abs_diff_metric1={_format_value(first_major_in_order['record']['decimal_diff'])},"
+            f"abs_diff_metric2={_format_value(first_major_in_order['record']['double_diff'])}",
+            flush=True,
+        )
+        print(
+            "AUTO_SIMPLIFY_NOTE,"
+            "first_in_order_depends_on_auto_forms_ordering=true",
             flush=True,
         )
     else:
         print(
-            "AUTO_SIMPLIFY_RESULT,no_major_reproducer_found_at_target_upper",
+            "AUTO_SIMPLIFY_RESULT_FIRST_IN_ORDER,none",
             flush=True,
         )
 
-    repro_results = [result for result in results if result["record"]["major_mismatch"]]
-    non_repro_results = [result for result in results if not result["record"]["major_mismatch"]]
+    if first_subquery_only:
+        print(
+            "AUTO_SIMPLIFY_RESULT_SUBQUERY_ONLY,"
+            f"form={first_subquery_only['form_name']},"
+            f"mode={first_subquery_only['mode']},"
+            f"q17_threshold_mode={first_subquery_only['q17_threshold_mode']},"
+            f"q17_filter_mode={first_subquery_only['q17_filter_mode']},"
+            f"range_style={first_subquery_only['range_style']},"
+            f"subquery_key_source={first_subquery_only['subquery_key_source']},"
+            f"upper={upper},"
+            f"abs_diff_metric1={_format_value(first_subquery_only['record']['decimal_diff'])},"
+            f"abs_diff_metric2={_format_value(first_subquery_only['record']['double_diff'])}",
+            flush=True,
+        )
+    else:
+        print("AUTO_SIMPLIFY_RESULT_SUBQUERY_ONLY,none", flush=True)
+
+    if first_correlated:
+        print(
+            "AUTO_SIMPLIFY_RESULT_CORRELATED,"
+            f"form={first_correlated['form_name']},"
+            f"mode={first_correlated['mode']},"
+            f"q17_threshold_mode={first_correlated['q17_threshold_mode']},"
+            f"q17_filter_mode={first_correlated['q17_filter_mode']},"
+            f"range_style={first_correlated['range_style']},"
+            f"subquery_key_source={first_correlated['subquery_key_source']},"
+            f"upper={upper},"
+            f"abs_diff_metric1={_format_value(first_correlated['record']['decimal_diff'])},"
+            f"abs_diff_metric2={_format_value(first_correlated['record']['double_diff'])}",
+            flush=True,
+        )
+    else:
+        print("AUTO_SIMPLIFY_RESULT_CORRELATED,none", flush=True)
+
+    if first_q17:
+        print(
+            "AUTO_SIMPLIFY_RESULT_Q17,"
+            f"form={first_q17['form_name']},"
+            f"mode={first_q17['mode']},"
+            f"q17_threshold_mode={first_q17['q17_threshold_mode']},"
+            f"q17_filter_mode={first_q17['q17_filter_mode']},"
+            f"range_style={first_q17['range_style']},"
+            f"subquery_key_source={first_q17['subquery_key_source']},"
+            f"upper={upper},"
+            f"abs_diff_metric1={_format_value(first_q17['record']['decimal_diff'])},"
+            f"abs_diff_metric2={_format_value(first_q17['record']['double_diff'])}",
+            flush=True,
+        )
+    else:
+        print("AUTO_SIMPLIFY_RESULT_Q17,none", flush=True)
+
+    repro_results = [
+        result
+        for result in results
+        if result["record"] is not None and result["record"]["major_mismatch"]
+    ]
+    non_repro_results = [
+        result
+        for result in results
+        if result["record"] is not None and not result["record"]["major_mismatch"]
+    ]
+    error_results = [result for result in results if result["record"] is None]
 
     print(
         "AUTO_SIMPLIFY_FINAL_COUNTS,"
         f"repro_forms={len(repro_results)},"
-        f"non_repro_forms={len(non_repro_results)}",
+        f"non_repro_forms={len(non_repro_results)},"
+        f"error_forms={len(error_results)}",
         flush=True,
     )
 
@@ -958,6 +1220,7 @@ def _run_auto_simplify(
                         f"q17_threshold_mode={result['q17_threshold_mode']},"
                         f"q17_filter_mode={result['q17_filter_mode']},"
                         f"range_style={result['range_style']},"
+                        f"subquery_key_source={result['subquery_key_source']},"
                         f"abs_diff_metric1={_format_value(result['record']['decimal_diff'])},"
                         f"abs_diff_metric2={_format_value(result['record']['double_diff'])}"
                         ")"
@@ -981,6 +1244,7 @@ def _run_auto_simplify(
                         f"q17_threshold_mode={result['q17_threshold_mode']},"
                         f"q17_filter_mode={result['q17_filter_mode']},"
                         f"range_style={result['range_style']},"
+                        f"subquery_key_source={result['subquery_key_source']},"
                         f"abs_diff_metric1={_format_value(result['record']['decimal_diff'])},"
                         f"abs_diff_metric2={_format_value(result['record']['double_diff'])}"
                         ")"
@@ -993,7 +1257,30 @@ def _run_auto_simplify(
     else:
         print("AUTO_SIMPLIFY_NON_REPRO_FORMS,none", flush=True)
 
-    return results, simplest
+    if error_results:
+        print(
+            "AUTO_SIMPLIFY_ERROR_FORMS,"
+            + ";".join(
+                [
+                    (
+                        f"{result['form_name']}("
+                        f"mode={result['mode']},"
+                        f"q17_threshold_mode={result['q17_threshold_mode']},"
+                        f"q17_filter_mode={result['q17_filter_mode']},"
+                        f"range_style={result['range_style']},"
+                        f"subquery_key_source={result['subquery_key_source']},"
+                        f"error={result['error']}"
+                        ")"
+                    )
+                    for result in error_results
+                ]
+            ),
+            flush=True,
+        )
+    else:
+        print("AUTO_SIMPLIFY_ERROR_FORMS,none", flush=True)
+
+    return results, first_major_in_order
 
 
 def main():
@@ -1101,6 +1388,16 @@ def main():
         ),
     )
     parser.add_argument(
+        "--subquery-key-source",
+        choices=["lineitem", "part"],
+        default=DEFAULT_SUBQUERY_KEY_SOURCE,
+        help=(
+            "Key source for threshold_correlated_only mode: "
+            "'lineitem' uses DISTINCT keys from lineitem, "
+            "'part' uses keys from part with q17-style filters."
+        ),
+    )
+    parser.add_argument(
         "--decimal-abs-tol",
         default=DEFAULT_DECIMAL_ABS_TOL,
         help="Absolute tolerance for decimal avg comparisons.",
@@ -1180,6 +1477,7 @@ def main():
     major_decimal_abs_diff = decimal.Decimal(args.major_decimal_abs_diff)
     saw_any_mismatch = False
     saw_any_major = False
+    saw_any_error = False
 
     try:
         _setup_tables(cursor, schema_name, should_create_tables)
@@ -1204,6 +1502,7 @@ def main():
                     q17_threshold_mode=args.q17_threshold_mode,
                     q17_filter_mode=args.q17_filter_mode,
                     range_style=args.range_style,
+                    subquery_key_source=args.subquery_key_source,
                     decimal_abs_tol=decimal_abs_tol,
                     double_abs_tol=args.double_abs_tol,
                     major_decimal_abs_diff=major_decimal_abs_diff,
@@ -1243,6 +1542,7 @@ def main():
                             q17_threshold_mode=args.q17_threshold_mode,
                             q17_filter_mode=args.q17_filter_mode,
                             range_style=args.range_style,
+                            subquery_key_source=args.subquery_key_source,
                             decimal_abs_tol=decimal_abs_tol,
                             double_abs_tol=args.double_abs_tol,
                             major_decimal_abs_diff=major_decimal_abs_diff,
@@ -1273,16 +1573,23 @@ def main():
                     q17_container=args.q17_container,
                     q17_filter_mode=args.q17_filter_mode,
                     range_style=args.range_style,
+                    subquery_key_source=args.subquery_key_source,
                     decimal_abs_tol=decimal_abs_tol,
                     double_abs_tol=args.double_abs_tol,
                     major_decimal_abs_diff=major_decimal_abs_diff,
                     major_double_abs_diff=args.major_double_abs_diff,
                 )
                 saw_any_mismatch = saw_any_mismatch or any(
-                    result["record"]["status"] != "MATCH" for result in auto_results
+                    (result["record"] is None)
+                    or (result["record"]["status"] != "MATCH")
+                    for result in auto_results
                 )
                 saw_any_major = saw_any_major or any(
-                    result["record"]["major_mismatch"] for result in auto_results
+                    result["record"] is not None and result["record"]["major_mismatch"]
+                    for result in auto_results
+                )
+                saw_any_error = saw_any_error or any(
+                    result["record"] is None for result in auto_results
                 )
         else:
             _progress("phase=main,event=scan_start")
@@ -1297,6 +1604,7 @@ def main():
                 q17_threshold_mode=args.q17_threshold_mode,
                 q17_filter_mode=args.q17_filter_mode,
                 range_style=args.range_style,
+                subquery_key_source=args.subquery_key_source,
                 decimal_abs_tol=decimal_abs_tol,
                 double_abs_tol=args.double_abs_tol,
                 major_decimal_abs_diff=major_decimal_abs_diff,
@@ -1332,6 +1640,7 @@ def main():
                         q17_threshold_mode=args.q17_threshold_mode,
                         q17_filter_mode=args.q17_filter_mode,
                         range_style=args.range_style,
+                        subquery_key_source=args.subquery_key_source,
                         decimal_abs_tol=decimal_abs_tol,
                         double_abs_tol=args.double_abs_tol,
                         major_decimal_abs_diff=major_decimal_abs_diff,
@@ -1358,6 +1667,8 @@ def main():
         conn.close()
 
     if args.fail_on_any_mismatch and saw_any_mismatch:
+        return 1
+    if saw_any_error:
         return 1
     if saw_any_major:
         return 1
