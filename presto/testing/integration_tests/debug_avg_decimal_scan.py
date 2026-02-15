@@ -67,6 +67,12 @@ AUTO_FORM_DEFINITIONS = {
         "q17_filter_mode": "brand_and_container",
         "range_style": "between",
     },
+    "grouped_avg_cast_decimal_only": {
+        "mode": "grouped_avg_cast_decimal_only",
+        "q17_threshold_mode": "cast_decimal",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "between",
+    },
     "threshold_grouped_only": {
         "mode": "threshold_grouped_only",
         "q17_threshold_mode": "native",
@@ -112,6 +118,18 @@ AUTO_FORM_DEFINITIONS = {
     "grouped_avg_only_bounds": {
         "mode": "grouped_avg_only",
         "q17_threshold_mode": "native",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "bounds",
+    },
+    "grouped_avg_cast_decimal_only_between": {
+        "mode": "grouped_avg_cast_decimal_only",
+        "q17_threshold_mode": "cast_decimal",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "between",
+    },
+    "grouped_avg_cast_decimal_only_bounds": {
+        "mode": "grouped_avg_cast_decimal_only",
+        "q17_threshold_mode": "cast_decimal",
         "q17_filter_mode": "brand_and_container",
         "range_style": "bounds",
     },
@@ -442,6 +460,8 @@ def _get_mode_metric_labels(mode):
         return "avg_threshold", "sum_threshold"
     if mode == "grouped_avg_only":
         return "avg_group_avg", "sum_group_avg"
+    if mode == "grouped_avg_cast_decimal_only":
+        return "avg_group_avg", "sum_group_avg"
     if mode == "grouped_avg_double_only":
         return "avg_group_avg", "sum_group_avg"
     assert mode == "q17_predicate"
@@ -575,6 +595,22 @@ def _build_prefix_query(
             "  SELECT "
             "    l_partkey, "
             "    avg(l_quantity) AS group_avg "
+            "  FROM lineitem "
+            f"  WHERE {lineitem_key_range} "
+            "  GROUP BY l_partkey "
+            ") t"
+        )
+
+    if mode == "grouped_avg_cast_decimal_only":
+        return (
+            "SELECT "
+            "  count(*) AS key_count, "
+            "  avg(t.group_avg) AS avg_group_avg, "
+            "  sum(t.group_avg) AS sum_group_avg "
+            "FROM ( "
+            "  SELECT "
+            "    l_partkey, "
+            f"    avg(CAST(l_quantity AS {decimal_cast})) AS group_avg "
             "  FROM lineitem "
             f"  WHERE {lineitem_key_range} "
             "  GROUP BY l_partkey "
@@ -1414,6 +1450,7 @@ def main():
             "threshold_correlated_only",
             "threshold_grouped_only",
             "grouped_avg_only",
+            "grouped_avg_cast_decimal_only",
             "grouped_avg_double_only",
         ],
         default=DEFAULT_MODE,
@@ -1423,6 +1460,7 @@ def main():
             "threshold_correlated_only isolates the correlated threshold subquery; "
             "threshold_grouped_only runs grouped-threshold equivalent; "
             "grouped_avg_only isolates grouped avg(l_quantity); "
+            "grouped_avg_cast_decimal_only is grouped avg(CAST(l_quantity AS DECIMAL)); "
             "grouped_avg_double_only is grouped avg(CAST(l_quantity AS DOUBLE)). "
             "Use --q17-filter-mode and --range-style to strip filters or swap "
             "BETWEEN for >=/<= in applicable modes."
