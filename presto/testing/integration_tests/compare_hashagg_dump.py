@@ -146,16 +146,20 @@ def _compute_dense_sums(keys, values, key_mask, val_mask, max_dense_keys):
             f"range_size={range_size} max_dense_keys={max_dense_keys}"
         )
     sums = array("q", [0]) * range_size
+    present = bytearray(range_size)
     for idx, key in enumerate(keys):
         if not _is_valid(key_mask, idx):
             continue
         if not _is_valid(val_mask, idx):
             continue
         sums[key - min_key] += values[idx]
-    return sums, min_key, max_key
+        present[key - min_key] = 1
+    return sums, min_key, max_key, present
 
 
-def _accumulate_dense_sums(keys, values, key_mask, val_mask, sums, min_key, max_key):
+def _accumulate_dense_sums(
+    keys, values, key_mask, val_mask, sums, present, min_key, max_key
+):
     for idx, key in enumerate(keys):
         if not _is_valid(key_mask, idx):
             continue
@@ -167,6 +171,123 @@ def _accumulate_dense_sums(keys, values, key_mask, val_mask, sums, min_key, max_
                 f"range={min_key}-{max_key}"
             )
         sums[key - min_key] += values[idx]
+        present[key - min_key] = 1
+
+
+def _read_output_manifest(dump_dir):
+    manifest_path = os.path.join(dump_dir, "output_manifest.txt")
+    if not os.path.exists(manifest_path):
+        raise RuntimeError(f"output_manifest.txt not found in {dump_dir}")
+    return _parse_manifest(manifest_path)
+
+
+def _compare_output_to_expected(
+    dump_dir,
+    sums,
+    present,
+    min_key,
+    max_key,
+    args,
+):
+    manifest = _read_output_manifest(dump_dir)
+    output_key_count = int(manifest.get("output_key_count", "1"))
+    output_column_count = int(manifest.get("output_column_count", "0"))
+    if output_key_count != 1:
+        raise RuntimeError(
+            f"Unsupported output key count {output_key_count} in {dump_dir}"
+        )
+    if output_column_count < output_key_count + 1:
+        raise RuntimeError(
+            "Output column count is too small: "
+            f"columns={output_column_count} keys={output_key_count}"
+        )
+
+    key_idx = 0
+    value_idx = output_key_count
+
+    key_type_id = int(manifest[f"output.{key_idx}.type_id"])
+    key_scale = int(manifest.get(f"output.{key_idx}.scale", "0"))
+    key_data_file = manifest[f"output.{key_idx}.data_file"]
+    key_mask_file = manifest.get(f"output.{key_idx}.null_mask_file", "")
+
+    value_type_id = int(manifest[f"output.{value_idx}.type_id"])
+    value_scale = int(manifest.get(f"output.{value_idx}.scale", "0"))
+    value_data_file = manifest[f"output.{value_idx}.data_file"]
+    value_mask_file = manifest.get(f"output.{value_idx}.null_mask_file", "")
+
+    if key_scale != 0:
+        raise RuntimeError(
+            f"Output key scale is not zero (scale={key_scale}) in {dump_dir}"
+        )
+
+    key_path = os.path.join(dump_dir, key_data_file)
+    value_path = os.path.join(dump_dir, value_data_file)
+
+    if key_type_id == TYPE_ID_DECIMAL128:
+        keys = _load_int128_column(key_path, max_rows=args.max_int128_rows)
+    else:
+        keys = _load_int64_column(key_path)
+
+    if value_type_id == TYPE_ID_DECIMAL128:
+        values = _load_int128_column(value_path, max_rows=args.max_int128_rows)
+    else:
+        values = _load_int64_column(value_path)
+
+    if len(keys) != len(values):
+        raise RuntimeError(
+            f"Output key/value size mismatch keys={len(keys)} values={len(values)}"
+        )
+
+    key_mask = _load_null_mask(
+        os.path.join(dump_dir, key_mask_file) if key_mask_file else None
+    )
+    value_mask = _load_null_mask(
+        os.path.join(dump_dir, value_mask_file) if value_mask_file else None
+    )
+
+    range_size = max_key - min_key + 1
+    seen = bytearray(range_size)
+    mismatches = 0
+    first = None
+    for idx, key in enumerate(keys):
+        if not _is_valid(key_mask, idx):
+            continue
+        if key < min_key or key > max_key:
+            mismatches += 1
+            if first is None:
+                first = (key, None, None)
+            continue
+        seen[key - min_key] = 1
+        expected = sums[key - min_key]
+        if not _is_valid(value_mask, idx):
+            actual = None
+        else:
+            actual = values[idx]
+        if actual != expected:
+            mismatches += 1
+            if first is None:
+                first = (key, expected, actual)
+
+    missing = 0
+    for idx, present_flag in enumerate(present):
+        if present_flag and not seen[idx]:
+            missing += 1
+
+    print(
+        f"[compare_hashagg_dump] dump={dump_dir} output_checked={len(keys)} "
+        f"output_mismatches={mismatches} output_missing={missing} "
+        f"value_scale={value_scale}",
+        flush=True,
+    )
+    if first is not None:
+        key, expected, actual = first
+        print(
+            "[compare_hashagg_dump] "
+            f"dump={dump_dir} output_first_mismatch key={key} "
+            f"expected_scaled={expected} actual_scaled={actual}",
+            flush=True,
+        )
+    return mismatches, missing
 
 
 def _compare_dump_to_duckdb(
@@ -336,7 +457,7 @@ def _compare_single_dump(dump_dir, args):
             "rerun with DECIMAL64 or add a DECIMAL128 compare mode."
         )
 
-    sums, min_key, max_key = _compute_dense_sums(
+    sums, min_key, max_key, present = _compute_dense_sums(
         keys, values, key_mask, val_mask, args.max_dense_keys
     )
     print(
@@ -344,6 +465,18 @@ def _compare_single_dump(dump_dir, args):
         f"scale={value_scale} seconds={time.time() - start:.2f}",
         flush=True,
     )
+
+    if args.compare_output:
+        output_mismatches, output_missing = _compare_output_to_expected(
+            dump_dir,
+            sums,
+            present,
+            min_key,
+            max_key,
+            args,
+        )
+        if output_mismatches > 0 or output_missing > 0:
+            return 1
 
     mismatches, checked, first = _compare_dump_to_duckdb(
         sums,
@@ -394,6 +527,12 @@ def main():
         action="store_true",
         default=False,
         help="Aggregate all session dumps before comparing to DuckDB.",
+    )
+    parser.add_argument(
+        "--compare-output",
+        action="store_true",
+        default=False,
+        help="Compare dumped output columns to expected per-dump sums.",
     )
     parser.add_argument(
         "--schema-name",
@@ -488,6 +627,7 @@ def main():
             )
 
         sums = None
+        present = None
         min_key = None
         max_key = None
         for dump_dir in dump_dirs:
@@ -543,12 +683,19 @@ def main():
             )
 
             if sums is None:
-                sums, min_key, max_key = _compute_dense_sums(
+                sums, min_key, max_key, present = _compute_dense_sums(
                     keys, values, key_mask, val_mask, args.max_dense_keys
                 )
             else:
                 _accumulate_dense_sums(
-                    keys, values, key_mask, val_mask, sums, min_key, max_key
+                    keys,
+                    values,
+                    key_mask,
+                    val_mask,
+                    sums,
+                    present,
+                    min_key,
+                    max_key,
                 )
 
         mismatches, checked, first = _compare_dump_to_duckdb(
