@@ -908,7 +908,8 @@ def _refine_smallest_major_upper(
 
 def _resolve_auto_forms(auto_forms_arg):
     if auto_forms_arg:
-        form_names = [token.strip() for token in auto_forms_arg.split(",") if token.strip()]
+        normalized = re.sub(r"\s+", "", auto_forms_arg)
+        form_names = [token for token in normalized.split(",") if token]
     else:
         form_names = list(DEFAULT_AUTO_FORMS)
 
