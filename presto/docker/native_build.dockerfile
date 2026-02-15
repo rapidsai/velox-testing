@@ -52,6 +52,21 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
         exit 1; \
       fi; \
       cp "$replay_bin" /usr/bin; \
+      repro_bin=""; \
+      for candidate in \
+        "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tools/velox_cudf_decimal_groupby_repro" \
+        "${BUILD_BASE_DIR}/velox/experimental/cudf/tools/velox_cudf_decimal_groupby_repro" \
+        "${BUILD_BASE_DIR}/velox_cudf_decimal_groupby_repro"; do \
+        if [[ -f "$candidate" ]]; then \
+          repro_bin="$candidate"; \
+          break; \
+        fi; \
+      done; \
+      if [[ -z "$repro_bin" ]]; then \
+        echo "ERROR: velox_cudf_decimal_groupby_repro binary not found in build output"; \
+        exit 1; \
+      fi; \
+      cp "$repro_bin" /usr/bin; \
     else \
       echo "Skipping velox_cudf_hashagg_replay copy for CPU-only build (GPU=${GPU})"; \
     fi

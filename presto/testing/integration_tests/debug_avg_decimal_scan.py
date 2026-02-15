@@ -1333,6 +1333,7 @@ def _refine_smallest_major_upper(
     double_abs_tol,
     major_decimal_abs_diff,
     major_double_abs_diff,
+    per_group_compare=False,
 ):
     cache = {}
 
@@ -1355,6 +1356,7 @@ def _refine_smallest_major_upper(
                 double_abs_tol=double_abs_tol,
                 major_decimal_abs_diff=major_decimal_abs_diff,
                 major_double_abs_diff=major_double_abs_diff,
+                per_group_compare=per_group_compare,
             )
         return cache[upper]
 
@@ -1446,6 +1448,7 @@ def _run_auto_simplify(
     double_abs_tol,
     major_decimal_abs_diff,
     major_double_abs_diff,
+    lower_bound,
 ):
     print(
         "\nAUTO_SIMPLIFY,target_upper="
@@ -1484,6 +1487,7 @@ def _run_auto_simplify(
         try:
             record = _evaluate_prefix(
                 presto_cursor=presto_cursor,
+                lower=lower_bound,
                 upper=upper,
                 mode=mode,
                 decimal_cast=decimal_cast,
@@ -1498,6 +1502,7 @@ def _run_auto_simplify(
                 double_abs_tol=double_abs_tol,
                 major_decimal_abs_diff=major_decimal_abs_diff,
                 major_double_abs_diff=major_double_abs_diff,
+                per_group_compare=False,
             )
             query_seconds = time.time() - start
             print(
@@ -2147,6 +2152,7 @@ def main():
                             double_abs_tol=args.double_abs_tol,
                             major_decimal_abs_diff=major_decimal_abs_diff,
                             major_double_abs_diff=args.major_double_abs_diff,
+                            per_group_compare=False,
                         )
                         print(
                             "Auto-simplify target upper refined to "
@@ -2179,6 +2185,7 @@ def main():
                     double_abs_tol=args.double_abs_tol,
                     major_decimal_abs_diff=major_decimal_abs_diff,
                     major_double_abs_diff=args.major_double_abs_diff,
+                    lower_bound=args.lower_bound,
                 )
                 saw_any_mismatch = saw_any_mismatch or any(
                     (result["record"] is None)
@@ -2251,6 +2258,7 @@ def main():
                         double_abs_tol=args.double_abs_tol,
                         major_decimal_abs_diff=major_decimal_abs_diff,
                         major_double_abs_diff=args.major_double_abs_diff,
+                        per_group_compare=False,
                     )
                     print(
                         "Smallest major mismatch prefix found: "
