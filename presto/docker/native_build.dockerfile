@@ -52,6 +52,21 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
         exit 1; \
       fi; \
       cp "$replay_bin" /usr/bin; \
+      dump_replay_bin=""; \
+      for candidate in \
+        "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tools/velox_cudf_hashagg_dump_replay" \
+        "${BUILD_BASE_DIR}/velox/experimental/cudf/tools/velox_cudf_hashagg_dump_replay" \
+        "${BUILD_BASE_DIR}/velox_cudf_hashagg_dump_replay"; do \
+        if [[ -f "$candidate" ]]; then \
+          dump_replay_bin="$candidate"; \
+          break; \
+        fi; \
+      done; \
+      if [[ -z "$dump_replay_bin" ]]; then \
+        echo "ERROR: velox_cudf_hashagg_dump_replay binary not found in build output"; \
+        exit 1; \
+      fi; \
+      cp "$dump_replay_bin" /usr/bin; \
       repro_bin=""; \
       for candidate in \
         "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tools/velox_cudf_decimal_groupby_repro" \
