@@ -38,6 +38,8 @@ DEFAULT_RANGE_STYLE = "between"
 DEFAULT_Q17_FILTER_MODE = "brand_and_container"
 DEFAULT_SUBQUERY_KEY_SOURCE = "lineitem"
 DEFAULT_SUBQUERY_EXPR_VARIANT = "scaled_avg"
+RAW_GROUPED_AVG_BATCH_SIZE = 10000
+RAW_GROUPED_AVG_PROGRESS_EVERY = 1000000
 DEFAULT_AUTO_FORMS = [
     "subquery_from_table_between_avg_only",
     "subquery_from_table_between_scaled_avg",
@@ -69,6 +71,12 @@ AUTO_FORM_DEFINITIONS = {
     },
     "grouped_avg_cast_decimal_only": {
         "mode": "grouped_avg_cast_decimal_only",
+        "q17_threshold_mode": "cast_decimal",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "between",
+    },
+    "grouped_avg_cast_decimal_only_raw": {
+        "mode": "grouped_avg_cast_decimal_only_raw",
         "q17_threshold_mode": "cast_decimal",
         "q17_filter_mode": "brand_and_container",
         "range_style": "between",
@@ -129,6 +137,18 @@ AUTO_FORM_DEFINITIONS = {
     },
     "grouped_avg_cast_decimal_only_bounds": {
         "mode": "grouped_avg_cast_decimal_only",
+        "q17_threshold_mode": "cast_decimal",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "bounds",
+    },
+    "grouped_avg_cast_decimal_only_raw_between": {
+        "mode": "grouped_avg_cast_decimal_only_raw",
+        "q17_threshold_mode": "cast_decimal",
+        "q17_filter_mode": "brand_and_container",
+        "range_style": "between",
+    },
+    "grouped_avg_cast_decimal_only_raw_bounds": {
+        "mode": "grouped_avg_cast_decimal_only_raw",
         "q17_threshold_mode": "cast_decimal",
         "q17_filter_mode": "brand_and_container",
         "range_style": "bounds",
@@ -462,6 +482,8 @@ def _get_mode_metric_labels(mode):
         return "avg_group_avg", "sum_group_avg"
     if mode == "grouped_avg_cast_decimal_only":
         return "avg_group_avg", "sum_group_avg"
+    if mode == "grouped_avg_cast_decimal_only_raw":
+        return "avg_group_avg", "sum_group_avg"
     if mode == "grouped_avg_double_only":
         return "avg_group_avg", "sum_group_avg"
     assert mode == "q17_predicate"
@@ -617,6 +639,16 @@ def _build_prefix_query(
             ") t"
         )
 
+    if mode == "grouped_avg_cast_decimal_only_raw":
+        return (
+            "SELECT "
+            "  l_partkey, "
+            f"  avg(CAST(l_quantity AS {decimal_cast})) AS threshold "
+            "FROM lineitem "
+            f"WHERE {lineitem_key_range} "
+            "GROUP BY l_partkey"
+        )
+
     if mode == "grouped_avg_double_only":
         return (
             "SELECT "
@@ -677,6 +709,52 @@ def _build_prefix_query(
 def _run_prefix_query(presto_cursor, query):
     presto_row = presto_cursor.execute(query).fetchone()
     duckdb_row = duckdb.sql(query).fetchone()
+    return presto_row, duckdb_row
+
+
+def _summarize_grouped_avg_rows(fetch_batch, source_label):
+    total_groups = 0
+    non_null_count = 0
+    sum_values = decimal.Decimal("0")
+    next_progress = RAW_GROUPED_AVG_PROGRESS_EVERY
+    while True:
+        rows = fetch_batch()
+        if not rows:
+            break
+        for row in rows:
+            total_groups += 1
+            value = row[1]
+            if value is None:
+                continue
+            non_null_count += 1
+            sum_values += _to_decimal(value)
+        if total_groups >= next_progress:
+            print(
+                "PROGRESS,"
+                f"phase=grouped_avg_raw,event=rows,"
+                f"source={source_label},rows={total_groups}",
+                flush=True,
+            )
+            next_progress += RAW_GROUPED_AVG_PROGRESS_EVERY
+    avg_value = None
+    if non_null_count > 0:
+        avg_value = sum_values / decimal.Decimal(str(non_null_count))
+    return total_groups, avg_value, sum_values
+
+
+def _run_grouped_avg_raw_summary(presto_cursor, query):
+    presto_cursor.execute(query)
+
+    def presto_fetch():
+        return presto_cursor.fetchmany(RAW_GROUPED_AVG_BATCH_SIZE)
+
+    presto_row = _summarize_grouped_avg_rows(presto_fetch, "presto")
+    duckdb_rel = duckdb.sql(query)
+
+    def duckdb_fetch():
+        return duckdb_rel.fetchmany(RAW_GROUPED_AVG_BATCH_SIZE)
+
+    duckdb_row = _summarize_grouped_avg_rows(duckdb_fetch, "duckdb")
     return presto_row, duckdb_row
 
 
@@ -774,7 +852,12 @@ def _evaluate_prefix(
         subquery_key_source=subquery_key_source,
         subquery_expr_variant=subquery_expr_variant,
     )
-    presto_row, duckdb_row = _run_prefix_query(presto_cursor, query)
+    if mode == "grouped_avg_cast_decimal_only_raw":
+        presto_row, duckdb_row = _run_grouped_avg_raw_summary(
+            presto_cursor, query
+        )
+    else:
+        presto_row, duckdb_row = _run_prefix_query(presto_cursor, query)
 
     count_match = presto_row[0] == duckdb_row[0]
     decimal_diff = _decimal_abs_diff(presto_row[1], duckdb_row[1])
@@ -1451,6 +1534,7 @@ def main():
             "threshold_grouped_only",
             "grouped_avg_only",
             "grouped_avg_cast_decimal_only",
+            "grouped_avg_cast_decimal_only_raw",
             "grouped_avg_double_only",
         ],
         default=DEFAULT_MODE,
@@ -1461,6 +1545,8 @@ def main():
             "threshold_grouped_only runs grouped-threshold equivalent; "
             "grouped_avg_only isolates grouped avg(l_quantity); "
             "grouped_avg_cast_decimal_only is grouped avg(CAST(l_quantity AS DECIMAL)); "
+            "grouped_avg_cast_decimal_only_raw runs the grouped decimal avg query "
+            "directly (no outer aggregation) and summarizes results in Python; "
             "grouped_avg_double_only is grouped avg(CAST(l_quantity AS DOUBLE)). "
             "Use --q17-filter-mode and --range-style to strip filters or swap "
             "BETWEEN for >=/<= in applicable modes."
