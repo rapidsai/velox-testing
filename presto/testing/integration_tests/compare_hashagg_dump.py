@@ -177,12 +177,13 @@ def _accumulate_dense_sums(
 def _read_output_manifest(dump_dir):
     manifest_path = os.path.join(dump_dir, "output_manifest.txt")
     if not os.path.exists(manifest_path):
-        raise RuntimeError(f"output_manifest.txt not found in {dump_dir}")
+        return None
     return _parse_manifest(manifest_path)
 
 
 def _compare_output_to_expected(
     dump_dir,
+    step,
     sums,
     present,
     min_key,
@@ -190,6 +191,20 @@ def _compare_output_to_expected(
     args,
 ):
     manifest = _read_output_manifest(dump_dir)
+    if manifest is None:
+        if step in ("partial", "intermediate"):
+            print(
+                "[compare_hashagg_dump] "
+                f"dump={dump_dir} step={step} output_manifest_missing=1 "
+                "reason=non_fixed_width_output (expected for partial states)",
+                flush=True,
+            )
+            return 0, 0, True
+        raise RuntimeError(
+            "output_manifest.txt not found in "
+            f"{dump_dir} (step={step}). Rebuild with output dump support and "
+            "rerun the query to generate output manifests."
+        )
     output_key_count = int(manifest.get("output_key_count", "1"))
     output_column_count = int(manifest.get("output_column_count", "0"))
     if output_key_count != 1:
@@ -287,7 +302,7 @@ def _compare_output_to_expected(
             f"expected_scaled={expected} actual_scaled={actual}",
             flush=True,
         )
-    return mismatches, missing
+    return mismatches, missing, False
 
 
 def _compare_dump_to_duckdb(
@@ -467,15 +482,16 @@ def _compare_single_dump(dump_dir, args):
     )
 
     if args.compare_output:
-        output_mismatches, output_missing = _compare_output_to_expected(
+        output_mismatches, output_missing, output_skipped = _compare_output_to_expected(
             dump_dir,
+            summary.get("step", ""),
             sums,
             present,
             min_key,
             max_key,
             args,
         )
-        if output_mismatches > 0 or output_missing > 0:
+        if not output_skipped and (output_mismatches > 0 or output_missing > 0):
             return 1
 
     mismatches, checked, first = _compare_dump_to_duckdb(
@@ -571,174 +587,186 @@ def main():
     if args.session and args.dump_dir:
         raise RuntimeError("Use only one of --dump-dir or --session.")
 
-    if args.lineitem_path:
-        lineitem_path = args.lineitem_path
-    else:
-        if not args.schema_name:
-            raise RuntimeError("Need --schema-name or --lineitem-path.")
-        conn = prestodb.dbapi.connect(
-            host=args.hostname,
-            port=args.port,
-            user=args.user,
-            catalog="hive",
-            schema=args.schema_name,
-        )
-        cursor = conn.cursor()
-        lineitem_path = _get_table_external_location(
-            args.schema_name, "lineitem", cursor
-        )
-
-    if args.session:
-        dump_dirs = _read_session_index(args.session)
-    else:
-        dump_dirs = [args.dump_dir]
-
-    allowed_steps = {step.strip() for step in args.steps.split(",") if step.strip()}
-    filtered = []
-    for dump_dir in dump_dirs:
-        if not args.session:
-            filtered.append(dump_dir)
-            continue
-        summary = _read_manifest_summary(dump_dir)
-        step = summary.get("step", "")
-        if allowed_steps and step and step not in allowed_steps:
-            print(
-                f"[compare_hashagg_dump] skip dump={dump_dir} step={step}",
-                flush=True,
+    try:
+        if args.lineitem_path:
+            lineitem_path = args.lineitem_path
+        else:
+            if not args.schema_name:
+                raise RuntimeError("Need --schema-name or --lineitem-path.")
+            conn = prestodb.dbapi.connect(
+                host=args.hostname,
+                port=args.port,
+                user=args.user,
+                catalog="hive",
+                schema=args.schema_name,
             )
-            continue
-        filtered.append(dump_dir)
-    dump_dirs = filtered
-    if not dump_dirs:
-        raise RuntimeError("No dumps matched requested steps.")
-
-    failures = 0
-    _register_lineitem(lineitem_path)
-    if args.session and args.session_aggregate:
-        first_summary = _read_manifest_summary(dump_dirs[0])
-        value_scale = first_summary["value_scale"]
-        key_type_id = first_summary["key_type_id"]
-        value_type_id = first_summary["value_type_id"]
-
-        if value_type_id == TYPE_ID_DECIMAL128 or key_type_id == TYPE_ID_DECIMAL128:
-            raise RuntimeError(
-                "DECIMAL128 comparison requires a specialized path; "
-                "rerun with DECIMAL64 or add a DECIMAL128 compare mode."
+            cursor = conn.cursor()
+            lineitem_path = _get_table_external_location(
+                args.schema_name, "lineitem", cursor
             )
 
-        sums = None
-        present = None
-        min_key = None
-        max_key = None
+        if args.session:
+            dump_dirs = _read_session_index(args.session)
+        else:
+            dump_dirs = [args.dump_dir]
+
+        allowed_steps = {
+            step.strip() for step in args.steps.split(",") if step.strip()
+        }
+        filtered = []
         for dump_dir in dump_dirs:
+            if not args.session:
+                filtered.append(dump_dir)
+                continue
             summary = _read_manifest_summary(dump_dir)
-            if summary["value_scale"] != value_scale:
-                raise RuntimeError(
-                    "Scale mismatch across session dumps: "
-                    f"{value_scale} vs {summary['value_scale']}"
+            step = summary.get("step", "")
+            if allowed_steps and step and step not in allowed_steps:
+                print(
+                    f"[compare_hashagg_dump] skip dump={dump_dir} step={step}",
+                    flush=True,
                 )
-            if summary["key_type_id"] != key_type_id:
-                raise RuntimeError(
-                    "Key type mismatch across session dumps: "
-                    f"{key_type_id} vs {summary['key_type_id']}"
-                )
-            if summary["value_type_id"] != value_type_id:
-                raise RuntimeError(
-                    "Value type mismatch across session dumps: "
-                    f"{value_type_id} vs {summary['value_type_id']}"
-                )
+                continue
+            filtered.append(dump_dir)
+        dump_dirs = filtered
+        if not dump_dirs:
+            raise RuntimeError("No dumps matched requested steps.")
 
-            key_path = os.path.join(dump_dir, summary["key_data_file"])
-            val_path = os.path.join(dump_dir, summary["value_data_file"])
+        failures = 0
+        _register_lineitem(lineitem_path)
+        if args.session and args.session_aggregate:
+            first_summary = _read_manifest_summary(dump_dirs[0])
+            value_scale = first_summary["value_scale"]
+            key_type_id = first_summary["key_type_id"]
+            value_type_id = first_summary["value_type_id"]
 
-            if key_type_id == TYPE_ID_DECIMAL128:
-                keys = _load_int128_column(key_path, max_rows=args.max_int128_rows)
-            else:
-                keys = _load_int64_column(key_path)
-
-            if value_type_id == TYPE_ID_DECIMAL128:
-                values = _load_int128_column(val_path, max_rows=args.max_int128_rows)
-            else:
-                values = _load_int64_column(val_path)
-
-            if len(keys) != len(values):
+            if value_type_id == TYPE_ID_DECIMAL128 or key_type_id == TYPE_ID_DECIMAL128:
                 raise RuntimeError(
-                    f"Key/value size mismatch keys={len(keys)} values={len(values)}"
-                )
-            if len(keys) != summary["key_size"]:
-                raise RuntimeError(
-                    "Key size mismatch manifest="
-                    f"{summary['key_size']} actual={len(keys)}"
+                    "DECIMAL128 comparison requires a specialized path; "
+                    "rerun with DECIMAL64 or add a DECIMAL128 compare mode."
                 )
 
-            key_mask = _load_null_mask(
-                os.path.join(dump_dir, summary["key_mask_file"])
-                if summary["key_mask_file"]
-                else None
+            sums = None
+            present = None
+            min_key = None
+            max_key = None
+            for dump_dir in dump_dirs:
+                summary = _read_manifest_summary(dump_dir)
+                if summary["value_scale"] != value_scale:
+                    raise RuntimeError(
+                        "Scale mismatch across session dumps: "
+                        f"{value_scale} vs {summary['value_scale']}"
+                    )
+                if summary["key_type_id"] != key_type_id:
+                    raise RuntimeError(
+                        "Key type mismatch across session dumps: "
+                        f"{key_type_id} vs {summary['key_type_id']}"
+                    )
+                if summary["value_type_id"] != value_type_id:
+                    raise RuntimeError(
+                        "Value type mismatch across session dumps: "
+                        f"{value_type_id} vs {summary['value_type_id']}"
+                    )
+
+                key_path = os.path.join(dump_dir, summary["key_data_file"])
+                val_path = os.path.join(dump_dir, summary["value_data_file"])
+
+                if key_type_id == TYPE_ID_DECIMAL128:
+                    keys = _load_int128_column(
+                        key_path, max_rows=args.max_int128_rows
+                    )
+                else:
+                    keys = _load_int64_column(key_path)
+
+                if value_type_id == TYPE_ID_DECIMAL128:
+                    values = _load_int128_column(
+                        val_path, max_rows=args.max_int128_rows
+                    )
+                else:
+                    values = _load_int64_column(val_path)
+
+                if len(keys) != len(values):
+                    raise RuntimeError(
+                        "Key/value size mismatch "
+                        f"keys={len(keys)} values={len(values)}"
+                    )
+                if len(keys) != summary["key_size"]:
+                    raise RuntimeError(
+                        "Key size mismatch manifest="
+                        f"{summary['key_size']} actual={len(keys)}"
+                    )
+
+                key_mask = _load_null_mask(
+                    os.path.join(dump_dir, summary["key_mask_file"])
+                    if summary["key_mask_file"]
+                    else None
+                )
+                val_mask = _load_null_mask(
+                    os.path.join(dump_dir, summary["value_mask_file"])
+                    if summary["value_mask_file"]
+                    else None
+                )
+
+                if sums is None:
+                    sums, min_key, max_key, present = _compute_dense_sums(
+                        keys, values, key_mask, val_mask, args.max_dense_keys
+                    )
+                else:
+                    _accumulate_dense_sums(
+                        keys,
+                        values,
+                        key_mask,
+                        val_mask,
+                        sums,
+                        present,
+                        min_key,
+                        max_key,
+                    )
+
+            mismatches, checked, first = _compare_dump_to_duckdb(
+                sums,
+                min_key,
+                max_key,
+                value_scale,
+                args.batch_size,
             )
-            val_mask = _load_null_mask(
-                os.path.join(dump_dir, summary["value_mask_file"])
-                if summary["value_mask_file"]
-                else None
-            )
-
-            if sums is None:
-                sums, min_key, max_key, present = _compute_dense_sums(
-                    keys, values, key_mask, val_mask, args.max_dense_keys
+            if first is None:
+                print(
+                    "[compare_hashagg_dump] session_aggregate "
+                    f"checked={checked} mismatches=0 dumps={len(dump_dirs)}",
+                    flush=True,
                 )
-            else:
-                _accumulate_dense_sums(
-                    keys,
-                    values,
-                    key_mask,
-                    val_mask,
-                    sums,
-                    present,
-                    min_key,
-                    max_key,
-                )
-
-        mismatches, checked, first = _compare_dump_to_duckdb(
-            sums,
-            min_key,
-            max_key,
-            value_scale,
-            args.batch_size,
-        )
-        if first is None:
+                return 0
+            key, expected, actual = first
+            diff = expected - actual
             print(
                 "[compare_hashagg_dump] session_aggregate "
-                f"checked={checked} mismatches=0 dumps={len(dump_dirs)}",
+                f"checked={checked} mismatches={mismatches} dumps={len(dump_dirs)} "
+                f"first_key={key} expected_scaled={expected} actual_scaled={actual} "
+                f"diff_scaled={diff} "
+                f"expected={_format_scaled(expected, value_scale)} "
+                f"actual={_format_scaled(actual, value_scale)}",
+                flush=True,
+            )
+            return 1
+
+        for dump_dir in dump_dirs:
+            failures += _compare_single_dump(dump_dir, args)
+
+        if failures == 0:
+            print(
+                f"[compare_hashagg_dump] session_failures=0 dumps={len(dump_dirs)}",
                 flush=True,
             )
             return 0
-        key, expected, actual = first
-        diff = expected - actual
         print(
-            "[compare_hashagg_dump] session_aggregate "
-            f"checked={checked} mismatches={mismatches} dumps={len(dump_dirs)} "
-            f"first_key={key} expected_scaled={expected} actual_scaled={actual} "
-            f"diff_scaled={diff} "
-            f"expected={_format_scaled(expected, value_scale)} "
-            f"actual={_format_scaled(actual, value_scale)}",
+            f"[compare_hashagg_dump] session_failures={failures} "
+            f"dumps={len(dump_dirs)}",
             flush=True,
         )
         return 1
-
-    for dump_dir in dump_dirs:
-        failures += _compare_single_dump(dump_dir, args)
-
-    if failures == 0:
-        print(
-            f"[compare_hashagg_dump] session_failures=0 dumps={len(dump_dirs)}",
-            flush=True,
-        )
-        return 0
-    print(
-        f"[compare_hashagg_dump] session_failures={failures} dumps={len(dump_dirs)}",
-        flush=True,
-    )
-    return 1
+    except RuntimeError as exc:
+        print(f"[compare_hashagg_dump] error={exc}", flush=True)
+        return 2
 
 
 if __name__ == "__main__":
