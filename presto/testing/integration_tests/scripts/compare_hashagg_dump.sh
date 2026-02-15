@@ -31,10 +31,13 @@ OPTIONS:
     --user USER                   Presto user.
     --batch-size N                DuckDB fetch batch size.
     --max-dense-keys N            Max key range size for dense sums.
+    --steps LIST                  Steps to include for session runs.
+    --session-aggregate           Combine session dumps before comparing.
 
 EXAMPLES:
     $0 --dump-dir /tmp/hashagg_dump/hashagg_main_000008 --schema-name decimal_sf100
     $0 --session /tmp/hashagg_dump --schema-name decimal_sf100
+    $0 --session /tmp/hashagg_dump --session-aggregate --schema-name decimal_sf100
     $0 --dump-dir /tmp/hashagg_dump/hashagg_main_000008 --lineitem-path /data/lineitem
 
 EOF
