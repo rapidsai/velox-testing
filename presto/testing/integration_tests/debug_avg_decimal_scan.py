@@ -883,7 +883,10 @@ def _evaluate_prefix(
         subquery_key_source=subquery_key_source,
         subquery_expr_variant=subquery_expr_variant,
     )
-    if mode == "grouped_avg_cast_decimal_only_raw":
+    if mode in (
+        "grouped_avg_cast_decimal_only_raw",
+        "grouped_avg_cast_decimal_manual_raw",
+    ):
         presto_row, duckdb_row = _run_grouped_avg_raw_summary(
             presto_cursor, query
         )
