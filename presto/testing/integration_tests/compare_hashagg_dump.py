@@ -9,6 +9,7 @@ import re
 import sys
 import time
 from array import array
+import struct
 
 import duckdb
 import prestodb
@@ -19,6 +20,8 @@ import test_utils
 TYPE_ID_INT64 = 4
 TYPE_ID_DECIMAL64 = 26
 TYPE_ID_DECIMAL128 = 27
+
+MASK64 = (1 << 64) - 1
 
 
 DEFAULT_HOST = os.getenv("PRESTO_COORDINATOR_HOST", "localhost")
@@ -52,17 +55,17 @@ def _load_int64_column(path):
     return values
 
 
-def _load_int128_column(path, max_rows=None):
+def _load_int128_bytes(path, max_rows=None):
     data = _load_bytes(path)
-    values = []
-    count = len(data) // 16
     if max_rows is not None:
-        count = min(count, max_rows)
-    for idx in range(count):
-        start = idx * 16
-        chunk = data[start : start + 16]
-        values.append(int.from_bytes(chunk, byteorder="little", signed=True))
-    return values
+        return data[: max_rows * 16]
+    return data
+
+
+def _int128_hi_lo_from_bytes(data, index):
+    offset = index * 16
+    lo, hi = struct.unpack_from("<Qq", data, offset)
+    return hi, lo
 
 
 def _load_null_mask(path):
@@ -134,7 +137,9 @@ def _register_lineitem(lineitem_path):
     duckdb.sql(f"CREATE TABLE lineitem AS SELECT * FROM '{lineitem_path}/*.parquet'")
 
 
-def _compute_dense_sums(keys, values, key_mask, val_mask, max_dense_keys):
+def _compute_dense_sums(
+    keys, values, key_mask, val_mask, max_dense_keys, value_type_id
+):
     min_key = min(keys)
     max_key = max(keys)
     if min_key < 0:
@@ -145,8 +150,27 @@ def _compute_dense_sums(keys, values, key_mask, val_mask, max_dense_keys):
             "Dense array would be too large: "
             f"range_size={range_size} max_dense_keys={max_dense_keys}"
         )
-    sums = array("q", [0]) * range_size
     present = bytearray(range_size)
+    if value_type_id == TYPE_ID_DECIMAL128:
+        sums_hi = array("q", [0]) * range_size
+        sums_lo = array("Q", [0]) * range_size
+        row_count = len(keys)
+        for idx in range(row_count):
+            if not _is_valid(key_mask, idx):
+                continue
+            if not _is_valid(val_mask, idx):
+                continue
+            key = keys[idx]
+            hi, lo = _int128_hi_lo_from_bytes(values, idx)
+            slot = key - min_key
+            low_sum = sums_lo[slot] + lo
+            carry = low_sum >> 64
+            sums_lo[slot] = low_sum & MASK64
+            sums_hi[slot] = sums_hi[slot] + hi + carry
+            present[slot] = 1
+        return (sums_hi, sums_lo), min_key, max_key, present
+
+    sums = array("q", [0]) * range_size
     for idx, key in enumerate(keys):
         if not _is_valid(key_mask, idx):
             continue
@@ -158,7 +182,15 @@ def _compute_dense_sums(keys, values, key_mask, val_mask, max_dense_keys):
 
 
 def _accumulate_dense_sums(
-    keys, values, key_mask, val_mask, sums, present, min_key, max_key
+    keys,
+    values,
+    key_mask,
+    val_mask,
+    sums,
+    present,
+    min_key,
+    max_key,
+    value_type_id,
 ):
     for idx, key in enumerate(keys):
         if not _is_valid(key_mask, idx):
@@ -170,8 +202,24 @@ def _accumulate_dense_sums(
                 f"Key out of range for session aggregate: key={key} "
                 f"range={min_key}-{max_key}"
             )
-        sums[key - min_key] += values[idx]
-        present[key - min_key] = 1
+        slot = key - min_key
+        if value_type_id == TYPE_ID_DECIMAL128:
+            sums_hi, sums_lo = sums
+            hi, lo = _int128_hi_lo_from_bytes(values, idx)
+            low_sum = sums_lo[slot] + lo
+            carry = low_sum >> 64
+            sums_lo[slot] = low_sum & MASK64
+            sums_hi[slot] = sums_hi[slot] + hi + carry
+        else:
+            sums[slot] += values[idx]
+        present[slot] = 1
+
+
+def _expected_value_from_sums(sums, index, value_type_id=None):
+    if isinstance(sums, tuple):
+        sums_hi, sums_lo = sums
+        return (sums_hi[index] << 64) + sums_lo[index]
+    return sums[index]
 
 
 def _read_output_manifest(dump_dir):
@@ -239,18 +287,22 @@ def _compare_output_to_expected(
     value_path = os.path.join(dump_dir, value_data_file)
 
     if key_type_id == TYPE_ID_DECIMAL128:
-        keys = _load_int128_column(key_path, max_rows=args.max_int128_rows)
-    else:
-        keys = _load_int64_column(key_path)
+        raise RuntimeError("DECIMAL128 keys not supported yet.")
+    keys = _load_int64_column(key_path)
 
     if value_type_id == TYPE_ID_DECIMAL128:
-        values = _load_int128_column(value_path, max_rows=args.max_int128_rows)
+        values = _load_int128_bytes(value_path)
     else:
         values = _load_int64_column(value_path)
 
-    if len(keys) != len(values):
+    if value_type_id == TYPE_ID_DECIMAL128:
+        value_rows = len(values) // 16
+    else:
+        value_rows = len(values)
+
+    if len(keys) != value_rows:
         raise RuntimeError(
-            f"Output key/value size mismatch keys={len(keys)} values={len(values)}"
+            f"Output key/value size mismatch keys={len(keys)} values={value_rows}"
         )
 
     key_mask = _load_null_mask(
@@ -264,7 +316,9 @@ def _compare_output_to_expected(
     seen = bytearray(range_size)
     mismatches = 0
     first = None
-    for idx, key in enumerate(keys):
+    row_count = len(keys)
+    for idx in range(row_count):
+        key = keys[idx]
         if not _is_valid(key_mask, idx):
             continue
         if key < min_key or key > max_key:
@@ -273,11 +327,15 @@ def _compare_output_to_expected(
                 first = (key, None, None)
             continue
         seen[key - min_key] = 1
-        expected = sums[key - min_key]
+        expected = _expected_value_from_sums(sums, key - min_key, value_type_id)
         if not _is_valid(value_mask, idx):
             actual = None
         else:
-            actual = values[idx]
+            if value_type_id == TYPE_ID_DECIMAL128:
+                hi, lo = _int128_hi_lo_from_bytes(values, idx)
+                actual = (hi << 64) + lo
+            else:
+                actual = values[idx]
         if actual != expected:
             mismatches += 1
             if first is None:
@@ -311,6 +369,7 @@ def _compare_dump_to_duckdb(
     max_key,
     scale,
     batch_size,
+    value_type_id,
 ):
     if scale > 0:
         raise RuntimeError(f"Positive scale not supported: scale={scale}")
@@ -331,7 +390,7 @@ def _compare_dump_to_duckdb(
         if not rows:
             break
         for key, sum_scaled in rows:
-            expected = sums[key - min_key]
+            expected = _expected_value_from_sums(sums, key - min_key, value_type_id)
             actual = int(sum_scaled) if sum_scaled is not None else 0
             checked += 1
             if expected != actual:
@@ -435,18 +494,22 @@ def _compare_single_dump(dump_dir, args):
         raise RuntimeError(f"Unsupported value type_id={value_type_id}")
 
     if key_type_id == TYPE_ID_DECIMAL128:
-        keys = _load_int128_column(key_path, max_rows=args.max_int128_rows)
-    else:
-        keys = _load_int64_column(key_path)
+        raise RuntimeError("DECIMAL128 keys not supported yet.")
+    keys = _load_int64_column(key_path)
 
     if value_type_id == TYPE_ID_DECIMAL128:
-        values = _load_int128_column(val_path, max_rows=args.max_int128_rows)
+        values = _load_int128_bytes(val_path)
     else:
         values = _load_int64_column(val_path)
 
-    if len(keys) != len(values):
+    if value_type_id == TYPE_ID_DECIMAL128:
+        value_rows = len(values) // 16
+    else:
+        value_rows = len(values)
+
+    if len(keys) != value_rows:
         raise RuntimeError(
-            f"Key/value size mismatch keys={len(keys)} values={len(values)}"
+            f"Key/value size mismatch keys={len(keys)} values={value_rows}"
         )
     if len(keys) != key_size:
         raise RuntimeError(
@@ -466,14 +529,8 @@ def _compare_single_dump(dump_dir, args):
         flush=True,
     )
 
-    if value_type_id == TYPE_ID_DECIMAL128 or key_type_id == TYPE_ID_DECIMAL128:
-        raise RuntimeError(
-            "DECIMAL128 comparison requires a specialized path; "
-            "rerun with DECIMAL64 or add a DECIMAL128 compare mode."
-        )
-
     sums, min_key, max_key, present = _compute_dense_sums(
-        keys, values, key_mask, val_mask, args.max_dense_keys
+        keys, values, key_mask, val_mask, args.max_dense_keys, value_type_id
     )
     print(
         f"[compare_hashagg_dump] dump={dump_dir} key_range={min_key}-{max_key} "
@@ -500,6 +557,7 @@ def _compare_single_dump(dump_dir, args):
         max_key,
         value_scale,
         args.batch_size,
+        value_type_id,
     )
 
     if first is None:
@@ -639,11 +697,8 @@ def main():
             key_type_id = first_summary["key_type_id"]
             value_type_id = first_summary["value_type_id"]
 
-            if value_type_id == TYPE_ID_DECIMAL128 or key_type_id == TYPE_ID_DECIMAL128:
-                raise RuntimeError(
-                    "DECIMAL128 comparison requires a specialized path; "
-                    "rerun with DECIMAL64 or add a DECIMAL128 compare mode."
-                )
+            if key_type_id == TYPE_ID_DECIMAL128:
+                raise RuntimeError("DECIMAL128 keys not supported yet.")
 
             sums = None
             present = None
@@ -670,24 +725,22 @@ def main():
                 key_path = os.path.join(dump_dir, summary["key_data_file"])
                 val_path = os.path.join(dump_dir, summary["value_data_file"])
 
-                if key_type_id == TYPE_ID_DECIMAL128:
-                    keys = _load_int128_column(
-                        key_path, max_rows=args.max_int128_rows
-                    )
-                else:
-                    keys = _load_int64_column(key_path)
+                keys = _load_int64_column(key_path)
 
                 if value_type_id == TYPE_ID_DECIMAL128:
-                    values = _load_int128_column(
-                        val_path, max_rows=args.max_int128_rows
-                    )
+                    values = _load_int128_bytes(val_path)
                 else:
                     values = _load_int64_column(val_path)
 
-                if len(keys) != len(values):
+                if value_type_id == TYPE_ID_DECIMAL128:
+                    value_rows = len(values) // 16
+                else:
+                    value_rows = len(values)
+
+                if len(keys) != value_rows:
                     raise RuntimeError(
                         "Key/value size mismatch "
-                        f"keys={len(keys)} values={len(values)}"
+                        f"keys={len(keys)} values={value_rows}"
                     )
                 if len(keys) != summary["key_size"]:
                     raise RuntimeError(
@@ -708,7 +761,12 @@ def main():
 
                 if sums is None:
                     sums, min_key, max_key, present = _compute_dense_sums(
-                        keys, values, key_mask, val_mask, args.max_dense_keys
+                        keys,
+                        values,
+                        key_mask,
+                        val_mask,
+                        args.max_dense_keys,
+                        value_type_id,
                     )
                 else:
                     _accumulate_dense_sums(
@@ -720,6 +778,7 @@ def main():
                         present,
                         min_key,
                         max_key,
+                        value_type_id,
                     )
 
             mismatches, checked, first = _compare_dump_to_duckdb(
@@ -728,6 +787,7 @@ def main():
                 max_key,
                 value_scale,
                 args.batch_size,
+                value_type_id,
             )
             if first is None:
                 print(
