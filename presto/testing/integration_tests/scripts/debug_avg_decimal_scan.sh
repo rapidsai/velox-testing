@@ -37,7 +37,8 @@ OPTIONS:
     --q17-threshold-mode MODE     native (Q17 shape) or cast_decimal.
     --q17-filter-mode MODE        none, brand_only, or brand_and_container.
     --range-style MODE            between or bounds (>= and <=).
-    --subquery-key-source MODE    lineitem or part key source for subquery mode.
+    --subquery-key-source MODE    lineitem, lineitem_grouped, or part key source.
+    --subquery-expr-variant MODE  scaled_avg or avg_only for subquery mode.
     --decimal-abs-tol VALUE       Absolute tolerance for decimal avg comparison.
     --double-abs-tol VALUE        Absolute tolerance for double avg comparison.
     --major-decimal-abs-diff V    Threshold for major decimal mismatch detection.

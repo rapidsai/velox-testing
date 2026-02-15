@@ -37,7 +37,12 @@ DEFAULT_MAJOR_DOUBLE_ABS_DIFF = 0.01
 DEFAULT_RANGE_STYLE = "between"
 DEFAULT_Q17_FILTER_MODE = "brand_and_container"
 DEFAULT_SUBQUERY_KEY_SOURCE = "lineitem"
+DEFAULT_SUBQUERY_EXPR_VARIANT = "scaled_avg"
 DEFAULT_AUTO_FORMS = [
+    "subquery_from_table_between_avg_only",
+    "subquery_from_table_between_scaled_avg",
+    "subquery_from_table_bounds_avg_only",
+    "subquery_from_table_bounds_scaled_avg",
     "subquery_lineitem_keys_between",
     "subquery_lineitem_keys_bounds",
     "subquery_part_keys_between_no_filters",
@@ -169,6 +174,38 @@ AUTO_FORM_DEFINITIONS = {
         "q17_threshold_mode": "native",
         "q17_filter_mode": "brand_and_container",
         "range_style": "bounds",
+    },
+    "subquery_from_table_between_avg_only": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "none",
+        "range_style": "between",
+        "subquery_key_source": "lineitem_grouped",
+        "subquery_expr_variant": "avg_only",
+    },
+    "subquery_from_table_between_scaled_avg": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "none",
+        "range_style": "between",
+        "subquery_key_source": "lineitem_grouped",
+        "subquery_expr_variant": "scaled_avg",
+    },
+    "subquery_from_table_bounds_avg_only": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "none",
+        "range_style": "bounds",
+        "subquery_key_source": "lineitem_grouped",
+        "subquery_expr_variant": "avg_only",
+    },
+    "subquery_from_table_bounds_scaled_avg": {
+        "mode": "threshold_correlated_only",
+        "q17_threshold_mode": "native",
+        "q17_filter_mode": "none",
+        "range_style": "bounds",
+        "subquery_key_source": "lineitem_grouped",
+        "subquery_expr_variant": "scaled_avg",
     },
     "subquery_lineitem_keys_between": {
         "mode": "threshold_correlated_only",
@@ -421,6 +458,7 @@ def _build_prefix_query(
     q17_filter_mode,
     range_style,
     subquery_key_source,
+    subquery_expr_variant,
 ):
     lineitem_range = _range_predicate("l.l_partkey", upper, range_style)
     li_range = _range_predicate("li.l_partkey", upper, range_style)
@@ -452,6 +490,13 @@ def _build_prefix_query(
                 f"WHERE {part_key_range} "
                 f"  AND {part_filter} "
             )
+        elif subquery_key_source == "lineitem_grouped":
+            key_source = (
+                "SELECT l.l_partkey AS p_partkey "
+                "FROM lineitem l "
+                f"WHERE {lineitem_range} "
+                "GROUP BY l.l_partkey "
+            )
         else:
             assert subquery_key_source == "lineitem"
             key_source = (
@@ -461,16 +506,28 @@ def _build_prefix_query(
             )
 
         if q17_threshold_mode == "native":
+            avg_expr = "avg(li.l_quantity)"
+            if subquery_expr_variant == "scaled_avg":
+                subquery_value_expr = "0.2 * " + avg_expr
+            else:
+                assert subquery_expr_variant == "avg_only"
+                subquery_value_expr = avg_expr
             threshold_subquery = (
-                "SELECT 0.2 * avg(li.l_quantity) "
+                f"SELECT {subquery_value_expr} "
                 "FROM lineitem li "
                 "WHERE li.l_partkey = keys.p_partkey "
                 f"  AND {li_range} "
             )
         else:
             assert q17_threshold_mode == "cast_decimal"
+            avg_expr = f"avg(CAST(li.l_quantity AS {decimal_cast}))"
+            if subquery_expr_variant == "scaled_avg":
+                subquery_value_expr = "0.2 * " + avg_expr
+            else:
+                assert subquery_expr_variant == "avg_only"
+                subquery_value_expr = avg_expr
             threshold_subquery = (
-                f"SELECT 0.2 * avg(CAST(li.l_quantity AS {decimal_cast})) "
+                f"SELECT {subquery_value_expr} "
                 "FROM lineitem li "
                 "WHERE li.l_partkey = keys.p_partkey "
                 f"  AND {li_range} "
@@ -663,6 +720,7 @@ def _evaluate_prefix(
     q17_filter_mode,
     range_style,
     subquery_key_source,
+    subquery_expr_variant,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -678,6 +736,7 @@ def _evaluate_prefix(
         q17_filter_mode=q17_filter_mode,
         range_style=range_style,
         subquery_key_source=subquery_key_source,
+        subquery_expr_variant=subquery_expr_variant,
     )
     presto_row, duckdb_row = _run_prefix_query(presto_cursor, query)
 
@@ -745,6 +804,7 @@ def _run_scan(
     q17_filter_mode,
     range_style,
     subquery_key_source,
+    subquery_expr_variant,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -782,6 +842,7 @@ def _run_scan(
             q17_filter_mode=q17_filter_mode,
             range_style=range_style,
             subquery_key_source=subquery_key_source,
+            subquery_expr_variant=subquery_expr_variant,
             decimal_abs_tol=decimal_abs_tol,
             double_abs_tol=double_abs_tol,
             major_decimal_abs_diff=major_decimal_abs_diff,
@@ -837,6 +898,7 @@ def _refine_smallest_major_upper(
     q17_filter_mode,
     range_style,
     subquery_key_source,
+    subquery_expr_variant,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -857,6 +919,7 @@ def _refine_smallest_major_upper(
                 q17_filter_mode=q17_filter_mode,
                 range_style=range_style,
                 subquery_key_source=subquery_key_source,
+                subquery_expr_variant=subquery_expr_variant,
                 decimal_abs_tol=decimal_abs_tol,
                 double_abs_tol=double_abs_tol,
                 major_decimal_abs_diff=major_decimal_abs_diff,
@@ -931,6 +994,8 @@ def _resolve_auto_forms(auto_forms_arg):
             form["range_style"] = DEFAULT_RANGE_STYLE
         if "subquery_key_source" not in form:
             form["subquery_key_source"] = DEFAULT_SUBQUERY_KEY_SOURCE
+        if "subquery_expr_variant" not in form:
+            form["subquery_expr_variant"] = DEFAULT_SUBQUERY_EXPR_VARIANT
         forms.append(form)
     return forms
 
@@ -945,6 +1010,7 @@ def _run_auto_simplify(
     q17_filter_mode,
     range_style,
     subquery_key_source,
+    subquery_expr_variant,
     decimal_abs_tol,
     double_abs_tol,
     major_decimal_abs_diff,
@@ -956,7 +1022,7 @@ def _run_auto_simplify(
         flush=True,
     )
     print(
-        "auto_index,form_name,mode,q17_threshold_mode,q17_filter_mode,range_style,subquery_key_source,upper,"
+        "auto_index,form_name,mode,q17_threshold_mode,q17_filter_mode,range_style,subquery_key_source,subquery_expr_variant,upper,"
         "presto_count,duckdb_count,"
         "metric1_label,metric2_label,"
         "abs_diff_metric1,abs_diff_metric2,"
@@ -973,6 +1039,10 @@ def _run_auto_simplify(
         form_subquery_key_source = form.get(
             "subquery_key_source",
             subquery_key_source,
+        )
+        form_subquery_expr_variant = form.get(
+            "subquery_expr_variant",
+            subquery_expr_variant,
         )
         metric1_label, metric2_label = _get_mode_metric_labels(mode)
         _progress(
@@ -992,6 +1062,7 @@ def _run_auto_simplify(
                 q17_filter_mode=form_q17_filter_mode,
                 range_style=form_range_style,
                 subquery_key_source=form_subquery_key_source,
+                subquery_expr_variant=form_subquery_expr_variant,
                 decimal_abs_tol=decimal_abs_tol,
                 double_abs_tol=double_abs_tol,
                 major_decimal_abs_diff=major_decimal_abs_diff,
@@ -1008,6 +1079,7 @@ def _run_auto_simplify(
                         form_q17_filter_mode,
                         form_range_style,
                         form_subquery_key_source,
+                        form_subquery_expr_variant,
                         str(upper),
                         _format_value(record["presto_row"][0]),
                         _format_value(record["duckdb_row"][0]),
@@ -1037,6 +1109,7 @@ def _run_auto_simplify(
                     "q17_filter_mode": form_q17_filter_mode,
                     "range_style": form_range_style,
                     "subquery_key_source": form_subquery_key_source,
+                    "subquery_expr_variant": form_subquery_expr_variant,
                     "record": record,
                     "error": None,
                     "query_seconds": query_seconds,
@@ -1055,6 +1128,7 @@ def _run_auto_simplify(
                         form_q17_filter_mode,
                         form_range_style,
                         form_subquery_key_source,
+                        form_subquery_expr_variant,
                         str(upper),
                         "NULL",
                         "NULL",
@@ -1084,6 +1158,7 @@ def _run_auto_simplify(
                     "q17_filter_mode": form_q17_filter_mode,
                     "range_style": form_range_style,
                     "subquery_key_source": form_subquery_key_source,
+                    "subquery_expr_variant": form_subquery_expr_variant,
                     "record": None,
                     "error": error_message,
                     "query_seconds": query_seconds,
@@ -1132,6 +1207,7 @@ def _run_auto_simplify(
             f"q17_filter_mode={first_major_in_order['q17_filter_mode']},"
             f"range_style={first_major_in_order['range_style']},"
             f"subquery_key_source={first_major_in_order['subquery_key_source']},"
+            f"subquery_expr_variant={first_major_in_order['subquery_expr_variant']},"
             f"upper={upper},"
             f"abs_diff_metric1={_format_value(first_major_in_order['record']['decimal_diff'])},"
             f"abs_diff_metric2={_format_value(first_major_in_order['record']['double_diff'])}",
@@ -1157,6 +1233,7 @@ def _run_auto_simplify(
             f"q17_filter_mode={first_subquery_only['q17_filter_mode']},"
             f"range_style={first_subquery_only['range_style']},"
             f"subquery_key_source={first_subquery_only['subquery_key_source']},"
+            f"subquery_expr_variant={first_subquery_only['subquery_expr_variant']},"
             f"upper={upper},"
             f"abs_diff_metric1={_format_value(first_subquery_only['record']['decimal_diff'])},"
             f"abs_diff_metric2={_format_value(first_subquery_only['record']['double_diff'])}",
@@ -1183,6 +1260,7 @@ def _run_auto_simplify(
             f"q17_filter_mode={first_correlated['q17_filter_mode']},"
             f"range_style={first_correlated['range_style']},"
             f"subquery_key_source={first_correlated['subquery_key_source']},"
+            f"subquery_expr_variant={first_correlated['subquery_expr_variant']},"
             f"upper={upper},"
             f"abs_diff_metric1={_format_value(first_correlated['record']['decimal_diff'])},"
             f"abs_diff_metric2={_format_value(first_correlated['record']['double_diff'])}",
@@ -1209,6 +1287,7 @@ def _run_auto_simplify(
             f"q17_filter_mode={first_q17['q17_filter_mode']},"
             f"range_style={first_q17['range_style']},"
             f"subquery_key_source={first_q17['subquery_key_source']},"
+            f"subquery_expr_variant={first_q17['subquery_expr_variant']},"
             f"upper={upper},"
             f"abs_diff_metric1={_format_value(first_q17['record']['decimal_diff'])},"
             f"abs_diff_metric2={_format_value(first_q17['record']['double_diff'])}",
@@ -1252,6 +1331,7 @@ def _run_auto_simplify(
                         f"q17_filter_mode={result['q17_filter_mode']},"
                         f"range_style={result['range_style']},"
                         f"subquery_key_source={result['subquery_key_source']},"
+                        f"subquery_expr_variant={result['subquery_expr_variant']},"
                         f"abs_diff_metric1={_format_value(result['record']['decimal_diff'])},"
                         f"abs_diff_metric2={_format_value(result['record']['double_diff'])}"
                         ")"
@@ -1276,6 +1356,7 @@ def _run_auto_simplify(
                         f"q17_filter_mode={result['q17_filter_mode']},"
                         f"range_style={result['range_style']},"
                         f"subquery_key_source={result['subquery_key_source']},"
+                        f"subquery_expr_variant={result['subquery_expr_variant']},"
                         f"abs_diff_metric1={_format_value(result['record']['decimal_diff'])},"
                         f"abs_diff_metric2={_format_value(result['record']['double_diff'])}"
                         ")"
@@ -1300,6 +1381,7 @@ def _run_auto_simplify(
                         f"q17_filter_mode={result['q17_filter_mode']},"
                         f"range_style={result['range_style']},"
                         f"subquery_key_source={result['subquery_key_source']},"
+                        f"subquery_expr_variant={result['subquery_expr_variant']},"
                         f"error={result['error']}"
                         ")"
                     )
@@ -1420,12 +1502,23 @@ def main():
     )
     parser.add_argument(
         "--subquery-key-source",
-        choices=["lineitem", "part"],
+        choices=["lineitem", "lineitem_grouped", "part"],
         default=DEFAULT_SUBQUERY_KEY_SOURCE,
         help=(
             "Key source for threshold_correlated_only mode: "
             "'lineitem' uses DISTINCT keys from lineitem, "
+            "'lineitem_grouped' uses GROUP BY keys from lineitem, "
             "'part' uses keys from part with q17-style filters."
+        ),
+    )
+    parser.add_argument(
+        "--subquery-expr-variant",
+        choices=["scaled_avg", "avg_only"],
+        default=DEFAULT_SUBQUERY_EXPR_VARIANT,
+        help=(
+            "Expression variant for threshold_correlated_only mode: "
+            "'scaled_avg' uses 0.2 * avg(...), "
+            "'avg_only' uses avg(...) without multiplication."
         ),
     )
     parser.add_argument(
@@ -1534,6 +1627,7 @@ def main():
                     q17_filter_mode=args.q17_filter_mode,
                     range_style=args.range_style,
                     subquery_key_source=args.subquery_key_source,
+                    subquery_expr_variant=args.subquery_expr_variant,
                     decimal_abs_tol=decimal_abs_tol,
                     double_abs_tol=args.double_abs_tol,
                     major_decimal_abs_diff=major_decimal_abs_diff,
@@ -1574,6 +1668,7 @@ def main():
                             q17_filter_mode=args.q17_filter_mode,
                             range_style=args.range_style,
                             subquery_key_source=args.subquery_key_source,
+                            subquery_expr_variant=args.subquery_expr_variant,
                             decimal_abs_tol=decimal_abs_tol,
                             double_abs_tol=args.double_abs_tol,
                             major_decimal_abs_diff=major_decimal_abs_diff,
@@ -1605,6 +1700,7 @@ def main():
                     q17_filter_mode=args.q17_filter_mode,
                     range_style=args.range_style,
                     subquery_key_source=args.subquery_key_source,
+                    subquery_expr_variant=args.subquery_expr_variant,
                     decimal_abs_tol=decimal_abs_tol,
                     double_abs_tol=args.double_abs_tol,
                     major_decimal_abs_diff=major_decimal_abs_diff,
@@ -1636,6 +1732,7 @@ def main():
                 q17_filter_mode=args.q17_filter_mode,
                 range_style=args.range_style,
                 subquery_key_source=args.subquery_key_source,
+                subquery_expr_variant=args.subquery_expr_variant,
                 decimal_abs_tol=decimal_abs_tol,
                 double_abs_tol=args.double_abs_tol,
                 major_decimal_abs_diff=major_decimal_abs_diff,
@@ -1672,6 +1769,7 @@ def main():
                         q17_filter_mode=args.q17_filter_mode,
                         range_style=args.range_style,
                         subquery_key_source=args.subquery_key_source,
+                        subquery_expr_variant=args.subquery_expr_variant,
                         decimal_abs_tol=decimal_abs_tol,
                         double_abs_tol=args.double_abs_tol,
                         major_decimal_abs_diff=major_decimal_abs_diff,
