@@ -35,6 +35,7 @@ DEFAULT_DECIMAL_ABS_TOL = "0.000001"
 DEFAULT_MAJOR_DECIMAL_ABS_DIFF = decimal.Decimal("0.01")
 DEFAULT_MAJOR_DOUBLE_ABS_DIFF = 0.01
 DEFAULT_RANGE_STYLE = "between"
+DEFAULT_LOWER_BOUND = 1
 DEFAULT_Q17_FILTER_MODE = "brand_and_container"
 DEFAULT_SUBQUERY_KEY_SOURCE = "lineitem"
 DEFAULT_SUBQUERY_EXPR_VARIANT = "scaled_avg"
@@ -447,11 +448,11 @@ def _log_lineitem_column_types(presto_cursor):
         )
 
 
-def _range_predicate(column_name, upper, range_style):
+def _range_predicate(column_name, lower, upper, range_style):
     if range_style == "between":
-        return f"{column_name} BETWEEN 1 AND {upper}"
+        return f"{column_name} BETWEEN {lower} AND {upper}"
     assert range_style == "bounds"
-    return f"{column_name} >= 1 AND {column_name} <= {upper}"
+    return f"{column_name} >= {lower} AND {column_name} <= {upper}"
 
 
 def _q17_filter_predicate(
@@ -617,6 +618,7 @@ def _get_mode_metric_labels(mode):
 
 def _build_prefix_query(
     mode,
+    lower,
     upper,
     decimal_cast,
     q17_brand,
@@ -627,10 +629,10 @@ def _build_prefix_query(
     subquery_key_source,
     subquery_expr_variant,
 ):
-    lineitem_range = _range_predicate("l.l_partkey", upper, range_style)
-    li_range = _range_predicate("li.l_partkey", upper, range_style)
-    lineitem_key_range = _range_predicate("l_partkey", upper, range_style)
-    part_key_range = _range_predicate("p.p_partkey", upper, range_style)
+    lineitem_range = _range_predicate("l.l_partkey", lower, upper, range_style)
+    li_range = _range_predicate("li.l_partkey", lower, upper, range_style)
+    lineitem_key_range = _range_predicate("l_partkey", lower, upper, range_style)
+    part_key_range = _range_predicate("p.p_partkey", lower, upper, range_style)
 
     if mode == "avg_cast":
         return (
@@ -1084,6 +1086,7 @@ def _is_major_mismatch(record, major_decimal_abs_diff, major_double_abs_diff):
 
 def _evaluate_prefix(
     presto_cursor,
+    lower,
     upper,
     mode,
     decimal_cast,
@@ -1102,6 +1105,7 @@ def _evaluate_prefix(
 ):
     query = _build_prefix_query(
         mode=mode,
+        lower=lower,
         upper=upper,
         decimal_cast=decimal_cast,
         q17_brand=q17_brand,
@@ -1139,7 +1143,7 @@ def _evaluate_prefix(
     is_match = count_match and decimal_match and double_match
 
     record = {
-        "lower": 1,
+        "lower": lower,
         "upper": upper,
         "presto_row": presto_row,
         "duckdb_row": duckdb_row,
@@ -1217,6 +1221,7 @@ def _run_scan(
     presto_cursor,
     max_partkey,
     single_upper,
+    lower_bound,
     mode,
     decimal_cast,
     q17_brand,
@@ -1255,6 +1260,7 @@ def _run_scan(
         )
         record = _evaluate_prefix(
             presto_cursor=presto_cursor,
+            lower=lower_bound,
             upper=upper,
             mode=mode,
             decimal_cast=decimal_cast,
@@ -1313,6 +1319,7 @@ def _refine_smallest_major_upper(
     presto_cursor,
     known_non_major_upper,
     known_major_upper,
+    lower_bound,
     mode,
     decimal_cast,
     q17_brand,
@@ -1333,6 +1340,7 @@ def _refine_smallest_major_upper(
         if upper not in cache:
             cache[upper] = _evaluate_prefix(
                 presto_cursor=presto_cursor,
+                lower=lower_bound,
                 upper=upper,
                 mode=mode,
                 decimal_cast=decimal_cast,
@@ -1941,6 +1949,12 @@ def main():
         ),
     )
     parser.add_argument(
+        "--lower-bound",
+        type=int,
+        default=DEFAULT_LOWER_BOUND,
+        help="Lower bound for l_partkey range (inclusive).",
+    )
+    parser.add_argument(
         "--subquery-key-source",
         choices=["lineitem", "lineitem_grouped", "part"],
         default=DEFAULT_SUBQUERY_KEY_SOURCE,
@@ -2076,6 +2090,7 @@ def main():
                     presto_cursor=cursor,
                     max_partkey=args.max_partkey,
                     single_upper=None,
+                    lower_bound=args.lower_bound,
                     mode=args.mode,
                     decimal_cast=args.decimal_cast,
                     q17_brand=args.q17_brand,
@@ -2118,6 +2133,7 @@ def main():
                             presto_cursor=cursor,
                             known_non_major_upper=previous_upper,
                             known_major_upper=first_major_record["upper"],
+                            lower_bound=args.lower_bound,
                             mode=args.mode,
                             decimal_cast=args.decimal_cast,
                             q17_brand=args.q17_brand,
@@ -2182,6 +2198,7 @@ def main():
                 presto_cursor=cursor,
                 max_partkey=args.max_partkey,
                 single_upper=args.single_upper,
+                lower_bound=args.lower_bound,
                 mode=args.mode,
                 decimal_cast=args.decimal_cast,
                 q17_brand=args.q17_brand,
@@ -2220,6 +2237,7 @@ def main():
                         presto_cursor=cursor,
                         known_non_major_upper=previous_upper,
                         known_major_upper=first_major_record["upper"],
+                        lower_bound=args.lower_bound,
                         mode=args.mode,
                         decimal_cast=args.decimal_cast,
                         q17_brand=args.q17_brand,
