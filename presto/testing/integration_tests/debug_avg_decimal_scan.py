@@ -923,6 +923,30 @@ def _run_grouped_avg_raw_summary(presto_cursor, query):
     return presto_row, duckdb_row
 
 
+def _run_single_key_checks(presto_cursor, keys):
+    if not keys:
+        return
+    print(
+        "SINGLE_KEY_CHECK,key,presto_sum,duckdb_sum,abs_diff,status",
+        flush=True,
+    )
+    for key in keys:
+        query = (
+            "SELECT sum(l_quantity) AS sum_qty "
+            "FROM lineitem "
+            f"WHERE l_partkey = {key}"
+        )
+        presto_row, duckdb_row = _run_prefix_query(presto_cursor, query)
+        presto_val = presto_row[0]
+        duckdb_val = duckdb_row[0]
+        diff = _decimal_abs_diff(presto_val, duckdb_val)
+        status = "MATCH" if diff is not None and diff == 0 else "MISMATCH"
+        print(
+            f"SINGLE_KEY_CHECK,{key},{_format_value(presto_val)},"
+            f"{_format_value(duckdb_val)},{_format_value(diff)},{status}",
+            flush=True,
+        )
+
 def _to_decimal(value):
     if value is None:
         return None
@@ -1886,6 +1910,13 @@ def main():
         ),
     )
     parser.add_argument("--stop-on-mismatch", action="store_true", default=False)
+    parser.add_argument(
+        "--single-key-checks",
+        help=(
+            "Comma-separated l_partkey values to run single-key SUM checks "
+            "after the main scan (e.g. 19412602,19412603)."
+        ),
+    )
     args = parser.parse_args()
 
     schema_name = args.schema_name if args.schema_name else DEFAULT_SCHEMA
@@ -1943,6 +1974,14 @@ def main():
                     stop_on_mismatch=args.stop_on_mismatch,
                 )
                 _progress("phase=main,event=scan_end")
+
+        if args.single_key_checks:
+            keys = [
+                int(item.strip())
+                for item in args.single_key_checks.split(",")
+                if item.strip()
+            ]
+            _run_single_key_checks(cursor, keys)
                 saw_any_mismatch = saw_any_mismatch or mismatch_count > 0
                 saw_any_major = saw_any_major or major_mismatch_count > 0
 
