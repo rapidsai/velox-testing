@@ -40,6 +40,7 @@ DEFAULT_SUBQUERY_KEY_SOURCE = "lineitem"
 DEFAULT_SUBQUERY_EXPR_VARIANT = "scaled_avg"
 RAW_GROUPED_AVG_BATCH_SIZE = 10000
 RAW_GROUPED_AVG_PROGRESS_EVERY = 1000000
+RAW_GROUPED_COMPARE_MAX_SAMPLES = 5
 DEFAULT_AUTO_FORMS = [
     "subquery_from_table_between_avg_only",
     "subquery_from_table_between_scaled_avg",
@@ -923,6 +924,75 @@ def _run_grouped_avg_raw_summary(presto_cursor, query):
     return presto_row, duckdb_row
 
 
+def _compare_grouped_rows(presto_cursor, duckdb_rel, decimal_abs_tol):
+    total_rows = 0
+    mismatch_rows = 0
+    first_mismatch = None
+    mismatch_samples = []
+    sum_pre = decimal.Decimal("0")
+    sum_duck = decimal.Decimal("0")
+    count_pre = 0
+    count_duck = 0
+
+    while True:
+        presto_rows = presto_cursor.fetchmany(RAW_GROUPED_AVG_BATCH_SIZE)
+        duckdb_rows = duckdb_rel.fetchmany(RAW_GROUPED_AVG_BATCH_SIZE)
+        if not presto_rows and not duckdb_rows:
+            break
+        if len(presto_rows) != len(duckdb_rows):
+            mismatch_rows += abs(len(presto_rows) - len(duckdb_rows))
+        for presto_row, duckdb_row in zip(presto_rows, duckdb_rows):
+            total_rows += 1
+            presto_key, presto_val = presto_row
+            duckdb_key, duckdb_val = duckdb_row
+            if presto_val is not None:
+                count_pre += 1
+                sum_pre += _to_decimal(presto_val)
+            if duckdb_val is not None:
+                count_duck += 1
+                sum_duck += _to_decimal(duckdb_val)
+            diff = _decimal_abs_diff(presto_val, duckdb_val)
+            if presto_key != duckdb_key or diff is None or diff > decimal_abs_tol:
+                mismatch_rows += 1
+                if first_mismatch is None:
+                    first_mismatch = (
+                        presto_key,
+                        presto_val,
+                        duckdb_val,
+                        diff,
+                    )
+                if len(mismatch_samples) < RAW_GROUPED_COMPARE_MAX_SAMPLES:
+                    mismatch_samples.append(
+                        (presto_key, presto_val, duckdb_val, diff)
+                    )
+        if total_rows >= RAW_GROUPED_AVG_PROGRESS_EVERY:
+            print(
+                "PROGRESS,"
+                f"phase=grouped_compare,event=rows,rows={total_rows}",
+                flush=True,
+            )
+
+    avg_pre = sum_pre / decimal.Decimal(str(count_pre)) if count_pre > 0 else None
+    avg_duck = (
+        sum_duck / decimal.Decimal(str(count_duck)) if count_duck > 0 else None
+    )
+    compare_info = {
+        "total_rows": total_rows,
+        "mismatch_rows": mismatch_rows,
+        "first_mismatch": first_mismatch,
+        "samples": mismatch_samples,
+    }
+    return (total_rows, avg_pre, sum_pre), (total_rows, avg_duck, sum_duck), compare_info
+
+
+def _run_grouped_avg_raw_compare(presto_cursor, query, decimal_abs_tol):
+    if "ORDER BY" not in query:
+        query = query + " ORDER BY l_partkey"
+    presto_cursor.execute(query)
+    duckdb_rel = duckdb.sql(query)
+    return _compare_grouped_rows(presto_cursor, duckdb_rel, decimal_abs_tol)
+
+
 def _run_single_key_checks(presto_cursor, keys):
     if not keys:
         return
@@ -1028,6 +1098,7 @@ def _evaluate_prefix(
     double_abs_tol,
     major_decimal_abs_diff,
     major_double_abs_diff,
+    per_group_compare,
 ):
     query = _build_prefix_query(
         mode=mode,
@@ -1048,9 +1119,14 @@ def _evaluate_prefix(
         "grouped_avg_decimal_raw",
         "grouped_sum_decimal_raw",
     ):
-        presto_row, duckdb_row = _run_grouped_avg_raw_summary(
-            presto_cursor, query
-        )
+        if per_group_compare:
+            presto_row, duckdb_row, compare_info = _run_grouped_avg_raw_compare(
+                presto_cursor, query, decimal_abs_tol
+            )
+        else:
+            presto_row, duckdb_row = _run_grouped_avg_raw_summary(
+                presto_cursor, query
+            )
     else:
         presto_row, duckdb_row = _run_prefix_query(presto_cursor, query)
 
@@ -1077,6 +1153,37 @@ def _evaluate_prefix(
         major_decimal_abs_diff,
         major_double_abs_diff,
     )
+    if per_group_compare and mode in (
+        "grouped_avg_cast_decimal_only_raw",
+        "grouped_avg_cast_decimal_manual_raw",
+        "grouped_sum_cast_decimal_raw",
+        "grouped_avg_decimal_raw",
+        "grouped_sum_decimal_raw",
+    ):
+        record["per_group_compare"] = compare_info
+        first = compare_info["first_mismatch"]
+        if first:
+            print(
+                "PER_GROUP_COMPARE,first_mismatch_key="
+                f"{first[0]},presto_val={_format_value(first[1])},"
+                f"duckdb_val={_format_value(first[2])},"
+                f"abs_diff={_format_value(first[3])}",
+                flush=True,
+            )
+        print(
+            "PER_GROUP_COMPARE,rows="
+            f"{compare_info['total_rows']},mismatches={compare_info['mismatch_rows']}",
+            flush=True,
+        )
+        if compare_info["samples"]:
+            samples_text = ";".join(
+                f"{key}:{_format_value(p)}|{_format_value(d)}|{_format_value(diff)}"
+                for key, p, d, diff in compare_info["samples"]
+            )
+            print(
+                f"PER_GROUP_COMPARE,samples={samples_text}",
+                flush=True,
+            )
     return record
 
 
@@ -1124,6 +1231,7 @@ def _run_scan(
     major_decimal_abs_diff,
     major_double_abs_diff,
     stop_on_mismatch,
+    per_group_compare,
 ):
     records = []
     mismatch_count = 0
@@ -1161,6 +1269,7 @@ def _run_scan(
             double_abs_tol=double_abs_tol,
             major_decimal_abs_diff=major_decimal_abs_diff,
             major_double_abs_diff=major_double_abs_diff,
+            per_group_compare=per_group_compare,
         )
         record["query_seconds"] = time.time() - range_start
         records.append(record)
@@ -1911,6 +2020,15 @@ def main():
     )
     parser.add_argument("--stop-on-mismatch", action="store_true", default=False)
     parser.add_argument(
+        "--per-group-compare",
+        action="store_true",
+        default=False,
+        help=(
+            "For raw grouped modes, stream and compare each l_partkey result "
+            "ordered by key; prints first mismatches and sample diffs."
+        ),
+    )
+    parser.add_argument(
         "--single-key-checks",
         help=(
             "Comma-separated l_partkey values to run single-key SUM checks "
@@ -1972,6 +2090,7 @@ def main():
                     major_decimal_abs_diff=major_decimal_abs_diff,
                     major_double_abs_diff=args.major_double_abs_diff,
                     stop_on_mismatch=args.stop_on_mismatch,
+                    per_group_compare=args.per_group_compare,
                 )
                 _progress("phase=main,event=scan_end")
                 saw_any_mismatch = saw_any_mismatch or mismatch_count > 0
@@ -2077,6 +2196,7 @@ def main():
                 major_decimal_abs_diff=major_decimal_abs_diff,
                 major_double_abs_diff=args.major_double_abs_diff,
                 stop_on_mismatch=args.stop_on_mismatch,
+                per_group_compare=args.per_group_compare,
             )
             _progress("phase=main,event=scan_end")
             saw_any_mismatch = saw_any_mismatch or mismatch_count > 0
