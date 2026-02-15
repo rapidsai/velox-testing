@@ -1,0 +1,351 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+
+import argparse
+import decimal
+import os
+import re
+import sys
+import time
+from array import array
+
+import duckdb
+import prestodb
+
+import test_utils
+
+
+TYPE_ID_INT64 = 4
+TYPE_ID_DECIMAL64 = 26
+TYPE_ID_DECIMAL128 = 27
+
+
+DEFAULT_HOST = os.getenv("PRESTO_COORDINATOR_HOST", "localhost")
+DEFAULT_PORT = int(os.getenv("PRESTO_COORDINATOR_PORT", "8080"))
+DEFAULT_USER = os.getenv("USER", "root")
+
+
+def _parse_manifest(manifest_path):
+    manifest = {}
+    with open(manifest_path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            manifest[key] = value
+    return manifest
+
+
+def _load_bytes(path):
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def _load_int64_column(path):
+    data = _load_bytes(path)
+    values = array("q")
+    values.frombytes(data)
+    if sys.byteorder != "little":
+        values.byteswap()
+    return values
+
+
+def _load_int128_column(path, max_rows=None):
+    data = _load_bytes(path)
+    values = []
+    count = len(data) // 16
+    if max_rows is not None:
+        count = min(count, max_rows)
+    for idx in range(count):
+        start = idx * 16
+        chunk = data[start : start + 16]
+        values.append(int.from_bytes(chunk, byteorder="little", signed=True))
+    return values
+
+
+def _load_null_mask(path):
+    if not path:
+        return None
+    if not os.path.exists(path):
+        return None
+    data = _load_bytes(path)
+    return data if data else None
+
+
+def _is_valid(mask, idx):
+    if mask is None:
+        return True
+    byte = mask[idx // 8]
+    return (byte >> (idx % 8)) & 1
+
+
+def _format_scaled(value, scale):
+    if scale >= 0:
+        return f"{value}*10^{scale}"
+    scale_digits = -scale
+    factor = 10**scale_digits
+    sign = "-" if value < 0 else ""
+    abs_val = abs(value)
+    whole = abs_val // factor
+    frac = abs_val % factor
+    return f"{sign}{whole}.{frac:0{scale_digits}d}"
+
+
+def _get_table_external_location(schema_name, table, presto_cursor):
+    create_table_text = presto_cursor.execute(
+        f"SHOW CREATE TABLE hive.{schema_name}.{table}"
+    ).fetchall()
+    test_pattern = (
+        r"external_location = 'file:/var/lib/presto/data/hive/data/integration_test/(.*)'"
+    )
+    user_pattern = (
+        r"external_location = 'file:/var/lib/presto/data/hive/data/user_data/(.*)'"
+    )
+
+    test_match = re.search(test_pattern, create_table_text[0][0])
+    if test_match:
+        external_dir = test_utils.get_abs_file_path(f"data/{test_match.group(1)}")
+    else:
+        user_match = re.search(user_pattern, create_table_text[0][0])
+        if not user_match:
+            raise RuntimeError(
+                "Could not parse external_location from SHOW CREATE TABLE for "
+                f"hive.{schema_name}.{table}: {create_table_text[0][0]}"
+            )
+        presto_data_dir = os.getenv("PRESTO_DATA_DIR")
+        if not presto_data_dir:
+            raise RuntimeError(
+                "PRESTO_DATA_DIR is required for user_data external locations."
+            )
+        external_dir = f"{presto_data_dir}/{user_match.group(1)}"
+
+    if not os.path.isdir(external_dir):
+        raise RuntimeError(
+            f"External location '{external_dir}' for hive.{schema_name}.{table} "
+            "does not exist."
+        )
+    return external_dir
+
+
+def _register_lineitem(lineitem_path):
+    duckdb.sql("DROP TABLE IF EXISTS lineitem")
+    duckdb.sql(f"CREATE TABLE lineitem AS SELECT * FROM '{lineitem_path}/*.parquet'")
+
+
+def _compute_dense_sums(keys, values, key_mask, val_mask, max_dense_keys):
+    min_key = min(keys)
+    max_key = max(keys)
+    if min_key < 0:
+        raise RuntimeError(f"Negative key values not supported: min_key={min_key}")
+    range_size = max_key - min_key + 1
+    if range_size > max_dense_keys:
+        raise RuntimeError(
+            "Dense array would be too large: "
+            f"range_size={range_size} max_dense_keys={max_dense_keys}"
+        )
+    sums = array("q", [0]) * range_size
+    for idx, key in enumerate(keys):
+        if not _is_valid(key_mask, idx):
+            continue
+        if not _is_valid(val_mask, idx):
+            continue
+        sums[key - min_key] += values[idx]
+    return sums, min_key, max_key
+
+
+def _compare_dump_to_duckdb(
+    sums,
+    min_key,
+    max_key,
+    scale,
+    batch_size,
+):
+    if scale > 0:
+        raise RuntimeError(f"Positive scale not supported: scale={scale}")
+    scale_factor = 10 ** (-scale)
+    query = (
+        "SELECT l_partkey, "
+        f"CAST(sum(l_quantity) * {scale_factor} AS DECIMAL(38,0)) "
+        "FROM lineitem "
+        f"WHERE l_partkey BETWEEN {min_key} AND {max_key} "
+        "GROUP BY l_partkey ORDER BY l_partkey"
+    )
+    rel = duckdb.sql(query)
+    mismatches = 0
+    checked = 0
+    first = None
+    while True:
+        rows = rel.fetchmany(batch_size)
+        if not rows:
+            break
+        for key, sum_scaled in rows:
+            expected = sums[key - min_key]
+            actual = int(sum_scaled) if sum_scaled is not None else 0
+            checked += 1
+            if expected != actual:
+                mismatches += 1
+                if first is None:
+                    first = (key, expected, actual)
+    return mismatches, checked, first
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Compare HashAgg dump input sums to DuckDB."
+    )
+    parser.add_argument("--dump-dir", required=True, help="Dump directory to inspect.")
+    parser.add_argument(
+        "--schema-name",
+        help="Hive schema name to locate lineitem parquet (uses Presto).",
+    )
+    parser.add_argument(
+        "--lineitem-path",
+        help="Path to lineitem parquet directory (overrides --schema-name).",
+    )
+    parser.add_argument("--hostname", default=DEFAULT_HOST)
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--user", default=DEFAULT_USER)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100000,
+        help="DuckDB fetch batch size.",
+    )
+    parser.add_argument(
+        "--max-dense-keys",
+        type=int,
+        default=50000000,
+        help="Max range size for dense sum array.",
+    )
+    parser.add_argument(
+        "--max-int128-rows",
+        type=int,
+        default=None,
+        help="Max rows to read for DECIMAL128 values (debug).",
+    )
+    args = parser.parse_args()
+
+    manifest_path = os.path.join(args.dump_dir, "manifest.txt")
+    if not os.path.exists(manifest_path):
+        raise RuntimeError(f"manifest.txt not found in {args.dump_dir}")
+
+    manifest = _parse_manifest(manifest_path)
+    key_type_id = int(manifest["key.0.type_id"])
+    key_size = int(manifest["key.0.size"])
+    key_data_file = manifest["key.0.data_file"]
+    key_mask_file = manifest.get("key.0.null_mask_file", "")
+
+    value_type_id = int(manifest["request.0.type_id"])
+    value_scale = int(manifest["request.0.scale"])
+    value_data_file = manifest["request.0.data_file"]
+    value_mask_file = manifest.get("request.0.null_mask_file", "")
+
+    key_path = os.path.join(args.dump_dir, key_data_file)
+    val_path = os.path.join(args.dump_dir, value_data_file)
+
+    start = time.time()
+    if key_type_id not in (TYPE_ID_INT64, TYPE_ID_DECIMAL64, TYPE_ID_DECIMAL128):
+        raise RuntimeError(f"Unsupported key type_id={key_type_id}")
+    if value_type_id not in (TYPE_ID_DECIMAL64, TYPE_ID_DECIMAL128):
+        raise RuntimeError(f"Unsupported value type_id={value_type_id}")
+
+    if key_type_id == TYPE_ID_DECIMAL128:
+        keys = _load_int128_column(key_path, max_rows=args.max_int128_rows)
+    else:
+        keys = _load_int64_column(key_path)
+
+    if value_type_id == TYPE_ID_DECIMAL128:
+        values = _load_int128_column(val_path, max_rows=args.max_int128_rows)
+    else:
+        values = _load_int64_column(val_path)
+
+    if len(keys) != len(values):
+        raise RuntimeError(
+            f"Key/value size mismatch keys={len(keys)} values={len(values)}"
+        )
+    if len(keys) != key_size:
+        raise RuntimeError(
+            f"Key size mismatch manifest={key_size} actual={len(keys)}"
+        )
+
+    key_mask = _load_null_mask(
+        os.path.join(args.dump_dir, key_mask_file) if key_mask_file else None
+    )
+    val_mask = _load_null_mask(
+        os.path.join(args.dump_dir, value_mask_file) if value_mask_file else None
+    )
+    print(
+        f"[compare_hashagg_dump] loaded rows={len(keys)} "
+        f"key_type_id={key_type_id} value_type_id={value_type_id} "
+        f"scale={value_scale} seconds={time.time() - start:.2f}",
+        flush=True,
+    )
+
+    if value_type_id == TYPE_ID_DECIMAL128 or key_type_id == TYPE_ID_DECIMAL128:
+        raise RuntimeError(
+            "DECIMAL128 comparison requires a specialized path; "
+            "rerun with DECIMAL64 or add a DECIMAL128 compare mode."
+        )
+
+    sums, min_key, max_key = _compute_dense_sums(
+        keys, values, key_mask, val_mask, args.max_dense_keys
+    )
+    print(
+        f"[compare_hashagg_dump] key_range={min_key}-{max_key} "
+        f"scale={value_scale} seconds={time.time() - start:.2f}",
+        flush=True,
+    )
+
+    if args.lineitem_path:
+        lineitem_path = args.lineitem_path
+    else:
+        if not args.schema_name:
+            raise RuntimeError("Need --schema-name or --lineitem-path.")
+        conn = prestodb.dbapi.connect(
+            host=args.hostname,
+            port=args.port,
+            user=args.user,
+            catalog="hive",
+            schema=args.schema_name,
+        )
+        cursor = conn.cursor()
+        lineitem_path = _get_table_external_location(
+            args.schema_name, "lineitem", cursor
+        )
+
+    _register_lineitem(lineitem_path)
+    mismatches, checked, first = _compare_dump_to_duckdb(
+        sums,
+        min_key,
+        max_key,
+        value_scale,
+        args.batch_size,
+    )
+
+    if first is None:
+        print(
+            f"[compare_hashagg_dump] checked={checked} mismatches=0",
+            flush=True,
+        )
+        return 0
+
+    key, expected, actual = first
+    diff = expected - actual
+    print(
+        "[compare_hashagg_dump] "
+        f"checked={checked} mismatches={mismatches} "
+        f"first_key={key} "
+        f"expected_scaled={expected} "
+        f"actual_scaled={actual} "
+        f"diff_scaled={diff} "
+        f"expected={_format_scaled(expected, value_scale)} "
+        f"actual={_format_scaled(actual, value_scale)}",
+        flush=True,
+    )
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
