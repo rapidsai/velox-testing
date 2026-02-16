@@ -1,4 +1,4 @@
-# Presto TPC-H Benchmark - Standalone Self-Contained Setup
+# Presto TPC-H Benchmark - Unified Launcher
 
 This is a simplified, self-contained version of the Presto TPC-H benchmark launcher for Slurm.
 Everything you need is in this single directory with minimal layers of indirection.
@@ -6,7 +6,7 @@ Everything you need is in this single directory with minimal layers of indirecti
 ## Directory Structure
 
 ```
-standalone/
+unified/
 ├── launch.sh                    # Main entry point - submit job to Slurm
 ├── run.slurm                    # Slurm batch script with all logic
 ├── config-templates/            # Configuration templates

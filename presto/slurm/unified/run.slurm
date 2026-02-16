@@ -324,7 +324,7 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
                 echo 'ANALYZED_HIVE_METASTORE not found, skipping metastore copy'; \
             fi; \
             echo '=== Running benchmark queries ==='; \
-            ./run_benchmark.sh -b tpch -s tpchsf${SCALE_FACTOR} -i ${NUM_ITERATIONS} --hostname ${COORD} --port ${PORT} -o /workspace/presto/slurm/standalone/result_dir" \
+            ./run_benchmark.sh -b tpch -s tpchsf${SCALE_FACTOR} -i ${NUM_ITERATIONS} --hostname ${COORD} --port ${PORT} -o /workspace/presto/slurm/unified/result_dir" \
         > "${SCRIPT_DIR}/logs/benchmark.log" 2>&1
 
     # Copy summary to result_dir
