@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -46,14 +35,24 @@ function init_conda() {
   echo "Conda initialization completed"
 }
 
-function init_python_virtual_env() {
-  rm -rf .venv
+function activate_python_virtual_env() {
+  local venv_dir=${1:-".venv"}
 
-  if python3 -m venv .venv &>/dev/null; then
-    echo "Created virtual environment using the venv module"
-
+  if [[ -f "$venv_dir/pyvenv.cfg" ]]; then
     echo "Activating venv environment"
-    source .venv/bin/activate
+    source $venv_dir/bin/activate
+  else
+    echo "Activating conda environment"
+    conda activate "$(readlink -f $venv_dir)"
+  fi
+}
+
+function init_python_virtual_env() {
+  local venv_dir=${1:-".venv"}
+  rm -rf $venv_dir
+
+  if python3 -m venv $venv_dir &>/dev/null; then
+    echo "Created virtual environment using the venv module"
   else
     if [[ -z $MINIFORGE_HOME ]]; then
         echo "Error: MINIFORGE_HOME must be set when attempting to create a virtual environment with conda"
@@ -68,14 +67,15 @@ function init_python_virtual_env() {
     init_conda
 
     echo "Creating virtual environment using conda"
-    conda create -q -y --prefix ".venv" python=3.12 > /dev/null
-
-    echo "Activating conda environment"
-    conda activate "$(readlink -f .venv)"
+    conda create -q -y --prefix "$venv_dir" python=3.12 > /dev/null
   fi
+
+  activate_python_virtual_env $venv_dir
 }
 
 function delete_python_virtual_env() {
+  local venv_dir=${1:-".venv"}
+
   if [ -n "$LOCAL_CONDA_INIT" ] && command -v conda &> /dev/null; then
       echo "Deactivating conda environment"
       conda deactivate
@@ -85,6 +85,6 @@ function delete_python_virtual_env() {
     deactivate
   fi
 
-  echo "Deleting .venv directory"
-  rm -rf .venv
+  echo "Deleting $venv_dir directory"
+  rm -rf $venv_dir
 }

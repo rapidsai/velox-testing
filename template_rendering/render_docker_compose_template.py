@@ -2,9 +2,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import argparse
 import os
 import sys
-import argparse
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Render a Docker Compose template")
@@ -20,23 +21,35 @@ def parse_args():
             return False
         raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
 
-    parser.add_argument("--template-path", type=str, required=True, dest="template_path",
-                        help="Path to the template file")
-    parser.add_argument("--output-path", type=str, required=True, dest="output_path",
-                        help="Path to the output file")
-    parser.add_argument("--num-workers", type=int, required=True, dest="num_workers",
-                        help="Number of workers")
-    parser.add_argument("--single-container", type=str_to_bool, required=True, dest="single_container",
-                        help="Whether to run in a single container")
-    parser.add_argument("--gpu-ids", type=str, default=None, dest="gpu_ids", required=False,
-                        help="Comma-delimited list of GPU IDs")
-    parser.add_argument("--kvikio-threads", type=int, default=None, dest="kvikio_threads", required=False,
-                        help="Number of KvikIO threads (optional).")
+    parser.add_argument(
+        "--template-path", type=str, required=True, dest="template_path", help="Path to the template file"
+    )
+    parser.add_argument("--output-path", type=str, required=True, dest="output_path", help="Path to the output file")
+    parser.add_argument("--num-workers", type=int, required=True, dest="num_workers", help="Number of workers")
+    parser.add_argument(
+        "--single-container",
+        type=str_to_bool,
+        required=True,
+        dest="single_container",
+        help="Whether to run in a single container",
+    )
+    parser.add_argument(
+        "--gpu-ids", type=str, default=None, dest="gpu_ids", required=False, help="Comma-delimited list of GPU IDs"
+    )
+    parser.add_argument(
+        "--kvikio-threads",
+        type=int,
+        default=None,
+        dest="kvikio_threads",
+        required=False,
+        help="Number of KvikIO threads (optional).",
+    )
     parser.add_argument("--dev-mode", type=str_to_bool, default=False, dest="dev_mode", required=False,
                         help="Whether to render in dev (gpu-dev) mode (default: false).")
     parser.add_argument("--config-variant", type=str, default="gpu", dest="config_variant", required=False,
                         help="Config directory suffix under presto/docker/config/generated (e.g. 'gpu', 'gpu-dev').")
     return parser.parse_args()
+
 
 def main() -> int:
     parsed_args = parse_args()
@@ -44,9 +57,12 @@ def main() -> int:
     # Parse GPU IDs if provided
     gpu_ids = None
     if parsed_args.gpu_ids:
-        gpu_ids = [int(gpu_id.strip()) for gpu_id in parsed_args.gpu_ids.split(',')]
+        gpu_ids = [int(gpu_id.strip()) for gpu_id in parsed_args.gpu_ids.split(",")]
         if len(gpu_ids) != parsed_args.num_workers:
-            print(f"ERROR: Number of GPU IDs ({len(gpu_ids)}) must match num_workers ({parsed_args.num_workers})", file=sys.stderr)
+            print(
+                f"ERROR: Number of GPU IDs ({len(gpu_ids)}) must match num_workers ({parsed_args.num_workers})",
+                file=sys.stderr,
+            )
             return 2
 
     try:
