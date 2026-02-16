@@ -550,6 +550,8 @@ def _compare_single_dump(dump_dir, args):
         )
         if not output_skipped and (output_mismatches > 0 or output_missing > 0):
             return 1
+        if args.skip_duckdb:
+            return 0
 
     mismatches, checked, first = _compare_dump_to_duckdb(
         sums,
@@ -607,6 +609,12 @@ def main():
         action="store_true",
         default=False,
         help="Compare dumped output columns to expected per-dump sums.",
+    )
+    parser.add_argument(
+        "--skip-duckdb",
+        action="store_true",
+        default=False,
+        help="Skip per-dump DuckDB comparisons (useful with --compare-output).",
     )
     parser.add_argument(
         "--schema-name",
