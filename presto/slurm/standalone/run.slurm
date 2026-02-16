@@ -208,21 +208,6 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
         > "${SCRIPT_DIR}/logs/coordinator.log" 2>&1 &
 }
 
-wait_for_coordinator() {
-    log_info "Waiting for coordinator to start..."
-
-    for i in {1..60}; do
-        state=$(curl -s "http://${COORD}:${PORT}/v1/info/state" 2>/dev/null || echo "")
-        if [[ "$state" == '"ACTIVE"' ]]; then
-            log_info "Coordinator is active"
-            return 0
-        fi
-        sleep 5
-    done
-
-    log_error "Coordinator failed to start (timeout)"
-}
-
 # ==============================================================================
 # Worker Functions
 # ==============================================================================
@@ -254,6 +239,14 @@ ${worker_data}:/var/lib/presto/data,\
 ${DATA_DIR}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
         -- bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; \
+            echo \"Worker ${worker_id}: waiting for coordinator at ${COORD}:${PORT}...\"; \
+            for _i in \$(seq 1 120); do \
+                if curl -sf http://${COORD}:${PORT}/v1/info/state >/dev/null 2>&1; then \
+                    echo \"Worker ${worker_id}: coordinator is ready\"; \
+                    break; \
+                fi; \
+                sleep 2; \
+            done; \
             echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; \
             nvidia-smi -L; \
             /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" \
@@ -270,22 +263,6 @@ start_all_workers() {
             worker_id=$((worker_id + 1))
         done
     done
-}
-
-wait_for_workers() {
-    log_info "Waiting for ${NUM_WORKERS} workers to register..."
-
-    for i in {1..60}; do
-        num_registered=$(curl -s "http://${COORD}:${PORT}/v1/node" 2>/dev/null | jq length 2>/dev/null || echo "0")
-        if [[ "$num_registered" -eq "$NUM_WORKERS" ]]; then
-            log_info "All ${NUM_WORKERS} workers registered"
-            return 0
-        fi
-        log_info "Workers registered: ${num_registered}/${NUM_WORKERS}"
-        sleep 5
-    done
-
-    log_error "Workers failed to register (timeout)"
 }
 
 # ==============================================================================
@@ -315,6 +292,25 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
             export PORT=${PORT}; \
             export HOSTNAME=${COORD}; \
             export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
+            echo 'Waiting for coordinator at ${COORD}:${PORT}...'; \
+            for _i in \$(seq 1 120); do \
+                state=\$(curl -s http://${COORD}:${PORT}/v1/info/state 2>/dev/null || echo ''); \
+                if [ \"\$state\" = '\"ACTIVE\"' ]; then \
+                    echo 'Coordinator is active'; \
+                    break; \
+                fi; \
+                sleep 2; \
+            done; \
+            echo 'Waiting for ${NUM_WORKERS} workers to register...'; \
+            for _i in \$(seq 1 120); do \
+                n=\$(curl -s http://${COORD}:${PORT}/v1/node 2>/dev/null | jq length 2>/dev/null || echo 0); \
+                if [ \"\$n\" -eq ${NUM_WORKERS} ] 2>/dev/null; then \
+                    echo 'All ${NUM_WORKERS} workers registered'; \
+                    break; \
+                fi; \
+                echo \"Workers registered: \$n/${NUM_WORKERS}\"; \
+                sleep 5; \
+            done; \
             cd /workspace/presto/scripts; \
             ./setup_benchmark_tables.sh -b tpch -d date-scale-${SCALE_FACTOR} -s tpchsf${SCALE_FACTOR} --skip-analyze-tables --no-docker" \
         > "${SCRIPT_DIR}/logs/setup.log" 2>&1
@@ -392,15 +388,12 @@ mkdir -p "${SCRIPT_DIR}/logs"
 # Generate configs
 generate_configs
 
-# Start coordinator
+# Launch all containers simultaneously to parallelize image loading.
+# In-container waits handle dependency ordering:
+#   - Workers wait inside their container for the coordinator
+#   - setup_benchmark waits inside its container for coordinator + workers
 start_coordinator
-wait_for_coordinator
-
-# Start workers
 start_all_workers
-wait_for_workers
-
-# Setup and run benchmark
 setup_benchmark
 run_queries
 
