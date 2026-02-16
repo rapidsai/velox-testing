@@ -12,11 +12,8 @@ standalone/
 ├── config-templates/            # Configuration templates
 │   ├── common/
 │   │   ├── hive.properties
-│   │   ├── jmx.properties
 │   │   ├── jvm.config
 │   │   ├── log.properties
-│   │   ├── memory.properties
-│   │   ├── tpcds.properties
 │   │   └── tpch.properties
 │   ├── coordinator/
 │   │   ├── config.properties

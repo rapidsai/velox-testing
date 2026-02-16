@@ -135,17 +135,11 @@ generate_configs() {
     cp "${SCRIPT_DIR}/config-templates/common/log.properties" \
        "$CONFIGS/log.properties"
 
-    # Copy catalog configs for coordinator
+    # Copy catalog configs for coordinator (only hive + tpch, matching original)
     cp "${SCRIPT_DIR}/config-templates/common/hive.properties" \
        "$CONFIGS/coordinator/catalog/hive.properties"
     cp "${SCRIPT_DIR}/config-templates/common/tpch.properties" \
        "$CONFIGS/coordinator/catalog/tpch.properties"
-    cp "${SCRIPT_DIR}/config-templates/common/tpcds.properties" \
-       "$CONFIGS/coordinator/catalog/tpcds.properties"
-    cp "${SCRIPT_DIR}/config-templates/common/jmx.properties" \
-       "$CONFIGS/coordinator/catalog/jmx.properties"
-    cp "${SCRIPT_DIR}/config-templates/common/memory.properties" \
-       "$CONFIGS/coordinator/catalog/memory.properties"
 
     # Generate worker configs for each worker
     local worker_id=0
@@ -173,12 +167,11 @@ generate_configs() {
                 "${SCRIPT_DIR}/config-templates/worker/config.properties" \
                 > "$CONFIGS/worker_${worker_id}/config.properties"
 
-            # Copy catalog configs for worker (NO tpcds - match old setup exactly)
+            # Copy catalog configs for worker (only hive + tpch, matching original)
             cp "${SCRIPT_DIR}/config-templates/common/hive.properties" \
                "$CONFIGS/worker_${worker_id}/catalog/hive.properties"
             cp "${SCRIPT_DIR}/config-templates/common/tpch.properties" \
                "$CONFIGS/worker_${worker_id}/catalog/tpch.properties"
-            # Note: JMX, Memory, and TPC-DS connectors NOT included for workers (match old setup)
 
             worker_id=$((worker_id + 1))
         done
@@ -205,11 +198,7 @@ ${CONFIGS}/jvm.config:/opt/presto-server/etc/jvm.config,\
 ${CONFIGS}/log.properties:/opt/presto-server/etc/log.properties,\
 ${CONFIGS}/coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/coordinator/config.properties:/opt/presto-server/etc/config.properties,\
-${CONFIGS}/coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
-${CONFIGS}/coordinator/catalog/tpch.properties:/opt/presto-server/etc/catalog/tpch.properties,\
-${CONFIGS}/coordinator/catalog/tpcds.properties:/opt/presto-server/etc/catalog/tpcds.properties,\
-${CONFIGS}/coordinator/catalog/jmx.properties:/opt/presto-server/etc/catalog/jmx.properties,\
-${CONFIGS}/coordinator/catalog/memory.properties:/opt/presto-server/etc/catalog/memory.properties,\
+${CONFIGS}/coordinator/catalog:/opt/presto-server/etc/catalog,\
 ${DATA_DIR}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
         -- bash -c "unset CONFIG NODE_CONFIG PRESTO_ETC JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPTIONS; \
@@ -244,8 +233,7 @@ ${CONFIGS}/jvm.config:/opt/presto-server/etc/jvm.config,\
 ${CONFIGS}/log.properties:/opt/presto-server/etc/log.properties,\
 ${CONFIGS}/worker_${worker_id}/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/worker_${worker_id}/config.properties:/opt/presto-server/etc/config.properties,\
-${CONFIGS}/worker_${worker_id}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
-${CONFIGS}/worker_${worker_id}/catalog/tpch.properties:/opt/presto-server/etc/catalog/tpch.properties,\
+${CONFIGS}/worker_${worker_id}/catalog:/opt/presto-server/etc/catalog,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA_DIR}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
@@ -292,11 +280,7 @@ ${CONFIGS}/jvm.config:/opt/presto-server/etc/jvm.config,\
 ${CONFIGS}/log.properties:/opt/presto-server/etc/log.properties,\
 ${CONFIGS}/coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/coordinator/config.properties:/opt/presto-server/etc/config.properties,\
-${CONFIGS}/coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
-${CONFIGS}/coordinator/catalog/tpch.properties:/opt/presto-server/etc/catalog/tpch.properties,\
-${CONFIGS}/coordinator/catalog/tpcds.properties:/opt/presto-server/etc/catalog/tpcds.properties,\
-${CONFIGS}/coordinator/catalog/jmx.properties:/opt/presto-server/etc/catalog/jmx.properties,\
-${CONFIGS}/coordinator/catalog/memory.properties:/opt/presto-server/etc/catalog/memory.properties,\
+${CONFIGS}/coordinator/catalog:/opt/presto-server/etc/catalog,\
 ${DATA_DIR}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
         -- bash -c "yum install -y python3.12 jq > /dev/null 2>&1; \
