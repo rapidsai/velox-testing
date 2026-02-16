@@ -268,8 +268,8 @@ start_all_workers() {
 # ==============================================================================
 # Benchmark Functions
 # ==============================================================================
-setup_benchmark() {
-    log_info "Setting up TPC-H schema (scale factor: ${SCALE_FACTOR})..."
+setup_and_run_benchmark() {
+    log_info "Setting up and running TPC-H benchmark (scale factor: ${SCALE_FACTOR}, iterations: ${NUM_ITERATIONS})..."
 
     srun -w "$COORD" --ntasks=1 --overlap \
         --container-image="${IMAGE_DIR}/${COORD_IMAGE}.sqsh" \
@@ -312,60 +312,33 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
                 sleep 5; \
             done; \
             cd /workspace/presto/scripts; \
-            ./setup_benchmark_tables.sh -b tpch -d date-scale-${SCALE_FACTOR} -s tpchsf${SCALE_FACTOR} --skip-analyze-tables --no-docker" \
-        > "${SCRIPT_DIR}/logs/setup.log" 2>&1
-
-    # Copy pre-analyzed hive metastore data to avoid re-analyzing tables and
-    # ensure the coordinator has proper table statistics for query planning.
-    local analyzed_metastore="${VT_ROOT}/presto/slurm/presto-nvl72/ANALYZED_HIVE_METASTORE"
-    if [[ -d "$analyzed_metastore" ]]; then
-        for dataset in $(ls "$analyzed_metastore"); do
-            if [[ -d "${VT_ROOT}/.hive_metastore/${dataset}" ]]; then
-                log_info "Replacing dataset metadata: $dataset"
-                cp -r "${analyzed_metastore}/${dataset}" "${VT_ROOT}/.hive_metastore/"
-                for table in $(ls "${VT_ROOT}/.hive_metastore/${dataset}"); do
-                    if [[ -f "${VT_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc" ]]; then
-                        rm "${VT_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc"
-                    fi
-                done
-            fi
-        done
-    else
-        log_warn "ANALYZED_HIVE_METASTORE not found at ${analyzed_metastore}, skipping metastore copy"
-    fi
-}
-
-run_queries() {
-    log_info "Running TPC-H queries (${NUM_ITERATIONS} iterations)..."
-
-    srun -w "$COORD" --ntasks=1 --overlap \
-        --container-image="${IMAGE_DIR}/${COORD_IMAGE}.sqsh" \
-        --export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
-        --container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
-        --container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH \
-        --container-mounts="${VT_ROOT}:/workspace,\
-${CONFIGS}/jvm.config:/opt/presto-server/etc/jvm.config,\
-${CONFIGS}/log.properties:/opt/presto-server/etc/log.properties,\
-${CONFIGS}/coordinator/node.properties:/opt/presto-server/etc/node.properties,\
-${CONFIGS}/coordinator/config.properties:/opt/presto-server/etc/config.properties,\
-${CONFIGS}/coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
-${CONFIGS}/coordinator/catalog/tpch.properties:/opt/presto-server/etc/catalog/tpch.properties,\
-${CONFIGS}/coordinator/catalog/tpcds.properties:/opt/presto-server/etc/catalog/tpcds.properties,\
-${CONFIGS}/coordinator/catalog/jmx.properties:/opt/presto-server/etc/catalog/jmx.properties,\
-${CONFIGS}/coordinator/catalog/memory.properties:/opt/presto-server/etc/catalog/memory.properties,\
-${DATA_DIR}:/var/lib/presto/data/hive/data/user_data,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
-        -- bash -c "yum install -y python3.12 jq > /dev/null 2>&1; \
-            export PORT=${PORT}; \
-            export HOSTNAME=${COORD}; \
-            export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
-            cd /workspace/presto/scripts; \
+            echo '=== Setting up benchmark tables ==='; \
+            ./setup_benchmark_tables.sh -b tpch -d date-scale-${SCALE_FACTOR} -s tpchsf${SCALE_FACTOR} --skip-analyze-tables --no-docker; \
+            echo '=== Copying pre-analyzed hive metastore ==='; \
+            ANALYZED=/workspace/presto/slurm/presto-nvl72/ANALYZED_HIVE_METASTORE; \
+            METASTORE=/var/lib/presto/data/hive/metastore; \
+            if [ -d \"\$ANALYZED\" ]; then \
+                for dataset in \$(ls \"\$ANALYZED\"); do \
+                    if [ -d \"\$METASTORE/\$dataset\" ]; then \
+                        echo \"Replacing dataset metadata: \$dataset\"; \
+                        cp -r \"\$ANALYZED/\$dataset\" \"\$METASTORE/\"; \
+                        for table in \$(ls \"\$METASTORE/\$dataset\"); do \
+                            if [ -f \"\$METASTORE/\$dataset/\$table/..prestoSchema.crc\" ]; then \
+                                rm \"\$METASTORE/\$dataset/\$table/..prestoSchema.crc\"; \
+                            fi; \
+                        done; \
+                    fi; \
+                done; \
+            else \
+                echo 'ANALYZED_HIVE_METASTORE not found, skipping metastore copy'; \
+            fi; \
+            echo '=== Running benchmark queries ==='; \
             ./run_benchmark.sh -b tpch -s tpchsf${SCALE_FACTOR} -i ${NUM_ITERATIONS} --hostname ${COORD} --port ${PORT} -o /workspace/presto/slurm/standalone/result_dir" \
-        > "${SCRIPT_DIR}/logs/queries.log" 2>&1
+        > "${SCRIPT_DIR}/logs/benchmark.log" 2>&1
 
     # Copy summary to result_dir
-    if [[ -f "${SCRIPT_DIR}/logs/queries.log" ]]; then
-        cp "${SCRIPT_DIR}/logs/queries.log" "${SCRIPT_DIR}/result_dir/summary.txt"
+    if [[ -f "${SCRIPT_DIR}/logs/benchmark.log" ]]; then
+        cp "${SCRIPT_DIR}/logs/benchmark.log" "${SCRIPT_DIR}/result_dir/summary.txt"
     fi
 }
 
@@ -394,8 +367,7 @@ generate_configs
 #   - setup_benchmark waits inside its container for coordinator + workers
 start_coordinator
 start_all_workers
-setup_benchmark
-run_queries
+setup_and_run_benchmark
 
 log_info "=========================================="
 log_info "Benchmark completed!"
