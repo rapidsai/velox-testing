@@ -86,15 +86,22 @@ To modify Presto configuration:
 
 ### Memory Settings
 
-Memory settings are hardcoded in `run.slurm` (search for "Memory calculations").
-Adjust these based on your hardware:
+Memory is computed dynamically at runtime based on the node's actual RAM (detected
+via `lsmem`). The formulas match the `pbench` config generator and use the
+parameters defined in `presto/docker/config/params.json`. No manual tuning
+is needed unless you want to override the defaults.
 
-```bash
-RAM_GB=900              # Total system memory
-HEAP_SIZE_GB=810        # JVM heap size
-SYSTEM_MEM_GB=850       # Presto native worker system memory
-QUERY_MEM_GB=807        # Presto native worker query memory
-```
+Key derived values (for a 958 GB node as an example):
+
+| Setting | Formula | ~Value |
+|---|---|---|
+| `HEAP_SIZE_GB` | `RAM * 0.9` | 862 |
+| `HEADROOM_GB` | `HEAP * 0.2` | 172 |
+| `SYSTEM_MEM_GB` | `RAM - reserved` | 923 |
+| `QUERY_MEM_GB` | `SYSTEM_MEM * 0.95` | 877 |
+| `SYSTEM_MEM_LIMIT_GB` | `RAM - 5` | 953 |
+
+See the "Dynamic memory calculations" section in `run.slurm` for details.
 
 ## Monitoring
 
@@ -153,6 +160,6 @@ Results are saved to:
 - Check GPU availability with `nvidia-smi`
 
 **Queries fail:**
-- Check `logs/queries.log`
+- Check `logs/benchmark.log`
 - Verify data directory has TPC-H data in expected format
 - Check schema name matches: `tpchsf<scale_factor>`

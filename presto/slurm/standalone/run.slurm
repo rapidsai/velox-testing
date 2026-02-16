@@ -50,11 +50,14 @@ export NUM_WORKERS=$((NUM_NODES * NUM_GPUS_PER_NODE))
 # Config directory (will be generated)
 export CONFIGS="${SCRIPT_DIR}/configs"
 
-# Dynamic memory calculations based on system RAM
-# Get actual system memory
-RAM_GB=$(lsmem -b 2>/dev/null | grep "Total online memory" | awk '{print int($4 / (1024*1024*1024)); }' || echo "1538")
+# Dynamic memory calculations based on system RAM, matching the formulas
+# in presto/docker/config/params.json used by the pbench config generator.
+RAM_GB=$(lsmem -b 2>/dev/null | grep "Total online memory" | awk '{print int($4 / (1024*1024*1024)); }')
+if [[ -z "$RAM_GB" || "$RAM_GB" -eq 0 ]]; then
+    log_error "Failed to detect system memory via lsmem"
+fi
 
-# Coordinator memory (Java) - matches pbench generated values
+# Coordinator memory (Java)
 export RAM_GB
 export HEAP_SIZE_GB=$(echo "$RAM_GB" | awk '{printf "%.0f", $1 * 0.9}')
 export HEADROOM_GB=$(echo "$HEAP_SIZE_GB" | awk '{printf "%.0f", $1 * 0.2}')
@@ -62,10 +65,18 @@ export QUERY_MAX_TOTAL_MEM_GB=$(echo "$HEAP_SIZE_GB" | awk '{printf "%.0f", $1 *
 export QUERY_MAX_MEM_GB=$(echo "$QUERY_MAX_TOTAL_MEM_GB" | awk '{printf "%.0f", $1 * 0.9}')
 export JOIN_MAX_BCAST_MB=$(echo "$RAM_GB" | awk '{printf "%.0f", $1 * 0.01 * 1024}')
 
-# Worker memory (Native/C++) - matches pbench generated values
-# Reserve ~35GB for system (proxygen, buffers, etc) based on pbench calculations
-SYS_RESERVED_GB=35
-export SYSTEM_MEM_GB=$(echo "$RAM_GB" | awk -v res=$SYS_RESERVED_GB '{printf "%.0f", $1 - res}')
+# Worker memory (Native/C++) - reserved memory computed from params.json formulas:
+#   sys_reserved  = min(RAM * 0.05, 2)     -- system reserved memory
+#   proxygen_mem  = min(0.125, 2)           -- proxygen per-worker overhead
+#   native_buffer = min(RAM * 0.05, 32)    -- native buffer memory
+#   total_reserved = sys_reserved + proxygen_mem + native_buffer
+SYS_RESERVED_GB=$(echo "$RAM_GB" | awk '{
+    sys   = ($1 * 0.05 < 2)  ? $1 * 0.05 : 2;
+    prox  = 0.125;
+    buf   = ($1 * 0.05 < 32) ? $1 * 0.05 : 32;
+    printf "%.0f", sys + prox + buf
+}')
+export SYSTEM_MEM_GB=$(echo "$RAM_GB $SYS_RESERVED_GB" | awk '{printf "%.0f", $1 - $2}')
 export QUERY_MEM_GB=$(echo "$SYSTEM_MEM_GB" | awk '{printf "%.0f", $1 * 0.95}')
 export SYSTEM_MEM_LIMIT_GB=$(echo "$RAM_GB" | awk '{printf "%.0f", $1 - 5}')
 
