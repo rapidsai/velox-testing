@@ -41,10 +41,16 @@ def _fetch_json(url: str, timeout: int = 10):
 
 def get_node_count(hostname: str, port: int) -> int | None:
     """Return number of nodes registered with the Presto coordinator (coordinator + workers)."""
-    nodes = _fetch_json(f"http://{hostname}:{port}/v1/node")
-    if nodes is None or not isinstance(nodes, list):
+    url = f"http://{hostname}:{port}/v1/node"
+    raw = _fetch_json(url)
+    if raw is None:
         return None
-    return len(nodes)
+    if not isinstance(raw, list):
+        _debug(f"get_node_count: {url} returned type {type(raw).__name__}, expected list: {raw!r}")
+        return None
+    n = len(raw)
+    _debug(f"get_node_count: {url} -> {n} node(s). First node sample: {raw[0] if raw else 'N/A'}")
+    return n
 
 
 def get_n_workers(hostname: str, port: int) -> int | None:
@@ -52,7 +58,9 @@ def get_n_workers(hostname: str, port: int) -> int | None:
     n = get_node_count(hostname, port)
     if n is None:
         return None
-    return max(1, n - 1)  # coordinator counts as one; single-node has 1 "worker"
+    workers = max(1, n - 1)  # coordinator counts as one; single-node has 1 "worker"
+    _debug(f"get_n_workers: node_count={n} -> n_workers={workers}")
+    return workers
 
 
 def get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_name: str) -> int | float | None:
