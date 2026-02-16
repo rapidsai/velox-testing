@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -e
 set -x
 
@@ -9,16 +12,14 @@ set -x
 # by the slurm launcher script. All configuration is passed via environment vars.
 
 # Source helper functions
-source /mnt/home/misiug/veloxtesting/presto-nvl72/echo_helpers.sh
-source /mnt/home/misiug/veloxtesting/presto-nvl72/functions.sh
+source $SCRIPT_DIR/echo_helpers.sh
+source $SCRIPT_DIR/functions.sh
 
 # ==============================================================================
 # Setup and Validation
 # ==============================================================================
 echo "Setting up Presto environment..."
-export VARIANT_TYPE=gpu
 setup
-echo "Environment setup"
 
 # ==============================================================================
 # Start Coordinator
@@ -47,9 +48,7 @@ done
 echo "Waiting for ${NUM_WORKERS} workers to register with coordinator..."
 wait_for_workers_to_register $NUM_WORKERS
 
-# ==============================================================================
-# Create Schema and Register Tables
-# ==============================================================================
+# Not currently needed because we are copying the hive metastore from the data source.
 #echo "Creating TPC-H schema and registering tables for scale factor ${SCALE_FACTOR}..."
 #setup_benchmark ${SCALE_FACTOR}
 
@@ -60,15 +59,37 @@ echo "Running TPC-H queries (${NUM_ITERATIONS} iterations, scale factor ${SCALE_
 run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
 
 # ==============================================================================
+# Stop Workers (if profiling, this ensures profile files are created)
+# ==============================================================================
+if [ "${ENABLE_PROFILING:-false}" == "true" ]; then
+    echo "Stopping workers to finalize profile files..."
+    stop_workers
+fi
+
+# ==============================================================================
 # Process Results
 # ==============================================================================
 echo "Processing results..."
-mkdir -p /mnt/home/misiug/veloxtesting/presto-nvl72/result_dir
-#tpch_summary_to_csv ${LOGS}/cli.log /mnt/home/misiug/veloxtesting/presto-nvl72/result_dir/summary.csv
-#push_csv
+mkdir -p ${SCRIPT_DIR}/result_dir
+cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
+
+# Check for profile files if profiling was enabled
+if [ "${ENABLE_PROFILING:-false}" == "true" ]; then
+    echo "Checking for profile files..."
+    if [ -d "${SCRIPT_DIR}/profiles" ]; then
+        profile_count=$(find ${SCRIPT_DIR}/profiles -name "*.nsys-rep" 2>/dev/null | wc -l)
+        echo "Found ${profile_count} profile file(s) in ${SCRIPT_DIR}/profiles"
+        ls -lh ${SCRIPT_DIR}/profiles/*.nsys-rep 2>/dev/null || echo "No .nsys-rep files found (workers may still be running)"
+    else
+        echo "Profiles directory does not exist"
+    fi
+fi
 
 echo "========================================"
 echo "Benchmark complete!"
-echo "Results saved to: /mnt/home/misiug/veloxtesting/presto-nvl72/results_dir"
+echo "Results saved to: ${SCRIPT_DIR}/results_dir"
 echo "Logs available at: ${LOGS}"
+if [ "${ENABLE_PROFILING:-false}" == "true" ]; then
+    echo "Profiles directory: ${SCRIPT_DIR}/profiles"
+fi
 echo "========================================"

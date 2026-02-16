@@ -3,6 +3,7 @@
 
 from pathlib import Path
 
+import pandas as pd
 import prestodb
 import pytest
 
@@ -82,8 +83,10 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
 
     if profile:
         assert profile_script_path is not None
+        print(f"[Profiler] Profiling enabled with script: {profile_script_path}")
         profile_output_dir_path = Path(f"{bench_output_dir}/profiles/{benchmark_type}")
         profile_output_dir_path.mkdir(parents=True, exist_ok=True)
+        print(f"[Profiler] Profile output directory: {profile_output_dir_path}")
 
     benchmark_result_collector[benchmark_type] = {
         BenchmarkKeys.RAW_TIMES_KEY: {},
@@ -103,13 +106,27 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
+                print(f"[Profiler] Starting profiler for query {query_id}, output: {profile_output_file_path}")
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
-            for _ in range(iterations):
+            for iteration_num in range(iterations):
                 cursor = presto_cursor.execute(
                     "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
                 )
                 result.append(cursor.stats["elapsedTimeMillis"])
+
+                # Save query results to Parquet (only on first iteration)
+                rows = cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description]
+                df = pd.DataFrame(rows, columns=columns)
+
+                # Save to Parquet format to match expected results
+                results_dir = Path(f"{bench_output_dir}/query_results")
+                results_dir.mkdir(parents=True, exist_ok=True)
+                parquet_path = results_dir / f"{query_id.lower()}.parquet"
+                df.to_parquet(parquet_path, index=False)
+
+                print(f"Saved {query_id} results to {parquet_path}")
 
                 # Collect metrics after each query iteration if enabled
                 if metrics:
@@ -129,6 +146,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             raise
         finally:
             if profile and profile_output_file_path is not None:
+                print(f"[Profiler] Stopping profiler for query {query_id}")
                 stop_profiler(profile_script_path, profile_output_file_path)
 
     return benchmark_query_function
