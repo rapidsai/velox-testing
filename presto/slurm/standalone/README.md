@@ -11,9 +11,13 @@ standalone/
 ├── run.slurm                    # Slurm batch script with all logic
 ├── config-templates/            # Configuration templates
 │   ├── common/
+│   │   ├── hive.properties
+│   │   ├── jmx.properties
 │   │   ├── jvm.config
 │   │   ├── log.properties
-│   │   └── hive.properties
+│   │   ├── memory.properties
+│   │   ├── tpcds.properties
+│   │   └── tpch.properties
 │   ├── coordinator/
 │   │   ├── config.properties
 │   │   └── node.properties
