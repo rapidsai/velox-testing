@@ -3,10 +3,12 @@
 
 import json
 import statistics
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..common.conftest import *  # noqa: F403
 from .benchmark_keys import BenchmarkKeys
+from .run_context import gather_run_context
 
 
 def pytest_addoption(parser):
@@ -109,6 +111,28 @@ def write_section(terminalreporter, text_report, content, **kwargs):
     text_report.append(f" {content} ".center(120, sep))
 
 
+def _build_run_config(session):
+    """
+    Build run-config dict from execution context (Presto nodes, nvidia-smi, schema
+    data source, env). Used for benchmark_config.json and context in benchmark_result.json.
+    """
+    hostname = session.config.getoption("--hostname")
+    port = session.config.getoption("--port")
+    user = session.config.getoption("--user")
+    schema_name = session.config.getoption("--schema-name")
+    scale_factor_override = session.config.getoption("--scale-factor")
+
+    ctx = gather_run_context(
+        hostname=hostname,
+        port=port,
+        user=user,
+        schema_name=schema_name,
+        scale_factor_override=scale_factor_override,
+    )
+    ctx["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return ctx
+
+
 def pytest_sessionfinish(session, exitstatus):
     iterations = session.config.getoption("--iterations")
     schema_name = session.config.getoption("--schema-name")
@@ -122,6 +146,10 @@ def pytest_sessionfinish(session, exitstatus):
     tag = session.config.getoption("--tag")
     if tag:
         json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
+
+    run_config = _build_run_config(session)
+    for key, value in run_config.items():
+        json_result[BenchmarkKeys.CONTEXT_KEY][key] = value
 
     bench_output_dir = get_output_dir(session.config)
     bench_output_dir.mkdir(parents=True, exist_ok=True)
@@ -138,6 +166,10 @@ def pytest_sessionfinish(session, exitstatus):
     else:
         AGG_KEYS = [BenchmarkKeys.LUKEWARM_KEY]
     if not hasattr(session, "benchmark_results"):
+        config_payload = {"benchmark": None, **run_config}
+        with open(f"{bench_output_dir}/benchmark_config.json", "w") as file:
+            json.dump(config_payload, file, indent=2)
+            file.write("\n")
         return
     for benchmark_type, result in session.benchmark_results.items():
         compute_aggregate_timings(result)
@@ -158,6 +190,16 @@ def pytest_sessionfinish(session, exitstatus):
 
     with open(f"{bench_output_dir}/benchmark_result.json", "w") as file:
         json.dump(json_result, file, indent=2)
+        file.write("\n")
+
+    # Write run-config JSON (context from Presto, nvidia-smi, schema, env)
+    benchmark_types = list(session.benchmark_results.keys()) if hasattr(session, "benchmark_results") else []
+    config_payload = {
+        "benchmark": benchmark_types[0] if len(benchmark_types) == 1 else benchmark_types,
+        **run_config,
+    }
+    with open(f"{bench_output_dir}/benchmark_config.json", "w") as file:
+        json.dump(config_payload, file, indent=2)
         file.write("\n")
 
 

@@ -32,3 +32,12 @@ class BenchmarkKeys(str, Enum):
     CONTEXT_KEY = "context"
     ITERATIONS_COUNT_KEY = "iterations_count"
     SCHEMA_NAME_KEY = "schema_name"
+    SCALE_FACTOR_KEY = "scale_factor"
+    # Run configuration (from run context; written to benchmark_config.json and context)
+    TIMESTAMP_KEY = "timestamp"
+    NUM_WORKERS_KEY = "n_workers"
+    GPU_NAME_KEY = "gpu_name"
+    WORKER_IMAGE_KEY = "worker_image"
+    ENGINE_KEY = "engine"
+    KIND_KEY = "kind"
+    GPU_COUNT_KEY = "gpu_count"
