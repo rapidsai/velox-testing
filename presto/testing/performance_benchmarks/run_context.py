@@ -40,7 +40,7 @@ def _fetch_json(url: str, timeout: int = 10):
 
 
 def get_node_count(hostname: str, port: int) -> int | None:
-    """Return number of nodes registered with the Presto coordinator (coordinator + workers)."""
+    """Return number of nodes in the Presto /v1/node list (workers only; coordinator not listed)."""
     url = f"http://{hostname}:{port}/v1/node"
     raw = _fetch_json(url)
     if raw is None:
@@ -51,16 +51,6 @@ def get_node_count(hostname: str, port: int) -> int | None:
     n = len(raw)
     _debug(f"get_node_count: {url} -> {n} node(s). First node sample: {raw[0] if raw else 'N/A'}")
     return n
-
-
-def get_n_workers(hostname: str, port: int) -> int | None:
-    """Infer worker count from Presto node list. Single-node => 1, else nodes - 1."""
-    n = get_node_count(hostname, port)
-    if n is None:
-        return None
-    workers = max(1, n - 1)  # coordinator counts as one; single-node has 1 "worker"
-    _debug(f"get_n_workers: node_count={n} -> n_workers={workers}")
-    return workers
 
 
 def get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_name: str) -> int | float | None:
@@ -264,7 +254,7 @@ def gather_run_context(
         if sf is not None:
             ctx["scale_factor"] = int(sf) if isinstance(sf, float) and sf == int(sf) else sf
 
-    n_workers = get_n_workers(hostname, port)
+    n_workers = get_node_count(hostname, port)
     # Engine only from Docker (container names) or SLURM (nvidia-smi in LOGS). No API fallback.
     engine_from_docker = get_engine_from_docker_containers(hostname, port)
     engine_from_slurm = get_engine_from_slurm() if engine_from_docker is None else None
