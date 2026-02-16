@@ -318,6 +318,25 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore" \
             cd /workspace/presto/scripts; \
             ./setup_benchmark_tables.sh -b tpch -d date-scale-${SCALE_FACTOR} -s tpchsf${SCALE_FACTOR} --skip-analyze-tables --no-docker" \
         > "${SCRIPT_DIR}/logs/setup.log" 2>&1
+
+    # Copy pre-analyzed hive metastore data to avoid re-analyzing tables and
+    # ensure the coordinator has proper table statistics for query planning.
+    local analyzed_metastore="${VT_ROOT}/presto/slurm/presto-nvl72/ANALYZED_HIVE_METASTORE"
+    if [[ -d "$analyzed_metastore" ]]; then
+        for dataset in $(ls "$analyzed_metastore"); do
+            if [[ -d "${VT_ROOT}/.hive_metastore/${dataset}" ]]; then
+                log_info "Replacing dataset metadata: $dataset"
+                cp -r "${analyzed_metastore}/${dataset}" "${VT_ROOT}/.hive_metastore/"
+                for table in $(ls "${VT_ROOT}/.hive_metastore/${dataset}"); do
+                    if [[ -f "${VT_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc" ]]; then
+                        rm "${VT_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc"
+                    fi
+                done
+            fi
+        done
+    else
+        log_warn "ANALYZED_HIVE_METASTORE not found at ${analyzed_metastore}, skipping metastore copy"
+    fi
 }
 
 run_queries() {
