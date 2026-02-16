@@ -138,8 +138,6 @@ generate_configs() {
     # Copy catalog configs for coordinator (only hive + tpch, matching original)
     cp "${SCRIPT_DIR}/config-templates/common/hive.properties" \
        "$CONFIGS/coordinator/catalog/hive.properties"
-    cp "${SCRIPT_DIR}/config-templates/common/tpch.properties" \
-       "$CONFIGS/coordinator/catalog/tpch.properties"
 
     # Generate worker configs for each worker
     local worker_id=0
@@ -170,8 +168,6 @@ generate_configs() {
             # Copy catalog configs for worker (only hive + tpch, matching original)
             cp "${SCRIPT_DIR}/config-templates/common/hive.properties" \
                "$CONFIGS/worker_${worker_id}/catalog/hive.properties"
-            cp "${SCRIPT_DIR}/config-templates/common/tpch.properties" \
-               "$CONFIGS/worker_${worker_id}/catalog/tpch.properties"
 
             worker_id=$((worker_id + 1))
         done
