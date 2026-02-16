@@ -25,7 +25,7 @@ OPTIONS:
     --hostname HOST               Presto coordinator hostname.
     --port PORT                   Presto coordinator port.
     --user USER                   Presto user.
-    --mode MODE                   q17_predicate, avg_cast, threshold_correlated_only, threshold_grouped_only, grouped_avg_only, grouped_avg_double_only.
+    --mode MODE                   q17_predicate, avg_cast, threshold_correlated_only, threshold_grouped_only, grouped_avg_only, grouped_avg_double_only, dump_grouped_sum_expected.
     --schema-name SCHEMA          Existing Hive schema to use (skip auto table creation).
     --keep-tables                 Keep auto-created tables/schema after script exits.
     --max-partkey N               Highest l_partkey to include in scan.
@@ -48,6 +48,7 @@ OPTIONS:
     --auto-simplify               Auto-run multiple forms and print repro/non-repro/error lists.
     --auto-forms LIST             Comma-separated forms for auto simplify.
     --stop-on-mismatch            Stop after the first mismatch.
+    --expected-csv-out PATH       Output CSV path for dump_grouped_sum_expected.
 
 EXAMPLES:
     $0

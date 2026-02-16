@@ -546,6 +546,53 @@ def _setup_tables(presto_cursor, schema_name, create_tables):
     _progress("phase=setup,event=end")
 
 
+def _setup_lineitem_duckdb(presto_cursor, schema_name, create_tables):
+    _progress(f"phase=setup,event=start,schema={schema_name}")
+    if create_tables:
+        _progress(f"phase=setup,event=create_hive_tables_start,schema={schema_name}")
+        schemas_dir = test_utils.get_abs_file_path("../common/schemas/tpch")
+        create_hive_tables.create_tables(
+            presto_cursor,
+            schema_name,
+            schemas_dir,
+            "integration_test/tpch",
+        )
+        _progress(f"phase=setup,event=create_hive_tables_end,schema={schema_name}")
+
+    table_start = time.time()
+    _progress("phase=setup,event=duckdb_register_start,table=lineitem")
+    location = _get_table_external_location(schema_name, "lineitem", presto_cursor)
+    test_utils.create_duckdb_table("lineitem", location)
+    _progress(
+        "phase=setup,event=duckdb_register_end,table=lineitem,"
+        f"seconds={time.time() - table_start:.3f}"
+    )
+    _progress("phase=setup,event=end")
+
+
+def _dump_grouped_sum_expected(lower, upper, range_style, output_path):
+    predicate = _range_predicate("l_partkey", lower, upper, range_style)
+    query = (
+        "SELECT l_partkey, sum(l_quantity) AS sum_qty "
+        "FROM lineitem "
+        f"WHERE {predicate} "
+        "GROUP BY l_partkey "
+        "ORDER BY l_partkey"
+    )
+    _progress(
+        "phase=expected_dump,event=query_start,"
+        f"lower={lower},upper={upper},range_style={range_style},"
+        f"output={output_path}"
+    )
+    duckdb.sql(
+        f"COPY ({query}) TO '{output_path}' (HEADER, DELIMITER ',');"
+    )
+    _progress(
+        "phase=expected_dump,event=query_end,"
+        f"output={output_path}"
+    )
+
+
 def _get_lineitem_partkey_stats(presto_cursor):
     query = "SELECT min(l_partkey), max(l_partkey), count(*) FROM lineitem"
     presto_stats = presto_cursor.execute(query).fetchone()
@@ -1857,6 +1904,7 @@ def main():
             "grouped_avg_decimal_raw",
             "grouped_sum_decimal_raw",
             "grouped_avg_double_only",
+            "dump_grouped_sum_expected",
         ],
         default=DEFAULT_MODE,
         help=(
@@ -2039,6 +2087,13 @@ def main():
     )
     parser.add_argument("--stop-on-mismatch", action="store_true", default=False)
     parser.add_argument(
+        "--expected-csv-out",
+        help=(
+            "Output CSV path for dump_grouped_sum_expected mode "
+            "(required for that mode)."
+        ),
+    )
+    parser.add_argument(
         "--per-group-compare",
         action="store_true",
         default=False,
@@ -2079,6 +2134,21 @@ def main():
     saw_any_error = False
 
     try:
+        if args.mode == "dump_grouped_sum_expected":
+            if not args.expected_csv_out:
+                raise RuntimeError("--expected-csv-out is required for this mode.")
+            upper = args.single_upper if args.single_upper else args.max_partkey
+            if upper is None:
+                raise RuntimeError("--single-upper or --max-partkey is required.")
+            _setup_lineitem_duckdb(cursor, schema_name, should_create_tables)
+            _dump_grouped_sum_expected(
+                lower=args.lower_bound,
+                upper=upper,
+                range_style=args.range_style,
+                output_path=args.expected_csv_out,
+            )
+            return 0
+
         _setup_tables(cursor, schema_name, should_create_tables)
         _log_lineitem_column_types(cursor)
         _progress("phase=main,event=validate_dataset_start")
