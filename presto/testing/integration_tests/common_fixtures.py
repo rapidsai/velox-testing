@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
+import shutil
+from pathlib import Path
 
 import prestodb
 import pytest
@@ -32,12 +34,22 @@ def setup_and_teardown(request, presto_cursor):
         data_sub_directory = f"integration_test/{benchmark_type}"
         create_hive_tables.create_tables(presto_cursor, schema_name, schemas_dir, data_sub_directory)
 
-    # duckdb will need to know the name of each table in a hive schema,
-    # as well as the path to the parquet directory they are based on.
-    tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
-    for (table,) in tables:
-        location = get_table_external_location(schema_name, table, presto_cursor)
-        test_utils.create_duckdb_table(table, location)
+    if not request.config.getoption("--reference-results-dir"):
+        # duckdb will need to know the name of each table in a hive schema,
+        # as well as the path to the parquet directory they are based on.
+        tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
+        for (table,) in tables:
+            location = get_table_external_location(schema_name, table, presto_cursor)
+            test_utils.create_duckdb_table(table, location)
+
+    output_dir = Path(request.config.getoption("--output-dir"))
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    if request.config.getoption("--store-presto-results"):
+        Path(f"{output_dir}/presto_results").mkdir(exist_ok=False)
+    if request.config.getoption("--store-reference-results"):
+        Path(f"{output_dir}/reference_results").mkdir(exist_ok=False)
 
     yield
 
