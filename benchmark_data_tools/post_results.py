@@ -446,11 +446,12 @@ def build_submission_payload(
 
         # Each execution becomes a separate query log entry
         for exec_idx, runtime_ms in enumerate(times):
+            runtime_ms = float(runtime_ms) if not is_failed else None
             query_logs.append(
                 {
                     "query_name": query_name.lstrip("Q"),
                     "execution_order": execution_order,
-                    "runtime_ms": float(runtime_ms),
+                    "runtime_ms": runtime_ms,
                     "status": "error" if is_failed else "success",
                     "extra_info": {
                         "execution_number": exec_idx + 1,
