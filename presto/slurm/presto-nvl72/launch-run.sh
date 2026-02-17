@@ -30,7 +30,7 @@ echo ""
 # Parse required -n/--nodes and -s/--scale-factor, optional -i/--iterations, and collect extra sbatch args
 NODES_COUNT=""
 SCALE_FACTOR=""
-NUM_ITERATIONS="1"
+NUM_ITERATIONS="2"
 EXTRA_ARGS=()
 NUM_GPUS_PER_NODE="4"
 WORKER_IMAGE="presto-native-worker-gpu"
