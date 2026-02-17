@@ -45,9 +45,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-BUILD_DIR="${BUILD_BASE_DIR}/${BUILD_TYPE}"
-if [[ ! -d "${BUILD_DIR}" ]]; then
-    echo "Error: Build directory not found at ${BUILD_DIR}"
+# Presto builds flat (no release/debug subdirectory)
+BUILD_DIR="${BUILD_BASE_DIR}"
+if [[ ! -f "${BUILD_DIR}/CTestTestfile.cmake" ]]; then
+    echo "Error: No test configuration found at ${BUILD_DIR}"
     echo "Please run build-presto first."
     exit 1
 fi

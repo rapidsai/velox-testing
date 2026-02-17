@@ -36,10 +36,12 @@ RUN apt-get update -y && \
     libsodium-dev \
     libstemmer-dev \
     libthrift-dev \
+    libxxhash-dev \
     libzstd-dev \
     # Build tools
     bison \
     flex \
+    gperf \
     ninja-build \
     ccache \
     && rm -rf /tmp/* /var/tmp/* /var/cache/apt/* /var/lib/apt/lists/*
@@ -51,8 +53,8 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 \
     update-alternatives --set gcc /usr/bin/gcc-14
 
 # Create build directories
-RUN mkdir -p /opt/velox-build /opt/presto-build && \
-    chown -R coder:coder /opt/velox-build /opt/presto-build
+RUN mkdir -p /opt/velox-build /opt/presto-build /opt/fb-deps && \
+    chown -R coder:coder /opt/velox-build /opt/presto-build /opt/fb-deps
 
 # Install velox helper scripts
 COPY velox-testing/scripts/devcontainer/* /usr/local/bin/

@@ -66,7 +66,7 @@ fi
 # Display available commands
 echo "Available commands:"
 echo "  build-velox      - Build velox with cuDF support"
-echo "  build-presto     - Build presto-native-execution"
+echo "  build-presto     - Build presto-native-execution (auto-builds FB deps)"
 echo "  test-velox       - Run velox tests"
 echo "  test-presto      - Run presto tests"
 echo "  configure-velox  - Run CMake configuration only"
