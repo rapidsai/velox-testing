@@ -3,6 +3,8 @@
 # Usage: configure-velox [--release|--debug]
 
 set -euo pipefail
+# shellcheck source=_common.sh
+source "$(dirname "$(readlink -f "$0")")/_common.sh"
 
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
@@ -46,22 +48,18 @@ fi
 
 cd "${VELOX_DIR}"
 
-echo "=== Configuring Velox ==="
-echo "Build type:    ${BUILD_TYPE}"
-echo "CUDA archs:    ${CUDAARCHS}"
-echo "Build dir:     ${BUILD_BASE_DIR}/${BUILD_TYPE}"
-echo ""
-
 # Enable sccache if available
 export CMAKE_C_COMPILER_LAUNCHER="${CMAKE_C_COMPILER_LAUNCHER:-sccache}"
 export CMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER:-sccache}"
 export CMAKE_CUDA_COMPILER_LAUNCHER="${CMAKE_CUDA_COMPILER_LAUNCHER:-sccache}"
 
-# Resolve CUDAARCHS - Velox doesn't understand "RAPIDS" so we expand it
-# These are the RAPIDS-supported architectures for CUDA 13.x (from rapids-cmake)
-if [[ "${CUDAARCHS:-}" == "RAPIDS" || -z "${CUDAARCHS:-}" ]]; then
-    export CUDAARCHS="75-real;80-real;86-real;90a-real;100f-real;120a-real;120"
-fi
+resolve_cudaarchs
+
+echo "=== Configuring Velox ==="
+echo "Build type:    ${BUILD_TYPE}"
+echo "CUDA archs:    ${CUDAARCHS}"
+echo "Build dir:     ${BUILD_BASE_DIR}/${BUILD_TYPE}"
+echo ""
 
 # Build CMake flags
 # Disable C++20 module scanning — GCC 14 ICEs with -fmodules-ts on CMake 4.x
@@ -74,59 +72,28 @@ EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_PARQUET=ON"
 EXTRA_CMAKE_FLAGS+=" -DVELOX_MONO_LIBRARY=ON"
 EXTRA_CMAKE_FLAGS+=" -DVELOX_BUILD_SHARED=ON"
 
-# Dependencies that must be built from source (not available as system packages)
+# All dependencies built from source — standalone velox is fully self-contained
+EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DGTest_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DDuckDB_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dfaiss_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dsimdjson_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DFastFloat_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dabsl_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DgRPC_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DArrow_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dgeos_SOURCE=BUNDLED"
 
-# Auto-detect RAPIDS library paths from rapids-build-utils if available
-# This allows velox to find cudf, rmm, kvikio built by the RAPIDS build system
-get_rapids_cmake_dir() {
-    local lib_name="$1"
-    local repo_path="${HOME}/${lib_name}"
-
-    if command -v rapids-get-cmake-build-dir &>/dev/null && [[ -d "${repo_path}" ]]; then
-        local build_dir
-        build_dir=$(rapids-get-cmake-build-dir "${repo_path}/cpp" 2>/dev/null || true)
-        if [[ -n "${build_dir}" && -d "${build_dir}" ]]; then
-            echo "${build_dir}"
-        fi
-    fi
-}
-
-# Add RAPIDS dependency paths
-# Check for cudf - use prebuilt if available, otherwise build from source
+# Auto-detect pre-built RAPIDS libraries (cudf, rmm, kvikio)
 CUDF_BUILD_DIR=$(get_rapids_cmake_dir "cudf")
 if [[ -n "${CUDF_BUILD_DIR}" ]]; then
-    echo "Found cudf build at: ${CUDF_BUILD_DIR}"
     EXTRA_CMAKE_FLAGS+=" -Dcudf_SOURCE=SYSTEM"
-    EXTRA_CMAKE_FLAGS+=" -Dcudf_ROOT=${CUDF_BUILD_DIR}"
 else
     echo "No prebuilt cudf found, will build from source"
     EXTRA_CMAKE_FLAGS+=" -Dcudf_SOURCE=BUNDLED"
 fi
-
-# Check for rmm
-RMM_BUILD_DIR=$(get_rapids_cmake_dir "rmm")
-if [[ -n "${RMM_BUILD_DIR}" ]]; then
-    echo "Found rmm build at: ${RMM_BUILD_DIR}"
-    EXTRA_CMAKE_FLAGS+=" -Drmm_ROOT=${RMM_BUILD_DIR}"
-fi
-
-# Check for kvikio
-KVIKIO_BUILD_DIR=$(get_rapids_cmake_dir "kvikio")
-if [[ -n "${KVIKIO_BUILD_DIR}" ]]; then
-    echo "Found kvikio build at: ${KVIKIO_BUILD_DIR}"
-    EXTRA_CMAKE_FLAGS+=" -Dkvikio_ROOT=${KVIKIO_BUILD_DIR}"
-fi
+append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
 
 echo ""
 
