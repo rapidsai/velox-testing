@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -20,6 +22,9 @@ OPTIONS:
     -h, --help           Show this help message
     -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9)
     -n, --no-cache       Do not use Docker build cache (default: use cache)
+
+Environment:
+    CURL_OPTIONS         Extra curl options passed as a build-arg (e.g., proxy settings)
 
 EOF
 }
@@ -92,9 +97,14 @@ mkdir -p velox
 cp -r ../../velox/scripts velox
 cp -r ../../velox/CMake velox
 
+CURL_OPTIONS="--fail --retry 3 --retry-all-errors --retry-delay 2"
+
 # now build
 echo "Building..."
-docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
+docker compose --progress plain build \
+  ${NO_CACHE_ARG} \
+  --build-arg CURL_OPTIONS="${CURL_OPTIONS}" \
+  centos-native-dependency
 
 # done (will cleanup on exit)
 echo "Presto dependencies/run-time container image built!"
