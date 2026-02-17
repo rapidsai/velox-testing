@@ -54,7 +54,6 @@ import dataclasses
 import hashlib
 import json
 import os
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -116,61 +115,6 @@ class BenchmarkResults:
             benchmark_type="tpch",
             raw_times_ms=raw_times_ms,
             failed_queries=failed_queries,
-        )
-
-
-@dataclasses.dataclass
-class PreAggregatedBenchmarkResults:
-    """Pre-aggregated benchmark results from benchmark_result.json.
-
-    These files contain aggregated statistics (median, lukewarm, etc.)
-    rather than raw per-iteration times.
-    """
-
-    benchmark_type: str
-    lukewarm_times_ms: dict[str, float]
-    median_times_ms: dict[str, float]
-    failed_queries: dict[str, str]
-    iterations_count: int
-    benchmark_name: str
-    scale_factor: int
-
-    @classmethod
-    def from_file(cls, file_path: Path) -> "PreAggregatedBenchmarkResults":
-        data = json.loads(file_path.read_text())
-
-        context = data.get("context", {})
-        iterations_count = context.get("iterations_count", 0)
-        schema_name = context.get("schema_name", "")
-
-        # Derive benchmark name and scale factor from schema_name
-        # e.g. "tpchsf1000" -> benchmark_name="tpch", scale_factor=1000
-        match = re.match(r"^(\w+?)sf(\d+)$", schema_name)
-        if match:
-            benchmark_name = match.group(1)
-            scale_factor = int(match.group(2))
-        else:
-            raise ValueError(f"Cannot parse schema_name '{schema_name}' into benchmark + scale factor")
-
-        # Find the benchmark type key (e.g. "tpch")
-        benchmark_keys = [k for k in data if k != "context"]
-        if len(benchmark_keys) != 1:
-            raise ValueError(f"Expected exactly one benchmark type key, got: {benchmark_keys}")
-        benchmark_type = benchmark_keys[0]
-
-        agg_times = data[benchmark_type]["agg_times_ms"]
-        lukewarm_times_ms = agg_times["lukewarm"]
-        median_times_ms = agg_times["median"]
-        failed_queries = data[benchmark_type].get("failed_queries", {})
-
-        return cls(
-            benchmark_type=benchmark_type,
-            lukewarm_times_ms=lukewarm_times_ms,
-            median_times_ms=median_times_ms,
-            failed_queries=failed_queries,
-            iterations_count=iterations_count,
-            benchmark_name=benchmark_name,
-            scale_factor=scale_factor,
         )
 
 
@@ -247,13 +191,6 @@ def parse_args() -> argparse.Namespace:
         help="Storage configuration name",
     )
     parser.add_argument(
-        "--data-source",
-        choices=["full", "pre-aggregated"],
-        default="full",
-        help="Data source type: 'full' reads benchmark_result.json (default), "
-        "'pre-aggregated' reads benchmark_result.json and posts lukewarm + median",
-    )
-    parser.add_argument(
         "--cache-state",
         choices=["cold", "warm", "hot", "lukewarm"],
         default=None,
@@ -300,61 +237,6 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Upload *.log files from the benchmark directory as assets (default: True). Use --no-upload-logs to skip.",
-    )
-
-    # Pre-aggregated metadata arguments (used when --data-source=pre-aggregated)
-    pre_agg_group = parser.add_argument_group(
-        "pre-aggregated metadata",
-        "Metadata fields required/optional when --data-source=pre-aggregated",
-    )
-    pre_agg_group.add_argument(
-        "--benchmark-definition-name",
-        default=None,
-        help="Override benchmark definition name (default: derived from schema_name, e.g. 'tpch-1000')",
-    )
-    pre_agg_group.add_argument(
-        "--n-workers",
-        type=int,
-        default=None,
-        help="Number of worker nodes (required for pre-aggregated)",
-    )
-    pre_agg_group.add_argument(
-        "--timestamp",
-        default=None,
-        help="Benchmark run timestamp in ISO 8601 format (default: current time)",
-    )
-    pre_agg_group.add_argument(
-        "--gpu-count",
-        type=int,
-        default=0,
-        help="Number of GPUs (default: 0)",
-    )
-    pre_agg_group.add_argument(
-        "--num-drivers",
-        type=int,
-        default=0,
-        help="Number of drivers (default: 0)",
-    )
-    pre_agg_group.add_argument(
-        "--gpu-name",
-        default="unknown",
-        help="GPU name (default: 'unknown')",
-    )
-    pre_agg_group.add_argument(
-        "--worker-image",
-        default="unknown",
-        help="Worker image (default: 'unknown')",
-    )
-    pre_agg_group.add_argument(
-        "--kind",
-        default="unknown",
-        help="Benchmark kind (default: 'unknown')",
-    )
-    pre_agg_group.add_argument(
-        "--execution-number",
-        type=int,
-        default=0,
-        help="Execution number (default: 0)",
     )
 
     return parser.parse_args()
@@ -506,115 +388,6 @@ def build_submission_payload(
         "is_official": is_official,
         "asset_ids": asset_ids,
     }
-
-
-def build_pre_aggregated_payloads(
-    pre_agg_results: PreAggregatedBenchmarkResults,
-    metadata: BenchmarkMetadata,
-    sku_name: str,
-    storage_configuration_name: str,
-    engine_name: str,
-    identifier_hash: str | None,
-    version: str | None,
-    commit_hash: str | None,
-    is_official: bool,
-    benchmark_definition_name: str | None = None,
-    asset_ids: list[int] | None = None,
-) -> list[dict]:
-    """Build two BenchmarkSubmission payloads from pre-aggregated results.
-
-    Returns a list of two payloads:
-      1. Lukewarm (first iteration time) with cache_state="lukewarm"
-      2. Median (median of subsequent runs) with cache_state="warm"
-    """
-    if identifier_hash is None:
-        identifier_hash = generate_identifier_hash(metadata.timestamp, engine_name)
-    if version is None:
-        version = "unknown"
-    if commit_hash is None:
-        commit_hash = "unknown"
-
-    bench_def_name = benchmark_definition_name or metadata.get_benchmark_definition_name()
-    iterations_count = pre_agg_results.iterations_count
-    failed_queries = pre_agg_results.failed_queries
-
-    submissions = []
-    for label, cache_state, times_ms in [
-        ("lukewarm (first iteration) time", "lukewarm", pre_agg_results.lukewarm_times_ms),
-        ("median of subsequent runs", "warm", pre_agg_results.median_times_ms),
-    ]:
-        note = f"Pre-aggregated from {iterations_count} iterations: {label}"
-
-        # Build query logs — one entry per query
-        query_logs = []
-        query_names = sorted(times_ms.keys(), key=lambda x: int(x[1:]))
-
-        for execution_order, query_name in enumerate(query_names):
-            is_failed = query_name in failed_queries
-            query_logs.append(
-                {
-                    "query_name": query_name.lstrip("Q"),
-                    "execution_order": execution_order,
-                    "runtime_ms": float(times_ms[query_name]),
-                    "status": "error" if is_failed else "success",
-                    "extra_info": {
-                        "note": note,
-                    },
-                }
-            )
-
-        # Handle failed queries that have no times
-        execution_order = len(query_logs)
-        for query_name, error_info in failed_queries.items():
-            if query_name not in times_ms:
-                query_logs.append(
-                    {
-                        "query_name": query_name.lstrip("Q"),
-                        "execution_order": execution_order,
-                        "runtime_ms": 0.0,
-                        "status": "error",
-                        "extra_info": {
-                            "note": note,
-                            "error": str(error_info),
-                        },
-                    }
-                )
-                execution_order += 1
-
-        extra_info = {
-            "kind": metadata.kind,
-            "gpu_count": metadata.gpu_count,
-            "gpu_name": metadata.gpu_name,
-            "num_drivers": metadata.num_drivers,
-            "worker_image": metadata.worker_image,
-            "execution_number": metadata.execution_number,
-            "note": note,
-        }
-
-        submissions.append(
-            {
-                "sku_name": sku_name,
-                "storage_configuration_name": storage_configuration_name,
-                "benchmark_definition_name": bench_def_name,
-                "cache_state": cache_state,
-                "query_engine": {
-                    "engine_name": engine_name,
-                    "identifier_hash": identifier_hash,
-                    "version": version,
-                    "commit_hash": commit_hash,
-                },
-                "run_at": metadata.timestamp.isoformat(),
-                "node_count": metadata.n_workers,
-                "query_logs": query_logs,
-                "concurrency_streams": 1,
-                "engine_config": {},
-                "extra_info": extra_info,
-                "is_official": is_official,
-                "asset_ids": asset_ids,
-            }
-        )
-
-    return submissions
 
 
 async def upload_log_files(
@@ -798,128 +571,6 @@ async def process_benchmark_dir(
         return 1
 
 
-async def process_pre_aggregated_dir(
-    benchmark_dir: Path,
-    *,
-    sku_name: str,
-    storage_configuration_name: str,
-    engine_name: str,
-    n_workers: int,
-    timestamp: datetime,
-    identifier_hash: str | None,
-    version: str | None,
-    commit_hash: str | None,
-    is_official: bool,
-    dry_run: bool,
-    api_url: str | None,
-    api_key: str | None,
-    timeout: float,
-    gpu_count: int,
-    num_drivers: int,
-    gpu_name: str,
-    worker_image: str,
-    kind: str,
-    execution_number: int,
-    benchmark_definition_name: str | None = None,
-    upload_logs: bool = True,
-) -> int:
-    """Process a pre-aggregated benchmark directory and post results to API.
-
-    Creates two submissions: one for lukewarm times, one for median times.
-
-    Returns:
-        0 on success, 1 on failure
-    """
-    print(f"\nProcessing (pre-aggregated): {benchmark_dir}", file=sys.stderr)
-
-    # Load pre-aggregated results
-    try:
-        pre_agg_results = PreAggregatedBenchmarkResults.from_file(benchmark_dir / "benchmark_result.json")
-    except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
-        print(f"  Error loading benchmark_result.json: {e}", file=sys.stderr)
-        return 1
-
-    # Build BenchmarkMetadata from CLI args + derived values
-    metadata = BenchmarkMetadata(
-        kind=kind,
-        benchmark=pre_agg_results.benchmark_name,
-        timestamp=timestamp,
-        execution_number=execution_number,
-        n_workers=n_workers,
-        scale_factor=pre_agg_results.scale_factor,
-        gpu_count=gpu_count,
-        num_drivers=num_drivers,
-        worker_image=worker_image,
-        gpu_name=gpu_name,
-        engine=engine_name,
-    )
-
-    benchmark_definition_name = benchmark_definition_name or metadata.get_benchmark_definition_name()
-    print(f"  Benchmark: {benchmark_definition_name}", file=sys.stderr)
-    print(f"  Engine: {engine_name}", file=sys.stderr)
-    print(f"  Node count: {n_workers}", file=sys.stderr)
-    print(f"  Iterations: {pre_agg_results.iterations_count}", file=sys.stderr)
-
-    # Upload log files as assets
-    asset_ids = None
-    if upload_logs:
-        if dry_run:
-            log_files = sorted(benchmark_dir.glob("*.log"))
-            print(
-                f"  [DRY RUN] Would upload {len(log_files)} log file(s): {[f.name for f in log_files]}", file=sys.stderr
-            )
-        else:
-            try:
-                asset_ids = await upload_log_files(benchmark_dir, api_url, api_key, timeout)
-            except (RuntimeError, httpx.RequestError) as e:
-                print(f"  Error uploading logs: {e}", file=sys.stderr)
-                return 1
-
-    # Build two payloads
-    try:
-        payloads = build_pre_aggregated_payloads(
-            pre_agg_results=pre_agg_results,
-            metadata=metadata,
-            sku_name=sku_name,
-            storage_configuration_name=storage_configuration_name,
-            engine_name=engine_name,
-            identifier_hash=identifier_hash,
-            version=version,
-            commit_hash=commit_hash,
-            is_official=is_official,
-            benchmark_definition_name=benchmark_definition_name,
-            asset_ids=asset_ids,
-        )
-    except Exception as e:
-        print(f"  Error building payloads: {e}", file=sys.stderr)
-        return 1
-
-    # Post (or dry-run) each payload
-    for i, payload in enumerate(payloads):
-        label = payload["cache_state"]
-        print(f"\n  Submission {i + 1}/{len(payloads)} ({label}):", file=sys.stderr)
-        print(f"    Query logs: {len(payload['query_logs'])}", file=sys.stderr)
-
-        if dry_run:
-            print(f"\n  [DRY RUN] Payload ({label}):", file=sys.stderr)
-            print(json.dumps(payload, indent=2, default=str))
-            continue
-
-        try:
-            status_code, response_text = await post_submission(api_url, api_key, payload, timeout)
-            print(f"    Status: {status_code}", file=sys.stderr)
-            if status_code >= 400:
-                print(f"    Response: {response_text}", file=sys.stderr)
-                return 1
-            else:
-                print(f"    Success: {response_text}", file=sys.stderr)
-        except httpx.RequestError as e:
-            print(f"    Error posting: {e}", file=sys.stderr)
-            return 1
-
-    return 0
-
-
 async def main() -> int:
     args = parse_args()
 
@@ -944,84 +595,31 @@ async def main() -> int:
         print(f"Error: Input path is not a directory: {args.input_path}", file=sys.stderr)
         return 1
 
-    if args.data_source == "pre-aggregated":
-        # Validate required args for pre-aggregated
-        if not args.engine_name:
-            print(
-                "Error: --engine-name is required when --data-source=pre-aggregated",
-                file=sys.stderr,
-            )
-            return 1
-        if args.n_workers is None:
-            print(
-                "Error: --n-workers is required when --data-source=pre-aggregated",
-                file=sys.stderr,
-            )
-            return 1
-
-        # Parse or default the timestamp
-        if args.timestamp:
-            try:
-                timestamp = datetime.fromisoformat(args.timestamp)
-            except ValueError:
-                print(
-                    f"Error: --timestamp is not valid ISO 8601: {args.timestamp}",
-                    file=sys.stderr,
-                )
-                return 1
-        else:
-            timestamp = datetime.now()
-
-        result = await process_pre_aggregated_dir(
-            benchmark_dir,
-            sku_name=args.sku_name,
-            storage_configuration_name=args.storage_configuration_name,
-            engine_name=args.engine_name,
-            n_workers=args.n_workers,
-            timestamp=timestamp,
-            identifier_hash=args.identifier_hash,
-            version=args.version,
-            commit_hash=args.commit_hash,
-            is_official=args.is_official,
-            dry_run=args.dry_run,
-            api_url=args.api_url,
-            api_key=args.api_key,
-            timeout=args.timeout,
-            gpu_count=args.gpu_count,
-            num_drivers=args.num_drivers,
-            gpu_name=args.gpu_name,
-            worker_image=args.worker_image,
-            kind=args.kind,
-            execution_number=args.execution_number,
-            benchmark_definition_name=args.benchmark_definition_name,
-            upload_logs=args.upload_logs,
+    # Full data source — cache-state is required
+    if args.cache_state is None:
+        print(
+            "Error: --cache-state is required when --data-source=full",
+            file=sys.stderr,
         )
-    else:
-        # Full data source — cache-state is required
-        if args.cache_state is None:
-            print(
-                "Error: --cache-state is required when --data-source=full",
-                file=sys.stderr,
-            )
-            return 1
+        return 1
 
-        result = await process_benchmark_dir(
-            benchmark_dir,
-            sku_name=args.sku_name,
-            storage_configuration_name=args.storage_configuration_name,
-            cache_state=args.cache_state,
-            engine_name=args.engine_name,
-            identifier_hash=args.identifier_hash,
-            version=args.version,
-            commit_hash=args.commit_hash,
-            is_official=args.is_official,
-            dry_run=args.dry_run,
-            api_url=args.api_url,
-            api_key=args.api_key,
-            timeout=args.timeout,
-            upload_logs=args.upload_logs,
-            benchmark_definition_name=args.benchmark_definition_name,
-        )
+    result = await process_benchmark_dir(
+        benchmark_dir,
+        sku_name=args.sku_name,
+        storage_configuration_name=args.storage_configuration_name,
+        cache_state=args.cache_state,
+        engine_name=args.engine_name,
+        identifier_hash=args.identifier_hash,
+        version=args.version,
+        commit_hash=args.commit_hash,
+        is_official=args.is_official,
+        dry_run=args.dry_run,
+        api_url=args.api_url,
+        api_key=args.api_key,
+        timeout=args.timeout,
+        upload_logs=args.upload_logs,
+        benchmark_definition_name=args.benchmark_definition_name,
+    )
 
     return result
 
