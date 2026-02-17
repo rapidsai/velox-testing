@@ -4,6 +4,8 @@
 
 # Clone Presto and Velox
 
+set -e
+
 export PRESTO_BRANCH=${PRESTO_BRANCH:-ibm-research-preview}
 export PRESTO_REPO=${PRESTO_REPO:-https://github.com/prestodb/presto}
 export VELOX_BRANCH=${VELOX_BRANCH:-ibm-research-preview}

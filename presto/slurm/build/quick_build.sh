@@ -9,7 +9,10 @@
 #   - Source: $PRESTO_SLURM_BUILD_DIR
 #   - Images: /mnt/data/$USER/images/presto
 
+set -e
+
 IMAGES_DIR=${IMAGES_DIR:-/mnt/data/$USER/images/presto}
+mkdir -p "$IMAGES_DIR"
 PRESTO_SLURM_BUILD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ==============================================================================
