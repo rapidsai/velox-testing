@@ -3,30 +3,39 @@
 # Usage: build-presto [--release|--debug] [-j N]
 
 set -euo pipefail
+# shellcheck source=_common.sh
+source "$(dirname "$(readlink -f "$0")")/_common.sh"
 
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
 NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/presto-build}"
+FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
 
 usage() {
     cat <<EOF
 Usage: build-presto [OPTIONS]
 
 Build presto-native-execution with velox and cuDF support.
+Automatically builds Facebook OSS dependencies (folly, fbthrift, etc.)
+on first run.
 
 Options:
   --release         Build in release mode (default)
   --debug           Build in debug mode
   -j, --jobs N      Number of parallel jobs (default: nproc - 1)
+  --rebuild-deps    Force rebuild of Facebook OSS dependencies
   -h, --help        Show this help message
 
 Environment variables:
   BUILD_TYPE        release or debug
   NUM_THREADS       Number of parallel jobs
   BUILD_BASE_DIR    Base directory for build output (default: /opt/presto-build)
+  FB_DEPS_PREFIX    Install prefix for FB deps (default: /opt/fb-deps)
 EOF
 }
+
+REBUILD_DEPS=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -34,6 +43,7 @@ while [[ $# -gt 0 ]]; do
         --release) BUILD_TYPE="release"; shift ;;
         --debug) BUILD_TYPE="debug"; shift ;;
         -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        --rebuild-deps) REBUILD_DEPS=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
     esac
@@ -46,66 +56,207 @@ if [[ ! -d "${PRESTO_DIR}" ]]; then
     exit 1
 fi
 
+# ──────────────────────────────────────────────────────────────────────
+# Facebook OSS dependency stack
+#
+# Presto requires folly, fbthrift, and proxygen (plus their transitive
+# deps: fizz, wangle, mvfst). These are built once and cached at
+# FB_DEPS_PREFIX. Subsequent runs skip this step unless --rebuild-deps
+# is passed.
+# ──────────────────────────────────────────────────────────────────────
+build_fb_deps() {
+    local FB_VERSION="v2026.01.05.00"
+    local SCRATCH_DIR="/tmp/fb-deps-build"
+    # CPU flags must match velox's build for folly F14 hash table ABI compatibility
+    local CXX_FLAGS="-mavx2 -mfma -mavx -mf16c -mlzcnt -mbmi2"
+    local GITHUB="https://github.com"
+
+    local CMAKE_COMMON=(
+        -GNinja
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX="${FB_DEPS_PREFIX}"
+        -DCMAKE_PREFIX_PATH="${FB_DEPS_PREFIX}"
+        -DCMAKE_CXX_STANDARD=20
+        "-DCMAKE_CXX_FLAGS=${CXX_FLAGS}"
+        -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        -DBUILD_TESTS=OFF
+    )
+
+    # Download, configure, build, install one package.
+    #   $1 = name, $2 = tarball URL, $3 = source subdir ("." for root)
+    #   $4.. = extra cmake flags
+    _build_pkg() {
+        local name="$1" url="$2" srcsubdir="$3"
+        shift 3
+
+        echo ""
+        echo "--- ${name} ---"
+
+        local pkg_dir="${SCRATCH_DIR}/${name}"
+        rm -rf "${pkg_dir}"
+        mkdir -p "${pkg_dir}/src"
+
+        echo "  Downloading..."
+        curl -fsSL "${url}" | tar xz -C "${pkg_dir}/src"
+
+        local srcdir="${pkg_dir}/src"
+        if [[ ! -f "${srcdir}/CMakeLists.txt" ]]; then
+            local subdirs=("${srcdir}"/*)
+            if [[ ${#subdirs[@]} -eq 1 && -d "${subdirs[0]}" ]]; then
+                srcdir="${subdirs[0]}"
+            fi
+        fi
+        if [[ "${srcsubdir}" != "." ]]; then
+            srcdir="${srcdir}/${srcsubdir}"
+        fi
+
+        echo "  Configuring..."
+        cmake -Wno-dev -B "${pkg_dir}/build" -S "${srcdir}" \
+            "${CMAKE_COMMON[@]}" "$@"
+
+        echo "  Building (${NUM_THREADS} threads)..."
+        cmake --build "${pkg_dir}/build" -j "${NUM_THREADS}"
+
+        echo "  Installing..."
+        cmake --install "${pkg_dir}/build"
+
+        rm -rf "${pkg_dir}"
+    }
+
+    echo "=== Building Facebook OSS dependencies (${FB_VERSION}) ==="
+    echo "Install prefix: ${FB_DEPS_PREFIX}"
+    echo ""
+
+    mkdir -p "${FB_DEPS_PREFIX}"
+    rm -rf "${SCRATCH_DIR}"
+    mkdir -p "${SCRATCH_DIR}"
+
+    local FAST_FLOAT_VERSION="v8.0.2"
+    local XSIMD_VERSION="10.0.0"
+
+    _build_pkg "fast_float" \
+        "${GITHUB}/fastfloat/fast_float/archive/refs/tags/${FAST_FLOAT_VERSION}.tar.gz" \
+        "." -DFASTFLOAT_TEST=OFF
+
+    _build_pkg "xsimd" \
+        "${GITHUB}/xtensor-stack/xsimd/archive/refs/tags/${XSIMD_VERSION}.tar.gz" \
+        "."
+
+    _build_pkg "folly" \
+        "${GITHUB}/facebook/folly/releases/download/${FB_VERSION}/folly-${FB_VERSION}.tar.gz" \
+        "." -DBUILD_SHARED_LIBS=ON -DFOLLY_HAVE_INT128_T=ON
+
+    _build_pkg "fizz" \
+        "${GITHUB}/facebookincubator/fizz/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "fizz" -DBUILD_SHARED_LIBS=ON
+
+    _build_pkg "wangle" \
+        "${GITHUB}/facebook/wangle/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "wangle" -DBUILD_SHARED_LIBS=ON
+
+    _build_pkg "mvfst" \
+        "${GITHUB}/facebook/mvfst/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "." -DBUILD_SHARED_LIBS=ON
+
+    # fbthrift: static with PIC and -fvisibility=default.
+    # GCC bakes HIDDEN visibility into construction vtables for apache::thrift
+    # exception classes. When those static archives link into a PIE executable
+    # alongside Arrow's bundled Apache Thrift, the linker fails. We disable PIE
+    # in the presto link and force default visibility here as defense in depth.
+    _build_pkg "fbthrift" \
+        "${GITHUB}/facebook/fbthrift/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "." -DBUILD_SHARED_LIBS=OFF -Denable_tests=OFF \
+        "-DCMAKE_CXX_FLAGS=${CXX_FLAGS} -fvisibility=default"
+
+    _build_pkg "proxygen" \
+        "${GITHUB}/facebook/proxygen/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "." -DBUILD_SHARED_LIBS=ON
+
+    rm -rf "${SCRATCH_DIR}"
+
+    # Register shared libraries for runtime linking
+    echo "${FB_DEPS_PREFIX}/lib" | sudo tee /etc/ld.so.conf.d/fb-deps.conf >/dev/null
+    sudo ldconfig
+
+    echo ""
+    echo "=== Facebook OSS dependencies installed ==="
+}
+
+# Build FB deps if missing (or if --rebuild-deps was passed)
+if [[ "${REBUILD_DEPS}" == true ]] || \
+   [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/folly/folly-config.cmake" ]]; then
+    build_fb_deps
+else
+    echo "Facebook OSS deps found at ${FB_DEPS_PREFIX} (use --rebuild-deps to force)"
+fi
+
 cd "${PRESTO_DIR}"
 
-echo "=== Building Presto Native Execution ==="
-echo "Build type:    ${BUILD_TYPE}"
-echo "Threads:       ${NUM_THREADS}"
-echo "Build dir:     ${BUILD_BASE_DIR}"
-echo ""
+# Use ~/velox instead of the presto velox submodule so both repos share
+# the same source. Copy the contents over (preserving presto's directory)
+# so the build works without symlinks.
+VELOX_DIR="${HOME}/velox"
+if [[ -d "${VELOX_DIR}" ]]; then
+    echo "Syncing ${VELOX_DIR} into ${PRESTO_DIR}/velox..."
+    rsync -a --delete \
+        --exclude '.git' \
+        --exclude '_build' \
+        "${VELOX_DIR}/" "${PRESTO_DIR}/velox/"
+fi
 
 # Enable sccache if available
 export CMAKE_C_COMPILER_LAUNCHER="${CMAKE_C_COMPILER_LAUNCHER:-sccache}"
 export CMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER:-sccache}"
 export CMAKE_CUDA_COMPILER_LAUNCHER="${CMAKE_CUDA_COMPILER_LAUNCHER:-sccache}"
 
+resolve_cudaarchs
+
+echo ""
+echo "=== Building Presto Native Execution ==="
+echo "Build type:    ${BUILD_TYPE}"
+echo "Threads:       ${NUM_THREADS}"
+echo "CUDA archs:    ${CUDAARCHS}"
+echo "Build dir:     ${BUILD_BASE_DIR}"
+echo ""
+
 # Build CMake flags
-EXTRA_CMAKE_FLAGS="-DPRESTO_ENABLE_PARQUET=ON"
-EXTRA_CMAKE_FLAGS+=" -DPRESTO_ENABLE_S3=ON"
+# Disable C++20 module scanning — GCC 14 ICEs with -fmodules-ts on CMake 4.x
+EXTRA_CMAKE_FLAGS="-DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
+# Suppress false-positive stringop-overflow from system fmt v9 (format_dragon/bigint).
+# -Wno-error=nonnull: presto's SystemConnector.cpp triggers a false-positive with
+# VELOX_CHECK_NOT_NULL on 'this' in a constructor.
+EXTRA_CMAKE_FLAGS+=" -DCMAKE_CXX_FLAGS=-Wno-error=stringop-overflow\\ -Wno-error=nonnull"
+# Disable PIE: fbthrift static archives contain construction vtables with HIDDEN
+# visibility (from virtual inheritance in apache::thrift exception classes).
+# The linker can't resolve R_X86_64_PC32 relocations against hidden symbols in PIE.
+EXTRA_CMAKE_FLAGS+=" -DCMAKE_EXE_LINKER_FLAGS=-no-pie"
+EXTRA_CMAKE_FLAGS+=" -DPRESTO_ENABLE_PARQUET=ON"
 EXTRA_CMAKE_FLAGS+=" -DPRESTO_ENABLE_CUDF=ON"
 
-# Auto-detect RAPIDS library paths from rapids-build-utils if available
-# This allows presto to find cudf, rmm, kvikio built by the RAPIDS build system
-get_rapids_cmake_dir() {
-    local lib_name="$1"
-    local repo_path="${HOME}/${lib_name}"
+# Velox bundled dependencies (passed through to add_subdirectory(velox))
+EXTRA_CMAKE_FLAGS+=" -DGTest_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DDuckDB_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dfaiss_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dsimdjson_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DFastFloat_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=SYSTEM"
+EXTRA_CMAKE_FLAGS+=" -Dabsl_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DgRPC_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=SYSTEM"
+EXTRA_CMAKE_FLAGS+=" -DArrow_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dgeos_SOURCE=BUNDLED"
 
-    if command -v rapids-get-cmake-build-dir &>/dev/null && [[ -d "${repo_path}" ]]; then
-        local build_dir
-        build_dir=$(rapids-get-cmake-build-dir "${repo_path}/cpp" 2>/dev/null || true)
-        if [[ -n "${build_dir}" && -d "${build_dir}" ]]; then
-            echo "${build_dir}"
-        fi
-    fi
-}
-
-# Add RAPIDS dependency paths
-# Check for cudf
-CUDF_BUILD_DIR=$(get_rapids_cmake_dir "cudf")
-if [[ -n "${CUDF_BUILD_DIR}" ]]; then
-    echo "Found cudf build at: ${CUDF_BUILD_DIR}"
-    EXTRA_CMAKE_FLAGS+=" -Dcudf_ROOT=${CUDF_BUILD_DIR}"
-fi
-
-# Check for rmm
-RMM_BUILD_DIR=$(get_rapids_cmake_dir "rmm")
-if [[ -n "${RMM_BUILD_DIR}" ]]; then
-    echo "Found rmm build at: ${RMM_BUILD_DIR}"
-    EXTRA_CMAKE_FLAGS+=" -Drmm_ROOT=${RMM_BUILD_DIR}"
-fi
-
-# Check for kvikio
-KVIKIO_BUILD_DIR=$(get_rapids_cmake_dir "kvikio")
-if [[ -n "${KVIKIO_BUILD_DIR}" ]]; then
-    echo "Found kvikio build at: ${KVIKIO_BUILD_DIR}"
-    EXTRA_CMAKE_FLAGS+=" -Dkvikio_ROOT=${KVIKIO_BUILD_DIR}"
-fi
+# Auto-detect pre-built RAPIDS libraries (cudf, rmm, kvikio)
+append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
 
 echo ""
 
 make cmake-and-build BUILD_TYPE="${BUILD_TYPE}" BUILD_DIR="" \
     BUILD_BASE_DIR="${BUILD_BASE_DIR}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" \
-    NUM_THREADS="${NUM_THREADS}"
+    NUM_THREADS="${NUM_THREADS}" USE_CCACHE=0 \
+    CMAKE_PREFIX_PATH="${FB_DEPS_PREFIX}"
 
 echo ""
 echo "=== Build complete ==="
