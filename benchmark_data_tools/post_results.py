@@ -467,7 +467,7 @@ def build_submission_payload(
                 {
                     "query_name": query_name,
                     "execution_order": execution_order,
-                    "runtime_ms": 0.0,
+                    "runtime_ms": None,
                     "status": "error",
                     "extra_info": {
                         "error": str(error_info),
