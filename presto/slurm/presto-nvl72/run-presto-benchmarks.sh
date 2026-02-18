@@ -2,8 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-set -e
-set -x
+set -exuo pipefail
 
 # ==============================================================================
 # Presto TPC-H Benchmark Execution Script

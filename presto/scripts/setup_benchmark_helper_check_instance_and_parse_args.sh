@@ -50,7 +50,7 @@ fi
 # Compute the directory where this script resides (if not already set by caller)
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
-NO_DOCKER=false
+DOCKER_DEPLOYMENT=true
 SKIP_ANALYZE_TABLES=false
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -91,7 +91,7 @@ parse_args() {
         shift
         ;;
       --no-docker)
-        NO_DOCKER=true
+        DOCKER_DEPLOYMENT=false
         shift
         ;;
       *)

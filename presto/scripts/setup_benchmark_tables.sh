@@ -34,7 +34,7 @@ trap cleanup EXIT
 
 # These scripts are used in some non-docker environments, so provide the option to skip
 # the docker setup/teardown.
-if [[ -z "$NO_DOCKER" ]]; then
+if [[ "$DOCKER_DEPLOYMENT" == "true" ]]; then
   "${SCRIPT_DIR}/start_native_cpu_presto.sh"
   source "${SCRIPT_DIR}/common_functions.sh"
   wait_for_worker_node_registration
@@ -56,6 +56,6 @@ if [[ "$SKIP_ANALYZE_TABLES" == "false" ]]; then
   "${SCRIPT_DIR}/analyze_tables.sh" -s $SCHEMA_NAME
 fi
 
-if [[ -z "$NO_DOCKER" ]]; then
+if [[ "$DOCKER_DEPLOYMENT" == "true" ]]; then
   "${SCRIPT_DIR}/stop_presto.sh"
 fi
