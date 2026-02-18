@@ -17,6 +17,7 @@ OPTIONS:
     --image TAG              Docker image tag (default: velox-hashagg-replay-\$USER).
     --dump-dir DIR           Dump directory in the container.
                              Default: /tmp/hashagg_probe_dumps/hashagg_probe_1771056019538078_1
+    --dump-input-samples     Print first/last/random input samples.
     --sanitizer-arg ARG      Extra compute-sanitizer argument (repeatable).
     --docker-arg ARG         Extra docker run argument (repeatable).
 
@@ -48,6 +49,10 @@ while [[ $# -gt 0 ]]; do
     --dump-dir)
       DUMP_DIR="$2"
       shift 2
+      ;;
+    --dump-input-samples)
+      REPLAY_ARGS+=(--dump_input_samples)
+      shift
       ;;
     --sanitizer-arg)
       SANITIZER_ARGS+=("$2")
