@@ -193,6 +193,7 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     --build-arg NUM_THREADS=$NUM_THREADS
     --build-arg BUILD_TYPE=$BUILD_TYPE
     --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES
+    --build-arg PRESTO_DEPS_IMAGE=$DEPS_IMAGE
   )
   if [[ -n "${BUILD_BASE_DIR:-}" ]]; then
     BUILD_ARGS+=(--build-arg BUILD_BASE_DIR=$BUILD_BASE_DIR)
