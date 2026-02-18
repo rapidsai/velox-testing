@@ -67,7 +67,8 @@ function init_python_virtual_env() {
     init_conda
 
     echo "Creating virtual environment using conda"
-    conda create -q -y --prefix "$venv_dir" python=3.12 > /dev/null
+    # This needs to be python 3.10 because there is an issue with ARM conda's python 3.12.
+    conda create -q -y --prefix "$venv_dir" python=3.10 > /dev/null
   fi
 
   activate_python_virtual_env $venv_dir
