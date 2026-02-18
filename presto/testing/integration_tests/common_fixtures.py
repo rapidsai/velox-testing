@@ -43,13 +43,22 @@ def setup_and_teardown(request, presto_cursor):
             test_utils.create_duckdb_table(table, location)
 
     output_dir = Path(request.config.getoption("--output-dir"))
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=False)
+    user_reference_results_dir = request.config.getoption("--reference-results-dir")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     if request.config.getoption("--store-presto-results"):
-        Path(f"{output_dir}/presto_results").mkdir(exist_ok=False)
+        presto_results_dir = Path(f"{output_dir}/presto_results")
+        if presto_results_dir.exists():
+            shutil.rmtree(presto_results_dir)
+        presto_results_dir.mkdir(exist_ok=False)
+
     if request.config.getoption("--store-reference-results"):
-        Path(f"{output_dir}/reference_results").mkdir(exist_ok=False)
+        # Only manage the reference results directory if it's not being overridden by the user
+        reference_results_dir = Path(f"{output_dir}/reference_results")
+        if reference_results_dir.exists():
+            if not user_reference_results_dir or Path(user_reference_results_dir) != reference_results_dir:
+                shutil.rmtree(reference_results_dir)
+        reference_results_dir.mkdir(exist_ok=False)
 
     yield
 
