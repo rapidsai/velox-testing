@@ -25,6 +25,17 @@ ENV NUM_THREADS=${NUM_THREADS}
 
 RUN mkdir /runtime-libraries
 
+RUN cuda_version="${CUDA_VERSION:-}" && \
+    if [ -n "${cuda_version}" ]; then \
+      dashed="$(echo "${cuda_version}" | tr '.' '-')"; \
+      dnf install -y "cuda-command-line-tools-${dashed}"; \
+    else \
+      dnf install -y cuda-command-line-tools; \
+    fi && \
+    dnf clean all && \
+    command -v compute-sanitizer >/dev/null && \
+    compute-sanitizer --version
+
 RUN --mount=type=bind,source=velox,target=/workspace/velox \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
     . /opt/rh/gcc-toolset-14/enable && \
