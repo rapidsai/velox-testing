@@ -2,7 +2,8 @@
 
 set -e
 
-IMAGE_NAME=${PRESTO_DEPS_IMAGE:-"presto/prestissimo-dependency:centos9-${USER:-latest}"}
+DEFAULT_IMAGE="presto/prestissimo-dependency:centos9"
+IMAGE_NAME=${PRESTO_DEPS_IMAGE:-"${DEFAULT_IMAGE}-${USER:-latest}"}
 NO_CACHE_ARG=''
 
 print_help() {
@@ -95,6 +96,14 @@ cp -r ../../velox/CMake velox
 # now build
 echo "Building..."
 docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
+if [[ "${IMAGE_NAME}" != "${DEFAULT_IMAGE}" ]]; then
+  if [[ -z "$(docker images -q ${DEFAULT_IMAGE})" ]]; then
+    echo "Error: expected base image ${DEFAULT_IMAGE} not found after build"
+    exit 1
+  fi
+  echo "Tagging ${DEFAULT_IMAGE} as ${IMAGE_NAME}"
+  docker tag "${DEFAULT_IMAGE}" "${IMAGE_NAME}"
+fi
 
 # done (will cleanup on exit)
 echo "Presto dependencies/run-time container image built!"
