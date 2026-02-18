@@ -29,9 +29,9 @@ RUN mkdir /runtime-libraries
 RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_native_staging/presto \
     --mount=type=bind,source=velox,target=/presto_native_staging/presto/velox \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
-    source /opt/rh/gcc-toolset-14/enable && \
-    CC=/opt/rh/gcc-toolset-14/root/bin/gcc CXX=/opt/rh/gcc-toolset-14/root/bin/g++ \
-    if [[ "${HASHAGG_REPLAY_ONLY}" == "ON" ]]; then \
+    . /opt/rh/gcc-toolset-14/enable && \
+    CC=/opt/rh/gcc-toolset-14/root/bin/gcc CXX=/opt/rh/gcc-toolset-14/root/bin/g++ && \
+    if [ "${HASHAGG_REPLAY_ONLY}" = "ON" ]; then \
       make --directory="/presto_native_staging/presto" cmake BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR} && \
       cmake --build ${BUILD_BASE_DIR} -j ${NUM_THREADS} --target velox_cudf_hashagg_replay && \
       replay_bin=""; \
@@ -41,12 +41,12 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
         "${BUILD_BASE_DIR}/velox/experimental/cudf/tools/velox_cudf_hashagg_replay" \
         "${BUILD_BASE_DIR}/velox/experimental/cudf/tests/velox_cudf_hashagg_replay" \
         "${BUILD_BASE_DIR}/velox_cudf_hashagg_replay"; do \
-        if [[ -f "$candidate" ]]; then \
+        if [ -f "$candidate" ]; then \
           replay_bin="$candidate"; \
           break; \
         fi; \
       done; \
-      if [[ -z "$replay_bin" ]]; then \
+      if [ -z "$replay_bin" ]; then \
         echo "ERROR: velox_cudf_hashagg_replay binary not found in build output"; \
         exit 1; \
       fi; \
@@ -58,7 +58,7 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
       !(LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | grep "not found" | grep -v -E "libcuda\\.so|libnvidia") && \
       LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 && $3 != "not" && $1 !~ /libcuda\\.so|libnvidia/ { system("cp " $3 " /runtime-libraries") }' && \
       cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin && \
-      if [[ "${GPU}" == "ON" ]]; then \
+      if [ "${GPU}" = "ON" ]; then \
         replay_bin=""; \
         for candidate in \
           "${BUILD_BASE_DIR}/velox/velox/experimental/cudf/tools/velox_cudf_hashagg_replay" \
@@ -66,12 +66,12 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
           "${BUILD_BASE_DIR}/velox/experimental/cudf/tools/velox_cudf_hashagg_replay" \
           "${BUILD_BASE_DIR}/velox/experimental/cudf/tests/velox_cudf_hashagg_replay" \
           "${BUILD_BASE_DIR}/velox_cudf_hashagg_replay"; do \
-          if [[ -f "$candidate" ]]; then \
+          if [ -f "$candidate" ]; then \
             replay_bin="$candidate"; \
             break; \
           fi; \
         done; \
-        if [[ -z "$replay_bin" ]]; then \
+        if [ -z "$replay_bin" ]; then \
           echo "ERROR: velox_cudf_hashagg_replay binary not found in build output"; \
           exit 1; \
         fi; \
