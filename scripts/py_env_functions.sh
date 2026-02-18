@@ -70,7 +70,8 @@ function init_python_virtual_env() {
     init_conda
 
     echo "Creating virtual environment using conda"
-    # This needs to be python 3.10 because there is an issue with ARM conda's python 3.12.
+    # Downgrade the version of python in conda because there is an issue with conda's python 3.12 on ARM.
+    # Installing python3.12 here leads to: "ModuleNotFoundError: No module named '_posixsubprocess'"
     conda create -q -y --prefix "$venv_dir" python=3.11 > /dev/null
   fi
 
