@@ -17,7 +17,7 @@ OPTIONS:
     --image TAG              Docker image tag (default: velox-hashagg-replay-\$USER).
     --dump-dir DIR           Dump directory in the container.
                              Default: /tmp/hashagg_probe_dumps/hashagg_probe_1771056019538078_1
-    --dump-input-samples     Print first/last/random input samples.
+    --dump-input-samples     Print first/last/random input samples and exit.
     --sanitizer-arg ARG      Extra compute-sanitizer argument (repeatable).
     --docker-arg ARG         Extra docker run argument (repeatable).
 
@@ -35,6 +35,7 @@ DUMP_DIR="/tmp/hashagg_probe_dumps/hashagg_probe_1771056019538078_1"
 SANITIZER_ARGS=(--tool memcheck)
 DOCKER_ARGS=()
 REPLAY_ARGS=()
+RUN_SANITIZER=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -52,6 +53,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dump-input-samples)
       REPLAY_ARGS+=(--dump_input_samples)
+      RUN_SANITIZER=false
       shift
       ;;
     --sanitizer-arg)
@@ -74,9 +76,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-docker run --rm -it --gpus all \
-  "${DOCKER_ARGS[@]}" \
-  "${IMAGE_TAG}" \
-  compute-sanitizer "${SANITIZER_ARGS[@]}" \
-  /usr/bin/velox_cudf_hashagg_replay --dump_dir "${DUMP_DIR}" \
-  "${REPLAY_ARGS[@]}"
+if [[ "${RUN_SANITIZER}" == "true" ]]; then
+  docker run --rm -it --gpus all \
+    "${DOCKER_ARGS[@]}" \
+    "${IMAGE_TAG}" \
+    compute-sanitizer "${SANITIZER_ARGS[@]}" \
+    /usr/bin/velox_cudf_hashagg_replay --dump_dir "${DUMP_DIR}" \
+    "${REPLAY_ARGS[@]}"
+else
+  docker run --rm -it --gpus all \
+    "${DOCKER_ARGS[@]}" \
+    "${IMAGE_TAG}" \
+    /usr/bin/velox_cudf_hashagg_replay --dump_dir "${DUMP_DIR}" \
+    "${REPLAY_ARGS[@]}"
+fi
