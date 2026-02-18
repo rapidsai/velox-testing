@@ -1,0 +1,79 @@
+name: Presto Create Staging Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_repository:
+        description: Base Presto repository
+        type: string
+        required: false
+        default: 'prestodb/presto'
+      base_branch:
+        description: Base Presto branch
+        type: string
+        required: false
+        default: 'master'
+      target_repository:
+        description: Target Presto repository
+        type: string
+        required: true
+        default: 'rapidsai/presto'
+      target_branch:
+        description: Target Presto branch
+        type: string
+        required: false
+        default: 'staging'
+      auto_fetch_prs:
+        description: Auto-fetch non-draft PRs with specified label
+        type: boolean
+        required: false
+        default: false
+      pr_labels:
+        description: Comma-separated PR labels to auto-fetch
+        type: string
+        required: false
+        default: ''
+      manual_pr_numbers:
+        description: "Comma-separated PR numbers to merge (e.g., '12345,12346')"
+        type: string
+        required: false
+        default: ''
+      exclude_pr_numbers:
+        description: "Comma-separated PR numbers to exclude from auto-fetch results (e.g., '12345,12346')"
+        type: string
+        required: false
+        default: ''
+      force_push:
+        description: Force push to override existing target branch
+        type: boolean
+        required: false
+        default: false
+      additional_repository:
+        description: 'Additional repository to merge from'
+        type: string
+        required: false
+        default: ''
+      additional_branch:
+        description: 'Branch from additional repository to merge'
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  presto-create-staging:
+    uses: ./.github/workflows/create-staging-composite.yml
+    with:
+      base_repository: ${{ inputs.base_repository }}
+      base_branch: ${{ inputs.base_branch }}
+      target_repository: ${{ inputs.target_repository }}
+      target_branch: ${{ inputs.target_branch }}
+      auto_fetch_prs: ${{ inputs.auto_fetch_prs }}
+      pr_labels: ${{ inputs.pr_labels }}
+      manual_pr_numbers: ${{ inputs.manual_pr_numbers }}
+      exclude_pr_numbers: ${{ inputs.exclude_pr_numbers }}
+      force_push: ${{ inputs.force_push }}
+      additional_repository: ${{ inputs.additional_repository }}
+      additional_branch: ${{ inputs.additional_branch }}
+      script_path: ./velox-testing/presto/scripts/create_staging.sh
+    secrets:
+      fork_pat: ${{ secrets.PRESTO_FORK_PAT || secrets.GITHUB_TOKEN }}

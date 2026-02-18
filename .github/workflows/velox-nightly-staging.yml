@@ -12,4 +12,5 @@ jobs:
       repository: ${{ vars.STABLE_VELOX_REPO }}
       velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
       build_target: 'all'
+      use_upstream_deps_image: ${{ vars.STABLE_VELOX_USE_UPSTREAM_DEPS_IMAGE == 'true' }}
     secrets: inherit

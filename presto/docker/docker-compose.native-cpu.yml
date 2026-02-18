@@ -14,7 +14,7 @@ services:
       file: docker-compose.common.yml
       service: presto-base-native-worker
     container_name: presto-native-worker-cpu
-    image: presto-native-worker-cpu:latest
+    image: presto-native-worker-cpu:${PRESTO_IMAGE_TAG}
     build:
       args:
         - GPU=OFF

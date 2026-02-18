@@ -1,23 +1,12 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 import json
 import statistics
-
 from pathlib import Path
+
+from ..common.conftest import *  # noqa: F403
 from .benchmark_keys import BenchmarkKeys
-from ..common.conftest import *
 
 
 def pytest_addoption(parser):
@@ -32,6 +21,8 @@ def pytest_addoption(parser):
     parser.addoption("--tag")
     parser.addoption("--profile", action="store_true", default=False)
     parser.addoption("--profile-script-path")
+    parser.addoption("--metrics", action="store_true", default=False)
+    parser.addoption("--skip-drop-cache", action="store_true", default=False)
 
 
 def pytest_sessionstart(session):
@@ -45,12 +36,15 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     iterations = config.getoption("--iterations")
     schema_name = config.getoption("--schema-name")
     tag = config.getoption("--tag")
+    if not hasattr(terminalreporter._session, "benchmark_results"):
+        return
     for benchmark_type, result in terminalreporter._session.benchmark_results.items():
         assert BenchmarkKeys.AGGREGATE_TIMES_KEY in result
 
         write_line(terminalreporter, text_report, "")
-        write_section(terminalreporter, text_report, f"{benchmark_type} Benchmark Summary", sep="-", bold=True,
-                      yellow=True)
+        write_section(
+            terminalreporter, text_report, f"{benchmark_type} Benchmark Summary", sep="-", bold=True, yellow=True
+        )
 
         write_line(terminalreporter, text_report, "")
         write_line(terminalreporter, text_report, f"Iterations Count: {iterations}")
@@ -60,8 +54,14 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         write_line(terminalreporter, text_report, "")
 
         if iterations > 1:
-            AGG_HEADERS = ["Avg Hot(ms)", "Min Hot(ms)", "Max Hot(ms)", "Median Hot(ms)", "GMean Hot(ms)",
-                           "Lukewarm(ms)"]
+            AGG_HEADERS = [
+                "Avg Hot(ms)",
+                "Min Hot(ms)",
+                "Max Hot(ms)",
+                "Median Hot(ms)",
+                "GMean Hot(ms)",
+                "Lukewarm(ms)",
+            ]
         else:
             AGG_HEADERS = ["Lukewarm(ms)"]
         width = max([len(agg_header) for agg_header in AGG_HEADERS])
@@ -79,7 +79,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
                 for agg_timing in agg_timings:
                     line += f"|{agg_timing:^{width}}"
             else:
-                line += (f"|{'NULL':^{width}}" * len(AGG_HEADERS))
+                line += f"|{'NULL':^{width}}" * len(AGG_HEADERS)
             write_line(terminalreporter, text_report, line)
 
         # Print SUM row.
@@ -91,7 +91,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             for agg_sum in agg_sums:
                 line += f"|{agg_sum:^{width}}"
         else:
-            line += (f"|{'NULL':^{width}}" * len(AGG_HEADERS))
+            line += f"|{'NULL':^{width}}" * len(AGG_HEADERS)
 
         write_line(terminalreporter, text_report, line)
         write_line(terminalreporter, text_report, "")
@@ -99,7 +99,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     bench_output_dir = get_output_dir(config)
     assert bench_output_dir.is_dir()
     with open(f"{bench_output_dir}/benchmark_result.txt", "w") as file:
-        file.write(f"{'\n'.join(text_report)}\n")
+        report_text = "\n".join(text_report)
+        file.write(f"{report_text}\n")
 
 
 def write_line(terminalreporter, text_report, content, **kwargs):
@@ -123,7 +124,7 @@ def pytest_sessionfinish(session, exitstatus):
             BenchmarkKeys.SCHEMA_NAME_KEY: schema_name,
         },
     }
-    
+
     tag = session.config.getoption("--tag")
     if tag:
         json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
@@ -132,14 +133,23 @@ def pytest_sessionfinish(session, exitstatus):
     bench_output_dir.mkdir(parents=True, exist_ok=True)
 
     if iterations > 1:
-        AGG_KEYS = [BenchmarkKeys.AVG_KEY, BenchmarkKeys.MIN_KEY, BenchmarkKeys.MAX_KEY,
-                    BenchmarkKeys.MEDIAN_KEY, BenchmarkKeys.GMEAN_KEY, BenchmarkKeys.LUKEWARM_KEY]
+        AGG_KEYS = [
+            BenchmarkKeys.AVG_KEY,
+            BenchmarkKeys.MIN_KEY,
+            BenchmarkKeys.MAX_KEY,
+            BenchmarkKeys.MEDIAN_KEY,
+            BenchmarkKeys.GMEAN_KEY,
+            BenchmarkKeys.LUKEWARM_KEY,
+        ]
     else:
         AGG_KEYS = [BenchmarkKeys.LUKEWARM_KEY]
+    if not hasattr(session, "benchmark_results"):
+        return
     for benchmark_type, result in session.benchmark_results.items():
         compute_aggregate_timings(result)
         json_result[benchmark_type] = {
             BenchmarkKeys.AGGREGATE_TIMES_KEY: {},
+            BenchmarkKeys.RAW_TIMES_KEY: result[BenchmarkKeys.RAW_TIMES_KEY],
             BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
         }
         json_agg_timings = json_result[benchmark_type][BenchmarkKeys.AGGREGATE_TIMES_KEY]
@@ -174,9 +184,14 @@ def compute_aggregate_timings(benchmark_results):
             first_iteration = timings[0]
             if len(timings) > 1:
                 hot_timings = timings[1:]
-                stats = (round(statistics.mean(hot_timings), 2), min(hot_timings), max(hot_timings),
-                         statistics.median(hot_timings), round(statistics.geometric_mean(hot_timings), 2),
-                         first_iteration)
+                stats = (
+                    round(statistics.mean(hot_timings), 2),
+                    min(hot_timings),
+                    max(hot_timings),
+                    statistics.median(hot_timings),
+                    round(statistics.geometric_mean(hot_timings), 2),
+                    first_iteration,
+                )
             else:
                 stats = (first_iteration,)
             format_width = max(format_width, *[len(str(stat)) for stat in stats])

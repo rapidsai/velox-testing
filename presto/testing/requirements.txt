@@ -13,3 +13,5 @@ requests==2.32.4
 six==1.17.0
 sqlglot==27.7.0
 urllib3==2.5.0
+pandas==3.0.0
+pyarrow==23.0.0

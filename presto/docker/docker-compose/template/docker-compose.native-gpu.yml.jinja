@@ -2,13 +2,14 @@ x-presto-native-worker-gpu: &gpu_worker_base
   extends:
     file: ../../docker-compose.common.yml
     service: presto-base-native-worker
-  image: presto-native-worker-gpu:latest
+  image: presto-native-worker-gpu:${PRESTO_IMAGE_TAG}
   build:
     args:
       - GPU=ON
   runtime: nvidia
   cap_add:
     - IPC_LOCK
+    - SYS_ADMIN  # Required for nsys GPU metrics profiling
   pid: host
   ulimits:
     memlock: -1

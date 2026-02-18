@@ -1,36 +1,20 @@
 #!/usr/bin/env bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
+
+# Source common utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common.sh"
 
 #
 # fetch_docker_image_from_s3 <imagename> <subdir> <filename>
 #
 # fetches s3://rapidsai-velox-testing/<subdir>/<filename>
 # and attempts to load it as a Docker image
-# 
-
-validate_docker_image() {
-  local IMAGE_NAME=$1
-  echo "Validating Docker image ${IMAGE_NAME}..."
-  if [[ ! -z $(docker images -q ${IMAGE_NAME}) ]]; then
-    echo "Docker image exists"
-    exit 0
-  fi
-}
+#
 
 fetch_docker_image_from_s3() {
   # validate parameter count
