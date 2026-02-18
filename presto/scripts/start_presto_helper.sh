@@ -188,10 +188,17 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   fi
 
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
+  BUILD_ARGS=(
+    --build-arg PRESTO_VERSION=$PRESTO_VERSION
+    --build-arg NUM_THREADS=$NUM_THREADS
+    --build-arg BUILD_TYPE=$BUILD_TYPE
+    --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES
+  )
+  if [[ -n "${BUILD_BASE_DIR:-}" ]]; then
+    BUILD_ARGS+=(--build-arg BUILD_BASE_DIR=$BUILD_BASE_DIR)
+  fi
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
-  $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
-  --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
-  --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
+  $SKIP_CACHE_ARG "${BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}
 fi
 
