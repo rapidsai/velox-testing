@@ -32,7 +32,13 @@ RUN --mount=type=bind,source=presto/presto-native-execution,target=/presto_nativ
     . /opt/rh/gcc-toolset-14/enable && \
     CC=/opt/rh/gcc-toolset-14/root/bin/gcc CXX=/opt/rh/gcc-toolset-14/root/bin/g++ && \
     if [ "${HASHAGG_REPLAY_ONLY}" = "ON" ]; then \
-      make --directory="/presto_native_staging/presto" cmake BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR} && \
+      cmake -S /presto_native_staging/presto -B "${BUILD_BASE_DIR}" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+        -DCMAKE_PREFIX_PATH="/usr/local" \
+        -DTREAT_WARNINGS_AS_ERRORS=1 \
+        -DENABLE_ALL_WARNINGS=1 \
+        -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURES}" \
+        ${EXTRA_CMAKE_FLAGS} && \
       cmake --build ${BUILD_BASE_DIR} -j ${NUM_THREADS} --target velox_cudf_hashagg_replay && \
       replay_bin=""; \
       for candidate in \
