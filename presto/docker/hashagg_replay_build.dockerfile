@@ -22,6 +22,7 @@ ENV CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES}
 ENV BASE_CMAKE_FLAGS=${BASE_CMAKE_FLAGS}
 ENV EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS}
 ENV NUM_THREADS=${NUM_THREADS}
+ENV HASHAGG_REPLAY_DUMP_DIR=/tmp/hashagg_probe_dumps/hashagg_probe_1771056019538078_1
 
 RUN mkdir /runtime-libraries
 
@@ -35,6 +36,10 @@ RUN cuda_version="${CUDA_VERSION:-}" && \
     dnf clean all && \
     command -v compute-sanitizer >/dev/null && \
     compute-sanitizer --version
+
+RUN mkdir -p /tmp/hashagg_probe_dumps
+COPY velox-testing/velox/scripts/hashagg_probe_1771056019538078_1 \
+  /tmp/hashagg_probe_dumps/hashagg_probe_1771056019538078_1
 
 RUN --mount=type=bind,source=velox,target=/workspace/velox \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
