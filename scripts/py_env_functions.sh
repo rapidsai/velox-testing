@@ -38,12 +38,15 @@ function init_conda() {
 function activate_python_virtual_env() {
   local venv_dir=${1:-".venv"}
 
-  if [[ -f "$venv_dir/pyvenv.cfg" ]]; then
+  if [[ -d "$venv_dir/conda-meta" ]]; then
+    echo "Activating conda environment"
+    conda activate "$(readlink -f $venv_dir)"
+  elif [[ -f "$venv_dir/pyvenv.cfg" ]]; then
     echo "Activating venv environment"
     source $venv_dir/bin/activate
   else
-    echo "Activating conda environment"
-    conda activate "$(readlink -f $venv_dir)"
+    echo "Error: $venv_dir is not a valid virtual environment"
+    exit 1
   fi
 }
 
@@ -68,7 +71,7 @@ function init_python_virtual_env() {
 
     echo "Creating virtual environment using conda"
     # This needs to be python 3.10 because there is an issue with ARM conda's python 3.12.
-    conda create -q -y --prefix "$venv_dir" python=3.10 > /dev/null
+    conda create -q -y --prefix "$venv_dir" python=3.11 > /dev/null
   fi
 
   activate_python_virtual_env $venv_dir
