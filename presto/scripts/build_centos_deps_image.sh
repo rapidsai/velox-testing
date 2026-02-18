@@ -2,7 +2,7 @@
 
 set -e
 
-IMAGE_NAME='presto/prestissimo-dependency:centos9'
+IMAGE_NAME=${PRESTO_DEPS_IMAGE:-"presto/prestissimo-dependency:centos9-${USER:-latest}"}
 NO_CACHE_ARG=''
 
 print_help() {
@@ -18,7 +18,7 @@ WARNING: If an image of the given name already exists, it will be removed prior 
 
 OPTIONS:
     -h, --help           Show this help message
-    -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9)
+    -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9-$USER)
     -n, --no-cache       Do not use Docker build cache (default: use cache)
 
 EOF

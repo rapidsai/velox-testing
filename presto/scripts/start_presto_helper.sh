@@ -74,7 +74,7 @@ CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:${IMAGE_TAG}
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
 GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:${IMAGE_TAG}
 
-DEPS_IMAGE="presto/prestissimo-dependency:centos9"
+DEPS_IMAGE="${PRESTO_DEPS_IMAGE:-presto/prestissimo-dependency:centos9-${IMAGE_TAG}}"
 
 BUILD_TARGET_ARG=()
 
