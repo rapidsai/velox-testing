@@ -30,6 +30,8 @@ fi
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
+EXTRA_BUILD_ARGS=()
+SKIP_START_SERVICES=false
 
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   echo "Error: the --profile argument is only supported for Presto GPU"
@@ -88,15 +90,27 @@ else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
 
+if [[ "$HASHAGG_REPLAY_ONLY" == "true" ]]; then
+  if [[ "$VARIANT_TYPE" != "gpu" ]]; then
+    echo "Error: --build-hashagg-replay-only is only supported for GPU."
+    exit 1
+  fi
+  BUILD_TARGET_ARG=($GPU_WORKER_SERVICE)
+  EXTRA_BUILD_ARGS+=(--build-arg HASHAGG_REPLAY_ONLY=ON)
+  SKIP_START_SERVICES=true
+fi
+
 # Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
 if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
   # Generate default GPU IDs: 0,1,2,...,N-1
   export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
 fi
 
-"${SCRIPT_DIR}/stop_presto.sh"
+if [[ "$HASHAGG_REPLAY_ONLY" != "true" ]]; then
+  "${SCRIPT_DIR}/stop_presto.sh"
 
-"${SCRIPT_DIR}/generate_presto_config.sh"
+  "${SCRIPT_DIR}/generate_presto_config.sh"
+fi
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
@@ -155,7 +169,13 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
+  ${EXTRA_BUILD_ARGS[@]} \
   ${BUILD_TARGET_ARG[@]}
+fi
+
+if [[ "$SKIP_START_SERVICES" == "true" ]]; then
+  echo "Skipping docker compose up because build-only was requested."
+  exit 0
 fi
 
 # Start all services defined in the rendered docker-compose file.

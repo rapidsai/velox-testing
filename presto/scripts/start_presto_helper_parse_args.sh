@@ -33,6 +33,9 @@ OPTIONS:
     --profile-args       Arguments to pass to the profiler when it launches the Presto server.
                          This will override the default arguments.
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
+    --build-hashagg-replay-only
+                         Build only the velox_cudf_hashagg_replay binary in the
+                         GPU worker image, then exit (GPU variant only).
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -42,6 +45,7 @@ EXAMPLES:
     $SCRIPT_NAME -w 4
     $SCRIPT_NAME -w 4 -g 4,5,6,7
     $SCRIPT_NAME --profile
+    $SCRIPT_NAME --build-hashagg-replay-only
     $SCRIPT_NAME -h
 
 EOF
@@ -56,6 +60,7 @@ export PROFILE=OFF
 export NUM_WORKERS=1
 export KVIKIO_THREADS=8
 export VCPU_PER_WORKER=""
+export HASHAGG_REPLAY_ONLY=false
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -156,6 +161,10 @@ parse_args() {
         OVERWRITE_CONFIG=true
         shift
         ;;
+      --build-hashagg-replay-only)
+        HASHAGG_REPLAY_ONLY=true
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -187,6 +196,11 @@ fi
 
 if [[ -n $PROFILE_ARGS && "$PROFILE" == "OFF" ]]; then
   echo "Error: the --profile-args argument should only be set when --profile is enabled"
+  exit 1
+fi
+
+if [[ "$HASHAGG_REPLAY_ONLY" == "true" && "$VARIANT_TYPE" != "gpu" ]]; then
+  echo "Error: --build-hashagg-replay-only is only supported for GPU."
   exit 1
 fi
 
