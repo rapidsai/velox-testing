@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 
 # Nightly workflow status helper.
@@ -13,8 +16,13 @@ set -euo pipefail
 # Options:
 #   --print-logs    Print failed log tails for each failure (default: disabled)
 #   --slack         Output in Slack-formatted style with mrkdwn
-#   --cause         Use AI to analyze logs and determine failure cause
-#   --fix           Use AI to suggest a fix (implies --cause)
+#   --cause         Use AI to analyze logs and determine failure cause (default: enabled)
+#   --no-cause      Disable AI cause analysis
+#   --fix           Use AI to suggest a fix, implies --cause (default: enabled)
+#   --no-fix        Disable AI fix suggestions
+#   --claude        Use Claude CLI for analysis (default: enabled)
+#   --no-claude     Use NVIDIA LLM instead of Claude for analysis
+#   --date YYYY-MM-DD  Fetch nightly status for a specific date (default: today UTC)
 #   -h, --help      Show this help message
 #
 # If your network is slow, run:
@@ -31,12 +39,17 @@ set -euo pipefail
 #   LLM_API_URL                    (default: https://integrate.api.nvidia.com/v1/chat/completions)
 #   LLM_MODEL                      (default: nvdev/nvidia/llama-3.3-nemotron-super-49b-v1)
 #   LLM_TIMEOUT                    (default: 30) - timeout in seconds for each LLM API call
+#
+# Claude AI analysis (requires --cause or --fix with --claude):
+#   CLAUDE_BIN                     (default: claude) - path to Claude Code CLI
+#   CLAUDE_MODEL                   (default: opus)
 
 # --- Argument parsing ---
 PRINT_LOGS="false"
 SLACK_FORMAT="true"
-ANALYZE_CAUSE="false"
-ANALYZE_FIX="false"
+ANALYZE_CAUSE="true"
+ANALYZE_FIX="true"
+USE_CLAUDE="true"
 
 show_help() {
   sed -n '3,/^$/p' "$0" | grep -E '^#' | sed 's/^# \?//'
@@ -57,10 +70,31 @@ while [[ $# -gt 0 ]]; do
       ANALYZE_CAUSE="true"
       shift
       ;;
+    --no-cause)
+      ANALYZE_CAUSE="false"
+      ANALYZE_FIX="false"
+      shift
+      ;;
     --fix)
       ANALYZE_FIX="true"
       ANALYZE_CAUSE="true"  # --fix implies --cause
       shift
+      ;;
+    --no-fix)
+      ANALYZE_FIX="false"
+      shift
+      ;;
+    --claude)
+      USE_CLAUDE="true"
+      shift
+      ;;
+    --no-claude)
+      USE_CLAUDE="false"
+      shift
+      ;;
+    --date)
+      TODAY_UTC="$2"
+      shift 2
       ;;
     -h|--help)
       show_help
@@ -161,7 +195,7 @@ get_last_nightly_run_date() {
     --limit 1 \
     --json createdAt \
     --jq '.[0].createdAt // empty' 2>/dev/null | cut -d'T' -f1)
-  
+
   if [[ -n "${run_date}" ]]; then
     echo "${run_date}"
   else
@@ -264,7 +298,7 @@ cell_for_run() {
   local EMOJI_HOURGLASS=$'\xe2\x8f\xb3' # ⏳ hourglass
   local EMOJI_CHECK=$'\xe2\x9c\x85'     # ✅ check mark
   local EMOJI_CROSS=$'\xe2\x9d\x8c'     # ❌ cross mark
-  
+
   local run_json
   run_json="$(cat)"
   if [[ "${run_json}" == "null" ]]; then
@@ -296,21 +330,21 @@ declare -A JOBS_CACHE
 cell_for_filtered_jobs() {
   local run_json="$1"
   local job_filter="$2"
-  
+
   # Emoji definitions
   local EMOJI_DASH=$'\xe2\x9e\x96'      # ➖ heavy minus sign
   local EMOJI_HOURGLASS=$'\xe2\x8f\xb3' # ⏳ hourglass
   local EMOJI_CHECK=$'\xe2\x9c\x85'     # ✅ check mark
   local EMOJI_CROSS=$'\xe2\x9d\x8c'     # ❌ cross mark
-  
+
   if [[ "${run_json}" == "null" || -z "${run_json}" ]]; then
     echo "${EMOJI_DASH}"
     return 0
   fi
-  
+
   local run_id
   run_id="$(jq -r '.databaseId' <<<"${run_json}")"
-  
+
   # Fetch jobs for this run (use cache if available)
   local jobs_json
   if [[ -n "${JOBS_CACHE[${run_id}]:-}" ]]; then
@@ -322,7 +356,7 @@ cell_for_filtered_jobs() {
     }
     JOBS_CACHE[${run_id}]="${jobs_json}"
   fi
-  
+
   # Filter jobs by pattern (case-insensitive) and get their statuses
   local filtered_status
   filtered_status=$(jq -r --arg filter "${job_filter}" '
@@ -330,25 +364,25 @@ cell_for_filtered_jobs() {
     | select(.name | ascii_downcase | contains($filter | ascii_downcase))
     | {status: .status, conclusion: .conclusion}
   ' <<<"${jobs_json}")
-  
+
   if [[ -z "${filtered_status}" ]]; then
     # No matching jobs found
     echo "${EMOJI_DASH}"
     return 0
   fi
-  
+
   # Check if any filtered job is still in progress
   if echo "${filtered_status}" | jq -e 'select(.status != "completed")' >/dev/null 2>&1; then
     echo "${EMOJI_HOURGLASS}"
     return 0
   fi
-  
+
   # Check if any filtered job failed
   if echo "${filtered_status}" | jq -e 'select(.conclusion != "success" and .conclusion != "skipped")' >/dev/null 2>&1; then
     echo "${EMOJI_CROSS}"
     return 0
   fi
-  
+
   echo "${EMOJI_CHECK}"
 }
 
@@ -386,17 +420,20 @@ print_related_issues_and_prs() {
     return 0
   fi
 
-  echo ""
-  echo "  Related issues (last 7 days):"
-  gh_retry gh search issues --repo "${repo}" --limit 5 --json title,url,number \
+  local issues_out prs_out
+  issues_out="$(gh_retry gh search issues --repo "${repo}" --limit 5 --json title,url,number \
     "\"${query}\" created:>=${since_date}" \
-    | jq -r '.[] | "    - #\(.number) \(.title) (\(.url))"' || echo "    - (search failed)"
+    | jq -r '.[] | "    - #\(.number) \(.title) (\(.url))"' 2>/dev/null)" || true
+  prs_out="$(gh_retry gh search prs --repo "${repo}" --limit 5 --json title,url,number \
+    "\"${query}\" created:>=${since_date}" \
+    | jq -r '.[] | "    - #\(.number) \(.title) (\(.url))"' 2>/dev/null)" || true
 
-  echo ""
-  echo "  Related PRs (last 7 days):"
-  gh_retry gh search prs --repo "${repo}" --limit 5 --json title,url,number \
-    "\"${query}\" created:>=${since_date}" \
-    | jq -r '.[] | "    - #\(.number) \(.title) (\(.url))"' || echo "    - (search failed)"
+  if [[ -n "${issues_out}" || -n "${prs_out}" ]]; then
+    echo ""
+    echo "  Related issues/PRs (last 7 days):"
+    [[ -n "${issues_out}" ]] && echo "${issues_out}"
+    [[ -n "${prs_out}" ]] && echo "${prs_out}"
+  fi
 }
 
 print_failure_details() {
@@ -423,7 +460,7 @@ print_failure_details() {
   LOG_TAIL_LINES="${LOG_TAIL_LINES:-150}"
   local since_date
   since_date="$(date -u -d "7 days ago" +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)"
-  
+
   if [[ "${PRINT_LOGS}" == "true" || "${ANALYZE_CAUSE}" == "true" ]]; then
     log_out="$(gh_retry gh run view -R "${REPO}" "${run_id}" --log-failed 2>/dev/null)" || true
   fi
@@ -447,11 +484,11 @@ print_failure_details() {
             | .name
           ' <<<"${jobs_json}")
     fi
-    
+
     # Process each failed job
     while IFS= read -r job_name; do
       [[ -z "${job_name}" ]] && continue
-      
+
       # Get job conclusion and failed steps
       local job_conclusion failed_steps
       job_conclusion=$(jq -r --arg jn "${job_name}" '
@@ -466,12 +503,12 @@ print_failure_details() {
               else map("    - Step: \(.name) (\(.conclusion // "unknown"))") | join("\n")
               end
           ' <<<"${jobs_json}")
-      
+
       echo "  - Job: ${job_name} (${job_conclusion})"
       if [[ -n "${failed_steps}" ]]; then
         echo "${failed_steps}"
       fi
-      
+
       # Extract job-specific logs (log format: job-name<TAB>step-name<TAB>timestamp<TAB>content)
       local job_log_content=""
       if [[ -n "${log_out}" ]]; then
@@ -481,25 +518,29 @@ print_failure_details() {
         job_log_content=$(echo "${log_out}" | grep -E "^${escaped_job_name}"$'\t' | \
           awk '{print} /Post job cleanup\./ {exit}' | tail -n "${LOG_TAIL_LINES}" || true)
       fi
-      
+
       # Analyze this job's logs with AI (only if --cause flag is set)
       if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
         local ai_response cause fix stacktrace
         if [[ -n "${job_log_content}" ]]; then
-          ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
+          if [[ "${USE_CLAUDE}" == "true" ]]; then
+            ai_response="$(analyze_logs_with_claude_ai "${job_log_content}" "${job_name}" "${wf_name}")"
+          else
+            ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
+          fi
         else
           ai_response="STACKTRACE:Unable to fetch logs for this job
 END_STACKTRACE
 CAUSE:Unable to fetch logs for this job
 FIX:Check the run link above for details"
         fi
-        
+
         # Parse STACKTRACE (multiline, between STACKTRACE: and END_STACKTRACE)
         stacktrace="$(echo "${ai_response}" | sed -n '/^STACKTRACE:/,/^END_STACKTRACE/p' | sed '1s/^STACKTRACE:[[:space:]]*//' | sed '/^END_STACKTRACE/d')"
         # Parse CAUSE and FIX from response (guard against no matches)
         cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1 || true)"
         fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1 || true)"
-        
+
         # Fallback if parsing failed
         if [[ -z "${stacktrace}" ]]; then
           stacktrace="Unable to extract stacktrace"
@@ -535,7 +576,7 @@ FIX:Check the run link above for details"
           print_related_issues_and_prs "${repo}" "${query}" "${since_date}"
         fi
       fi
-      
+
     done <<< "${failed_jobs}"
   else
     echo "  - WARN: failed to fetch job/step details (network/API timeout). See run link above." >&2
@@ -616,7 +657,7 @@ analyze_logs_with_ai() {
   local log_content="$1"
   local job_name="$2"
   local workflow_name="$3"
-  
+
   # Check for API key
   local api_key="${LLM_API_KEY:-${NVIDIA_API_KEY:-}}"
   if [[ -z "${api_key}" ]]; then
@@ -625,11 +666,11 @@ analyze_logs_with_ai() {
     echo "FIX:Set API key to enable AI-powered log analysis"
     return
   fi
-  
+
   # API configuration (defaults to NVIDIA's API)
   local api_url="${LLM_API_URL:-https://integrate.api.nvidia.com/v1/chat/completions}"
   local model="${LLM_MODEL:-nvdev/nvidia/llama-3.3-nemotron-super-49b-v1}"
-  
+
   # Truncate logs if too long (keep last ~12000 chars to capture full error context)
   local truncated_logs
   if [[ ${#log_content} -gt 12000 ]]; then
@@ -637,11 +678,11 @@ analyze_logs_with_ai() {
   else
     truncated_logs="${log_content}"
   fi
-  
+
   # Escape special characters for JSON
   local escaped_logs
   escaped_logs=$(echo "${truncated_logs}" | jq -Rs '.')
-  
+
   # Build the prompt with detailed instructions for deep analysis
   local prompt="You are analyzing a CI/CD build failure log. Your task is to find the ROOT CAUSE of the failure, not just the final symptom.
 
@@ -673,7 +714,7 @@ FIX:<your fix suggestion - single line>"
 
   local escaped_prompt
   escaped_prompt=$(echo "${prompt}" | jq -Rs '.')
-  
+
   # Make API request (using NVIDIA API parameters)
   local llm_timeout="${LLM_TIMEOUT:-30}"
   local response
@@ -687,18 +728,18 @@ FIX:<your fix suggestion - single line>"
       \"temperature\": 0.2,
       \"top_p\": 0.7
     }" 2>/dev/null)
-  
+
   if [[ -z "${response}" ]]; then
     echo "STACKTRACE:Unable to extract - API request failed or timed out (${llm_timeout}s)"
     echo "CAUSE:Unable to analyze - API request failed"
     echo "FIX:Check network connectivity and API key, or increase LLM_TIMEOUT"
     return
   fi
-  
+
   # Extract the content from response
   local content
   content=$(echo "${response}" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
-  
+
   if [[ -z "${content}" ]]; then
     # Check for error message
     local error_msg
@@ -714,8 +755,79 @@ FIX:<your fix suggestion - single line>"
     fi
     return
   fi
-  
+
   # Return the AI response (should contain CAUSE: and FIX: lines)
+  echo "${content}"
+}
+
+# Analyze logs using Claude Code CLI to determine cause and fix
+# Requires: claude CLI installed (e.g., ~/.local/bin/claude)
+# Optional: CLAUDE_MODEL (defaults to sonnet), CLAUDE_MAX_BUDGET (defaults to 0.05)
+analyze_logs_with_claude_ai() {
+  local log_content="$1"
+  local job_name="$2"
+  local workflow_name="$3"
+
+  local claude_bin="${CLAUDE_BIN:-claude}"
+  if ! command -v "${claude_bin}" &>/dev/null; then
+    echo "STACKTRACE:Unable to extract - claude CLI not found"
+    echo "CAUSE:Unable to analyze - claude CLI not installed or not in PATH"
+    echo "FIX:Install Claude Code CLI or set CLAUDE_BIN to the correct path"
+    return
+  fi
+
+  local model="${CLAUDE_MODEL:-opus}"
+
+  local truncated_logs
+  if [[ ${#log_content} -gt 12000 ]]; then
+    truncated_logs="[...truncated...]
+$(echo "${log_content}" | tail -c 12000)"
+  else
+    truncated_logs="${log_content}"
+  fi
+
+  local prompt="You are analyzing a CI/CD build failure log. Your task is to find the ROOT CAUSE of the failure, not just the final symptom.
+
+IMPORTANT ANALYSIS RULES:
+- For compilation failures: Look for the FIRST 'error:' message with actual error details (type mismatches, undefined references, missing includes, etc.)
+- DO NOT report generic messages like 'make failed', 'ninja: build stopped', 'exit code 1' as the cause - these are symptoms, not causes
+- Look for specific error patterns: type conversion errors, missing symbols, API mismatches, test assertion failures
+- Include the specific file name, class name, or function name involved in the error
+- For type errors, mention what type was expected vs what was provided
+- For TEST FAILURES: Always include the EXACT test case name(s) that failed (e.g., 'TestClassName.testMethodName', 'test_function_name')
+- For test failures, mention the assertion that failed or the error message from the test
+
+Job: ${job_name}
+Workflow: ${workflow_name}
+
+Log output:
+${truncated_logs}
+
+Based on your analysis, provide:
+1. STACKTRACE: Extract the relevant error stacktrace or error messages from the log (the actual error output, compiler errors, test failures, or exception traces - NOT the entire log, just the key error portion)
+2. CAUSE: The specific root cause (mention file/class/function names, exact error like type mismatch, missing symbol, failed test names, etc.)
+3. FIX: A concrete suggested fix or investigation step
+
+Respond in exactly this format (no markdown except for STACKTRACE which can be multiline):
+STACKTRACE:<the relevant error stacktrace or error messages, can span multiple lines, end with END_STACKTRACE on its own line>
+END_STACKTRACE
+CAUSE:<your specific root cause description - single line>
+FIX:<your fix suggestion - single line>"
+
+  local content
+  content=$(echo "${prompt}" | "${claude_bin}" --print \
+    --model "${model}" \
+    --no-session-persistence \
+    --allowedTools "" \
+    2>/dev/null) || true
+
+  if [[ -z "${content}" ]]; then
+    echo "STACKTRACE:Unable to extract - Claude CLI returned no output"
+    echo "CAUSE:Unable to analyze - Claude CLI failed (check authentication with 'claude --print \"hello\"')"
+    echo "FIX:Run 'claude' interactively once to authenticate, or check ANTHROPIC_API_KEY"
+    return
+  fi
+
   echo "${content}"
 }
 
@@ -757,7 +869,7 @@ print_slack_failure_details() {
   # Fetch logs if needed for printing or AI analysis
   local log_out=""
   LOG_TAIL_LINES="${LOG_TAIL_LINES:-150}"
-  
+
   if [[ "${PRINT_LOGS}" == "true" || "${ANALYZE_CAUSE}" == "true" ]]; then
     log_out="$(gh_retry gh run view -R "${REPO}" "${run_id}" --log-failed 2>/dev/null)" || true
   fi
@@ -781,11 +893,11 @@ print_slack_failure_details() {
             | .name
           ' <<<"${jobs_json}")
     fi
-    
+
     # Process each failed job
     while IFS= read -r job_name; do
       [[ -z "${job_name}" ]] && continue
-      
+
       # Get job conclusion and failed steps
       local job_conclusion failed_steps
       job_conclusion=$(jq -r --arg jn "${job_name}" '
@@ -799,12 +911,12 @@ print_slack_failure_details() {
             | map("    ▪︎ Step: \(.name) (\(.conclusion // "unknown"))")
             | join("\n")
           ' <<<"${jobs_json}")
-      
+
       echo "  ◦ Job: \`${job_name}\` (${job_conclusion})"
       if [[ -n "${failed_steps}" ]]; then
         echo "${failed_steps}"
       fi
-      
+
       # Extract job-specific logs (log format: job-name<TAB>step-name<TAB>timestamp<TAB>content)
       local job_log_content=""
       if [[ -n "${log_out}" ]]; then
@@ -814,25 +926,29 @@ print_slack_failure_details() {
         job_log_content=$(echo "${log_out}" | grep -E "^${escaped_job_name}"$'\t' | \
           awk '{print} /Post job cleanup\./ {exit}' | tail -n "${LOG_TAIL_LINES}" || true)
       fi
-      
+
       # Analyze this job's logs with AI (only if --cause flag is set)
       if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
         local ai_response cause fix stacktrace
         if [[ -n "${job_log_content}" ]]; then
-          ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
+          if [[ "${USE_CLAUDE}" == "true" ]]; then
+            ai_response="$(analyze_logs_with_claude_ai "${job_log_content}" "${job_name}" "${wf_name}")"
+          else
+            ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
+          fi
         else
           ai_response="STACKTRACE:Unable to fetch logs for this job
 END_STACKTRACE
 CAUSE:Unable to fetch logs for this job
 FIX:Check the run link above for details"
         fi
-        
+
         # Parse STACKTRACE (multiline, between STACKTRACE: and END_STACKTRACE)
         stacktrace="$(echo "${ai_response}" | sed -n '/^STACKTRACE:/,/^END_STACKTRACE/p' | sed '1s/^STACKTRACE:[[:space:]]*//' | sed '/^END_STACKTRACE/d')"
         # Parse CAUSE and FIX from response (guard against no matches)
         cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1 || true)"
         fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1 || true)"
-        
+
         # Fallback if parsing failed
         if [[ -z "${stacktrace}" ]]; then
           stacktrace="_Unable to extract stacktrace_"
@@ -865,17 +981,23 @@ FIX:Check the run link above for details"
         repo="$(upstream_repo_for_label "${label}")"
         query="$(extract_search_query "${clean_stacktrace}")"
         if [[ -n "${query}" ]]; then
-          echo ""
-          echo "    *Related issues/PRs (last 7 days):*"
-          gh_retry gh search issues --repo "${repo}" --limit 5 --json title,url,number \
+          local issues_out prs_out
+          issues_out="$(gh_retry gh search issues --repo "${repo}" --limit 5 --json title,url,number \
             "\"${query}\" created:>=${since_date}" \
-            | jq -r '.[] | "    • #\(.number) \(.title) (\(.url))"' || echo "    • (issue search failed)"
-          gh_retry gh search prs --repo "${repo}" --limit 5 --json title,url,number \
+            | jq -r '.[] | "    • #\(.number) \(.title) (\(.url))"' 2>/dev/null)" || true
+          prs_out="$(gh_retry gh search prs --repo "${repo}" --limit 5 --json title,url,number \
             "\"${query}\" created:>=${since_date}" \
-            | jq -r '.[] | "    • #\(.number) \(.title) (\(.url))"' || echo "    • (PR search failed)"
+            | jq -r '.[] | "    • #\(.number) \(.title) (\(.url))"' 2>/dev/null)" || true
+
+          if [[ -n "${issues_out}" || -n "${prs_out}" ]]; then
+            echo ""
+            echo "    *Related issues/PRs (last 7 days):*"
+            [[ -n "${issues_out}" ]] && echo "${issues_out}"
+            [[ -n "${prs_out}" ]] && echo "${prs_out}"
+          fi
         fi
       fi
-      
+
     done <<< "${failed_jobs}"
   else
     echo "  ◦ _WARN: failed to fetch job/step details (network/API timeout). See run link above._" >&2
@@ -1054,7 +1176,7 @@ for row in "${rows[@]}"; do
 
   # Use display name if available, otherwise use row name
   display_row="${DISPLAY_NAME[$row]:-$row}"
-  
+
   if [[ "${SLACK_FORMAT}" == "true" ]]; then
     printf "| %-4s | %-18s | %-9s | %-10s | %-8s |\n" "${row_no}" "${display_row}" "${st_cell}" "${up_cell}" "${sb_cell}"
   else
@@ -1143,4 +1265,3 @@ else
     done
   fi
 fi
-
