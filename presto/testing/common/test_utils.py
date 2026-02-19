@@ -7,18 +7,19 @@ import re
 
 import pytest
 
-
-def get_queries(benchmark_type):
-    with open(get_abs_file_path(f"./queries/{benchmark_type}/queries.json"), "r") as file:
-        return json.load(file)
+from common.testing.query_utils import load_queries_from_file
 
 
 def get_abs_file_path(relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
 
 
-def get_scale_factor_from_file(file):
-    with open(get_abs_file_path(file), "r") as file:
+def get_queries(benchmark_type):
+    return load_queries_from_file(get_abs_file_path(f"./queries/{benchmark_type}/queries.json"))
+
+
+def get_scale_factor_from_file(file_path):
+    with open(file_path, "r") as file:
         metadata = json.load(file)
         return metadata["scale_factor"]
 
@@ -38,8 +39,8 @@ def get_table_external_location(schema_name, table, presto_cursor):
             external_dir = f"{os.environ['PRESTO_DATA_DIR']}/{user_match.group(1)}"
     if not os.path.isdir(external_dir):
         raise Exception(
-            f"external location '{external_dir}' referenced by table hive.{schema_name}.{table} \
-does not exist in {get_abs_file_path('data')} or $PRESTO_DATA_DIR"
+            f"external location '{external_dir}' referenced by table hive.{schema_name}.{table} "
+            f"does not exist in {get_abs_file_path('data')} or $PRESTO_DATA_DIR"
         )
     return external_dir
 
