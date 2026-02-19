@@ -1,0 +1,81 @@
+#!/bin/bash
+# Build everything: RAPIDS libraries, then velox and presto.
+# Wraps the RAPIDS build-all and adds build-velox + build-presto.
+#
+# Common arguments are forwarded to all three build stages:
+#   -j / --jobs / --parallel N       — parallel compilation jobs
+#   -D CMAKE_BUILD_TYPE=<Release|Debug>  — build type
+#   -D <var>=<value>                 — other CMake cache entries (RAPIDS only)
+#
+# Any unrecognised arguments are passed through to the RAPIDS build-all.
+
+set -euo pipefail
+
+usage() {
+    cat <<EOF
+Usage: build-all [OPTIONS]
+
+Build RAPIDS libraries, velox, and presto-native-execution.
+
+Options:
+  -j, --jobs, --parallel N      Number of parallel jobs
+  -D <var>[:<type>]=<value>     CMake cache entry (forwarded to RAPIDS build-all)
+                                CMAKE_BUILD_TYPE is also used to set velox/presto build type
+  -h, --help                    Show this help message
+
+All other options are forwarded to the RAPIDS build-all.
+EOF
+}
+
+JOBS=""
+BUILD_TYPE=""
+RAPIDS_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        -j|--jobs|--parallel)
+            JOBS="$2"
+            RAPIDS_ARGS+=("-j" "$2")
+            shift 2
+            ;;
+        -D)
+            RAPIDS_ARGS+=("-D" "$2")
+            if [[ "$2" =~ ^CMAKE_BUILD_TYPE(:[A-Z]+)?=(.*) ]]; then
+                BUILD_TYPE="${BASH_REMATCH[2],,}"
+            fi
+            shift 2
+            ;;
+        -D*)
+            RAPIDS_ARGS+=("$1")
+            if [[ "$1" =~ ^-DCMAKE_BUILD_TYPE(:[A-Z]+)?=(.*) ]]; then
+                BUILD_TYPE="${BASH_REMATCH[2],,}"
+            fi
+            shift
+            ;;
+        *)
+            RAPIDS_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+VELOX_ARGS=()
+PRESTO_ARGS=()
+
+if [[ -n "${JOBS}" ]]; then
+    VELOX_ARGS+=("-j" "${JOBS}")
+    PRESTO_ARGS+=("-j" "${JOBS}")
+fi
+
+if [[ -n "${BUILD_TYPE}" ]]; then
+    VELOX_ARGS+=("--${BUILD_TYPE}")
+    PRESTO_ARGS+=("--${BUILD_TYPE}")
+fi
+
+if [[ -x /usr/bin/build-all ]]; then
+    /usr/bin/build-all "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
+fi
+
+build-velox "${VELOX_ARGS[@]+"${VELOX_ARGS[@]}"}"
+build-presto "${PRESTO_ARGS[@]+"${PRESTO_ARGS[@]}"}"
