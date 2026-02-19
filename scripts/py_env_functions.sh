@@ -54,7 +54,7 @@ function init_python_virtual_env() {
   local venv_dir=${1:-".venv"}
   rm -rf $venv_dir
 
-  if python3 -m venv $venv_dir &>/dev/null; then
+  if python3.12 -m venv $venv_dir &>/dev/null; then
     echo "Created virtual environment using the venv module"
   else
     if [[ -z $MINIFORGE_HOME ]]; then
