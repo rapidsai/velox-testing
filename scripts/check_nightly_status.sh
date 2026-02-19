@@ -760,9 +760,79 @@ FIX:<your fix suggestion - single line>"
   echo "${content}"
 }
 
+# Extract C++/Java error identifiers (Class::method, Class.method, filenames) from log content.
+# Returns unique identifiers suitable for GitHub search, one per line.
+extract_error_identifiers() {
+  local log_content="$1"
+  local identifiers=""
+
+  # C++ qualified names on lines containing error indicators
+  local cpp_ids
+  cpp_ids=$(echo "${log_content}" | grep -iE 'error|undefined|unresolved|FAILED|fatal' \
+    | grep -oP '[A-Z][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+' 2>/dev/null | head -5) || true
+  identifiers+="${cpp_ids}"$'\n'
+
+  # Java/test method names: ClassName.methodName (from test failure lines)
+  local java_ids
+  java_ids=$(echo "${log_content}" | grep -iE 'FAILED|FAIL|ERROR|assert' \
+    | grep -oP '[A-Z][A-Za-z0-9_]*\.[a-z][A-Za-z0-9_]*' 2>/dev/null | head -5) || true
+  identifiers+="${java_ids}"$'\n'
+
+  # Source filenames from error/undefined lines (e.g., HiveIndexReader.cpp)
+  local file_ids
+  file_ids=$(echo "${log_content}" | grep -iE 'error|undefined|FAILED' \
+    | grep -oP '[A-Z][A-Za-z0-9_]+\.(?:cpp|h|cu|cuh|java)' 2>/dev/null | head -5) || true
+  identifiers+="${file_ids}"$'\n'
+
+  echo "${identifiers}" | sed '/^$/d' | sort -u | head -8
+}
+
+# Search velox and presto GitHub repos for PRs/issues related to given identifiers.
+# Returns a formatted summary of related PRs.
+search_related_github_prs() {
+  local identifiers="$1"
+  local since_date
+  since_date="$(date -u -d "30 days ago" +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)"
+
+  if [[ -z "${identifiers}" ]]; then
+    return
+  fi
+
+  local all_results=""
+  local repos=("facebookincubator/velox" "prestodb/presto")
+  local seen_urls=""
+
+  while IFS= read -r identifier; do
+    [[ -z "${identifier}" ]] && continue
+    # Strip :: for better GitHub search (GitHub treats :: poorly)
+    local search_term="${identifier//::/ }"
+    for repo in "${repos[@]}"; do
+      local prs
+      prs=$(gh_retry gh search prs --repo "${repo}" --limit 3 --json title,url,number,state \
+        "${search_term} created:>=${since_date}" 2>/dev/null \
+        | jq -r '.[] | "#\(.number) [\(.state)] \(.title) (\(.url))"' 2>/dev/null) || true
+      if [[ -n "${prs}" ]]; then
+        # Deduplicate by URL
+        while IFS= read -r pr_line; do
+          local pr_url
+          pr_url=$(echo "${pr_line}" | grep -oP 'https://[^ )]+' || true)
+          if [[ -n "${pr_url}" && ! "${seen_urls}" == *"${pr_url}"* ]]; then
+            seen_urls+=" ${pr_url}"
+            all_results+="  - ${pr_line}"$'\n'
+          fi
+        done <<< "${prs}"
+      fi
+    done
+  done <<< "${identifiers}"
+
+  if [[ -n "${all_results}" ]]; then
+    echo "${all_results}" | head -15
+  fi
+}
+
 # Analyze logs using Claude Code CLI to determine cause and fix
 # Requires: claude CLI installed (e.g., ~/.local/bin/claude)
-# Optional: CLAUDE_MODEL (defaults to sonnet), CLAUDE_MAX_BUDGET (defaults to 0.05)
+# Optional: CLAUDE_MODEL (defaults to opus)
 analyze_logs_with_claude_ai() {
   local log_content="$1"
   local job_name="$2"
@@ -786,6 +856,21 @@ $(echo "${log_content}" | tail -c 12000)"
     truncated_logs="${log_content}"
   fi
 
+  # Search GitHub for related PRs based on error identifiers
+  local identifiers related_prs related_prs_section=""
+  identifiers="$(extract_error_identifiers "${truncated_logs}")"
+  if [[ -n "${identifiers}" ]]; then
+    related_prs="$(search_related_github_prs "${identifiers}")"
+    if [[ -n "${related_prs}" ]]; then
+      related_prs_section="
+
+RELATED GITHUB PRs (found by searching error identifiers in velox/presto repos):
+${related_prs}
+
+When suggesting a FIX, reference any relevant PR from above that may have introduced or fixed the issue. Include the PR number and URL."
+    fi
+  fi
+
   local prompt="You are analyzing a CI/CD build failure log. Your task is to find the ROOT CAUSE of the failure, not just the final symptom.
 
 IMPORTANT ANALYSIS RULES:
@@ -801,18 +886,18 @@ Job: ${job_name}
 Workflow: ${workflow_name}
 
 Log output:
-${truncated_logs}
+${truncated_logs}${related_prs_section}
 
 Based on your analysis, provide:
 1. STACKTRACE: Extract the relevant error stacktrace or error messages from the log (the actual error output, compiler errors, test failures, or exception traces - NOT the entire log, just the key error portion)
 2. CAUSE: The specific root cause (mention file/class/function names, exact error like type mismatch, missing symbol, failed test names, etc.)
-3. FIX: A concrete suggested fix or investigation step
+3. FIX: A concrete suggested fix or investigation step. If any of the RELATED GITHUB PRs above are relevant to the failure, mention them with their PR number and URL.
 
 Respond in exactly this format (no markdown except for STACKTRACE which can be multiline):
 STACKTRACE:<the relevant error stacktrace or error messages, can span multiple lines, end with END_STACKTRACE on its own line>
 END_STACKTRACE
 CAUSE:<your specific root cause description - single line>
-FIX:<your fix suggestion - single line>"
+FIX:<your fix suggestion - single line, include relevant PR links if applicable>"
 
   local content
   content=$(echo "${prompt}" | "${claude_bin}" --print \
