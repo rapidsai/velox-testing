@@ -21,7 +21,7 @@ ARG VELOX_ENABLE_BENCHMARKS=ON
 ARG INSTALL_CCLS=OFF
 
 # Base packages for dev container runtime
-RUN dnf install -y sudo cmake ninja-build git \
+RUN dnf install -y sudo cmake ninja-build git patch \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 

@@ -3,7 +3,7 @@ FROM ${PRESTO_DEPS_IMAGE}
 
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
     dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
-    dnf install -y nsight-systems-cli-2025.5.1
+    dnf install -y nsight-systems-cli-2025.5.1 patch
 
 ARG GPU=ON
 ARG BUILD_TYPE=release
