@@ -7,7 +7,9 @@ function wait_for_worker_node_registration() {
   trap "rm -rf node_response.json" RETURN
 
   echo "Waiting for a worker node to be registered..."
-  COORDINATOR_URL=http://${HOSTNAME}:${PORT}
+  local host="${HOSTNAME:-localhost}"
+  local port="${PORT:-8080}"
+  COORDINATOR_URL=http://${host}:${port}
   echo "Coordinator URL: $COORDINATOR_URL"
   local -r MAX_RETRIES=12
   local retry_count=0
