@@ -4,10 +4,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 function wait_for_worker_node_registration() {
+  local host="$1"
+  local port="$2"
+
+  if [[ -z "${host}" || -z "${port}" ]]; then
+    echo "Error: wait_for_worker_node_registration requires hostname and port arguments."
+    exit 1
+  fi
+
   trap "rm -rf node_response.json" RETURN
 
   echo "Waiting for a worker node to be registered..."
-  COORDINATOR_URL=http://${HOSTNAME}:${PORT}
+  COORDINATOR_URL=http://${host}:${port}
   echo "Coordinator URL: $COORDINATOR_URL"
   local -r MAX_RETRIES=12
   local retry_count=0

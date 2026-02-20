@@ -124,8 +124,6 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                     parquet_path = results_dir / f"{query_id.lower()}.parquet"
                     df.to_parquet(parquet_path, index=False)
 
-                    print(f"Saved {query_id} results to {parquet_path}")
-
                 # Collect metrics after each query iteration if enabled
                 if metrics:
                     presto_query_id = cursor._query.query_id
