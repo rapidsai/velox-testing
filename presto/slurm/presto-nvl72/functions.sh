@@ -206,7 +206,7 @@ function setup_benchmark {
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
     local scale_factor=$1
     local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PORT=$PORT; export HOSTNAME=$COORD; export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 -y; yum install jq -y; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor} --skip-analyze-tables --no-docker; " "cli"
+    run_coord_image "export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 -y; yum install jq -y; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -H $COORD -p $PORT -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor} --skip-analyze-tables --no-docker; " "cli"
 
     # Copy the hive metastore from a local copy.  This means we don't have to create
     # or analyze the tables.
