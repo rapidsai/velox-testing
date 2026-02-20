@@ -64,6 +64,12 @@ DEPS_IMAGE="presto/prestissimo-dependency:centos9"
 
 BUILD_TARGET_ARG=()
 
+# Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
+if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
+  # Generate default GPU IDs: 0,1,2,...,N-1
+  export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
+fi
+
 function is_image_missing() {
   [[ -z "$(docker images -q $1)" ]]
 }
@@ -88,6 +94,10 @@ elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
+  if [[ -n $GPU_IDS ]]; then
+    FIRST_GPU_ID=$(echo $GPU_IDS | cut -d',' -f1)
+    GPU_WORKER_SERVICE="presto-native-worker-gpu-${FIRST_GPU_ID}"
+  fi
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
