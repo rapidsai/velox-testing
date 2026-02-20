@@ -19,6 +19,9 @@ ARG TARGETARCH
 # Do this separate so changing unrelated build args doesn't invalidate nsys installation layer
 ARG VELOX_ENABLE_BENCHMARKS=ON
 
+# Install patch utility to support applying patches
+RUN dnf install -y patch
+
 # Install NVIDIA Nsight Systems (nsys) for profiling - only if benchmarks are enabled
 RUN \
 <<EOF
