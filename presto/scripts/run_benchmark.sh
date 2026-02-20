@@ -39,6 +39,14 @@ OPTIONS:
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
 
+ENVIRONMENT:
+    PRESTO_BENCHMARK_DEBUG   Set to 1 to print debug logs for worker/engine detection
+                             (e.g. node URIs, reachability, metrics, Docker containers).
+                             Use when engine is misdetected or the run fails.
+    Docker                  In Docker setups, engine is inferred from running worker
+                             images (presto-native-worker-gpu/cpu, presto-java-worker)
+                             whose tag equals the username. Ensure 'docker ps' is available.
+
 EXAMPLES:
     $0 -b tpch -s bench_sf100
     $0 -b tpch -q "1,2" -s bench_sf100
@@ -46,6 +54,7 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
     $0 -b tpch -s bench_sf100 --metrics
+    PRESTO_BENCHMARK_DEBUG=1 $0 -b tpch -s bench_sf100
     $0 -h
 
 EOF
