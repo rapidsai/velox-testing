@@ -5,6 +5,10 @@ on:
     - cron: '0 8 * * *'  # daily at 08:00 UTC
   workflow_dispatch:
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   nightly-tpch-sanity-test:
     uses: ./.github/workflows/velox-benchmark-sanity-test.yml
