@@ -35,6 +35,8 @@ INSTALL_CCLS="OFF"
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
 SCCACHE_VERSION="${SCCACHE_VERSION:-latest}"
+CCACHE_MAX_SIZE="${CCACHE_MAXSIZE:-400G}"
+CCACHE_HOST_DIR=""
 UPDATE_NINJA=true
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-${VELOX_DEV_PROJECT_NAME:-${CONTAINER_NAME}}}"
 
@@ -56,6 +58,8 @@ Options:
   --sccache                   Enable sccache distributed compilation caching (requires auth files in ~/.sccache-auth/).
   --sccache-version           Install a specific version of rapidsai/sccache, e.g. "0.12.0-rapids.1" (default: latest)
   --sccache-enable-dist       Enable distributed compilation (WARNING: may cause compilation differences like additional warnings that could lead to build failures).
+  --ccache-dir DIR            Host ccache directory to mount into the container (default: \$CCACHE_DIR or ~/.cache/ccache).
+  --ccache-max-size SIZE      Set ccache maximum cache size (default: 50G).
   --update-ninja true|false   Update ninja build tool during build (default: true).
   --install-ccls              Build ccls into the dev image (cached, default: off).
   --force-cxx20               Force C++20 in compile_commands.json (default: off).
@@ -221,6 +225,22 @@ parse_args() {
         ENABLE_CCLS=false
         shift
         ;;
+      --ccache-dir)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "ERROR: --ccache-dir requires a value" >&2
+          exit 1
+        fi
+        CCACHE_HOST_DIR="$2"
+        shift 2
+        ;;
+      --ccache-max-size)
+        if [[ -z "${2:-}" || "${2}" =~ ^- ]]; then
+          echo "ERROR: --ccache-max-size requires a value" >&2
+          exit 1
+        fi
+        CCACHE_MAX_SIZE="$2"
+        shift 2
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -367,6 +387,19 @@ export HOST_HOME=${HOST_HOME:-/home/${HOST_USER}}
 export HOST_VELOX_ABS BUILD_BASE_DIR
 export FORCE_CXX_STANDARD
 
+# ccache: resolve host directory and set up host-to-container mapping
+# Resolution order: --ccache-dir CLI flag > CCACHE_DIR env var > ~/.cache/ccache
+if [[ -n "${CCACHE_HOST_DIR}" ]]; then
+  HOST_CCACHE_DIR="${CCACHE_HOST_DIR}"
+else
+  HOST_CCACHE_DIR="${CCACHE_DIR:-${HOME}/.cache/ccache}"
+fi
+CONTAINER_CCACHE_DIR="/ccache"
+# Create host ccache directory before docker compose to prevent Docker creating it as root
+mkdir -p "${HOST_CCACHE_DIR}"
+export HOST_CCACHE_DIR CONTAINER_CCACHE_DIR
+export CCACHE_MAXSIZE="${CCACHE_MAX_SIZE}"
+
 docker compose --project-name "${COMPOSE_PROJECT_NAME}" -f "$SELECTED_COMPOSE_FILE" down --remove-orphans
 
 if [[ "$LOG_ENABLED" == true ]]; then
@@ -401,6 +434,10 @@ if [[ "$BUILD_EXIT_CODE" == "0" ]]; then
   fi
   echo "Built dev container. Shell as host user:"
   echo "  docker compose --project-name ${COMPOSE_PROJECT_NAME} -f ${SELECTED_COMPOSE_FILE} exec -it -u ${HOST_USER} ${CONTAINER_NAME} /bin/bash"
+  if [[ "$ENABLE_SCCACHE" != true ]]; then
+    echo "  ccache enabled. Host cache: ${HOST_CCACHE_DIR} -> container: ${CONTAINER_CCACHE_DIR}"
+    echo "  To check ccache stats inside the container: ccache -s"
+  fi
   echo ""
 else
   echo "  ERROR: failed to build dev container, exit code: $BUILD_EXIT_CODE."

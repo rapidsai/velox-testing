@@ -73,6 +73,32 @@ if [ "$ENABLE_SCCACHE" = "ON" ]; then
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
 fi
 
+# Configure ccache if sccache is not enabled
+if [ "$ENABLE_SCCACHE" != "ON" ]; then
+  if command -v ccache >/dev/null 2>&1; then
+    echo "ccache is available: $(ccache --version | head -1)";
+    # Ensure env vars are set (may already be set via docker compose environment)
+    export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.cache/ccache}";
+    export CCACHE_BASEDIR="${CCACHE_BASEDIR:-/workspace/velox}";
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-400G}";
+    export CCACHE_COMPRESSLEVEL="${CCACHE_COMPRESSLEVEL:-1}";
+    export CCACHE_DEPEND="${CCACHE_DEPEND:-1}";
+    export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-include_file_mtime,include_file_ctime,time_macros,pch_defines,system_headers,locale,random_seed,file_stat_matches,modules}";
+    # Compiler binary content check (not mtime) - prevents false invalidation after image rebuild
+    export CCACHE_COMPILERCHECK="${CCACHE_COMPILERCHECK:-content}";
+    # C++20 module flags + diagnostic flags that don't affect codegen
+    export CCACHE_IGNOREOPTIONS="${CCACHE_IGNOREOPTIONS:--fmodules-ts -fmodule-mapper=* -fdeps-format=* -fdiagnostics-color=* -fmessage-length=*}";
+    mkdir -p "${CCACHE_DIR}";
+    # Add ccache CMake flags (mirrors sccache pattern above) so ALL targets
+    # (including early-resolved deps like faiss/curl) use ccache
+    EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache";
+    echo "Pre-build ccache statistics:";
+    ccache -s;
+  else
+    echo "WARNING: ccache not found in PATH; builds will not be cached.";
+  fi
+fi
+
 if test -n "${MAX_HIGH_MEM_JOBS:-}"; then
   MAKEFLAGS="${MAKEFLAGS} MAX_HIGH_MEM_JOBS=${MAX_HIGH_MEM_JOBS}";
 fi
@@ -102,6 +128,14 @@ fi
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
   echo "Post-build sccache statistics:";
   sccache --show-stats;
+fi
+
+# Show final ccache stats if sccache is not active
+if [ "$ENABLE_SCCACHE" != "ON" ]; then
+  if command -v ccache >/dev/null 2>&1; then
+    echo "Post-build ccache statistics:";
+    ccache -s;
+  fi
 fi
 
 # Rewrite compile_commands.json paths to host-absolute locations for ccls/IDE use

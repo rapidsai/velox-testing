@@ -1,4 +1,5 @@
 ARG TARGETARCH
+ARG CCACHE_UPGRADE_VERSION=4.12.3
 
 # Install latest ninja
 FROM --platform=$TARGETPLATFORM alpine:latest AS ninja-amd64
@@ -12,6 +13,23 @@ RUN mv /tmp/ninja-linux-aarch64.zip /tmp/ninja-linux.zip
 
 FROM ninja-${TARGETARCH} AS ninja
 RUN unzip -d /usr/bin -o /tmp/ninja-linux.zip
+
+# Download ccache binary (4.8.3+ required for NVCC -Xcompiler/--Werror support)
+FROM --platform=$TARGETPLATFORM alpine:latest AS ccache-amd64
+ARG CCACHE_UPGRADE_VERSION
+ADD https://github.com/ccache/ccache/releases/download/v${CCACHE_UPGRADE_VERSION}/ccache-${CCACHE_UPGRADE_VERSION}-linux-x86_64.tar.xz /tmp/ccache.tar.xz
+RUN apk add --no-cache xz \
+    && tar xf /tmp/ccache.tar.xz -C /tmp --strip-components=1 \
+    && mv /tmp/ccache /usr/bin/ccache
+
+FROM --platform=$TARGETPLATFORM alpine:latest AS ccache-arm64
+ARG CCACHE_UPGRADE_VERSION
+ADD https://github.com/ccache/ccache/releases/download/v${CCACHE_UPGRADE_VERSION}/ccache-${CCACHE_UPGRADE_VERSION}-linux-aarch64.tar.xz /tmp/ccache.tar.xz
+RUN apk add --no-cache xz \
+    && tar xf /tmp/ccache.tar.xz -C /tmp --strip-components=1 \
+    && mv /tmp/ccache /usr/bin/ccache
+
+FROM ccache-${TARGETARCH} AS ccache
 
 FROM ghcr.io/facebookincubator/velox-dev:adapters
 ARG TARGETARCH
@@ -161,7 +179,14 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     SCCACHE_DIST_SCHEDULER_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com" \
     SCCACHE_DIST_MAX_RETRIES=4 \
     SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true \
-    UPDATE_NINJA="${UPDATE_NINJA}"
+    UPDATE_NINJA="${UPDATE_NINJA}" \
+    CCACHE_BASEDIR=/workspace/velox \
+    CCACHE_MAXSIZE=400G \
+    CCACHE_COMPRESSLEVEL=1 \
+    CCACHE_DEPEND=1 \
+    CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros,pch_defines,system_headers,locale,random_seed,file_stat_matches,modules" \
+    CCACHE_COMPILERCHECK=content \
+    CCACHE_IGNOREOPTIONS="-fmodules-ts -fmodule-mapper=* -fdeps-format=* -fdiagnostics-color=* -fmessage-length=*"
 
 WORKDIR /workspace/velox
 
@@ -175,6 +200,17 @@ RUN --mount=from=ninja,source=/usr/bin/ninja,target=/tmp/ninja \
       cp /tmp/ninja /usr/bin/ninja && chmod +x /usr/bin/ninja; \
     else \
       echo "Skipping ninja installation"; \
+    fi
+
+# Upgrade ccache for proper NVCC/CUDA caching support (4.8.3+ fixes -Xcompiler handling)
+ARG UPDATE_CCACHE=true
+RUN --mount=from=ccache,source=/usr/bin/ccache,target=/tmp/ccache \
+    if [ "$UPDATE_CCACHE" = "true" ]; then \
+      echo "Upgrading ccache (old: $(ccache --version 2>/dev/null | head -1))..."; \
+      cp /tmp/ccache /usr/bin/ccache && chmod +x /usr/bin/ccache; \
+      echo "Installed: $(ccache --version | head -1)"; \
+    else \
+      echo "Skipping ccache upgrade: $(ccache --version | head -1)"; \
     fi
 
 # Defer build to dev container

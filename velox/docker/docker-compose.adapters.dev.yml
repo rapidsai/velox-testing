@@ -8,8 +8,10 @@ services:
     entrypoint: ["/usr/local/bin/hostuser_entrypoint.sh"]
     command: []
     volumes:
-      # Source tree 
+      # Source tree
       - ../../../velox:/workspace/velox:rw
+      # ccache: mount host cache for persistent compilation caching
+      - ${HOST_CCACHE_DIR}:${CONTAINER_CCACHE_DIR}:rw
       # sccache caches (persistent volumes to mimic BuildKit cache mounts)
       - velox_sccache_preprocessor:/root/.cache/sccache/preprocessor
       - velox_sccache_dist_client:/root/.cache/sccache-dist-client
@@ -32,6 +34,16 @@ services:
       BUILD_BASE_DIR: ${BUILD_BASE_DIR:-/workspace/velox/velox-build}
       ENABLE_CCLS: ${ENABLE_CCLS:-true}
       FORCE_CXX_STANDARD: ${FORCE_CXX_STANDARD:-}
+      CCACHE_DIR: ${CONTAINER_CCACHE_DIR}
+      CCACHE_BASEDIR: /workspace/velox
+      CCACHE_MAXSIZE: ${CCACHE_MAXSIZE:-400G}
+      CCACHE_COMPRESSLEVEL: ${CCACHE_COMPRESSLEVEL:-1}
+      CCACHE_DEPEND: "1"
+      CCACHE_SLOPPINESS: "include_file_mtime,include_file_ctime,time_macros,pch_defines,system_headers,locale,random_seed,file_stat_matches,modules"
+      # Compiler binary content check (not mtime) - prevents false invalidation after Docker image rebuild
+      CCACHE_COMPILERCHECK: content
+      # C++20 module flags + diagnostic flags that don't affect codegen
+      CCACHE_IGNOREOPTIONS: "-fmodules-ts -fmodule-mapper=* -fdeps-format=* -fdiagnostics-color=* -fmessage-length=*"
 volumes:
   velox_sccache_preprocessor:
   velox_sccache_dist_client:
