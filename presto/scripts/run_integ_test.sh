@@ -5,6 +5,11 @@
 
 set -e
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/presto_connection_defaults.sh"
+
 print_help() {
   cat << EOF
 
@@ -205,6 +210,8 @@ if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   exit 1
 fi
 
+set_presto_coordinator_defaults
+
 PYTEST_ARGS=()
 
 if [[ "${KEEP_TABLES}" == "true" ]]; then
@@ -266,10 +273,6 @@ fi
 if [[ -n ${SKIP_REFERENCE_COMPARISON} ]]; then
   PYTEST_ARGS+=("--skip-reference-comparison")
 fi
-
-
-# Compute the directory where this script resides
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 

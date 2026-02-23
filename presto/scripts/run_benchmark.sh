@@ -5,6 +5,11 @@
 
 set -e
 
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/presto_connection_defaults.sh"
+
 print_help() {
   cat << EOF
 
@@ -19,7 +24,7 @@ OPTIONS:
                             By default, all benchmark queries are run.
     --queries-file          Path to a custom JSON file containing query definitions. When specified, queries are loaded
                             from this file instead of the default queries_best.json.
-    -h, --hostname          Hostname of the Presto coordinator.
+    -H, --hostname          Hostname of the Presto coordinator.
     --port                  Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
@@ -82,7 +87,7 @@ parse_args() {
           exit 1
         fi
         ;;
-      -h|--hostname)
+      -H|--hostname)
         if [[ -n $2 ]]; then
           HOST_NAME=$2
           shift 2
@@ -189,6 +194,8 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
+set_presto_coordinator_defaults
+
 PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
 if [[ -n ${SCALE_FACTOR} ]]; then
@@ -243,9 +250,6 @@ fi
 if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
 fi
-
-# Compute the directory where this script resides
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
