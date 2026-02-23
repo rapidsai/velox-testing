@@ -27,27 +27,60 @@ A Docker-based build infrastructure has been added to facilitate building Velox 
 Specifically, the `velox-testing` and `velox` repositories must be checked out as sibling directories under the same parent directory. Once that is done, navigate (`cd`) into the `velox-testing/velox/scripts` directory and execute the build script `build_velox.sh`. After a successful build, the Velox libraries and executables are available in the container at `/opt/velox-build/release`.
 
 ## `sccache` Usage
-`sccache` has been integrated to significantly accelerate builds using remote S3 caching and optional distributed compilation. Currently supported for Velox builds only (not Presto).
+`sccache` has been integrated to significantly accelerate both Velox and Presto native builds using remote S3 caching and optional distributed compilation. On cache hits, pre-compiled object files are downloaded from S3 instead of recompiling, significantly speeding up builds across machines and repeat runs.
 
-The fork `rapidsai/sccache` is integrated and configured for use with the `rapidsai` GitHub organization.
+The fork `rapidsai/sccache` is integrated and configured for use with the `rapidsai` GitHub organization. The sccache scripts are located in `scripts/sccache/` and shared by both Velox and Presto build pipelines.
 
-### Setup and Usage
-First, set up authentication credentials:
+### Setup
+Set up authentication credentials (required once, valid for 12 hours):
 ```bash
-cd velox-testing/scripts/sccache
+cd scripts/sccache
 ./setup_sccache_auth.sh
 ```
 
-Then build Velox with sccache enabled:
+This creates `~/.sccache-auth/` containing a GitHub token and AWS credentials for S3 bucket access. You can override the directory with `SCCACHE_AUTH_DIR`.
+
+### Velox Builds with sccache
 ```bash
+cd velox-testing/velox/scripts
+
 # Default: Remote S3 cache + local compilation (recommended)
 ./build_velox.sh --sccache
 
 # Optional: Enable distributed compilation (may cause build differences such as additional warnings)
 ./build_velox.sh --sccache --sccache-enable-dist
+
+# Pin a specific sccache version
+./build_velox.sh --sccache --sccache-version 0.12.0-rapids.1
 ```
 
-Authentication files are stored in `~/.sccache-auth/` by default and credentials are valid for 12 hours. By default, distributed compilation is disabled to avoid compiler version differences that can cause build failures.
+### Presto Builds with sccache
+```bash
+cd velox-testing/presto/scripts
+
+# GPU native build with sccache
+./start_native_gpu_presto.sh --sccache
+
+# CPU native build with sccache
+./start_native_cpu_presto.sh --sccache
+
+# Pin a specific sccache version
+./start_native_gpu_presto.sh --sccache --sccache-version 0.12.0-rapids.1
+
+# Enable distributed compilation (use with caution)
+./start_native_gpu_presto.sh --sccache --sccache-enable-dist
+```
+
+### How it Works
+When `--sccache` is passed, the build process:
+1. Installs the RAPIDS sccache fork inside the Docker build
+2. Configures CMake to route all C/C++/CUDA compilations through sccache
+3. For each compilation unit, sccache checks the S3 bucket (`rapids-sccache-devs`) for a cached result
+4. **Cache hit**: downloads the cached object file (fast)
+5. **Cache miss**: compiles locally and uploads the result to S3 for future use
+6. Post-build statistics are displayed showing hit/miss rates
+
+By default, distributed compilation is disabled to avoid compiler version differences that can cause build failures.
 
 ## Velox Benchmarking
 A Docker-based benchmarking infrastructure has been added to facilitate running Velox benchmarks with support for CPU/GPU execution engines and profiling capabilities. The infrastructure uses a dedicated `velox-benchmark` Docker service with pre-configured volume mounts that automatically sync benchmark data and results. The data follows Hive directory structure, making it compatible with Presto. Currently, only TPC-H is implemented, but the infrastructure is designed to be easily extended to support additional benchmarks in the future.
