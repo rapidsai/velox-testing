@@ -19,7 +19,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Get the root of the git repository
-REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+if command -v git &> /dev/null; then
+  REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+else
+  REPO_ROOT="$SCRIPT_DIR/../.."
+fi
+
 
 # Validate sibling repos
 if [[ "$VARIANT_TYPE" == "java" ]]; then
@@ -122,12 +127,6 @@ fi
 if [[ "$ENABLE_SCCACHE" == true && "$VARIANT_TYPE" == "java" ]]; then
   echo "WARNING: --sccache is not applicable for java variant, ignoring."
   ENABLE_SCCACHE=false
-fi
-
-# Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
-if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
-  # Generate default GPU IDs: 0,1,2,...,N-1
-  export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
 fi
 
 "${SCRIPT_DIR}/stop_presto.sh"
