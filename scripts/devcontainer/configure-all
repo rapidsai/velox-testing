@@ -1,0 +1,74 @@
+#!/bin/bash
+# Configure everything: RAPIDS libraries and velox.
+# Wraps the RAPIDS configure-all and adds configure-velox.
+#
+# Common arguments are forwarded to all configure stages:
+#   -D CMAKE_BUILD_TYPE=<Release|Debug>  — build type
+#   -D <var>=<value>                     — other CMake cache entries (RAPIDS only)
+#
+# Any unrecognised arguments are passed through to the RAPIDS configure-all.
+
+set -euo pipefail
+
+usage() {
+    cat <<EOF
+Usage: configure-all [OPTIONS]
+
+Configure RAPIDS libraries and velox.
+
+Options:
+  --release                     Configure for release build (velox)
+  --debug                       Configure for debug build (velox)
+  -D <var>[:<type>]=<value>     CMake cache entry (forwarded to RAPIDS configure-all)
+                                CMAKE_BUILD_TYPE is also used to set velox build type
+  -h, --help                    Show this help message
+
+All other options are forwarded to the RAPIDS configure-all.
+EOF
+}
+
+BUILD_TYPE=""
+RAPIDS_ARGS=()
+VELOX_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        --release)
+            BUILD_TYPE="release"
+            VELOX_ARGS+=("--release")
+            shift
+            ;;
+        --debug)
+            BUILD_TYPE="debug"
+            VELOX_ARGS+=("--debug")
+            shift
+            ;;
+        -D)
+            RAPIDS_ARGS+=("-D" "$2")
+            if [[ "$2" =~ ^CMAKE_BUILD_TYPE(:[A-Z]+)?=(.*) ]]; then
+                BUILD_TYPE="${BASH_REMATCH[2],,}"
+                VELOX_ARGS+=("--${BUILD_TYPE}")
+            fi
+            shift 2
+            ;;
+        -D*)
+            RAPIDS_ARGS+=("$1")
+            if [[ "$1" =~ ^-DCMAKE_BUILD_TYPE(:[A-Z]+)?=(.*) ]]; then
+                BUILD_TYPE="${BASH_REMATCH[2],,}"
+                VELOX_ARGS+=("--${BUILD_TYPE}")
+            fi
+            shift
+            ;;
+        *)
+            RAPIDS_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [[ -x /usr/bin/configure-all ]]; then
+    /usr/bin/configure-all "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
+fi
+
+configure-velox "${VELOX_ARGS[@]+"${VELOX_ARGS[@]}"}"
