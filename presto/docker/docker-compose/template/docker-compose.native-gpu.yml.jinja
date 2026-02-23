@@ -23,22 +23,28 @@ x-presto-native-worker-gpu: &gpu_worker_base
             - driver: nvidia
               count: all
               capabilities: [gpu]
-  # devices:
-    #   # required for GDS
-    #   - /dev/infiniband/rdma_cm
-    #   - /dev/infiniband/uverbs0
-    #   - /dev/infiniband/uverbs1
-    #   - /dev/infiniband/uverbs2
-    #   - /dev/infiniband/uverbs3
-    #   - /dev/infiniband/uverbs4
-    #   - /dev/infiniband/uverbs5
-    #   - /dev/infiniband/uverbs6
-    #   - /dev/infiniband/uverbs7
-    #   - /dev/infiniband/uverbs8
-    #   - /dev/infiniband/uverbs9
+  devices:
+    # required for GDS (nvidia-fs kernel module)
+    - /dev/nvidia-fs0
+    - /dev/nvidia-fs1
+    - /dev/nvidia-fs2
+    - /dev/nvidia-fs3
+    - /dev/nvidia-fs4
+    - /dev/nvidia-fs5
+    - /dev/nvidia-fs6
+    - /dev/nvidia-fs7
+    - /dev/nvidia-fs8
+    - /dev/nvidia-fs9
+    - /dev/nvidia-fs10
+    - /dev/nvidia-fs11
+    - /dev/nvidia-fs12
+    - /dev/nvidia-fs13
+    - /dev/nvidia-fs14
+    - /dev/nvidia-fs15
   depends_on:
     - presto-coordinator
   volumes:
+    - /run/udev:/run/udev:ro
     - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
     - ../../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
     - ../../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
@@ -74,8 +80,13 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      KVIKIO_COMPAT_MODE: OFF
+      CUFILE_ENV_PATH_JSON: /opt/presto-server/cufile.json
+      CUFILE_FORCE_COMPAT_MODE: "0"
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
     volumes:
+      - /run/udev:/run/udev:ro
+      - ../../config/generated/gpu/etc_common/cufile.json:/opt/presto-server/cufile.json:ro
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc/config.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
@@ -100,6 +111,9 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      KVIKIO_COMPAT_MODE: OFF
+      CUFILE_ENV_PATH_JSON: /opt/presto-server/cufile.json
+      CUFILE_FORCE_COMPAT_MODE: "0"
       CUDA_VISIBLE_DEVICES: "{% for id in workers %}{{ id }}{% if not loop.last %},{% endif %}{% endfor %}"
 {% else %}
     environment:
@@ -115,9 +129,14 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      KVIKIO_COMPAT_MODE: OFF
+      CUFILE_ENV_PATH_JSON: /opt/presto-server/cufile.json
+      CUFILE_FORCE_COMPAT_MODE: "0"
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
     volumes:
+      - /run/udev:/run/udev:ro
+      - ../../config/generated/gpu/etc_common/cufile.json:/opt/presto-server/cufile.json:ro
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}

@@ -156,6 +156,14 @@ else
   echo_success "Reusing existing Presto Config files for '${VARIANT_TYPE}'"
 fi
 
+# Always sync cuFile config for GPU runs so template edits are reflected even
+# when reusing generated configs.
+if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
+  mkdir -p "${CONFIG_DIR}/etc_common"
+  cp template/cufile.json "${CONFIG_DIR}/etc_common/cufile.json"
+  echo_success "Synchronized cuFile config: ${CONFIG_DIR}/etc_common/cufile.json"
+fi
+
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
 if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" && "$VARIANT_TYPE" == "gpu" ]]; then
