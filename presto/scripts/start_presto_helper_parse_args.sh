@@ -34,7 +34,7 @@ OPTIONS:
                          This will override the default arguments.
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
     --sccache            Enable sccache distributed compilation caching (requires auth files
-                         in ~/.sccache-auth/). Run velox/scripts/setup_sccache_auth.sh first.
+                         in ~/.sccache-auth/). Run scripts/sccache/setup_sccache_auth.sh first.
     --sccache-version    Install a specific version of rapidsai/sccache, e.g. "0.12.0-rapids.1"
                          (default: latest).
     --sccache-enable-dist  Enable distributed compilation (WARNING: may cause compilation

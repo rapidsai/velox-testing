@@ -36,19 +36,19 @@ validate_sccache_auth() {
 
     if [[ ! -d "$SCCACHE_AUTH_DIR" ]]; then
       echo "ERROR: sccache auth directory not found: $SCCACHE_AUTH_DIR" >&2
-      echo "Run velox/scripts/setup_sccache_auth.sh to set up authentication." >&2
+      echo "Run scripts/sccache/setup_sccache_auth.sh to set up authentication." >&2
       exit 1
     fi
 
     if [[ ! -f "$SCCACHE_AUTH_DIR/github_token" ]]; then
       echo "ERROR: GitHub token not found: $SCCACHE_AUTH_DIR/github_token" >&2
-      echo "Run velox/scripts/setup_sccache_auth.sh to set up authentication." >&2
+      echo "Run scripts/sccache/setup_sccache_auth.sh to set up authentication." >&2
       exit 1
     fi
 
     if [[ ! -f "$SCCACHE_AUTH_DIR/aws_credentials" ]]; then
       echo "ERROR: AWS credentials not found: $SCCACHE_AUTH_DIR/aws_credentials" >&2
-      echo "Run velox/scripts/setup_sccache_auth.sh to set up authentication." >&2
+      echo "Run scripts/sccache/setup_sccache_auth.sh to set up authentication." >&2
       exit 1
     fi
 

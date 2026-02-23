@@ -34,7 +34,7 @@ The fork `rapidsai/sccache` is integrated and configured for use with the `rapid
 ### Setup and Usage
 First, set up authentication credentials:
 ```bash
-cd velox-testing/velox/scripts
+cd velox-testing/scripts/sccache
 ./setup_sccache_auth.sh
 ```
 
