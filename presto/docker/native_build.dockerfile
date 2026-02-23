@@ -71,13 +71,16 @@ if [ -f "${BUILD_BASE_DIR}/CMakeCache.txt" ]; then
 fi
 
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
+  # Add sccache distributed compilation control (disabled by default)
+  if [ -n "$SCCACHE_NO_DIST_COMPILE" ]; then
+    export SCCACHE_NO_DIST_COMPILE;
+  fi
   bash /sccache_setup.sh;
   sccache --zero-stats;
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
 fi
 
-SCCACHE_NO_DIST_COMPILE=1 \
 make --directory="/presto_native_staging/presto" cmake-and-build BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR};
 
 if [ "$ENABLE_SCCACHE" = "ON" ]; then

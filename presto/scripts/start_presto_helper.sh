@@ -61,6 +61,11 @@ validate_sccache_auth() {
   fi
 }
 
+if [[ "$ENABLE_SCCACHE" == true && "$VARIANT_TYPE" == "java" ]]; then
+  echo "WARNING: --sccache is not applicable for java variant, ignoring."
+  ENABLE_SCCACHE=false
+fi
+
 validate_sccache_auth
 
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
@@ -122,11 +127,6 @@ elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
-fi
-
-if [[ "$ENABLE_SCCACHE" == true && "$VARIANT_TYPE" == "java" ]]; then
-  echo "WARNING: --sccache is not applicable for java variant, ignoring."
-  ENABLE_SCCACHE=false
 fi
 
 "${SCRIPT_DIR}/stop_presto.sh"
