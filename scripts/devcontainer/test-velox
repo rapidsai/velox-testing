@@ -72,7 +72,7 @@ if [[ "${LIST_ONLY}" == true ]]; then
     exit 0
 fi
 
-echo "=== Running Velox Tests ==="
+echo -e "\033[1;36mRunning Velox Tests\033[0m"
 echo "Build dir: ${BUILD_DIR}"
 echo "Threads:   ${NUM_THREADS}"
 echo "CUDA only: ${CUDA_ONLY}"
@@ -85,4 +85,4 @@ ctest -j "${NUM_THREADS}" ${LABEL_FILTER} --output-on-failure --no-tests=error \
     ${EXCLUDE:+-E "${EXCLUDE}"}
 
 echo ""
-echo "=== Tests complete ==="
+echo -e "\033[1;32mVelox tests complete\033[0m"
