@@ -41,6 +41,7 @@ RUN apt-get update -y && \
     # Build tools
     bison \
     flex \
+    libfl-dev \
     gperf \
     ninja-build \
     ccache \
