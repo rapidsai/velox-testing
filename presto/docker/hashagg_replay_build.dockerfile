@@ -15,6 +15,7 @@ ARG BASE_CMAKE_FLAGS="\
     -DVELOX_MONO_LIBRARY=ON \
     -DVELOX_BUILD_SHARED=ON"
 ARG EXTRA_CMAKE_FLAGS=""
+ARG VELOX_PATCH_STAMP=unset
 
 ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc
 ENV CXX=/opt/rh/gcc-toolset-14/root/bin/g++
@@ -22,6 +23,7 @@ ENV CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES}
 ENV BASE_CMAKE_FLAGS=${BASE_CMAKE_FLAGS}
 ENV EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS}
 ENV NUM_THREADS=${NUM_THREADS}
+ENV VELOX_PATCH_STAMP=${VELOX_PATCH_STAMP}
 ENV HASHAGG_REPLAY_DUMP_DIR=/tmp/hashagg_probe_dumps/hashagg_probe_1771056019538078_1
 
 RUN mkdir /runtime-libraries
@@ -44,6 +46,7 @@ COPY velox-testing/velox/scripts/hashagg_probe_1771056019538078_1 \
 
 RUN --mount=type=bind,source=velox,target=/workspace/velox \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
+    echo "Velox patch stamp: ${VELOX_PATCH_STAMP}" && \
     . /opt/rh/gcc-toolset-14/enable && \
     cmake -S /workspace/velox -B "${BUILD_BASE_DIR}" \
       -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \

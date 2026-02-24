@@ -114,17 +114,41 @@ fi
 
 DOCKERFILE_PATH="${REPO_ROOT}/presto/docker/hashagg_replay_build.dockerfile"
 
+VELOX_PATCH_FILES=(
+  "${WORKSPACE_ROOT}/velox/CMake/resolve_dependency_modules/cudf.cmake"
+  "${WORKSPACE_ROOT}/velox/CMake/resolve_dependency_modules/cudf/groupby-alignment-16.patch"
+)
+
+for patch_file in "${VELOX_PATCH_FILES[@]}"; do
+  if [[ ! -f "${patch_file}" ]]; then
+    echo "ERROR: required file missing: ${patch_file}"
+    exit 1
+  fi
+done
+
+if command -v sha256sum &> /dev/null; then
+  VELOX_PATCH_STAMP="$(
+    sha256sum "${VELOX_PATCH_FILES[@]}" | sha256sum | awk '{print $1}'
+  )"
+else
+  VELOX_PATCH_STAMP="$(
+    cksum "${VELOX_PATCH_FILES[@]}" | cksum | awk '{print $1}'
+  )"
+fi
+
 BUILD_ARGS=(
   --build-arg PRESTO_DEPS_IMAGE="${DEPS_IMAGE}"
   --build-arg BUILD_TYPE="${BUILD_TYPE}"
   --build-arg NUM_THREADS="${NUM_THREADS}"
   --build-arg CUDA_ARCHITECTURES="${CUDA_ARCHS}"
+  --build-arg VELOX_PATCH_STAMP="${VELOX_PATCH_STAMP}"
 )
 
 if [[ -n "${EXTRA_CMAKE_FLAGS}" ]]; then
   BUILD_ARGS+=(--build-arg EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}")
 fi
 
+echo "Using velox patch stamp: ${VELOX_PATCH_STAMP}"
 echo "Building hashagg replay image: ${IMAGE_TAG}"
 docker build ${SKIP_CACHE_ARG} \
   -f "${DOCKERFILE_PATH}" \
