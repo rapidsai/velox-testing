@@ -23,11 +23,14 @@ OPTIONS:
     -H, --hostname      Hostname of the Presto coordinator. Default: localhost
     -p, --port          Port number of the Presto coordinator. Default: 8080
     -u, --user          User who queries will be executed as. Default: test_user
+    --hive-schema       Hive schema for GPU path tests (e.g. 'hive.default').
+                        If set, creates parquet tables and tests the GPU (velox-cudf) path.
     --reuse-venv        Reuse existing Python virtual environment if one exists.
 
 EXAMPLES:
     $0
     $0 -H myhost.com -p 8080
+    $0 --hive-schema hive.default
     $0 -h
 
 EOF
@@ -64,6 +67,15 @@ parse_args() {
           shift 2
         else
           echo "Error: --user requires a value"
+          exit 1
+        fi
+        ;;
+      --hive-schema)
+        if [[ -n $2 ]]; then
+          HIVE_SCHEMA=$2
+          shift 2
+        else
+          echo "Error: --hive-schema requires a value"
           exit 1
         fi
         ;;
@@ -116,7 +128,13 @@ source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
+HIVE_SCHEMA_ARG=""
+if [[ -n "$HIVE_SCHEMA" ]]; then
+  HIVE_SCHEMA_ARG="--hive-schema $HIVE_SCHEMA"
+fi
+
 python "${TEST_DIR}/timestamp_status_test.py" \
   --host "$HOST_NAME" \
   --port "$PORT" \
-  --user "$USER_NAME"
+  --user "$USER_NAME" \
+  $HIVE_SCHEMA_ARG
