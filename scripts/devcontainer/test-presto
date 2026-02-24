@@ -61,7 +61,7 @@ if [[ "${LIST_ONLY}" == true ]]; then
     exit 0
 fi
 
-echo "=== Running Presto Tests ==="
+echo -e "\033[1;36mRunning Presto Tests\033[0m"
 echo "Build dir: ${BUILD_DIR}"
 echo "Threads:   ${NUM_THREADS}"
 echo "Filter:    ${FILTER:-<none>}"
@@ -73,4 +73,4 @@ ctest -j "${NUM_THREADS}" --output-on-failure --no-tests=error \
     ${EXCLUDE:+-E "${EXCLUDE}"}
 
 echo ""
-echo "=== Tests complete ==="
+echo -e "\033[1;32mPresto tests complete\033[0m"

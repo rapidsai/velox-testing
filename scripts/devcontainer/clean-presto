@@ -28,6 +28,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "Cleaning presto builds in ${BUILD_BASE_DIR}..."
+echo -e "\033[1;36mCleaning Presto\033[0m"
 rm -rf "${BUILD_BASE_DIR:?}"/*
-echo "Done."
+echo -e "\033[1;32mDone\033[0m"
