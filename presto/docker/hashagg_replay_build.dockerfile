@@ -29,11 +29,12 @@ RUN mkdir /runtime-libraries
 RUN cuda_version="${CUDA_VERSION:-}" && \
     if [ -n "${cuda_version}" ]; then \
       dashed="$(echo "${cuda_version}" | tr '.' '-')"; \
-      dnf install -y "cuda-command-line-tools-${dashed}"; \
+      dnf install -y "cuda-command-line-tools-${dashed}" patch; \
     else \
-      dnf install -y cuda-command-line-tools; \
+      dnf install -y cuda-command-line-tools patch; \
     fi && \
     dnf clean all && \
+    command -v patch >/dev/null && \
     command -v compute-sanitizer >/dev/null && \
     compute-sanitizer --version
 
