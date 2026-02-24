@@ -14,60 +14,125 @@
 import argparse
 import sys
 import prestodb
+import requests
 
 TPCH = "tpch.sf1"
 
+# GPU operator names used by the velox-cudf native worker.
+GPU_OPERATOR_PREFIXES = ("Cudf",)
 
-def run_query(cursor, label, sql, expected=None, expect_fail=False):
-    """Run a query, optionally validate result against expected value."""
+
+def get_execution_path(host, port, query_id):
+    """Check whether a query ran on GPU or CPU-Velox by inspecting operator stats.
+
+    Returns a tuple (path_label, gpu_operators):
+      path_label: "GPU", "CPU", or "???"
+      gpu_operators: set of GPU operator type names found (empty if CPU)
+    """
+    if not query_id:
+        return "???", set()
+    try:
+        url = f"http://{host}:{port}/v1/query/{query_id}"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code != 200:
+            return "???", set()
+        data = resp.json()
+
+        gpu_ops = set()
+        # Walk through outputStage -> subStages recursively to find all operators
+        def collect_operators(stage):
+            if not stage:
+                return
+            for pipeline in stage.get("pipelineStats", []):
+                for op in pipeline.get("operatorSummaries", []):
+                    op_type = op.get("operatorType", "")
+                    if any(op_type.startswith(prefix) for prefix in GPU_OPERATOR_PREFIXES):
+                        gpu_ops.add(op_type)
+            for sub in stage.get("subStages", []):
+                collect_operators(sub)
+
+        collect_operators(data.get("outputStage"))
+
+        if gpu_ops:
+            return "GPU", gpu_ops
+        else:
+            return "CPU", set()
+    except Exception:
+        return "???", set()
+
+
+def run_query(cursor, label, sql, host, port, expected=None, expect_fail=False):
+    """Run a query, check GPU/CPU execution path, validate result."""
+    query_id = None
+    exec_path = "???"
+    gpu_ops = set()
+
     try:
         cursor.execute(sql)
         rows = cursor.fetchall()
+
+        # Get query ID and check execution path
+        try:
+            query_id = cursor.stats.get("queryId")
+        except Exception:
+            pass
+        exec_path, gpu_ops = get_execution_path(host, port, query_id)
+
+        path_tag = f"[{exec_path}]"
+        ops_str = f" ops={','.join(sorted(gpu_ops))}" if gpu_ops else ""
+
         if expect_fail:
-            print(f"  UNEXPECTED PASS : {label}")
+            print(f"  {path_tag} UNEXPECTED PASS : {label}")
             print(f"      SQL: {sql}")
-            print(f"      Result: {rows}")
-            return "unexpected_pass"
+            print(f"      Result: {rows}{ops_str}")
+            return "unexpected_pass", exec_path
 
         if not rows:
-            print(f"  FAIL (no rows) : {label}")
+            print(f"  {path_tag} FAIL (no rows) : {label}")
             print(f"      SQL: {sql}")
-            return "fail"
+            return "fail", exec_path
 
         actual = rows[0][0] if len(rows[0]) == 1 else list(rows[0])
 
         if expected is not None:
             if actual == expected:
-                print(f"  PASS : {label}")
-                print(f"      Expected: {expected!r}  Got: {actual!r}")
-                return "pass"
+                print(f"  {path_tag} PASS : {label}")
+                print(f"      Expected: {expected!r}  Got: {actual!r}{ops_str}")
+                return "pass", exec_path
             else:
-                print(f"  MISMATCH : {label}")
+                print(f"  {path_tag} MISMATCH : {label}")
                 print(f"      Expected: {expected!r}")
                 print(f"      Actual:   {actual!r}")
-                print(f"      SQL: {sql}")
-                return "fail"
+                print(f"      SQL: {sql}{ops_str}")
+                return "fail", exec_path
         else:
-            # No expected value - just check query succeeded with data
             if len(rows) == 1:
-                print(f"  PASS (unchecked) : {label}")
-                print(f"      Result: {rows[0]}")
+                print(f"  {path_tag} PASS (unchecked) : {label}")
+                print(f"      Result: {rows[0]}{ops_str}")
             else:
-                print(f"  PASS (unchecked) : {label}")
-                print(f"      Result: ({len(rows)} rows) first={rows[0]}")
-            return "pass"
+                print(f"  {path_tag} PASS (unchecked) : {label}")
+                print(f"      Result: ({len(rows)} rows) first={rows[0]}{ops_str}")
+            return "pass", exec_path
 
     except Exception as e:
+        # Try to get query ID even on failure
+        try:
+            query_id = cursor.stats.get("queryId") if cursor._query else None
+        except Exception:
+            pass
+        exec_path, gpu_ops = get_execution_path(host, port, query_id)
+        path_tag = f"[{exec_path}]"
+
         err = str(e).split('\n')[0][:200]
         if expect_fail:
-            print(f"  EXPECTED FAIL : {label}")
+            print(f"  {path_tag} EXPECTED FAIL : {label}")
             print(f"      Error: {err}")
-            return "expected_fail"
+            return "expected_fail", exec_path
         else:
-            print(f"  FAIL : {label}")
+            print(f"  {path_tag} FAIL : {label}")
             print(f"      SQL: {sql}")
             print(f"      Error: {err}")
-            return "fail"
+            return "fail", exec_path
 
 
 def main():
@@ -89,10 +154,13 @@ def main():
     cursor = conn.cursor()
 
     results = {"pass": 0, "fail": 0, "expected_fail": 0, "unexpected_pass": 0}
+    exec_paths = {"GPU": 0, "CPU": 0, "???": 0}
 
     def test(label, sql, expected=None, expect_fail=False):
-        r = run_query(cursor, label, sql, expected=expected, expect_fail=expect_fail)
+        r, path = run_query(cursor, label, sql, args.host, args.port,
+                            expected=expected, expect_fail=expect_fail)
         results[r] += 1
+        exec_paths[path] += 1
 
     # =========================================================================
     # CALIBRATION - verify we have the expected tpch data
@@ -532,6 +600,12 @@ def main():
     print(f"  Failed/Mismatch:   {results['fail']}")
     print(f"  Expected fails:    {results['expected_fail']}")
     print(f"  Unexpected pass:   {results['unexpected_pass']}")
+    print()
+    print("  Execution path:")
+    print(f"    Ran on GPU (velox-cudf): {exec_paths['GPU']}")
+    print(f"    Ran on CPU (velox):      {exec_paths['CPU']}")
+    if exec_paths['???'] > 0:
+        print(f"    Unknown:                 {exec_paths['???']}")
     print()
 
     if results['fail'] > 0:
