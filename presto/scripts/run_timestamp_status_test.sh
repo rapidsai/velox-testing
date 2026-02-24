@@ -23,8 +23,8 @@ OPTIONS:
     -H, --hostname      Hostname of the Presto coordinator. Default: localhost
     -p, --port          Port number of the Presto coordinator. Default: 8080
     -u, --user          User who queries will be executed as. Default: test_user
-    --catalog           Catalog to use. Default: tpch
-    --schema            Schema to use. Default: sf1
+    --catalog           Catalog to use. Default: system
+    --schema            Schema to use. Default: runtime
     --reuse-venv        Reuse existing Python virtual environment if one exists.
 
 EXAMPLES:
