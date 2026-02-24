@@ -106,8 +106,8 @@ parse_args "$@"
 set_presto_coordinator_defaults
 
 USER_NAME="${USER_NAME:-test_user}"
-CATALOG="${CATALOG:-tpch}"
-SCHEMA="${SCHEMA:-sf1}"
+CATALOG="${CATALOG:-system}"
+SCHEMA="${SCHEMA:-runtime}"
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 

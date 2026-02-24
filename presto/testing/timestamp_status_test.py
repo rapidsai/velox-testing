@@ -45,8 +45,8 @@ def main():
     parser = argparse.ArgumentParser(description="Timestamp support verification")
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=8080)
-    parser.add_argument("--catalog", default="tpch")
-    parser.add_argument("--schema", default="sf1")
+    parser.add_argument("--catalog", default="system")
+    parser.add_argument("--schema", default="runtime")
     parser.add_argument("--user", default="test_user")
     args = parser.parse_args()
 
