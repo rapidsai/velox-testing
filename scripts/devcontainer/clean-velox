@@ -43,12 +43,12 @@ if [[ -z "${BUILD_TYPE}" && "${CLEAN_ALL}" == false ]]; then
 fi
 
 if [[ "${CLEAN_ALL}" == true ]]; then
-    echo "Cleaning all velox builds in ${BUILD_BASE_DIR}..."
+    echo -e "\033[1;36mCleaning Velox\033[0m"
     rm -rf "${BUILD_BASE_DIR:?}"/*
-    echo "Done."
+    echo -e "\033[1;32mDone\033[0m"
 else
     BUILD_DIR="${BUILD_BASE_DIR}/${BUILD_TYPE}"
-    echo "Cleaning velox ${BUILD_TYPE} build in ${BUILD_DIR}..."
+    echo -e "\033[1;36mCleaning Velox ${BUILD_TYPE}\033[0m"
     rm -rf "${BUILD_DIR:?}"
-    echo "Done."
+    echo -e "\033[1;32mDone\033[0m"
 fi
