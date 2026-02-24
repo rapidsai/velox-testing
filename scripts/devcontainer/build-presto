@@ -95,7 +95,7 @@ build_fb_deps() {
         shift 3
 
         echo ""
-        echo "--- ${name} ---"
+        echo -e "\033[1;36mBuilding ${name}\033[0m"
 
         local pkg_dir="${SCRATCH_DIR}/${name}"
         rm -rf "${pkg_dir}"
@@ -128,9 +128,10 @@ build_fb_deps() {
         rm -rf "${pkg_dir}"
     }
 
-    echo "=== Building Facebook OSS dependencies (${FB_VERSION}) ==="
-    echo "Install prefix: ${FB_DEPS_PREFIX}"
-    echo ""
+        echo ""
+        echo -e "\033[1;36mBuilding Facebook OSS dependencies (${FB_VERSION})\033[0m"
+        echo "Install prefix: ${FB_DEPS_PREFIX}"
+        echo ""
 
     mkdir -p "${FB_DEPS_PREFIX}"
     rm -rf "${SCRATCH_DIR}"
@@ -183,9 +184,9 @@ build_fb_deps() {
     echo "${FB_DEPS_PREFIX}/lib" | sudo tee /etc/ld.so.conf.d/fb-deps.conf >/dev/null
     sudo ldconfig
 
-    echo ""
-    echo "=== Facebook OSS dependencies installed ==="
-}
+        echo ""
+        echo -e "\033[1;32mFacebook OSS dependencies installed\033[0m"
+    }
 
 # Build FB deps if missing (or if --rebuild-deps was passed)
 if [[ "${REBUILD_DEPS}" == true ]] || \
@@ -217,11 +218,11 @@ export CMAKE_CUDA_COMPILER_LAUNCHER="${CMAKE_CUDA_COMPILER_LAUNCHER:-sccache}"
 resolve_cudaarchs
 
 echo ""
-echo "=== Building Presto Native Execution ==="
-echo "Build type:    ${BUILD_TYPE}"
-echo "Threads:       ${NUM_THREADS}"
-echo "CUDA archs:    ${CUDAARCHS}"
-echo "Build dir:     ${BUILD_BASE_DIR}"
+echo -e "\033[1;36mBuilding Presto Native Execution\033[0m"
+echo "Build type:  ${BUILD_TYPE}"
+echo "Threads:     ${NUM_THREADS}"
+echo "CUDA archs:  ${CUDAARCHS}"
+echo "Build dir:   ${BUILD_BASE_DIR}"
 echo ""
 
 # Build CMake flags
@@ -262,5 +263,5 @@ make cmake-and-build BUILD_TYPE="${BUILD_TYPE}" BUILD_DIR="" \
     CMAKE_PREFIX_PATH="${FB_DEPS_PREFIX}"
 
 echo ""
-echo "=== Build complete ==="
+echo -e "\033[1;32mPresto build time:\033[0m $(date)"
 echo "Binaries in: ${BUILD_BASE_DIR}"

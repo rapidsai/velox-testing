@@ -55,10 +55,10 @@ export CMAKE_CUDA_COMPILER_LAUNCHER="${CMAKE_CUDA_COMPILER_LAUNCHER:-sccache}"
 
 resolve_cudaarchs
 
-echo "=== Configuring Velox ==="
-echo "Build type:    ${BUILD_TYPE}"
-echo "CUDA archs:    ${CUDAARCHS}"
-echo "Build dir:     ${BUILD_BASE_DIR}/${BUILD_TYPE}"
+echo -e "\033[1;36mConfiguring Velox\033[0m"
+echo "Build type:  ${BUILD_TYPE}"
+echo "CUDA archs:  ${CUDAARCHS}"
+echo "Build dir:   ${BUILD_BASE_DIR}/${BUILD_TYPE}"
 echo ""
 
 # Build CMake flags
@@ -101,7 +101,7 @@ make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" \
     EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"
 
 echo ""
-echo "=== Configuration complete ==="
+echo -e "\033[1;32mVelox configuration complete\033[0m"
 echo "Build directory: ${BUILD_BASE_DIR}/${BUILD_TYPE}"
 echo ""
 echo "To build, run: build-velox --${BUILD_TYPE}"

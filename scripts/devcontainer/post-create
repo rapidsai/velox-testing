@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-echo "=== Velox Development Container Setup ==="
+echo -e "\033[1;36mVelox Development Container Setup\033[0m"
 echo ""
 
 # Check for required repositories
@@ -87,4 +87,4 @@ else
     echo ""
 fi
 
-echo "=== Setup complete ==="
+echo -e "\033[1;32mSetup complete\033[0m"

@@ -37,6 +37,7 @@ while [[ $# -gt 0 ]]; do
         --release) BUILD_TYPE="release"; shift ;;
         --debug) BUILD_TYPE="debug"; shift ;;
         -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        -j*) NUM_THREADS="${1#-j}"; shift ;;
         --cuda-arch) CUDA_ARCH="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
@@ -63,13 +64,13 @@ BUILD_BASE_DIR="${BUILD_BASE_DIR}" configure-velox "${CONFIGURE_ARGS[@]}"
 # Build
 cd "${VELOX_DIR}"
 
-echo "=== Building Velox ==="
-echo "Threads:       ${NUM_THREADS}"
+echo -e "\033[1;36mBuilding Velox\033[0m"
+echo "Threads:  ${NUM_THREADS}"
 echo ""
 
 make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" \
     NUM_THREADS="${NUM_THREADS}"
 
 echo ""
-echo "=== Build complete ==="
+echo -e "\033[1;32mVelox build time:\033[0m $(date)"
 echo "Binaries in: ${BUILD_BASE_DIR}/${BUILD_TYPE}"
