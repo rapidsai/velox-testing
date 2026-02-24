@@ -23,14 +23,11 @@ OPTIONS:
     -H, --hostname      Hostname of the Presto coordinator. Default: localhost
     -p, --port          Port number of the Presto coordinator. Default: 8080
     -u, --user          User who queries will be executed as. Default: test_user
-    --catalog           Catalog to use. Default: system
-    --schema            Schema to use. Default: runtime
     --reuse-venv        Reuse existing Python virtual environment if one exists.
 
 EXAMPLES:
     $0
     $0 -H myhost.com -p 8080
-    $0 -H myhost.com --catalog hive --schema default
     $0 -h
 
 EOF
@@ -70,24 +67,6 @@ parse_args() {
           exit 1
         fi
         ;;
-      --catalog)
-        if [[ -n $2 ]]; then
-          CATALOG=$2
-          shift 2
-        else
-          echo "Error: --catalog requires a value"
-          exit 1
-        fi
-        ;;
-      --schema)
-        if [[ -n $2 ]]; then
-          SCHEMA=$2
-          shift 2
-        else
-          echo "Error: --schema requires a value"
-          exit 1
-        fi
-        ;;
       --reuse-venv)
         REUSE_VENV=true
         shift
@@ -106,8 +85,6 @@ parse_args "$@"
 set_presto_coordinator_defaults
 
 USER_NAME="${USER_NAME:-test_user}"
-CATALOG="${CATALOG:-system}"
-SCHEMA="${SCHEMA:-runtime}"
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
@@ -142,6 +119,4 @@ wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 python "${TEST_DIR}/timestamp_status_test.py" \
   --host "$HOST_NAME" \
   --port "$PORT" \
-  --user "$USER_NAME" \
-  --catalog "$CATALOG" \
-  --schema "$SCHEMA"
+  --user "$USER_NAME"
