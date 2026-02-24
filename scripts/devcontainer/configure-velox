@@ -3,8 +3,8 @@
 # Usage: configure-velox [--release|--debug]
 
 set -euo pipefail
-# shellcheck source=_common.sh
-source "$(dirname "$(readlink -f "$0")")/_common.sh"
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
