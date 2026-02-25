@@ -68,9 +68,11 @@ echo -e "\033[1;36mBuilding Velox\033[0m"
 echo "Threads:  ${NUM_THREADS}"
 echo ""
 
+BUILD_START=${SECONDS}
 make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" \
     NUM_THREADS="${NUM_THREADS}"
 
+ELAPSED=$(( SECONDS - BUILD_START ))
 echo ""
-echo -e "\033[1;32mVelox build time:\033[0m $(date)"
+echo -e "\033[1;32mVelox build time:\033[0m $(( ELAPSED / 3600 ))h $(( (ELAPSED % 3600) / 60 ))m $(( ELAPSED % 60 ))s"
 echo "Binaries in: ${BUILD_BASE_DIR}/${BUILD_TYPE}"
