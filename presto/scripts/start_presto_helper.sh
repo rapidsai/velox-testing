@@ -27,11 +27,13 @@ fi
 
 
 # Validate sibling repos
-if [[ "$VARIANT_TYPE" == "java" ]]; then
-  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
-else
-  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
-fi
+function validate_sibling_repos() {
+  if [[ "$VARIANT_TYPE" == "java" ]]; then
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
+  else
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
+  fi
+}
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
@@ -72,9 +74,11 @@ function is_image_missing() {
 
 function conditionally_add_build_target() {
   if is_image_missing $1; then
+    validate_sibling_repos
     echo "Added $2 to the list of services to build because the $1 image is missing"
     BUILD_TARGET_ARG+=($2)
   elif [[ ${BUILD_TARGET} =~ ^($3|all|a)$ ]]; then
+    validate_sibling_repos
     echo "Added $2 to the list of services to build because the '$BUILD_TARGET' build target was specified"
     BUILD_TARGET_ARG+=($2)
   fi
