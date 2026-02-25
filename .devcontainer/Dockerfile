@@ -53,10 +53,6 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 \
                         --slave /usr/bin/gcov gcov /usr/bin/gcov-14 && \
     update-alternatives --set gcc /usr/bin/gcc-14
 
-# Create build directories
-RUN mkdir -p /opt/velox-build /opt/presto-build /opt/fb-deps && \
-    chown -R coder:coder /opt/velox-build /opt/presto-build /opt/fb-deps
-
 # Install velox helper scripts
 COPY velox-testing/scripts/devcontainer/* /usr/local/bin/
 RUN chmod 755 /usr/local/bin/build-* /usr/local/bin/configure-* \
@@ -110,6 +106,10 @@ RUN echo "export CUDA_VERSION=${CUDA_VERSION}" >> /home/coder/.bashrc && \
     echo 'export CMAKE_C_COMPILER_LAUNCHER=sccache' >> /home/coder/.bashrc && \
     echo 'export CMAKE_CXX_COMPILER_LAUNCHER=sccache' >> /home/coder/.bashrc && \
     echo 'export CMAKE_CUDA_COMPILER_LAUNCHER=sccache' >> /home/coder/.bashrc
+
+# Create build directories before USER switch; chmod 0777 so any uid works after
+# the devcontainer feature remaps the coder uid to match the host user.
+RUN mkdir -m 0777 -p /opt/velox-build /opt/presto-build /opt/fb-deps
 
 USER coder
 WORKDIR /home/coder
