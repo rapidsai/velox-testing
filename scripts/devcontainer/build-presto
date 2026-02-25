@@ -257,11 +257,13 @@ append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
 
 echo ""
 
+BUILD_START=${SECONDS}
 make cmake-and-build BUILD_TYPE="${BUILD_TYPE}" BUILD_DIR="" \
     BUILD_BASE_DIR="${BUILD_BASE_DIR}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" \
     NUM_THREADS="${NUM_THREADS}" USE_CCACHE=0 \
     CMAKE_PREFIX_PATH="${FB_DEPS_PREFIX}"
 
+ELAPSED=$(( SECONDS - BUILD_START ))
 echo ""
-echo -e "\033[1;32mPresto build time:\033[0m $(date)"
+echo -e "\033[1;32mPresto build time:\033[0m $(( ELAPSED / 3600 ))h $(( (ELAPSED % 3600) / 60 ))m $(( ELAPSED % 60 ))s"
 echo "Binaries in: ${BUILD_BASE_DIR}"
