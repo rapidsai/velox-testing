@@ -1,5 +1,7 @@
 # python virtual environment
 .venv
+.integ_test_venv
+
 # jetbrains IDE folder
 .idea
 # python bytcode cache
@@ -31,3 +33,5 @@ presto/slurm/presto-nvl72/kept_results/
 presto/slurm/presto-nvl72/worker_data*
 
 devstate*
+
+spark-gluten-install/

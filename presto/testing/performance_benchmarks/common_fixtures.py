@@ -7,11 +7,9 @@ import pandas as pd
 import prestodb
 import pytest
 
-from ..common.fixtures import tpcds_queries as tpcds_queries
-from ..common.fixtures import tpch_queries as tpch_queries
+from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
+
 from ..integration_tests.analyze_tables import check_tables_analyzed
-from .benchmark_keys import BenchmarkKeys
-from .cache_utils import drop_cache
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
 
@@ -40,34 +38,6 @@ def presto_cursor(request):
     schema = request.config.getoption("--schema-name")
     conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
     return conn.cursor()
-
-
-@pytest.fixture(scope="session")
-def benchmark_result_collector(request):
-    benchmark_results = {}
-    yield benchmark_results
-
-    request.session.benchmark_results = benchmark_results
-
-
-@pytest.fixture(scope="session", autouse=True)
-def drop_cache_once(request):
-    """Session-scoped fixture that drops the cache once at the start of the benchmark run."""
-    drop_cache_enabled = not request.config.getoption("--skip-drop-cache")
-    if drop_cache_enabled:
-        drop_cache()
-        print("[Cache] System cache dropped successfully.")
-    else:
-        print("[Cache] Skipping cache drop (--skip-drop-cache flag set).")
-
-
-@pytest.fixture(scope="module")
-def benchmark_queries(request, tpch_queries, tpcds_queries):  # noqa: F811
-    if request.node.obj.BENCHMARK_TYPE == "tpch":
-        return tpch_queries
-    else:
-        assert request.node.obj.BENCHMARK_TYPE == "tpcds"
-        return tpcds_queries
 
 
 @pytest.fixture(scope="module")
