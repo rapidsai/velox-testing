@@ -27,11 +27,13 @@ fi
 
 
 # Validate sibling repos
-if [[ "$VARIANT_TYPE" == "java" ]]; then
-  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
-else
-  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
-fi
+function validate_sibling_repos() {
+  if [[ "$VARIANT_TYPE" == "java" ]]; then
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
+  else
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
+  fi
+}
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
@@ -139,6 +141,7 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
 if (( ${#BUILD_TARGET_ARG[@]} )); then
+  validate_sibling_repos
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
     echo "Either build a local image using build_centos9_deps_image.sh or fetch a pre-built"
