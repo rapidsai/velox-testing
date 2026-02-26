@@ -250,7 +250,9 @@ source "${SCRIPT_DIR}/common_functions.sh"
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 echo "Running bench"
-export PRESTO_IMAGE_TAG="${USER:-latest}"
+if [ -z "${PRESTO_IMAGE_TAG}" ]; then
+  export PRESTO_IMAGE_TAG="${USER:-latest}"
+fi
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks

@@ -48,7 +48,9 @@ fi
 
 # Set PRESTO_IMAGE_TAG to the username in order to avoid conflicts when multiple users build images.
 # Falls back to "latest" if USER is not set.
-export PRESTO_IMAGE_TAG="${USER:-latest}"
+if [ -z "${PRESTO_IMAGE_TAG}" ]; then
+  export PRESTO_IMAGE_TAG="${USER:-latest}"
+fi
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 COORDINATOR_SERVICE="presto-coordinator"
