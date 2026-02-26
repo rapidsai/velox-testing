@@ -178,6 +178,11 @@ build_fb_deps() {
         "${GITHUB}/facebook/proxygen/archive/refs/tags/${FB_VERSION}.tar.gz" \
         "." -DBUILD_SHARED_LIBS=ON
 
+    local DATASKETCHES_VERSION="5.2.0"
+    _build_pkg "datasketches-cpp" \
+        "https://github.com/apache/datasketches-cpp/archive/refs/tags/${DATASKETCHES_VERSION}.tar.gz" \
+        "." -DBUILD_TESTS=OFF
+
     rm -rf "${SCRATCH_DIR}"
 
     # Register shared libraries for runtime linking
@@ -191,7 +196,8 @@ build_fb_deps() {
 # Build FB deps if missing (or if --rebuild-deps was passed)
 if [[ "${REBUILD_DEPS}" == true ]] || \
    [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/folly/folly-config.cmake" ]] || \
-   [[ ! -f "${FB_DEPS_PREFIX}/lib/libproxygen.so" ]]; then
+   [[ ! -f "${FB_DEPS_PREFIX}/lib/libproxygen.so" ]] || \
+   [[ ! -f "${FB_DEPS_PREFIX}/lib/DataSketches/cmake/DataSketchesConfig.cmake" ]]; then
     build_fb_deps
 else
     echo "Facebook OSS deps found at ${FB_DEPS_PREFIX} (use --rebuild-deps to force)"
