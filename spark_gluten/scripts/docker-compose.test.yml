@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+
+# Docker Compose for running Gluten integration tests and benchmarks.
+#
+# Two services are provided:
+#   gluten-test      – CPU-only (no GPU access)
+#   gluten-test-gpu  – GPU-enabled (NVIDIA devices attached)
+#
+# The service image, workspace root, and other parameters are configured
+# via environment variables set by the run_in_docker.sh helper script.
+#
+# Usage (via wrapper scripts):
+#   ./run_integ_test.sh  [OPTIONS]
+#   ./run_benchmark.sh   [OPTIONS]
+
+services:
+  gluten-test:
+    image: ${DOCKER_IMAGE}
+    volumes:
+      - ${WORKSPACE_ROOT}:/workspace
+    working_dir: /workspace/velox-testing/spark_gluten/scripts
+
+  gluten-test-gpu:
+    extends:
+      service: gluten-test
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

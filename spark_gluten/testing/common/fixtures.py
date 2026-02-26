@@ -67,7 +67,7 @@ def spark_session(request):
 
 
 def get_gluten_jar_path(config):
-    jar_path_option = "--gluten-jar-path"
+    jar_path_option = "--static-gluten-jar-path"
     jar_path = config.getoption(jar_path_option)
     if jar_path is None:
         default_install_dir = get_abs_file_path(__file__, "../spark-gluten-install")

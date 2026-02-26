@@ -12,6 +12,17 @@ Usage: $0 [OPTIONS]
 
 This script runs integration tests for the specified type of benchmark.
 
+The script operates in two modes – in both cases the tests execute inside a
+Docker container:
+
+  Static JAR mode   – When --static-gluten-jar-path is specified, tests run in
+                      a lightweight Python 3.12 / JDK 21 image with the given
+                      JAR mounted from the host.
+
+  Docker image mode – When --static-gluten-jar-path is NOT specified, tests run
+                      in the image apache/gluten:<image-tag> which must contain
+                      pre-built Gluten JARs in /opt/gluten/jars/.
+
 OPTIONS:
     -h, --help                          Show this help message.
     -b, --benchmark-type                Type of benchmark to run tests for. Only "tpch" and "tpcds" are currently
@@ -42,14 +53,19 @@ OPTIONS:
     --skip-reference-comparison         Skip Spark rows comparison against a reference set of rows.
     --reuse-venv                        If this argument is specified, reuse the existing Python virtual environment if
                                         one exists and skip dependency installation.
-    --gluten-jar-path                   Path to Gluten JAR file. By default, the "spark_gluten/testing/spark-gluten-install"
-                                        path is searched for a file that matches the format: "gluten-*.jar".
+    --static-gluten-jar-path            Path to a statically-linked Gluten JAR file on the host.  When specified the
+                                        tests run in a lightweight Python 3.12 / JDK 21 image.
+    --image-tag                         Docker image tag to use when running in Docker image mode.
+                                        The full image reference is apache/gluten:<image-tag>.
+                                        Default: "dynamic_gpu_\${USER:-latest}".
 
 
 
 EXAMPLES:
     $0 -b tpch
     $0 -b tpch -q "1,2"
+    $0 -b tpch -q "1,2" --image-tag dynamic_cpu_myuser
+    $0 -b tpch --static-gluten-jar-path .build_artifacts/cpu_static/gluten-velox-bundle.jar
     $0 -b tpch -q "1,2" -d my_sf1_dataset
     $0 -b tpch -q "1,2" -d my_sf1_dataset -r my_reference_results_dir
     $0 -b tpch -q "1,2" -d my_sf1_dataset --store-spark-results
@@ -147,12 +163,21 @@ parse_args() {
         REUSE_VENV=true
         shift
         ;;
-      --gluten-jar-path)
+      --static-gluten-jar-path)
         if [[ -n $2 ]]; then
           GLUTEN_JAR_PATH=$2
           shift 2
         else
-          echo "Error: --gluten-jar-path requires a value"
+          echo "Error: --static-gluten-jar-path requires a value"
+          exit 1
+        fi
+        ;;
+      --image-tag)
+        if [[ -n $2 ]]; then
+          IMAGE_TAG=$2
+          shift 2
+        else
+          echo "Error: --image-tag requires a value"
           exit 1
         fi
         ;;
@@ -173,6 +198,7 @@ if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   exit 1
 fi
 
+# Build pytest args.
 PYTEST_ARGS=()
 
 if [[ -n ${QUERIES} ]]; then
@@ -215,30 +241,17 @@ if [[ -n ${SKIP_REFERENCE_COMPARISON} ]]; then
   PYTEST_ARGS+=("--skip-reference-comparison")
 fi
 
-if [[ -n ${GLUTEN_JAR_PATH} ]]; then
-  PYTEST_ARGS+=("--gluten-jar-path" "${GLUTEN_JAR_PATH}")
-fi
-
-# Compute the directory where this script resides
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR=".integ_test_venv"
+EFFECTIVE_OUTPUT_DIR="${OUTPUT_DIR:-integ_test_output}"
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
+source "${SCRIPT_DIR}/run_in_docker.sh"
 
-VENV_DIR=".integ_test_venv"
+resolve_docker_image
 
-if [[ "$REUSE_VENV" != "true" ]]; then
-  trap 'delete_python_virtual_env "$VENV_DIR"' EXIT
-fi
+TEST_FILE="../testing/integration_tests/${BENCHMARK_TYPE}_test.py"
 
-TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
-
-if [[ ! -d $VENV_DIR || "$REUSE_VENV" != "true" ]]; then
-  init_python_virtual_env $VENV_DIR
-  pip install --disable-pip-version-check -q -r "${TEST_DIR}/requirements.txt"
-else
-  activate_python_virtual_env $VENV_DIR
-fi
-
-INTEGRATION_TEST_DIR=${TEST_DIR}/integration_tests
-pytest -s -v --durations=0 "${INTEGRATION_TEST_DIR}/${BENCHMARK_TYPE}_test.py" "${PYTEST_ARGS[@]}"
+run_in_docker \
+  "${VENV_DIR}" \
+  "${EFFECTIVE_OUTPUT_DIR}" \
+  -s -v --durations=0 "${TEST_FILE}" "${PYTEST_ARGS[@]}"

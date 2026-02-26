@@ -12,6 +12,17 @@ Usage: $0 [OPTIONS]
 
 This script runs the specified type of benchmark.
 
+The script operates in two modes – in both cases the benchmarks execute inside a
+Docker container:
+
+  Static JAR mode   – When --static-gluten-jar-path is specified, benchmarks run
+                      in a lightweight Python 3.12 / JDK 21 image with the given
+                      JAR mounted from the host.
+
+  Docker image mode – When --static-gluten-jar-path is NOT specified, benchmarks
+                      run in the image apache/gluten:<image-tag> which must
+                      contain pre-built Gluten JARs in /opt/gluten/jars/.
+
 OPTIONS:
     -h, --help              Show this help message.
     -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
@@ -21,21 +32,25 @@ OPTIONS:
                             This should be a directory name under the path specified by the SPARK_DATA_DIR environment
                             variable.
     -o, --output-dir        Directory path that will contain the output files from the benchmark run.
-                            By default, output files are written to "$(pwd)/benchmark_output".
+                            By default, output files are written to "\$(pwd)/benchmark_output".
     -i, --iterations        Number of query run iterations. By default, 5 iterations are run.
     -t, --tag               Tag associated with the benchmark run. When a tag is specified, benchmark output will be
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     --skip-drop-cache       Skip dropping system caches before running benchmark queries (dropped by default).
-    --gluten-jar-path       Path to Gluten JAR file. By default, the "spark_gluten/testing/spark-gluten-install"
-                            path is searched for a file that matches the format: "gluten-*.jar".
+    --static-gluten-jar-path  Path to a statically-linked Gluten JAR file on the host.  When specified the
+                            benchmarks run in a lightweight Python 3.12 / JDK 21 image.
+    --image-tag             Docker image tag to use when running in Docker image mode.
+                            The full image reference is apache/gluten:<image-tag>.
+                            Default: "dynamic_gpu_\${USER:-latest}".
 
 EXAMPLES:
     $0 -b tpch -d bench_sf100
     $0 -b tpch -q "1,2" -d bench_sf100
+    $0 -b tpch -d bench_sf100 --image-tag dynamic_cpu_myuser
+    $0 -b tpch -d bench_sf100 --static-gluten-jar-path /path/to/gluten-velox-bundle.jar
     $0 -b tpch -d bench_sf100 -i 10 -o ~/tpch_benchmark_output
     $0 -b tpch -d bench_sf100 -t gh200_cpu_sf100
-    $0 -b tpch -d bench_sf100 --gluten-jar-path /path/to/custom/gluten/build.jar
     $0 -h
 
 EOF
@@ -106,12 +121,21 @@ parse_args() {
         SKIP_DROP_CACHE=true
         shift
         ;;
-      --gluten-jar-path)
+      --static-gluten-jar-path)
         if [[ -n $2 ]]; then
           GLUTEN_JAR_PATH=$2
           shift 2
         else
-          echo "Error: --gluten-jar-path requires a value"
+          echo "Error: --static-gluten-jar-path requires a value"
+          exit 1
+        fi
+        ;;
+      --image-tag)
+        if [[ -n $2 ]]; then
+          IMAGE_TAG=$2
+          shift 2
+        else
+          echo "Error: --image-tag requires a value"
           exit 1
         fi
         ;;
@@ -144,6 +168,7 @@ if [[ -z ${DATASET_NAME} ]]; then
   exit 1
 fi
 
+# Build pytest args.
 PYTEST_ARGS=("--dataset-name" "${DATASET_NAME}")
 
 if [[ -n ${QUERIES} ]]; then
@@ -171,22 +196,20 @@ if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
 fi
 
-if [[ -n ${GLUTEN_JAR_PATH} ]]; then
-  PYTEST_ARGS+=("--gluten-jar-path" "${GLUTEN_JAR_PATH}")
-fi
-
-# Compute the directory where this script resides
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR=".benchmark_venv"
+EFFECTIVE_OUTPUT_DIR="${OUTPUT_DIR:-benchmark_output}"
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
+source "${SCRIPT_DIR}/run_in_docker.sh"
 
-trap delete_python_virtual_env EXIT
+resolve_docker_image
 
-init_python_virtual_env
+# Mount the data directory so the benchmark can access the datasets.
+EXTRA_DOCKER_ARGS+=(-v "${SPARK_DATA_DIR}:${SPARK_DATA_DIR}" -e SPARK_DATA_DIR="${SPARK_DATA_DIR}")
 
-TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
-pip install --disable-pip-version-check -q -r "${TEST_DIR}/requirements.txt"
+TEST_FILE="../testing/performance_benchmarks/${BENCHMARK_TYPE}_test.py"
 
-BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q -s "${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py" "${PYTEST_ARGS[@]}"
+run_in_docker \
+  "${VENV_DIR}" \
+  "${EFFECTIVE_OUTPUT_DIR}" \
+  -q -s "${TEST_FILE}" "${PYTEST_ARGS[@]}"

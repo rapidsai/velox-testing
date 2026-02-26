@@ -33,7 +33,7 @@ def pytest_addoption(parser):
     parser.addoption("--output-dir", default="benchmark_output")
     parser.addoption("--tag")
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
-    parser.addoption("--gluten-jar-path")
+    parser.addoption("--static-gluten-jar-path")
 
 
 def pytest_configure(config):
