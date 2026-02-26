@@ -74,11 +74,9 @@ function is_image_missing() {
 
 function conditionally_add_build_target() {
   if is_image_missing $1; then
-    validate_sibling_repos
     echo "Added $2 to the list of services to build because the $1 image is missing"
     BUILD_TARGET_ARG+=($2)
   elif [[ ${BUILD_TARGET} =~ ^($3|all|a)$ ]]; then
-    validate_sibling_repos
     echo "Added $2 to the list of services to build because the '$BUILD_TARGET' build target was specified"
     BUILD_TARGET_ARG+=($2)
   fi
@@ -142,7 +140,7 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   fi
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
-if (( ${#BUILD_TARGET_ARG[@]} )); then
+if (( ${#BUILD_TARGET_ARG[@]} )) && [[ validate_sibling_repos ]]; then
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
     echo "Either build a local image using build_centos9_deps_image.sh or fetch a pre-built"
