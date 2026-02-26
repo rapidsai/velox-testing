@@ -49,8 +49,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# 0 means "all cores" (mirrors make -j behaviour)
-[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(nproc --all --ignore=1)"
 
 PRESTO_DIR="${HOME}/presto/presto-native-execution"
 if [[ ! -d "${PRESTO_DIR}" ]]; then
