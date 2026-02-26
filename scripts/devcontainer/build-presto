@@ -50,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(ulimit -Hn)"
 
 PRESTO_DIR="${HOME}/presto/presto-native-execution"
 if [[ ! -d "${PRESTO_DIR}" ]]; then
