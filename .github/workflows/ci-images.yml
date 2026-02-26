@@ -1,0 +1,142 @@
+name: ci-images
+
+on:
+  # TODO(jameslamb): remove 'push' trigger before merging
+  push:
+  schedule:
+    - cron: '0 4 * * 2'  # 4:00a UTC every Tuesday
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  # This becomes the GitHub 'package' name, and it's the 'package'
+  # that holds settings like public vs. private.
+  #
+  # Until you have a strong need to separate packages, publish all CI images
+  # under this package name and use tags to differentiate, e.g.
+  #
+  #   - 'ghcr.io/rapidsai/velox-testing-images:presto-deps-cu12'
+  #   - 'ghcr.io/rapidsai/velox-testing-images:presto-deps-cu13'
+  #   - etc., etc.
+  #
+  # IF YOU CHANGE THIS, THE NEW PACKAGES YOU CREATE WILL BE PUBLIC BY DEFAULT.
+  #
+  # See https://github.com/orgs/rapidsai/packages?repo_name=velox-testing
+  IMAGE_NAME: ${{ github.repository }}-images
+
+jobs:
+  ci-images:
+    name: ci-images (${{ matrix.image-tag}}, ${{ matrix.arch }})
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Schema for entries below:
+        #
+        #  * 'image-tag': tag to differentiate the image from others published under ${{ env.IMAGE_NAME }}
+        #  * 'dockerfile': relative path to a Dockerfile in this repo
+        #  * 'context': `null` if the Dockerfile does not 'ADD' / 'COPY' anything,
+        #               otherwise relative path to a directory in this repos with the files
+        #               to be copied into the image
+        #  * 'build-args': space-delimited string of `{key}={val}` build arguments passed to
+        #                  `docker build`
+        #
+        include:
+          - image-tag: 'presto-deps-cu13'
+            dockerfile: ./docker/presto-deps/Dockerfile
+            context: null
+            build-args: |
+              CUDA_ARCHITECTURES="100;120"
+              CUDA_VER=13.1.1
+              LINUX_VER=ubuntu24.04
+            arch: amd64
+          - image-tag: 'presto-deps-cu13'
+            dockerfile: ./docker/presto-deps/Dockerfile
+            context: null
+            build-args: |
+              CUDA_ARCHITECTURES="100;120"
+              CUDA_VER=13.1.1
+              LINUX_VER=ubuntu24.04
+            arch: arm64
+    runs-on: linux-${{ matrix.arch }}-cpu8
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+        continue-on-error: true
+        with:
+          enable-apt: true
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          build-args: ${{ matrix.build-args }}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          # notes on these options:
+          #
+          #   * enable zstd compression for faster pulls / unpacking (gzip is default)
+          #   * force OCI media types (for portability to runtimes other than 'docker' and use with scanning tools)
+          #
+          outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
+          push: true
+          # 'tags' should contain full image URIs, as you'd pass to 'docker tag'
+          #
+          # It's a space-delimited string allowing tagging the same images multiple ways, e.g.
+          # as ':cuda13' and ':stable'.
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.image-tag }}-${{ matrix.arch }}
+      # Create an attestation to prove that this image came from a workflow in this repository.
+      #
+      # Not strictly necessary for private images, but cheap to generate and useful for security scanners
+      # (in case those are ever applied to these in the future).
+      #
+      # If this step ever becomes a problem, just delete it.
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+  test:
+    name: test (${{ matrix.arch }})
+    needs: [ci-images]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            gpu: v100
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+    container:
+      image: ghcr.io/${{ github.repository }}-images:presto-deps-cu13-${{ matrix.arch}}
+      env:
+        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
+    steps:
+      - name: check system
+        run: |
+          echo "--- arch ---"
+          arch
+          echo "--- lscpu ---"
+          lscpu
+          echo "--- nvidia-smi ---"
+          nvidia-smi
