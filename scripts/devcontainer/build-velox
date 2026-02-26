@@ -44,8 +44,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# 0 means "all cores" (mirrors make -j behaviour)
-[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(nproc --all --ignore=1)"
 
 VELOX_DIR="${HOME}/velox"
 if [[ ! -d "${VELOX_DIR}" ]]; then
