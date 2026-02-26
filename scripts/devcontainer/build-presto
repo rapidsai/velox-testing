@@ -190,7 +190,8 @@ build_fb_deps() {
 
 # Build FB deps if missing (or if --rebuild-deps was passed)
 if [[ "${REBUILD_DEPS}" == true ]] || \
-   [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/folly/folly-config.cmake" ]]; then
+   [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/folly/folly-config.cmake" ]] || \
+   [[ ! -f "${FB_DEPS_PREFIX}/lib/libproxygen.so" ]]; then
     build_fb_deps
 else
     echo "Facebook OSS deps found at ${FB_DEPS_PREFIX} (use --rebuild-deps to force)"
@@ -228,10 +229,17 @@ echo ""
 # Build CMake flags
 # Disable C++20 module scanning — GCC 14 ICEs with -fmodules-ts on CMake 4.x
 EXTRA_CMAKE_FLAGS="-DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
+# fbthrift headers require C++20 coroutines (FOLLY_HAS_COROUTINES); presto's
+# CMakeLists.txt defaults to C++11 so we must force C++20 explicitly.
+EXTRA_CMAKE_FLAGS+=" -DCMAKE_CXX_STANDARD=20"
 # Suppress false-positive stringop-overflow from system fmt v9 (format_dragon/bigint).
 # -Wno-error=nonnull: presto's SystemConnector.cpp triggers a false-positive with
 # VELOX_CHECK_NOT_NULL on 'this' in a constructor.
-EXTRA_CMAKE_FLAGS+=" -DCMAKE_CXX_FLAGS=-Wno-error=stringop-overflow\\ -Wno-error=nonnull"
+# -UFOLLY_CFG_NO_COROUTINES: presto's CMakeLists.txt globally sets this via
+# add_compile_definitions, which makes FOLLY_HAS_COROUTINES=0 and breaks fbthrift
+# headers (BiDiStream.h etc.) that unconditionally use folly::coro::AsyncGenerator.
+# Since velox has no folly::coro usage, undoing the define for all TUs is safe.
+EXTRA_CMAKE_FLAGS+=" -DCMAKE_CXX_FLAGS=-Wno-error=stringop-overflow\\ -Wno-error=nonnull\\ -UFOLLY_CFG_NO_COROUTINES"
 # Disable PIE: fbthrift static archives contain construction vtables with HIDDEN
 # visibility (from virtual inheritance in apache::thrift exception classes).
 # The linker can't resolve R_X86_64_PC32 relocations against hidden symbols in PIE.
