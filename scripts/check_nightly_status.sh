@@ -405,34 +405,109 @@ upstream_repo_for_label() {
 extract_search_query() {
   local text="$1"
   local line
-  line="$(echo "${text}" | sed '/^$/d' | head -n 1 | tr -d '\r' | sed 's/["'\'']//g')"
+  # Prefer a clean GTest test name ("ClassName.testMethod") from a FAILED line.
+  line="$(printf '%s\n' "${text}" | sed '/^$/d' \
+    | grep -oP '(?<=\[  FAILED  \] )[A-Z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*' \
+    2>/dev/null | head -1)" || true
+  # Fallback: first non-empty line, stripping GTest bracket prefixes and quotes.
+  if [[ -z "${line}" ]]; then
+    line="$(printf '%s\n' "${text}" | sed '/^$/d' | head -n 1 | tr -d '\r' \
+      | sed -E 's/^\[[^]]*\][[:space:]]*//' \
+      | sed 's/["'\'']//g')"
+  fi
   line="${line:0:120}"
   # GitHub search treats ':' as starting qualifiers; colons in the phrase break the query.
   echo "${line//:/ }"
 }
 
-print_related_issues_and_prs() {
-  local repo="$1"
-  local query="$2"
-  local since_date="$3"
+# Extract GTest failing test names ("ClassName.testMethod") from a stacktrace.
+extract_gtest_test_names() {
+  local text="$1"
+  printf '%s\n' "${text}" \
+    | grep -oP '(?<=\[  FAILED  \] )[A-Z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*' \
+    2>/dev/null | sort -u | head -5
+}
 
-  if [[ -z "${repo}" || -z "${query}" ]]; then
-    return 0
+# Search GitHub for related issues AND PRs using multiple search terms derived
+# from the failure stacktrace. Each term is searched separately (no quoted-phrase
+# lock-in) so results like PR titles with slightly different capitalisation are
+# still found. Results are deduplicated by URL.
+# Args: repo, stacktrace_text, since_date, line_prefix
+find_related_github_items() {
+  local repo="$1"
+  local stacktrace="$2"
+  local since_date="$3"
+  local prefix="${4:-    - }"
+
+  [[ -z "${repo}" ]] && return 0
+
+  # Build a list of search terms from multiple sources so no single approach
+  # is a single point of failure.
+  local search_terms=()
+
+  # 1. GTest test names: "ClassName.testMethod" + bare "testMethod" alone.
+  #    Searching just the method name catches PRs whose title omits the class.
+  local gtest_names
+  gtest_names="$(extract_gtest_test_names "${stacktrace}")"
+  if [[ -n "${gtest_names}" ]]; then
+    while IFS= read -r name; do
+      [[ -z "${name}" ]] && continue
+      search_terms+=("${name}")
+      local method="${name#*.}"
+      [[ -n "${method}" && "${method}" != "${name}" ]] && search_terms+=("${method}")
+    done <<< "${gtest_names}"
   fi
 
-  local issues_out prs_out
-  issues_out="$(gh_retry gh search issues --repo "${repo}" --limit 5 --json title,url,number \
-    "\"${query}\" created:>=${since_date}" \
-    | jq -r '.[] | "    - #\(.number) \(.title) (\(.url))"' 2>/dev/null)" || true
-  prs_out="$(gh_retry gh search prs --repo "${repo}" --limit 5 --json title,url,number \
-    "\"${query}\" created:>=${since_date}" \
-    | jq -r '.[] | "    - #\(.number) \(.title) (\(.url))"' 2>/dev/null)" || true
+  # 2. C++/Java identifiers extracted from error lines (::, . , filenames).
+  local identifiers
+  identifiers="$(extract_error_identifiers "${stacktrace}")"
+  if [[ -n "${identifiers}" ]]; then
+    while IFS= read -r id; do
+      [[ -z "${id}" ]] && continue
+      search_terms+=("${id//::/ }")
+    done <<< "${identifiers}"
+  fi
 
-  if [[ -n "${issues_out}" || -n "${prs_out}" ]]; then
-    echo ""
-    echo "  Related issues/PRs (last 7 days):"
-    [[ -n "${issues_out}" ]] && echo "${issues_out}"
-    [[ -n "${prs_out}" ]] && echo "${prs_out}"
+  # 3. Fallback first-line query when no structured terms were found.
+  if [[ "${#search_terms[@]}" -eq 0 ]]; then
+    local first_q
+    first_q="$(extract_search_query "${stacktrace}")"
+    [[ -n "${first_q}" ]] && search_terms+=("${first_q}")
+  fi
+
+  # Cap to 3 most specific terms to keep API calls bounded (3 terms × 2 kinds
+  # = 6 calls max per failure instead of potentially 40+).
+  local capped_terms=()
+  for term in "${search_terms[@]}"; do
+    [[ "${#capped_terms[@]}" -ge 3 ]] && break
+    [[ -z "${term}" ]] && continue
+    capped_terms+=("${term}")
+  done
+
+  # Search each term against both issues and PRs; deduplicate by URL.
+  local seen_urls="" all_items=""
+  for term in "${capped_terms[@]}"; do
+    [[ -z "${term}" ]] && continue
+    for kind in issues prs; do
+      local results
+      results=$(gh_retry gh search "${kind}" --repo "${repo}" --limit 3 \
+        --json title,url,number \
+        "${term} created:>=${since_date}" 2>/dev/null \
+        | jq -r '.[] | "#\(.number) \(.title) (\(.url))"' 2>/dev/null) || true
+      while IFS= read -r item; do
+        [[ -z "${item}" ]] && continue
+        local item_url
+        item_url=$(printf '%s\n' "${item}" | grep -oP 'https://[^ )]+' || true)
+        if [[ -n "${item_url}" && "${seen_urls}" != *"${item_url}"* ]]; then
+          seen_urls+=" ${item_url}"
+          all_items+="${prefix}${item}"$'\n'
+        fi
+      done <<< "${results}"
+    done
+  done
+
+  if [[ -n "${all_items}" ]]; then
+    printf '%s' "${all_items}" | head -15
   fi
 }
 
@@ -510,21 +585,29 @@ print_failure_details() {
       fi
 
       # Extract job-specific logs (log format: job-name<TAB>step-name<TAB>timestamp<TAB>content)
-      local job_log_content=""
+      local job_log_content="" raw_job_log=""
       if [[ -n "${log_out}" ]]; then
         # Filter logs by job name (first field before tab) - escape special chars in job name
         local escaped_job_name
         escaped_job_name=$(printf '%s' "${job_name}" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        job_log_content=$(echo "${log_out}" | grep -E "^${escaped_job_name}"$'\t' | \
-          awk '{print} /Post job cleanup\./ {exit}' | tail -n "${LOG_TAIL_LINES}" || true)
+        raw_job_log=$(echo "${log_out}" | grep -E "^${escaped_job_name}"$'\t' | \
+          awk '{print} /Post job cleanup\./ {exit}' || true)
+        # For AI analysis: extract complete GTest failure blocks so early
+        # failures are not silently lost by a blind tail.
+        job_log_content=$(extract_relevant_failures "${raw_job_log}")
       fi
 
       # Analyze this job's logs with AI (only if --cause flag is set)
       if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
+        # Pre-fetch related GitHub items once; pass to AI to avoid duplicate searches
+        local repo related_items
+        repo="$(upstream_repo_for_label "${label}")"
+        related_items="$(find_related_github_items "${repo}" "${job_log_content}" "${since_date}" "    - ")"
+
         local ai_response cause fix stacktrace
         if [[ -n "${job_log_content}" ]]; then
           if [[ "${USE_CLAUDE}" == "true" ]]; then
-            ai_response="$(analyze_logs_with_claude_ai "${job_log_content}" "${job_name}" "${wf_name}")"
+            ai_response="$(analyze_logs_with_claude_ai "${job_log_content}" "${job_name}" "${wf_name}" "${related_items}")"
           else
             ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
           fi
@@ -569,11 +652,10 @@ FIX:Check the run link above for details"
           echo "    - Fix: _${fix}_"
         fi
 
-        local repo query
-        repo="$(upstream_repo_for_label "${label}")"
-        query="$(extract_search_query "${clean_stacktrace}")"
-        if [[ -n "${query}" ]]; then
-          print_related_issues_and_prs "${repo}" "${query}" "${since_date}"
+        if [[ -n "${related_items}" ]]; then
+          echo ""
+          echo "  Related issues/PRs (last 7 days):"
+          printf '%s\n' "${related_items}"
         fi
       fi
 
@@ -648,6 +730,77 @@ print_in_progress_details() {
   fi
 }
 
+# --- Log extraction helpers ---
+
+# Extract relevant failure content from GH Actions logs for AI analysis.
+# For Google Test (GTest) logs: extracts complete failing test blocks
+#   (from "[ RUN      ] TestName" through "[ FAILED  ] TestName") and the
+#   CTest summary, so early failures are never missed by a blind tail.
+# For other logs (compilation, etc.): strips the GH Actions
+#   job/step/timestamp prefix and returns a generous tail.
+# Input: raw GH Actions log lines (JOBNAME<TAB>STEPNAME<TAB>TIMESTAMP<TAB>CONTENT)
+extract_relevant_failures() {
+  local raw_log="$1"
+  local max_fallback_lines="${2:-500}"
+
+  # Strip the GitHub Actions log prefix (4-field tab-separated header) to
+  # obtain just the actual test/build output lines.
+  local content
+  content=$(printf '%s\n' "${raw_log}" | awk -F'\t' '{
+    if (NF >= 4) {
+      out = $4
+      for (i=5; i<=NF; i++) out = out "\t" $i
+      print out
+    } else {
+      print $0
+    }
+  }')
+
+  # Detect Google Test output by looking for GTest markers.
+  if printf '%s\n' "${content}" | grep -qE '^\[  FAILED  \]|\[ RUN[[:space:]]+\]'; then
+    local gtest_blocks
+    gtest_blocks=$(printf '%s\n' "${content}" | awk '
+      # Start accumulating a test block when we see "[ RUN      ]"
+      /^\[ RUN[[:space:]]/ {
+        in_block = 1
+        block = $0
+        next
+      }
+      in_block {
+        block = block "\n" $0
+        # Failing test – emit the entire accumulated block
+        if (/^\[  FAILED  \]/) {
+          print block
+          in_block = 0
+          block = ""
+          next
+        }
+        # Passing test – discard the block silently
+        if (/^\[       OK \]/ || /^\[ DISABLED \]/ || /^\[ SKIPPED \]/) {
+          in_block = 0
+          block = ""
+          next
+        }
+        next
+      }
+      # Standalone [  FAILED  ] summary lines (outside any block)
+      /^\[  FAILED  \]/ { print; next }
+      # CTest percentage summary  (e.g. "99% tests passed, 1 tests failed out of 467")
+      /^[0-9]+%.*tests passed/ { print; next }
+      # CTest failing-test list
+      /^The following tests FAILED:/ { in_ctest = 1 }
+      in_ctest { print; next }
+    ')
+    if [[ -n "${gtest_blocks}" ]]; then
+      printf '%s\n' "${gtest_blocks}"
+      return
+    fi
+  fi
+
+  # Fallback for non-GTest logs (compilation errors, etc.): generous tail.
+  printf '%s\n' "${content}" | tail -n "${max_fallback_lines}"
+}
+
 # --- Slack format functions ---
 
 # Analyze logs using AI to determine cause and fix
@@ -671,10 +824,10 @@ analyze_logs_with_ai() {
   local api_url="${LLM_API_URL:-https://integrate.api.nvidia.com/v1/chat/completions}"
   local model="${LLM_MODEL:-nvdev/nvidia/llama-3.3-nemotron-super-49b-v1}"
 
-  # Truncate logs if too long (keep last ~12000 chars to capture full error context)
+  # Truncate logs if too long (keep last ~30000 chars to capture full error context)
   local truncated_logs
-  if [[ ${#log_content} -gt 12000 ]]; then
-    truncated_logs="[...truncated...]\n$(echo "${log_content}" | tail -c 12000)"
+  if [[ ${#log_content} -gt 30000 ]]; then
+    truncated_logs="[...truncated...]\n$(echo "${log_content}" | tail -c 30000)"
   else
     truncated_logs="${log_content}"
   fi
@@ -787,8 +940,10 @@ extract_error_identifiers() {
   echo "${identifiers}" | sed '/^$/d' | sort -u | head -8
 }
 
-# Search velox and presto GitHub repos for PRs/issues related to given identifiers.
-# Returns a formatted summary of related PRs.
+# Search velox and presto GitHub repos for issues AND PRs related to given
+# identifiers (used to build Claude's context).  Also includes bare GTest
+# method names extracted from the identifiers so PR titles that omit the
+# class prefix are still found.
 search_related_github_prs() {
   local identifiers="$1"
   local since_date
@@ -798,35 +953,48 @@ search_related_github_prs() {
     return
   fi
 
+  # Build search terms: the original identifiers + bare method names for
+  # ClassName.methodName style identifiers (covers PRs that skip the class).
+  local search_terms=()
+  while IFS= read -r id; do
+    [[ -z "${id}" ]] && continue
+    local term="${id//::/ }"
+    search_terms+=("${term}")
+    # If "ClassName.methodName", also search just "methodName"
+    if [[ "${term}" == *.* ]]; then
+      local method="${term##*.}"
+      [[ -n "${method}" ]] && search_terms+=("${method}")
+    fi
+  done <<< "${identifiers}"
+
   local all_results=""
   local repos=("facebookincubator/velox" "prestodb/presto")
   local seen_urls=""
 
-  while IFS= read -r identifier; do
-    [[ -z "${identifier}" ]] && continue
-    # Strip :: for better GitHub search (GitHub treats :: poorly)
-    local search_term="${identifier//::/ }"
+  for search_term in "${search_terms[@]}"; do
+    [[ -z "${search_term}" ]] && continue
     for repo in "${repos[@]}"; do
-      local prs
-      prs=$(gh_retry gh search prs --repo "${repo}" --limit 3 --json title,url,number,state \
-        "${search_term} created:>=${since_date}" 2>/dev/null \
-        | jq -r '.[] | "#\(.number) [\(.state)] \(.title) (\(.url))"' 2>/dev/null) || true
-      if [[ -n "${prs}" ]]; then
-        # Deduplicate by URL
-        while IFS= read -r pr_line; do
-          local pr_url
-          pr_url=$(echo "${pr_line}" | grep -oP 'https://[^ )]+' || true)
-          if [[ -n "${pr_url}" && ! "${seen_urls}" == *"${pr_url}"* ]]; then
-            seen_urls+=" ${pr_url}"
-            all_results+="  - ${pr_line}"$'\n'
+      for kind in issues prs; do
+        local results
+        results=$(gh_retry gh search "${kind}" --repo "${repo}" --limit 3 \
+          --json title,url,number,state \
+          "${search_term} created:>=${since_date}" 2>/dev/null \
+          | jq -r '.[] | "#\(.number) [\(.state)] \(.title) (\(.url))"' 2>/dev/null) || true
+        while IFS= read -r result_line; do
+          [[ -z "${result_line}" ]] && continue
+          local result_url
+          result_url=$(printf '%s\n' "${result_line}" | grep -oP 'https://[^ )]+' || true)
+          if [[ -n "${result_url}" && "${seen_urls}" != *"${result_url}"* ]]; then
+            seen_urls+=" ${result_url}"
+            all_results+="  - ${result_line}"$'\n'
           fi
-        done <<< "${prs}"
-      fi
+        done <<< "${results}"
+      done
     done
-  done <<< "${identifiers}"
+  done
 
   if [[ -n "${all_results}" ]]; then
-    echo "${all_results}" | head -15
+    printf '%s' "${all_results}" | head -20
   fi
 }
 
@@ -837,6 +1005,8 @@ analyze_logs_with_claude_ai() {
   local log_content="$1"
   local job_name="$2"
   local workflow_name="$3"
+  # Optional: pre-fetched related items string; when set, skips internal GitHub search
+  local prefetched_items="${4:-}"
 
   local claude_bin="${CLAUDE_BIN:-claude}"
   if ! command -v "${claude_bin}" &>/dev/null; then
@@ -849,26 +1019,36 @@ analyze_logs_with_claude_ai() {
   local model="${CLAUDE_MODEL:-opus}"
 
   local truncated_logs
-  if [[ ${#log_content} -gt 12000 ]]; then
+  if [[ ${#log_content} -gt 30000 ]]; then
     truncated_logs="[...truncated...]
-$(echo "${log_content}" | tail -c 12000)"
+$(echo "${log_content}" | tail -c 30000)"
   else
     truncated_logs="${log_content}"
   fi
 
-  # Search GitHub for related PRs based on error identifiers
-  local identifiers related_prs related_prs_section=""
-  identifiers="$(extract_error_identifiers "${truncated_logs}")"
-  if [[ -n "${identifiers}" ]]; then
-    related_prs="$(search_related_github_prs "${identifiers}")"
-    if [[ -n "${related_prs}" ]]; then
-      related_prs_section="
-
-RELATED GITHUB PRs (found by searching error identifiers in velox/presto repos):
-${related_prs}
-
-When suggesting a FIX, reference any relevant PR from above that may have introduced or fixed the issue. Include the PR number and URL."
+  # Use pre-fetched related items if provided; otherwise search GitHub internally
+  local related_items related_items_section=""
+  if [[ -n "${prefetched_items}" ]]; then
+    related_items="${prefetched_items}"
+  else
+    local identifiers
+    identifiers="$(extract_error_identifiers "${truncated_logs}")"
+    local gtest_names
+    gtest_names="$(extract_gtest_test_names "${truncated_logs}")"
+    if [[ -n "${gtest_names}" ]]; then
+      identifiers="$(printf '%s\n%s\n' "${identifiers}" "${gtest_names}" | sed '/^$/d' | sort -u)"
     fi
+    if [[ -n "${identifiers}" ]]; then
+      related_items="$(search_related_github_prs "${identifiers}")"
+    fi
+  fi
+  if [[ -n "${related_items}" ]]; then
+    related_items_section="
+
+RELATED GITHUB ISSUES AND PRs (found by searching error identifiers in velox/presto repos):
+${related_items}
+
+When suggesting a FIX, reference any relevant issue or PR from above that may have introduced or fixed the issue. Include the number and URL."
   fi
 
   local prompt="You are analyzing a CI/CD build failure log. Your task is to find the ROOT CAUSE of the failure, not just the final symptom.
@@ -886,12 +1066,12 @@ Job: ${job_name}
 Workflow: ${workflow_name}
 
 Log output:
-${truncated_logs}${related_prs_section}
+${truncated_logs}${related_items_section}
 
 Based on your analysis, provide:
 1. STACKTRACE: Extract the relevant error stacktrace or error messages from the log (the actual error output, compiler errors, test failures, or exception traces - NOT the entire log, just the key error portion)
 2. CAUSE: The specific root cause (mention file/class/function names, exact error like type mismatch, missing symbol, failed test names, etc.)
-3. FIX: A concrete suggested fix or investigation step. If any of the RELATED GITHUB PRs above are relevant to the failure, mention them with their PR number and URL.
+3. FIX: A concrete suggested fix or investigation step. If any of the RELATED GITHUB ISSUES AND PRs above are relevant to the failure, mention them with their number and URL.
 
 Respond in exactly this format (no markdown except for STACKTRACE which can be multiline):
 STACKTRACE:<the relevant error stacktrace or error messages, can span multiple lines, end with END_STACKTRACE on its own line>
@@ -1003,21 +1183,29 @@ print_slack_failure_details() {
       fi
 
       # Extract job-specific logs (log format: job-name<TAB>step-name<TAB>timestamp<TAB>content)
-      local job_log_content=""
+      local job_log_content="" raw_job_log=""
       if [[ -n "${log_out}" ]]; then
         # Filter logs by job name (first field before tab) - escape special chars in job name
         local escaped_job_name
         escaped_job_name=$(printf '%s' "${job_name}" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        job_log_content=$(echo "${log_out}" | grep -E "^${escaped_job_name}"$'\t' | \
-          awk '{print} /Post job cleanup\./ {exit}' | tail -n "${LOG_TAIL_LINES}" || true)
+        raw_job_log=$(echo "${log_out}" | grep -E "^${escaped_job_name}"$'\t' | \
+          awk '{print} /Post job cleanup\./ {exit}' || true)
+        # For AI analysis: extract complete GTest failure blocks so early
+        # failures are not silently lost by a blind tail.
+        job_log_content=$(extract_relevant_failures "${raw_job_log}")
       fi
 
       # Analyze this job's logs with AI (only if --cause flag is set)
       if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
+        # Pre-fetch related GitHub items once; pass to AI to avoid duplicate searches
+        local repo related_items
+        repo="$(upstream_repo_for_label "${label}")"
+        related_items="$(find_related_github_items "${repo}" "${job_log_content}" "${since_date}" "    • ")"
+
         local ai_response cause fix stacktrace
         if [[ -n "${job_log_content}" ]]; then
           if [[ "${USE_CLAUDE}" == "true" ]]; then
-            ai_response="$(analyze_logs_with_claude_ai "${job_log_content}" "${job_name}" "${wf_name}")"
+            ai_response="$(analyze_logs_with_claude_ai "${job_log_content}" "${job_name}" "${wf_name}" "${related_items}")"
           else
             ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
           fi
@@ -1062,24 +1250,10 @@ FIX:Check the run link above for details"
           echo "    *Fix:* _${fix}_"
         fi
 
-        local repo query
-        repo="$(upstream_repo_for_label "${label}")"
-        query="$(extract_search_query "${clean_stacktrace}")"
-        if [[ -n "${query}" ]]; then
-          local issues_out prs_out
-          issues_out="$(gh_retry gh search issues --repo "${repo}" --limit 5 --json title,url,number \
-            "\"${query}\" created:>=${since_date}" \
-            | jq -r '.[] | "    • #\(.number) \(.title) (\(.url))"' 2>/dev/null)" || true
-          prs_out="$(gh_retry gh search prs --repo "${repo}" --limit 5 --json title,url,number \
-            "\"${query}\" created:>=${since_date}" \
-            | jq -r '.[] | "    • #\(.number) \(.title) (\(.url))"' 2>/dev/null)" || true
-
-          if [[ -n "${issues_out}" || -n "${prs_out}" ]]; then
-            echo ""
-            echo "    *Related issues/PRs (last 7 days):*"
-            [[ -n "${issues_out}" ]] && echo "${issues_out}"
-            [[ -n "${prs_out}" ]] && echo "${prs_out}"
-          fi
+        if [[ -n "${related_items}" ]]; then
+          echo ""
+          echo "    *Related issues/PRs (last 7 days):*"
+          printf '%s\n' "${related_items}"
         fi
       fi
 
