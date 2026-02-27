@@ -201,7 +201,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--version",
         default=None,
-        help="Version string for the query engine",
+        help="Version string for the query engine (e.g. velox-cudf's version).",
     )
     parser.add_argument(
         "--commit-hash",
