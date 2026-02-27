@@ -196,7 +196,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--identifier-hash",
         default=None,
-        help="Unique identifier hash for the query engine version",
+        help="Unique identifier hash for software environment (e.g. a container image digest).",
     )
     parser.add_argument(
         "--version",
