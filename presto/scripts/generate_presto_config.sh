@@ -30,19 +30,23 @@ if [ ! -x "${SCRIPT_DIR}/../pbench/pbench" ]; then
   echo_error "ERROR: generate_presto_config.sh script cannot find pbench at ${SCRIPT_DIR}/../pbench/pbench"
 fi
 
+# This function duplicates the worker configs when we are running multiple workers.
+# It also adds certain config options to the workers if those options apply only to multi-worker environments.
 function duplicate_worker_configs() {
   local worker_id=$1
   echo "Duplicating worker configs for GPU ID $worker_id"
   local worker_config="${CONFIG_DIR}/etc_worker_${worker_id}"
-  local worker_native_config="${worker_config}/config_native.properties"
   local coord_config="${CONFIG_DIR}/etc_coordinator"
+  local worker_native_config="${worker_config}/config_native.properties"
   local coord_native_config="${coord_config}/config_native.properties"
+  # Need to stagger the port numbers because ucx exchange currently expects to be exactly
+  # 3 higher than the http port.
   local http_port="10$(printf "%02d\n" "$worker_id")0"
   local exch_port="10$(printf "%02d\n" "$worker_id")3"
   rm -rf ${worker_config}
   cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
 
-  # Single node execution needs to be disabled if we are running multiple workers.
+  # Some configs should only be applied if we are in a multi-worker environment.
   if [[ ${NUM_WORKERS} -gt 1 ]]; then
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${coord_native_config}
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${worker_native_config}
@@ -72,7 +76,7 @@ RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo_error "ERROR: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
 fi
-if [[ -z ${VCPU_PER_WORKER} ]]; then
+if [[ -z ${VCPU_PER_WORKER:-} ]]; then
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
     VCPU_PER_WORKER=2
   else
@@ -122,6 +126,7 @@ EOF
   fi
 
   COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
+  WORKER_CONFIG="${CONFIG_DIR}/etc_worker/config_native.properties"
   # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
     # for GPU variant, uncomment these optimizer settings
@@ -158,10 +163,13 @@ fi
 
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
-if [[ -n "$NUM_WORKERS" && -n "$GPU_IDS" && "$VARIANT_TYPE" == "gpu" ]]; then
-  # Count the number of GPU IDs provided
-  IFS=',' read -ra GPU_ID_ARRAY <<< "$GPU_IDS"
-  for i in "${GPU_ID_ARRAY[@]}"; do
+if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
+  if [[ -n ${GPU_IDS:-} ]]; then
+      WORKER_IDS=($(echo "$GPU_IDS" | tr ',' ' '))
+  else
+      WORKER_IDS=($(seq 0 $((NUM_WORKERS - 1))))
+  fi
+  for i in "${WORKER_IDS[@]}"; do
     duplicate_worker_configs $i
   done
 fi

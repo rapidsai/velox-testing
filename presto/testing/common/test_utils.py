@@ -1,26 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
-import json
 import os
 import re
 
 import pytest
 
-
-def get_queries(benchmark_type):
-    with open(get_abs_file_path(f"./queries/{benchmark_type}/queries.json"), "r") as file:
-        return json.load(file)
-
-
-def get_abs_file_path(relative_path):
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), relative_path))
-
-
-def get_scale_factor_from_file(file):
-    with open(get_abs_file_path(file), "r") as file:
-        metadata = json.load(file)
-        return metadata["scale_factor"]
+from common.testing.test_utils import (
+    get_abs_file_path,
+    get_queries,  # noqa: F401
+    get_scale_factor_from_file,
+)
 
 
 def get_table_external_location(schema_name, table, presto_cursor):
@@ -31,15 +21,17 @@ def get_table_external_location(schema_name, table, presto_cursor):
     test_match = re.search(test_pattern, create_table_text[0])
     external_dir = ""
     if test_match:
-        external_dir = get_abs_file_path(f"../integration_tests/data/{test_match.group(1)}")
+        external_dir = get_abs_file_path(
+            __file__, f"../../../common/testing/integration_tests/data/{test_match.group(1)}"
+        )
     else:
         user_match = re.search(user_pattern, create_table_text[0])
         if user_match:
             external_dir = f"{os.environ['PRESTO_DATA_DIR']}/{user_match.group(1)}"
     if not os.path.isdir(external_dir):
         raise Exception(
-            f"external location '{external_dir}' referenced by table hive.{schema_name}.{table} \
-does not exist in {get_abs_file_path('data')} or $PRESTO_DATA_DIR"
+            f"External location '{external_dir}' referenced by table hive.{schema_name}.{table} \
+does not exist"
         )
     return external_dir
 
@@ -56,10 +48,12 @@ def get_scale_factor(request, presto_cursor):
         # where the table are fetching data from.
         table = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchone()[0]
         location = get_table_external_location(schema_name, table, presto_cursor)
-        repository_path = get_abs_file_path(f"{location}/../")
+        repository_path = os.path.dirname(location)
     else:
         # default assumed location for metadata file.
-        repository_path = get_abs_file_path(f"../integration_tests/data/{benchmark_type}")
+        repository_path = get_abs_file_path(
+            __file__, f"../../../common/testing/integration_tests/data/{benchmark_type}"
+        )
     meta_file = f"{repository_path}/metadata.json"
     if not os.path.exists(meta_file):
         raise pytest.UsageError(
