@@ -15,11 +15,11 @@ This script operates on the parsed output of the benchmark runner. The
 expected directory structure is:
 
     ../benchmark-root/
-    ├── benchmark.json
-    ├── configs  # optional
+    ├── benchmark.json           # optional
+    ├── configs                  # optional
     │   ├── coordinator.config
     │   └── worker.config
-    ├── logs  # optional
+    ├── logs                     # optional
     │   └── slurm-4575179.out
     └── result_dir
         └── benchmark_result.json
@@ -48,7 +48,6 @@ Environment variables:
 import argparse
 import asyncio
 import dataclasses
-import hashlib
 import json
 import os
 import sys
@@ -59,7 +58,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class BenchmarkMetadata:
     kind: str
     benchmark: str
@@ -69,7 +68,7 @@ class BenchmarkMetadata:
     scale_factor: int
     gpu_count: int
     num_drivers: int
-    worker_image: str
+    worker_image: str | None = None
     gpu_name: str
     engine: str
 
@@ -191,12 +190,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--engine-name",
         default=None,
-        help="Query engine name (default: derived from benchmark.json 'engine' field)",
+        help="Query engine name (optionally derived from benchmark.json 'engine' field)",
     )
     parser.add_argument(
         "--identifier-hash",
-        default=None,
         help="Unique identifier hash for software environment (e.g. a container image digest).",
+        required=True,
     )
     parser.add_argument(
         "--version",
@@ -235,6 +234,57 @@ def parse_args() -> argparse.Namespace:
         help="Benchmark definition name",
     )
 
+    # A bunch of optional arguments for when benchmark.json is not present.
+    parser.add_argument(
+        "--kind",
+        help="Run kind (e.g. 'single-node', 'multi-node')",
+    )
+    parser.add_argument(
+        "--benchmark",
+        help="Benchmark name (e.g. 'tpch')",
+        default="tpch",
+    )
+    parser.add_argument(
+        "--timestamp",
+        help="Timestamp of the benchmark run",
+        default=None,
+    )
+    parser.add_argument("--execution-number", help="Execution number of the benchmark run", type=int, default=1)
+    parser.add_argument(
+        "--n-workers",
+        help="Number of workers in the benchmark run",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--scale-factor",
+        help="Scale factor of the benchmark run",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--gpu-count",
+        help="Number of GPUs in the benchmark run",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--gpu-name",
+        help="GPU name (e.g. 'H100')",
+        default=None,
+    )
+    parser.add_argument(
+        "--num-drivers",
+        help="Number of drivers in the benchmark run",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--worker-image",
+        help="Worker image (e.g. 'velox/worker:latest')",
+        default=None,
+    )
+
     return parser.parse_args()
 
 
@@ -256,15 +306,6 @@ def normalize_api_url(url: str) -> str:
     return normalized.rstrip("/")
 
 
-def generate_identifier_hash(timestamp: datetime, engine: str) -> str:
-    """Generate a placeholder identifier hash from timestamp and engine.
-
-    Used when no explicit identifier hash is provided via CLI.
-    """
-    combined = f"{timestamp.isoformat()}:{engine}"
-    return hashlib.sha256(combined.encode()).hexdigest()[:16]
-
-
 def build_submission_payload(
     benchmark_metadata: BenchmarkMetadata,
     benchmark_results: BenchmarkResults,
@@ -274,7 +315,7 @@ def build_submission_payload(
     benchmark_definition_name: str,
     cache_state: str,
     engine_name: str | None,
-    identifier_hash: str | None,
+    identifier_hash: str,
     version: str | None,
     commit_hash: str | None,
     is_official: bool,
@@ -290,17 +331,13 @@ def build_submission_payload(
         storage_configuration_name: Storage configuration name
         cache_state: Cache state (cold/warm/hot)
         engine_name: Override for engine name (or None to use metadata)
-        identifier_hash: Explicit identifier hash (or None for placeholder)
+        identifier_hash: Explicit identifier hash
         version: Explicit version (or None for placeholder)
         commit_hash: Explicit commit hash (or None for placeholder)
         is_official: Whether this is an official benchmark run
     """
     # Use engine from metadata if not overridden
     engine = engine_name or benchmark_metadata.engine
-
-    # Generate or use provided identifier hash
-    if identifier_hash is None:
-        identifier_hash = generate_identifier_hash(benchmark_metadata.timestamp, engine)
 
     # Use placeholders for version info if not provided
     if version is None:
@@ -470,7 +507,7 @@ async def process_benchmark_dir(
     storage_configuration_name: str,
     cache_state: str,
     engine_name: str | None,
-    identifier_hash: str | None,
+    identifier_hash: str,
     version: str | None,
     commit_hash: str | None,
     is_official: bool,
@@ -480,6 +517,17 @@ async def process_benchmark_dir(
     timeout: float,
     upload_logs: bool = True,
     benchmark_definition_name: str,
+    # all the optional arguments for when benchmark.json is not present.
+    kind: str | None = None,
+    benchmark: str | None = None,
+    timestamp: str | None = None,
+    execution_number: int = 1,
+    n_workers: int | None = None,
+    scale_factor: int | None = None,
+    gpu_count: int | None = None,
+    gpu_name: str | None = None,
+    worker_image: str | None = None,
+    num_drivers: int | None = None,
 ) -> int:
     """Process a benchmark directory and post results to API.
 
@@ -489,10 +537,58 @@ async def process_benchmark_dir(
     print(f"\nProcessing: {benchmark_dir}", file=sys.stderr)
 
     # Load metadata, results, and config
-    try:
-        metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark.json")
-    except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
-        print(f"  Error loading metadata: {e}", file=sys.stderr)
+
+    # benchmark.json is only optionally written out.
+    # We give preference to getting this from the user CLI options,
+    # falling back to
+
+    benchmark_json_path = benchmark_dir / "benchmark.json"
+
+    if not benchmark_json_path.exists():
+        missing_args = []
+        if kind is None:
+            missing_args.append("kind")
+        if benchmark is None:
+            missing_args.append("benchmark")
+        if timestamp is None:
+            missing_args.append("timestamp")
+        if n_workers is None:
+            missing_args.append("n_workers")
+        if scale_factor is None:
+            missing_args.append("scale_factor")
+        if gpu_count is None:
+            missing_args.append("gpu_count")
+        if gpu_name is None:
+            missing_args.append("gpu_name")
+        if num_drivers is None:
+            missing_args.append("num_drivers")
+        if engine_name is None:
+            missing_args.append("engine_name")
+
+        if missing_args:
+            print("  Error: must provide benchmark metadata when benchmark.json is not present", file=sys.stderr)
+            print(f"  Error: missing arguments: {', '.join(missing_args)}", file=sys.stderr)
+            return 1
+
+        # mypy doesn't realize that kind, benchmark, etc. have been narrowed to not-None by the check above.
+        benchmark_metadata = BenchmarkMetadata(
+            kind=kind,  # type: ignore[arg-type]
+            benchmark=benchmark,  # type: ignore[arg-type]
+            timestamp=datetime.fromisoformat(timestamp.replace("Z", "+00:00")),  # type: ignore[union-attr]
+            execution_number=execution_number,
+            n_workers=n_workers,  # type: ignore[arg-type]
+            scale_factor=scale_factor,  # type: ignore[arg-type]
+            gpu_count=gpu_count,  # type: ignore[arg-type]
+            gpu_name=gpu_name,  # type: ignore[arg-type]
+            num_drivers=num_drivers,  # type: ignore[arg-type]
+            worker_image=worker_image,
+            engine=engine_name,  # type: ignore[arg-type]
+        )
+    else:
+        try:
+            benchmark_metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark.json")
+        except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"  Error loading metadata: {e}", file=sys.stderr)
         return 1
     try:
         results = BenchmarkResults.from_file(benchmark_dir / "result_dir" / "benchmark_result.json")
@@ -506,10 +602,6 @@ async def process_benchmark_dir(
     else:
         print("  No engine config found.", file=sys.stderr)
         engine_config = None
-
-    print(f"  Timestamp: {metadata.timestamp}", file=sys.stderr)
-    print(f"  Engine: {metadata.engine}", file=sys.stderr)
-    print(f"  Scale factor: {metadata.scale_factor}", file=sys.stderr)
 
     # Upload log files as assets
     asset_ids = None
@@ -529,7 +621,7 @@ async def process_benchmark_dir(
     # Build submission payload
     try:
         payload = build_submission_payload(
-            benchmark_metadata=metadata,
+            benchmark_metadata=benchmark_metadata,
             benchmark_results=results,
             engine_config=engine_config,
             benchmark_definition_name=benchmark_definition_name,
@@ -617,6 +709,16 @@ async def main() -> int:
         timeout=args.timeout,
         upload_logs=args.upload_logs,
         benchmark_definition_name=args.benchmark_name,
+        kind=args.kind,
+        benchmark=args.benchmark,
+        timestamp=args.timestamp,
+        execution_number=args.execution_number,
+        n_workers=args.n_workers,
+        scale_factor=args.scale_factor,
+        gpu_count=args.gpu_count,
+        gpu_name=args.gpu_name,
+        worker_image=args.worker_image,
+        num_drivers=args.num_drivers,
     )
 
     return result
