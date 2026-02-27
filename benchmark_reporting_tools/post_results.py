@@ -186,6 +186,7 @@ def parse_args() -> argparse.Namespace:
         "--cache-state",
         choices=["cold", "warm", "hot", "lukewarm"],
         help="Cache state for the benchmark run",
+        required=True,
     )
     parser.add_argument(
         "--engine-name",
@@ -460,7 +461,6 @@ async def upload_log_files(
     """
     log_files = sorted(benchmark_dir.glob("*.log"))
     if not log_files:
-        print("  No *.log files found to upload.", file=sys.stderr)
         return []
 
     print(f"  Uploading {len(log_files)} log file(s) (max {max_concurrency} concurrent)...", file=sys.stderr)
