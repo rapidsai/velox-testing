@@ -84,6 +84,13 @@ function conditionally_add_build_target() {
 
 conditionally_add_build_target $COORDINATOR_IMAGE $COORDINATOR_SERVICE "coordinator|c"
 
+# Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
+# This needs to happen before we determine the GPU worker services to build
+if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
+  # Generate default GPU IDs: 0,1,2,...,N-1
+  export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
+fi
+
 if [[ "$VARIANT_TYPE" == "java" ]]; then
   DOCKER_COMPOSE_FILE="java"
   conditionally_add_build_target $JAVA_WORKER_IMAGE $JAVA_WORKER_SERVICE "worker|w"
@@ -92,7 +99,18 @@ elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
-  conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
+  # When running multiple workers in separate containers, the services are named
+  # presto-native-worker-gpu-0, presto-native-worker-gpu-1, etc. instead of presto-native-worker-gpu.
+  # However, all services share the same image (presto-native-worker-gpu), so we only need to build once.
+  if [[ -n $NUM_WORKERS && $NUM_WORKERS -gt 1 && "$SINGLE_CONTAINER" != "true" ]]; then
+    # Get the first GPU ID to use as the build target service name
+    FIRST_GPU_ID="${GPU_IDS%%,*}"
+    GPU_WORKER_SERVICE_WITH_ID="${GPU_WORKER_SERVICE}-${FIRST_GPU_ID}"
+    # All services share the same image, so check/build using the base image name but target the first service
+    conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE_WITH_ID "worker|w"
+  else
+    conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
+  fi
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
