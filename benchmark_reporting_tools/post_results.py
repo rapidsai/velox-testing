@@ -233,6 +233,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--benchmark-name",
         help="Benchmark definition name",
+        required=True,
+    )
+    parser.add_argument(
+        "--concurrency-streams",
+        help="Number of concurrency streams to use for the benchmark run",
+        type=int,
+        default=1,
     )
 
     # A bunch of optional arguments for when benchmark.json is not present.
@@ -321,6 +328,7 @@ def build_submission_payload(
     commit_hash: str | None,
     is_official: bool,
     asset_ids: list[int] | None = None,
+    concurrency_streams: int = 1,
 ) -> dict:
     """Build a BenchmarkSubmission payload from parsed dataclasses.
 
@@ -362,7 +370,6 @@ def build_submission_payload(
 
         # Each execution becomes a separate query log entry
         for exec_idx, runtime_ms in enumerate(times):
-            query_name_stripped = query_name.lstrip("Q")
             if is_failed:
                 runtime_ms = None
             else:
@@ -370,7 +377,7 @@ def build_submission_payload(
                 runtime_ms = float(runtime_ms)
             query_logs.append(
                 {
-                    "query_name": query_name_stripped,
+                    "query_name": query_name.lstrip("Q"),
                     "execution_order": execution_order,
                     "runtime_ms": runtime_ms,
                     "status": "error" if is_failed else "success",
@@ -386,7 +393,7 @@ def build_submission_payload(
         if query_name not in raw_times:
             query_logs.append(
                 {
-                    "query_name": query_name_stripped,
+                    "query_name": query_name.lstrip("Q"),
                     "execution_order": execution_order,
                     "runtime_ms": None,
                     "status": "error",
@@ -421,7 +428,7 @@ def build_submission_payload(
         "run_at": benchmark_metadata.timestamp.isoformat(),
         "node_count": benchmark_metadata.n_workers,
         "query_logs": query_logs,
-        "concurrency_streams": 1,
+        "concurrency_streams": concurrency_streams,
         "engine_config": engine_config.serialize() if engine_config else {},
         "extra_info": extra_info,
         "is_official": is_official,
@@ -518,6 +525,7 @@ async def process_benchmark_dir(
     upload_logs: bool = True,
     benchmark_definition_name: str,
     # all the optional arguments for when benchmark.json is not present.
+    concurrency_streams: int = 1,
     kind: str | None = None,
     benchmark: str | None = None,
     timestamp: str | None = None,
@@ -634,6 +642,7 @@ async def process_benchmark_dir(
             commit_hash=commit_hash,
             is_official=is_official,
             asset_ids=asset_ids,
+            concurrency_streams=concurrency_streams,
         )
     except Exception as e:
         print(f"  Error building payload: {e}", file=sys.stderr)
@@ -719,6 +728,7 @@ async def main() -> int:
         gpu_name=args.gpu_name,
         worker_image=args.worker_image,
         num_drivers=args.num_drivers,
+        concurrency_streams=args.concurrency_streams,
     )
 
     return result
