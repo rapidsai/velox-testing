@@ -38,13 +38,6 @@ if [[ ${#MISSING_REPOS[@]} -gt 0 ]]; then
     exit 1
 fi
 
-# Ensure devcontainer scripts are owned by the current user and world-executable.
-# On some systems the container mounts these files as root-owned, making sourced
-# helpers (e.g. _devcontainer_common_utils.sh) unreadable by the coder user.
-SCRIPTS_DIR="$(dirname "$(readlink -f "$0")")"
-sudo chown -R "$(id -u):$(id -g)" "${SCRIPTS_DIR}"
-sudo chmod -R 755 "${SCRIPTS_DIR}"
-
 # Create cache directories if they don't exist
 mkdir -p ~/.cache
 
