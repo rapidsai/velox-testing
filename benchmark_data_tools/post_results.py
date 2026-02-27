@@ -31,7 +31,7 @@ Usage:
         --cache-state warm
 
     # With optional version info
-    python scripts/post_results.py /path/to/benchmark/dir \
+    python benchmark_data_tools/post_results.py /path/to/benchmark/dir \
         --sku-name PDX-H100 \
         --storage-configuration-name pdx-lustre-sf-100 \
         --cache-state warm \
@@ -242,10 +242,10 @@ def normalize_api_url(url: str) -> str:
     """Normalize a user-provided API URL to a base URL.
 
     Handles various formats:
-    - https://accel-etl.nvidia.com
-    - https://accel-etl.nvidia.com/
-    - https://accel-etl.nvidia.com/api/benchmark
-    - https://accel-etl.nvidia.com/api/benchmark/
+    - https://example.nvidia.com
+    - https://example.nvidia.com/
+    - https://example.nvidia.com/api/benchmark
+    - https://example.nvidia.com/api/benchmark/
 
     Returns a normalized base URL (scheme + netloc) without trailing slash.
     """
@@ -324,6 +324,7 @@ def build_submission_payload(
 
         # Each execution becomes a separate query log entry
         for exec_idx, runtime_ms in enumerate(times):
+            query_name_stripped = query_name.lstrip("Q")
             if is_failed:
                 runtime_ms = None
             else:
@@ -331,7 +332,7 @@ def build_submission_payload(
                 runtime_ms = float(runtime_ms)
             query_logs.append(
                 {
-                    "query_name": query_name.lstrip("Q"),
+                    "query_name": query_name_stripped,
                     "execution_order": execution_order,
                     "runtime_ms": runtime_ms,
                     "status": "error" if is_failed else "success",
@@ -347,7 +348,7 @@ def build_submission_payload(
         if query_name not in raw_times:
             query_logs.append(
                 {
-                    "query_name": query_name,
+                    "query_name": query_name_stripped,
                     "execution_order": execution_order,
                     "runtime_ms": None,
                     "status": "error",
@@ -415,7 +416,7 @@ async def upload_log_files(
         api_url: Base API URL
         api_key: API bearer token
         timeout: Request timeout in seconds
-        max_concurrent: Maximum number of concurrent uploads
+        max_concurrency: Maximum number of concurrent uploads
 
     Returns:
         List of asset IDs from the uploaded files
