@@ -1,3 +1,4 @@
+# check=skip=SecretsUsedInArgOrEnv
 FROM presto/prestissimo-dependency:centos9
 
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
@@ -16,6 +17,7 @@ ARG EXTRA_CMAKE_FLAGS="\
     -DVELOX_BUILD_TESTING=OFF \
     -DPRESTO_STATS_REPORTER_TYPE=PROMETHEUS"
 ARG CUDA_ARCHITECTURES="75;80;86;90;100;120"
+ARG TARGETARCH
 ARG ENABLE_SCCACHE=OFF
 ARG SCCACHE_SERVER_LOG="sccache=info"
 ARG SCCACHE_VERSION=latest
