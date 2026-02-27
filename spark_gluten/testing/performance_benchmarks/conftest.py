@@ -10,7 +10,6 @@ from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.common_fixtures import (
     benchmark_queries,  # noqa: F401
     benchmark_result_collector,  # noqa: F401
-    drop_cache_once,  # noqa: F401
 )
 from common.testing.performance_benchmarks.conftest import (
     DataLocation,
@@ -19,30 +18,23 @@ from common.testing.performance_benchmarks.conftest import (
 )
 
 from ..common.fixtures import (
+    base_setup_and_teardown,  # noqa: F401
+    spark_session,  # noqa: F401
     tpcds_queries,  # noqa: F401
     tpch_queries,  # noqa: F401
 )
-from .common_fixtures import (
-    benchmark_query,  # noqa: F401
-    presto_cursor,  # noqa: F401
-)
+from .common_fixtures import benchmark_query  # noqa: F401
 
 
 def pytest_addoption(parser):
     parser.addoption("--queries")
-    parser.addoption("--schema-name", required=True)
-    parser.addoption("--scale-factor")
-    parser.addoption("--hostname", default="localhost")
-    parser.addoption("--port", default=8080, type=int)
-    parser.addoption("--user", default="test_user")
+    parser.addoption("--dataset-name", required=True)
     parser.addoption("--iterations", default=5, type=int)
     parser.addoption("--output-dir", default="benchmark_output")
     parser.addoption("--tag")
-    parser.addoption("--profile", action="store_true", default=False)
-    parser.addoption("--profile-script-path")
-    parser.addoption("--metrics", action="store_true", default=False)
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
+    parser.addoption("--gluten-jar-path")
 
 
 def pytest_configure(config):
-    pytest.data_location = DataLocation("--schema-name", "Schema", BenchmarkKeys.SCHEMA_NAME_KEY)
+    pytest.data_location = DataLocation("--dataset-name", "Dataset", BenchmarkKeys.DATASET_NAME_KEY)
