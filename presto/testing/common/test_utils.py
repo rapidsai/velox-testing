@@ -12,7 +12,7 @@ def get_queries(benchmark_type, queries_file=None):
     if queries_file:
         path = queries_file if os.path.isabs(queries_file) else get_abs_file_path(queries_file)
     else:
-        path = get_abs_file_path(f"./queries/{benchmark_type}/queries_best.json")
+        path = get_abs_file_path(f"./queries/{benchmark_type}/queries.json")
     with open(path, "r") as file:
         return json.load(file)
 
