@@ -91,7 +91,7 @@ class BenchmarkMetadata:
 @dataclasses.dataclass
 class BenchmarkResults:
     benchmark_type: str
-    raw_times_ms: dict[str, list[float]]
+    raw_times_ms: dict[str, list[float | None]]
     failed_queries: dict[str, str]
 
     @classmethod
@@ -326,7 +326,11 @@ def build_submission_payload(
 
         # Each execution becomes a separate query log entry
         for exec_idx, runtime_ms in enumerate(times):
-            runtime_ms = float(runtime_ms) if not is_failed else None
+            if is_failed:
+                runtime_ms = None
+            else:
+                assert runtime_ms is not None, "Expected runtime_ms to be not None for non-failed queries"
+                runtime_ms = float(runtime_ms)
             query_logs.append(
                 {
                     "query_name": query_name.lstrip("Q"),
@@ -393,7 +397,7 @@ async def upload_log_files(
     api_url: str,
     api_key: str,
     timeout: float,
-    max_concurrent: int = 5,
+    max_concurrency: int = 5,
 ) -> list[int]:
     """Upload all *.log files from benchmark_dir as assets, in parallel.
 
@@ -412,9 +416,9 @@ async def upload_log_files(
         print("  No *.log files found to upload.", file=sys.stderr)
         return []
 
-    print(f"  Uploading {len(log_files)} log file(s) (max {max_concurrent} concurrent)...", file=sys.stderr)
+    print(f"  Uploading {len(log_files)} log file(s) (max {max_concurrency} concurrent)...", file=sys.stderr)
     base_url = normalize_api_url(api_url)
-    semaphore = asyncio.Semaphore(max_concurrent)
+    semaphore = asyncio.Semaphore(max_concurrency)
 
     transport = httpx.AsyncHTTPTransport(retries=3)
     async with httpx.AsyncClient(
@@ -475,11 +479,11 @@ async def process_benchmark_dir(
     commit_hash: str | None,
     is_official: bool,
     dry_run: bool,
-    api_url: str | None,
-    api_key: str | None,
+    api_url: str,
+    api_key: str,
     timeout: float,
     upload_logs: bool = True,
-    benchmark_definition_name: str | None = None,
+    benchmark_definition_name: str,
 ) -> int:
     """Process a benchmark directory and post results to API.
 
@@ -577,20 +581,23 @@ async def process_benchmark_dir(
 async def main() -> int:
     args = parse_args()
 
-    # Validate required arguments
-    if not args.api_url and not args.dry_run:
-        print(
-            "Error: --api-url or BENCHMARK_API_URL environment variable required",
-            file=sys.stderr,
-        )
-        return 1
+    # Resolve to str (parser already falls back to BENCHMARK_API_URL / BENCHMARK_API_KEY)
+    api_url = args.api_url or ""
+    api_key = args.api_key or ""
 
-    if not args.api_key and not args.dry_run:
-        print(
-            "Error: --api-key or BENCHMARK_API_KEY environment variable required",
-            file=sys.stderr,
-        )
-        return 1
+    if not args.dry_run:
+        if not api_url:
+            print(
+                "Error: --api-url or BENCHMARK_API_URL environment variable required",
+                file=sys.stderr,
+            )
+            return 1
+        if not api_key:
+            print(
+                "Error: --api-key or BENCHMARK_API_KEY environment variable required",
+                file=sys.stderr,
+            )
+            return 1
 
     # Validate input path
     benchmark_dir = Path(args.input_path)
@@ -617,8 +624,8 @@ async def main() -> int:
         commit_hash=args.commit_hash,
         is_official=args.is_official,
         dry_run=args.dry_run,
-        api_url=args.api_url,
-        api_key=args.api_key,
+        api_url=api_url,
+        api_key=api_key,
         timeout=args.timeout,
         upload_logs=args.upload_logs,
         benchmark_definition_name=args.benchmark_name,
