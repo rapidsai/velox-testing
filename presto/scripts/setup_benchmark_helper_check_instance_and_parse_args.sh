@@ -31,6 +31,7 @@ OPTIONS:
     -s, --schema-name                   Name of the schema that will contain the created tables.
     -d, --data-dir-name                 Name of the directory inside the PRESTO_DATA_DIR path for the benchmark data.
     --skip-analyze-tables               Skip analyzing tables after creating them. Default is to analyze tables.
+    --no-docker				Skip the setup/teardown steps that require docker.
     $SCRIPT_EXTRA_OPTIONS_DESCRIPTION
 
 EXAMPLES:
@@ -49,6 +50,7 @@ fi
 # Compute the directory where this script resides (if not already set by caller)
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
+DOCKER_DEPLOYMENT=true
 SKIP_ANALYZE_TABLES=false
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -86,6 +88,10 @@ parse_args() {
         ;;
       --skip-analyze-tables)
         SKIP_ANALYZE_TABLES=true
+        shift
+        ;;
+      --no-docker)
+        DOCKER_DEPLOYMENT=false
         shift
         ;;
       *)

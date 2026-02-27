@@ -16,8 +16,6 @@ def drop_cache():
         "run",
         "--rm",
         "--privileged",
-        "--gpus",
-        "all",
         "alpine:latest",
         "sh",
         "-c",
