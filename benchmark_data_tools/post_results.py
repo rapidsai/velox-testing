@@ -48,6 +48,7 @@ Environment variables:
 import argparse
 import asyncio
 import dataclasses
+import functools
 import hashlib
 import json
 import os
@@ -392,6 +393,18 @@ def build_submission_payload(
     }
 
 
+@functools.cache
+def build_http_client(api_url: str, api_key: str, timeout: float) -> httpx.AsyncClient:
+    base_url = normalize_api_url(api_url)
+    transport = httpx.AsyncHTTPTransport(retries=3)
+    return httpx.AsyncClient(
+        base_url=base_url,
+        transport=transport,
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=timeout,
+    )
+
+
 async def upload_log_files(
     benchmark_dir: Path,
     api_url: str,
@@ -417,16 +430,9 @@ async def upload_log_files(
         return []
 
     print(f"  Uploading {len(log_files)} log file(s) (max {max_concurrency} concurrent)...", file=sys.stderr)
-    base_url = normalize_api_url(api_url)
     semaphore = asyncio.Semaphore(max_concurrency)
 
-    transport = httpx.AsyncHTTPTransport(retries=3)
-    async with httpx.AsyncClient(
-        base_url=base_url,
-        transport=transport,
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=timeout,
-    ) as client:
+    async with build_http_client(api_url, api_key, timeout) as client:
 
         async def _upload_one(log_file: Path) -> int:
             async with semaphore:
@@ -455,14 +461,7 @@ async def post_submission(api_url: str, api_key: str, payload: dict, timeout: fl
     Returns:
         Tuple of (status_code, response_text)
     """
-    base_url = normalize_api_url(api_url)
-    transport = httpx.AsyncHTTPTransport(retries=3)
-    async with httpx.AsyncClient(
-        base_url=base_url,
-        transport=transport,
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=timeout,
-    ) as client:
+    async with build_http_client(api_url, api_key, timeout) as client:
         response = await client.post("/api/benchmark/", json=payload)
     return response.status_code, response.text
 
