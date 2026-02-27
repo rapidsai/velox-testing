@@ -1,27 +1,27 @@
 #!/bin/bash
-# Build everything: RAPIDS libraries, then velox and presto.
-# Wraps the RAPIDS build-all and adds build-velox + build-presto.
+# Build everything C++ only: RAPIDS C++ libraries (no Python), then velox and presto.
+# Wraps the RAPIDS build-all-cpp and adds build-velox + build-presto.
 #
 # -j/-jN/--jobs/--parallel are forwarded to all three build stages.
 # -D CMAKE_BUILD_TYPE is extracted to derive --release/--debug for velox/presto;
-# all -D flags (including CMAKE_BUILD_TYPE) are also forwarded to RAPIDS build-all.
-# Any unrecognised arguments are passed through to the RAPIDS build-all.
+# all -D flags (including CMAKE_BUILD_TYPE) are also forwarded to RAPIDS build-all-cpp.
+# Any unrecognised arguments are passed through to the RAPIDS build-all-cpp.
 
 set -euo pipefail
 
 usage() {
     cat <<EOF
-Usage: build-all [OPTIONS]
+Usage: build-all-cpp [OPTIONS]
 
-Build RAPIDS libraries, velox, and presto-native-execution.
+Build RAPIDS C++ libraries (no Python), velox, and presto-native-execution.
 
 Options:
   -j[N], --jobs N, --parallel N Number of parallel jobs (forwarded to all stages)
-  -D <var>[:<type>]=<value>     CMake cache entry (forwarded to RAPIDS build-all)
+  -D <var>[:<type>]=<value>     CMake cache entry (forwarded to RAPIDS build-all-cpp)
                                 CMAKE_BUILD_TYPE is also used to set velox/presto build type
   -h, --help                    Show this help message
 
-All other options are forwarded to the RAPIDS build-all.
+All other options are forwarded to the RAPIDS build-all-cpp.
 EOF
 }
 
@@ -67,8 +67,8 @@ if [[ -n "${BUILD_TYPE}" ]]; then
     VELOX_PRESTO_ARGS+=("--${BUILD_TYPE}")
 fi
 
-if [[ -x /usr/bin/build-all ]]; then
-    /usr/bin/build-all "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
+if [[ -x /usr/bin/build-all-cpp ]]; then
+    /usr/bin/build-all-cpp "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
 fi
 
 build-velox "${VELOX_PRESTO_ARGS[@]+"${VELOX_PRESTO_ARGS[@]}"}"
