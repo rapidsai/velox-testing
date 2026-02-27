@@ -48,7 +48,6 @@ Environment variables:
 import argparse
 import asyncio
 import dataclasses
-import functools
 import hashlib
 import json
 import os
@@ -187,8 +186,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cache-state",
         choices=["cold", "warm", "hot", "lukewarm"],
-        default=None,
-        help="Cache state for the benchmark run (required for 'full' data source)",
+        help="Cache state for the benchmark run",
     )
     parser.add_argument(
         "--engine-name",
@@ -234,8 +232,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--benchmark-name",
-        default=None,
-        help="Benchmark definition name (default: derived from benchmark.json 'benchmark' and 'scale_factor' fields)",
+        help="Benchmark definition name",
     )
 
     return parser.parse_args()
@@ -393,7 +390,6 @@ def build_submission_payload(
     }
 
 
-@functools.cache
 def build_http_client(api_url: str, api_key: str, timeout: float) -> httpx.AsyncClient:
     base_url = normalize_api_url(api_url)
     transport = httpx.AsyncHTTPTransport(retries=3)
@@ -602,14 +598,6 @@ async def main() -> int:
     benchmark_dir = Path(args.input_path)
     if not benchmark_dir.is_dir():
         print(f"Error: Input path is not a directory: {args.input_path}", file=sys.stderr)
-        return 1
-
-    # Full data source — cache-state is required
-    if args.cache_state is None:
-        print(
-            "Error: --cache-state is required when --data-source=full",
-            file=sys.stderr,
-        )
         return 1
 
     result = await process_benchmark_dir(
