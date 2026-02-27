@@ -94,17 +94,17 @@ class BenchmarkResults:
     failed_queries: dict[str, str]
 
     @classmethod
-    def from_file(cls, file_path: Path) -> "BenchmarkResults":
+    def from_file(cls, file_path: Path, benchmark_name: str) -> "BenchmarkResults":
         data = json.loads(file_path.read_text())
 
-        if "tpch" not in data.keys():
-            raise KeyError(f"Expected 'tpch' key in {file_path}, got: {sorted(data.keys())}")
+        if benchmark_name not in data.keys():
+            raise KeyError(f"Expected '{benchmark_name}' key in {file_path}, got: {sorted(data.keys())}")
 
-        raw_times_ms = data["tpch"]["raw_times_ms"]
-        failed_queries = data["tpch"]["failed_queries"]
+        raw_times_ms = data[benchmark_name]["raw_times_ms"]
+        failed_queries = data[benchmark_name]["failed_queries"]
 
         return cls(
-            benchmark_type="tpch",
+            benchmark_type=benchmark_name,
             raw_times_ms=raw_times_ms,
             failed_queries=failed_queries,
         )
@@ -598,8 +598,11 @@ async def process_benchmark_dir(
         except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
             print(f"  Error loading metadata: {e}", file=sys.stderr)
             return 1
+
     try:
-        results = BenchmarkResults.from_file(benchmark_dir / "result_dir" / "benchmark_result.json")
+        results = BenchmarkResults.from_file(
+            benchmark_dir / "result_dir" / "benchmark_result.json", benchmark_name=benchmark_metadata.benchmark
+        )
     except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
         print(f"  Error loading results: {e}", file=sys.stderr)
         return 1
