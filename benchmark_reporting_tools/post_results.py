@@ -597,7 +597,7 @@ async def process_benchmark_dir(
             benchmark_metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark.json")
         except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
             print(f"  Error loading metadata: {e}", file=sys.stderr)
-        return 1
+            return 1
     try:
         results = BenchmarkResults.from_file(benchmark_dir / "result_dir" / "benchmark_result.json")
     except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
