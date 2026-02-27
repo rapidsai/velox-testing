@@ -19,13 +19,10 @@ expected directory structure is:
     ├── configs  # optional
     │   ├── coordinator.config
     │   └── worker.config
-    ├── logs
+    ├── logs  # optional
     │   └── slurm-4575179.out
     └── result_dir
-        ├── benchmark_cold.json
-        ├── benchmark_result.json
-        ├── benchmark_warm.json
-        └── summary.csv
+        └── benchmark_result.json
 
 Usage:
     python benchmark_data_tools/post_results.py /path/to/benchmark/dir \
@@ -89,10 +86,6 @@ class BenchmarkMetadata:
         out = dataclasses.asdict(self)
         out["timestamp"] = out["timestamp"].isoformat()
         return out
-
-    def get_benchmark_definition_name(self) -> str:
-        """Return benchmark definition name, e.g., 'tpch-100' for TPC-H SF100."""
-        return f"{self.benchmark}-{self.scale_factor}"
 
 
 @dataclasses.dataclass
@@ -237,6 +230,11 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Upload *.log files from the benchmark directory as assets (default: True). Use --no-upload-logs to skip.",
+    )
+    parser.add_argument(
+        "--benchmark-name",
+        default=None,
+        help="Benchmark definition name (default: derived from benchmark.json 'benchmark' and 'scale_factor' fields)",
     )
 
     return parser.parse_args()
@@ -493,14 +491,20 @@ async def process_benchmark_dir(
     # Load metadata, results, and config
     try:
         metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark.json")
+    except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
+        print(f"  Error loading metadata: {e}", file=sys.stderr)
+        return 1
+    try:
         results = BenchmarkResults.from_file(benchmark_dir / "result_dir" / "benchmark_result.json")
     except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
-        print(f"  Error loading files: {e}", file=sys.stderr)
+        print(f"  Error loading results: {e}", file=sys.stderr)
         return 1
 
     if (benchmark_dir / "configs").exists():
+        print("  Loading engine config...", file=sys.stderr)
         engine_config = EngineConfig.from_dir(benchmark_dir / "configs")
     else:
+        print("  No engine config found.", file=sys.stderr)
         engine_config = None
 
     print(f"  Timestamp: {metadata.timestamp}", file=sys.stderr)
@@ -522,7 +526,6 @@ async def process_benchmark_dir(
                 print(f"  Error uploading logs: {e}", file=sys.stderr)
                 return 1
 
-    benchmark_definition_name = benchmark_definition_name or metadata.get_benchmark_definition_name()
     # Build submission payload
     try:
         payload = build_submission_payload(
@@ -618,7 +621,7 @@ async def main() -> int:
         api_key=args.api_key,
         timeout=args.timeout,
         upload_logs=args.upload_logs,
-        benchmark_definition_name=args.benchmark_definition_name,
+        benchmark_definition_name=args.benchmark_name,
     )
 
     return result
