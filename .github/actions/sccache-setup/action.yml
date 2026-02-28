@@ -1,0 +1,75 @@
+name: 'Setup sccache for CI'
+description: 'Configure sccache with OIDC-based AWS credentials for S3 caching'
+
+inputs:
+  role-to-assume:
+    description: 'AWS IAM role ARN for OIDC authentication'
+    required: false
+    default: ''
+  aws-region:
+    description: 'AWS region for the sccache S3 bucket'
+    required: false
+    default: 'us-east-2'
+
+outputs:
+  enabled:
+    description: 'Whether sccache was successfully configured'
+    value: ${{ steps.finalize.outputs.enabled }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check if OIDC configuration is available
+      id: check-config
+      shell: bash
+      run: |
+        if [[ -z "${{ inputs.role-to-assume }}" ]]; then
+          echo "::warning::No AWS role ARN provided, sccache will be disabled"
+          echo "available=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "AWS role ARN provided, attempting OIDC authentication"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Configure AWS Credentials via OIDC
+      id: aws-creds
+      if: steps.check-config.outputs.available == 'true'
+      uses: aws-actions/configure-aws-credentials@v4
+      continue-on-error: true
+      with:
+        role-to-assume: ${{ inputs.role-to-assume }}
+        aws-region: ${{ inputs.aws-region }}
+        role-duration-seconds: 43200
+
+    - name: Create sccache auth files
+      id: finalize
+      shell: bash
+      run: |
+        if [[ "${{ steps.check-config.outputs.available }}" != "true" || "${{ steps.aws-creds.outcome }}" != "success" ]]; then
+          echo "::warning::sccache setup failed or OIDC not available. Building without sccache."
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Create sccache auth directory
+        SCCACHE_AUTH_DIR="${HOME}/.sccache-auth"
+        mkdir -p "${SCCACHE_AUTH_DIR}"
+
+        # Write AWS credentials in CLI INI format
+        cat > "${SCCACHE_AUTH_DIR}/aws_credentials" <<CREDEOF
+        [default]
+        aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+        aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+        aws_session_token = ${AWS_SESSION_TOKEN}
+        CREDEOF
+        # Strip leading whitespace from credentials file (from YAML indentation)
+        sed -i 's/^[[:space:]]*//' "${SCCACHE_AUTH_DIR}/aws_credentials"
+
+        # Create placeholder github_token (not used when dist compile is disabled)
+        echo "placeholder-ci-no-dist-compile" > "${SCCACHE_AUTH_DIR}/github_token"
+
+        # Export auth dir for downstream steps
+        echo "SCCACHE_AUTH_DIR=${SCCACHE_AUTH_DIR}" >> "$GITHUB_ENV"
+
+        echo "enabled=true" >> "$GITHUB_OUTPUT"
+        echo "sccache auth files created in ${SCCACHE_AUTH_DIR}"

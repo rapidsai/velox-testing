@@ -5,6 +5,10 @@ on:
     - cron: '0 4 * * *'  # daily at 04:00 UTC
   workflow_dispatch:
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   nightly:
     uses: ./.github/workflows/velox-test.yml
