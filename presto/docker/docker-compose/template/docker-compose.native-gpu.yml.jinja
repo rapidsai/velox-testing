@@ -2,13 +2,20 @@ x-presto-native-worker-gpu: &gpu_worker_base
   extends:
     file: ../../docker-compose.common.yml
     service: presto-base-native-worker
-  image: presto-native-worker-gpu:${IMAGE_TAG:-latest}
+  image: presto-native-worker-gpu:${PRESTO_IMAGE_TAG}
   build:
     args:
       - GPU=ON
+{% if sccache %}
+    ulimits: {nofile: {soft: 500000, hard: 500000}}
+    secrets:
+      - github_token
+      - aws_credentials
+{% endif %}
   runtime: nvidia
   cap_add:
     - IPC_LOCK
+    - SYS_ADMIN  # Required for nsys GPU metrics profiling
   pid: host
   ulimits:
     memlock: -1
@@ -130,3 +137,11 @@ services:
 {%- endfor %}
 {%- endif %}
 {%- endif %}
+{% if sccache %}
+
+secrets:
+  github_token:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/github_token"
+  aws_credentials:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/aws_credentials"
+{% endif %}
