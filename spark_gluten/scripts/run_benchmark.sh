@@ -200,9 +200,7 @@ VENV_DIR=".benchmark_venv"
 EFFECTIVE_OUTPUT_DIR="${OUTPUT_DIR:-benchmark_output}"
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/run_in_docker.sh"
-
-resolve_docker_image
+source "$(dirname "${BASH_SOURCE[0]}")/run_in_docker.sh"
 
 # Mount the data directory so the benchmark can access the datasets.
 EXTRA_DOCKER_ARGS+=(-v "${SPARK_DATA_DIR}:${SPARK_DATA_DIR}" -e SPARK_DATA_DIR="${SPARK_DATA_DIR}")

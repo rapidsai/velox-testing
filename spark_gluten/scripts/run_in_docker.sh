@@ -3,16 +3,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
-# Shared helpers for running Gluten tests / benchmarks inside Docker.
+# Shared helper for running Gluten tests / benchmarks inside Docker.
 #
-# Source this file to get two functions:
+# Source this file to get the run_in_docker function.
 #
-#   resolve_docker_image   – determines which Docker image and arguments to use
-#   run_in_docker          – sets up a venv and runs pytest inside the chosen image
-#
-# Optional variables consumed by resolve_docker_image:
-#   GLUTEN_JAR_PATH – host path to a statically-linked Gluten JAR (static mode)
-#   IMAGE_TAG       – Docker image tag for dynamic mode (default: dynamic_gpu_${USER:-latest})
+# Variables consumed by run_in_docker:
+#   GLUTEN_JAR_PATH   – host path to a statically-linked Gluten JAR (static mode)
+#   IMAGE_TAG         – Docker image tag for dynamic mode (default: dynamic_gpu_${USER:-latest})
+#   REUSE_VENV        – "true" to reuse an existing Python venv
+#   EXTRA_DOCKER_ARGS – (optional) array of extra docker compose run arguments
+#                       (-v, -e) set by callers before invoking run_in_docker
 
 STATIC_TEST_IMAGE="gluten-static-test:latest"
 
@@ -27,71 +27,10 @@ fi
 WORKSPACE_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
 
 # ---------------------------------------------------------------------------
-# resolve_docker_image
-#
-# Sets the following variables:
-#   DOCKER_IMAGE          – image to use for docker compose run
-#   COMPOSE_SERVICE       – compose service name (gluten-test or gluten-test-gpu)
-#   SETUP_CMD             – shell snippet to run before the test
-#   CONTAINER_GLUTEN_JARS – Gluten JAR path(s) resolved inside the container
-#   EXTRA_DOCKER_ARGS     – array of extra docker compose run arguments (-v, -e)
-# ---------------------------------------------------------------------------
-resolve_docker_image() {
-  if [[ -n ${GLUTEN_JAR_PATH} ]]; then
-    # --- Static JAR mode ---------------------------------------------------
-    DOCKER_IMAGE="${STATIC_TEST_IMAGE}"
-    COMPOSE_SERVICE="gluten-test"
-
-    # Build the static test image if it does not exist locally.
-    if [[ -z "$(docker images -q "${DOCKER_IMAGE}" 2>/dev/null)" ]]; then
-      echo "Building static test image ${DOCKER_IMAGE} ..."
-      docker build -t "${DOCKER_IMAGE}" -f "${REPO_ROOT}/spark_gluten/docker/static_jar_test.dockerfile" "${SCRIPT_DIR}"
-    fi
-
-    # Resolve the host JAR path and translate it for the container.
-    RESOLVED_JAR_PATH="$(readlink -f "${GLUTEN_JAR_PATH}")"
-    if [[ ! -f "${RESOLVED_JAR_PATH}" ]]; then
-      echo "Error: JAR file not found: ${GLUTEN_JAR_PATH}"
-      exit 1
-    fi
-
-    EXTRA_DOCKER_ARGS=()
-    if [[ "${RESOLVED_JAR_PATH}" == "${WORKSPACE_ROOT}"/* ]]; then
-      # JAR is inside the workspace – already available via the workspace mount.
-      CONTAINER_GLUTEN_JARS="/workspace/${RESOLVED_JAR_PATH#"${WORKSPACE_ROOT}/"}"
-    else
-      # JAR is outside the workspace – mount its directory.
-      local jar_dir jar_file
-      jar_dir="$(dirname "${RESOLVED_JAR_PATH}")"
-      jar_file="$(basename "${RESOLVED_JAR_PATH}")"
-      EXTRA_DOCKER_ARGS+=(-v "${jar_dir}:/host_jars:ro")
-      CONTAINER_GLUTEN_JARS="/host_jars/${jar_file}"
-    fi
-
-    SETUP_CMD=""
-  else
-    # --- Docker image mode --------------------------------------------------
-    IMAGE_TAG="${IMAGE_TAG:-dynamic_gpu_${USER:-latest}}"
-    DOCKER_IMAGE="apache/gluten:${IMAGE_TAG}"
-
-    EXTRA_DOCKER_ARGS=(-e MINIFORGE_HOME=/opt/miniforge3)
-
-    if [[ "${IMAGE_TAG}" == *gpu* ]]; then
-      COMPOSE_SERVICE="gluten-test-gpu"
-    else
-      COMPOSE_SERVICE="gluten-test"
-    fi
-
-    SETUP_CMD='source /opt/rh/gcc-toolset-14/enable 2>/dev/null || source /opt/rh/gcc-toolset-12/enable 2>/dev/null || true;'
-    CONTAINER_GLUTEN_JARS=""
-  fi
-}
-
-# ---------------------------------------------------------------------------
 # run_in_docker <venv_dir> <output_dir> [pytest_args...]
 #
-# Sets up a Python virtual environment and runs pytest inside the Docker
-# image chosen by resolve_docker_image.
+# Resolves the Docker image, sets up a Python virtual environment, and runs
+# pytest inside a Docker container.
 #
 # Arguments:
 #   venv_dir        – Python virtual environment directory name
@@ -99,28 +38,80 @@ resolve_docker_image() {
 #   pytest_args...  – remaining arguments forwarded to pytest (including
 #                     flags and the test file path)
 #
-# Callers may append to EXTRA_DOCKER_ARGS after resolve_docker_image
-# and before calling this function (e.g. to mount data directories).
+# Callers may populate EXTRA_DOCKER_ARGS before calling this function
+# (e.g. to mount data directories).  Mode-specific arguments are appended
+# to the array automatically.
 # ---------------------------------------------------------------------------
 run_in_docker() {
   local venv_dir="$1"; shift
   local output_dir="$1"; shift
   # remaining "$@" are pytest args
 
-  echo "Running in ${DOCKER_IMAGE} (service: ${COMPOSE_SERVICE}) ..."
+  local docker_image compose_service setup_cmd container_gluten_jars
 
-  export DOCKER_IMAGE
+  if [[ -n ${GLUTEN_JAR_PATH} ]]; then
+    # --- Static JAR mode ---------------------------------------------------
+    docker_image="${STATIC_TEST_IMAGE}"
+    compose_service="gluten-test"
+
+    # Build the static test image if it does not exist locally.
+    if [[ -z "$(docker images -q "${docker_image}" 2>/dev/null)" ]]; then
+      echo "Building static test image ${docker_image} ..."
+      docker build -t "${docker_image}" -f "${REPO_ROOT}/spark_gluten/docker/static_jar_test.dockerfile" "${SCRIPT_DIR}"
+    fi
+
+    # Resolve the host JAR path and translate it for the container.
+    local resolved_jar_path
+    resolved_jar_path="$(readlink -f "${GLUTEN_JAR_PATH}")"
+    if [[ ! -f "${resolved_jar_path}" ]]; then
+      echo "Error: JAR file not found: ${GLUTEN_JAR_PATH}"
+      exit 1
+    fi
+
+    if [[ "${resolved_jar_path}" == "${WORKSPACE_ROOT}"/* ]]; then
+      # JAR is inside the workspace – already available via the workspace mount.
+      container_gluten_jars="/workspace/${resolved_jar_path#"${WORKSPACE_ROOT}/"}"
+    else
+      # JAR is outside the workspace – mount its directory.
+      local jar_dir jar_file
+      jar_dir="$(dirname "${resolved_jar_path}")"
+      jar_file="$(basename "${resolved_jar_path}")"
+      EXTRA_DOCKER_ARGS+=(-v "${jar_dir}:/host_jars:ro")
+      container_gluten_jars="/host_jars/${jar_file}"
+    fi
+
+    setup_cmd=""
+  else
+    # --- Docker image mode --------------------------------------------------
+    IMAGE_TAG="${IMAGE_TAG:-dynamic_gpu_${USER:-latest}}"
+    docker_image="apache/gluten:${IMAGE_TAG}"
+
+    EXTRA_DOCKER_ARGS+=(-e MINIFORGE_HOME=/opt/miniforge3)
+
+    if [[ "${IMAGE_TAG}" == *gpu* ]]; then
+      compose_service="gluten-test-gpu"
+    else
+      compose_service="gluten-test"
+    fi
+
+    setup_cmd='source /opt/rh/gcc-toolset-14/enable 2>/dev/null || source /opt/rh/gcc-toolset-12/enable 2>/dev/null || true;'
+    container_gluten_jars=""
+  fi
+
+  echo "Running in ${docker_image} (service: ${compose_service}) ..."
+
+  export DOCKER_IMAGE="${docker_image}"
   export WORKSPACE_ROOT
 
   docker compose -f "${SCRIPT_DIR}/docker-compose.test.yml" run --rm \
-    -e "SETUP_CMD=${SETUP_CMD}" \
-    -e "CONTAINER_GLUTEN_JARS=${CONTAINER_GLUTEN_JARS}" \
+    -e "SETUP_CMD=${setup_cmd}" \
+    -e "CONTAINER_GLUTEN_JARS=${container_gluten_jars}" \
     -e "REUSE_VENV=${REUSE_VENV}" \
     -e "VENV_DIR=${venv_dir}" \
     -e "OUTPUT_DIR=${output_dir}" \
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
     "${EXTRA_DOCKER_ARGS[@]}" \
-    "${COMPOSE_SERVICE}" \
+    "${compose_service}" \
     bash /workspace/velox-testing/spark_gluten/scripts/run_in_docker_helper.sh "$@"
 }

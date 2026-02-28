@@ -245,9 +245,7 @@ VENV_DIR=".integ_test_venv"
 EFFECTIVE_OUTPUT_DIR="${OUTPUT_DIR:-integ_test_output}"
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/run_in_docker.sh"
-
-resolve_docker_image
+source "$(dirname "${BASH_SOURCE[0]}")/run_in_docker.sh"
 
 TEST_FILE="../testing/integration_tests/${BENCHMARK_TYPE}_test.py"
 

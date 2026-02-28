@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
-# Multi-stage Dockerfile: builds Gluten with Velox backend using a checked-out
-# Velox source tree, and produces a final image containing only the Gluten JARs.
+# Dockerfile: builds Gluten with Velox backend using a checked-out Velox
+# source tree.  The resulting JARs are placed in /opt/gluten/jars/.
 #
 # Supports static (vcpkg) CPU builds, dynamic CPU builds, and GPU builds via
 # the BUILD_TYPE argument.
@@ -20,14 +20,11 @@
 #   BASE_IMAGE   – base Docker image (must be provided)
 #   GCC_TOOLSET  – gcc-toolset version to enable (default: gcc-toolset-12)
 
-# ---------------------------------------------------------------------------
-# Stage 1 – build
-# ---------------------------------------------------------------------------
 ARG BUILD_TYPE=cpu
 ARG BASE_IMAGE
 ARG GCC_TOOLSET=gcc-toolset-12
 
-FROM ${BASE_IMAGE} AS builder
+FROM ${BASE_IMAGE}
 
 ARG BUILD_TYPE
 ARG GCC_TOOLSET
@@ -85,11 +82,4 @@ RUN --mount=type=bind,source=incubator-gluten,target=/src \
         cp package/target/thirdparty-lib/gluten-thirdparty-lib-*.jar /opt/gluten/jars/ ; \
     fi
 
-# ---------------------------------------------------------------------------
-# Stage 2 – final image (no build artifacts, only JARs)
-# ---------------------------------------------------------------------------
-FROM ${BASE_IMAGE}
-
 ENV GLUTEN_JAR_DIR=/opt/gluten/jars
-
-COPY --from=builder /opt/gluten/jars/ ${GLUTEN_JAR_DIR}/
