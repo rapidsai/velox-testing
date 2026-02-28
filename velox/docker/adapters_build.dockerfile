@@ -155,8 +155,14 @@ gcc --version | head -1;
 
 # Install and configure sccache if enabled
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
+  # Add sccache distributed compilation control (disabled by default)
+  if [ -n "$SCCACHE_NO_DIST_COMPILE" ]; then
+    export SCCACHE_NO_DIST_COMPILE=1;
+  fi
   # Run sccache setup script
   bash /sccache_setup.sh;
+  # Zero sccache stats
+  sccache --zero-stats;
   # Add sccache CMake flags
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
@@ -169,8 +175,7 @@ if test -n "${MAX_LINK_JOBS:-}"; then
   MAKEFLAGS="${MAKEFLAGS} MAX_LINK_JOBS=${MAX_LINK_JOBS}";
 fi
 
-# Disable sccache-dist for CMake configuration's test compiles
-SCCACHE_NO_DIST_COMPILE=1 \
+# Build Velox
 make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
 
 # Run the build with timings
