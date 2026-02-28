@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# Separator used to delimit individual failure blocks extracted from CI logs.
+BLOCK_SEP="__VELOX_FAILURE_BLOCK__"
+
 # Nightly workflow status helper.
 #
 # Requirements:
@@ -598,65 +601,20 @@ print_failure_details() {
       fi
 
       # Analyze this job's logs with AI (only if --cause flag is set)
+      # Pre-fetch related GitHub items if AI analysis is enabled
+      local repo="" related_items=""
       if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
-        # Pre-fetch related GitHub items once; pass to AI to avoid duplicate searches
-        local repo related_items
         repo="$(upstream_repo_for_label "${label}")"
         related_items="$(find_related_github_items "${repo}" "${job_log_content}" "${since_date}" "    - ")"
+      fi
 
-        local ai_response cause fix stacktrace
-        if [[ -n "${job_log_content}" ]]; then
-          if [[ "${USE_CLAUDE}" == "true" ]]; then
-            ai_response="$(analyze_logs_with_claude_ai "${job_log_content}" "${job_name}" "${wf_name}" "${related_items}")"
-          else
-            ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
-          fi
-        else
-          ai_response="STACKTRACE:Unable to fetch logs for this job
-END_STACKTRACE
-CAUSE:Unable to fetch logs for this job
-FIX:Check the run link above for details"
-        fi
+      # Print every failure block with its stacktrace (regex-extracted) and AI cause/fix
+      print_blocks_with_analysis "${job_log_content}" "${job_name}" "${wf_name}" "${related_items}" "false"
 
-        # Parse STACKTRACE (multiline, between STACKTRACE: and END_STACKTRACE)
-        stacktrace="$(echo "${ai_response}" | sed -n '/^STACKTRACE:/,/^END_STACKTRACE/p' | sed '1s/^STACKTRACE:[[:space:]]*//' | sed '/^END_STACKTRACE/d')"
-        # Parse CAUSE and FIX from response (guard against no matches)
-        cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1 || true)"
-        fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1 || true)"
-
-        # Fallback if parsing failed
-        if [[ -z "${stacktrace}" ]]; then
-          stacktrace="Unable to extract stacktrace"
-        fi
-        if [[ -z "${cause}" ]]; then
-          cause="Unable to determine cause"
-        fi
-        if [[ -z "${fix}" ]]; then
-          fix="Pending investigation"
-        fi
-
-        # Print stacktrace (LLM-extracted relevant error portion)
-        # Strip any backticks the LLM may have included
-        local clean_stacktrace
-        clean_stacktrace="$(echo "${stacktrace}" | sed '/^```/d; /```$/d' | sed '/^$/d')"
-        if [[ -n "${clean_stacktrace}" ]]; then
-          echo "    - Stacktrace:"
-          echo '```'
-          echo "${clean_stacktrace}"
-          echo '```'
-        else
-          echo "    - Stacktrace: _Unavailable_"
-        fi
-        echo "    - Cause: _${cause}_"
-        if [[ "${ANALYZE_FIX}" == "true" ]]; then
-          echo "    - Fix: _${fix}_"
-        fi
-
-        if [[ -n "${related_items}" ]]; then
-          echo ""
-          echo "  Related issues/PRs (last 7 days):"
-          printf '%s\n' "${related_items}"
-        fi
+      if [[ -n "${related_items}" ]]; then
+        echo ""
+        echo "  Related issues/PRs (last 7 days):"
+        printf '%s\n' "${related_items}"
       fi
 
     done <<< "${failed_jobs}"
@@ -667,10 +625,10 @@ FIX:Check the run link above for details"
   # Print all logs if enabled (combined for all jobs)
   if [[ "${PRINT_LOGS}" == "true" ]]; then
     echo ""
-    echo "  Failed log tail (last ${LOG_TAIL_LINES} lines):"
+    echo "  Failed test stacktraces:"
     if [[ -n "${log_out}" ]]; then
       local log_content
-      log_content="$(echo "${log_out}" | awk '{print} /Post job cleanup\./ {exit}' | tail -n "${LOG_TAIL_LINES}" || true)"
+      log_content="$(extract_relevant_failures "${log_out}")"
       echo "${log_content}" | sed 's/^/    /'
     else
       echo "    (WARN) Unable to fetch logs (network/API timeout). Open the run link above for full logs."
@@ -714,14 +672,10 @@ print_in_progress_details() {
       echo "  - Status: ${first_status}"
       echo "  - Conclusion: ${first_conclusion:-n/a}"
       if [[ "${first_status}" == "completed" && "${first_conclusion}" != "success" && "${PRINT_LOGS}" == "true" ]]; then
-        LOG_TAIL_LINES="${LOG_TAIL_LINES:-150}"
         echo ""
-        echo "  First attempt failed log tail (last ${LOG_TAIL_LINES} lines):"
+        echo "  First attempt failed test stacktraces:"
         if log_out="$(gh_retry gh run view -R "${REPO}" "${first_id}" --log-failed 2>/dev/null)"; then
-          echo "${log_out}" \
-            | awk '{print} /Post job cleanup\./ {exit}' \
-            | tail -n "${LOG_TAIL_LINES}" \
-            | sed 's/^/    /'
+          extract_relevant_failures "${log_out}" | sed 's/^/    /'
         else
           echo "    (WARN) Unable to fetch logs. Open the run link above for full logs."
         fi
@@ -751,6 +705,9 @@ extract_relevant_failures() {
       out = $4
       for (i=5; i<=NF; i++) out = out "\t" $i
       print out
+    } else if (NF >= 3) {
+      sub(/^[0-9]+-[0-9]+-[0-9]+T[0-9:.]+Z /, "", $3)
+      print $3
     } else {
       print $0
     }
@@ -759,7 +716,7 @@ extract_relevant_failures() {
   # Detect Google Test output by looking for GTest markers.
   if printf '%s\n' "${content}" | grep -qE '^\[  FAILED  \]|\[ RUN[[:space:]]+\]'; then
     local gtest_blocks
-    gtest_blocks=$(printf '%s\n' "${content}" | awk '
+    gtest_blocks=$(printf '%s\n' "${content}" | awk -v sep="${BLOCK_SEP}" '
       # Start accumulating a test block when we see "[ RUN      ]"
       /^\[ RUN[[:space:]]/ {
         in_block = 1
@@ -768,9 +725,15 @@ extract_relevant_failures() {
       }
       in_block {
         block = block "\n" $0
-        # Failing test – emit the entire accumulated block
+        # Failing test – emit the entire accumulated block followed by separator
         if (/^\[  FAILED  \]/) {
+          # Track test name so standalone summary lines for this test are skipped
+          tname = $0
+          sub(/^\[  FAILED  \] /, "", tname)
+          sub(/ \([0-9]+ ms\).*$/, "", tname)
+          seen_tests[tname] = 1
           print block
+          print sep
           in_block = 0
           block = ""
           next
@@ -784,7 +747,14 @@ extract_relevant_failures() {
         next
       }
       # Standalone [  FAILED  ] summary lines (outside any block)
-      /^\[  FAILED  \]/ { print; next }
+      # Skip if the test already appeared in a full RUN...FAILED block above.
+      /^\[  FAILED  \]/ {
+        tname = $0
+        sub(/^\[  FAILED  \] /, "", tname)
+        sub(/ \([0-9]+ ms\).*$/, "", tname)
+        if (tname in seen_tests) next
+        print; print sep; next
+      }
       # CTest percentage summary  (e.g. "99% tests passed, 1 tests failed out of 467")
       /^[0-9]+%.*tests passed/ { print; next }
       # CTest failing-test list
@@ -797,8 +767,60 @@ extract_relevant_failures() {
     fi
   fi
 
-  # Fallback for non-GTest logs (compilation errors, etc.): generous tail.
-  printf '%s\n' "${content}" | tail -n "${max_fallback_lines}"
+  # Fallback for non-GTest logs (compilation errors, etc.): extract only
+  # error-relevant lines with 2 lines of leading context instead of a blind tail.
+  local error_lines
+  error_lines=$(printf '%s\n' "${content}" | awk '
+    {
+      buf[NR] = $0
+    }
+    END {
+      # Pass 1: mark lines matching error patterns and Docker error blocks
+      for (i = 1; i <= NR; i++) {
+        line = buf[i]
+        if (line ~ /[Ee]rror[: []/ ||
+            line ~ /FAILED/ ||
+            line ~ /[Ff]atal/ ||
+            line ~ /ninja: build stopped/ ||
+            line ~ /make.*\*\*\*/ ||
+            line ~ /^failed to solve:/ ||
+            line ~ /##\[error\]/ ||
+            line ~ /^------$/ ||
+            line ~ /^--------------------$/ ||
+            line ~ /\.dockerfile:[0-9]+/ ||
+            line ~ /^[[:space:]]*[0-9]+ \|/ ||
+            line ~ /^[[:space:]]*>>>/ ||
+            line ~ /undefined reference/ ||
+            line ~ /cannot find -l/ ||
+            line ~ /[Cc]onfiguring incomplete/) {
+          mark[i] = 1
+          # Include 2 lines of context before
+          if (i-2 > 0 && !mark[i-2]) mark[i-2] = 1
+          if (i-1 > 0 && !mark[i-1]) mark[i-1] = 1
+        }
+      }
+      # Also always include the last 5 lines (final error summary)
+      for (i = NR-4; i <= NR; i++) {
+        if (i > 0) mark[i] = 1
+      }
+      # Pass 2: print marked lines, inserting "..." for skipped regions
+      prev_printed = 0
+      for (i = 1; i <= NR; i++) {
+        if (mark[i]) {
+          if (prev_printed && i - prev_printed > 1) print "..."
+          print buf[i]
+          prev_printed = i
+        }
+      }
+    }
+  ')
+
+  if [[ -n "${error_lines}" ]]; then
+    printf '%s\n' "${error_lines}"
+  else
+    # Ultimate fallback: if no error patterns matched, show the last few lines
+    printf '%s\n' "${content}" | tail -n 20
+  fi
 }
 
 # --- Slack format functions ---
@@ -940,6 +962,122 @@ extract_error_identifiers() {
   echo "${identifiers}" | sed '/^$/d' | sort -u | head -8
 }
 
+# Compute a stable signature for a CI failure to detect cross-build duplicates.
+# Uses job+step names from JOBS_CACHE (already populated by the status table loop).
+# Returns a string like "job-name|step-name+step-name:..." stable across builds.
+# Args: run_id job_filter
+compute_failure_signature() {
+  local run_id="$1"
+  local job_filter="${2:-}"
+
+  local jobs_json="${JOBS_CACHE[${run_id}]:-}"
+  if [[ -z "${jobs_json}" ]]; then
+    jobs_json="$(gh_retry gh run view -R "${REPO}" "${run_id}" --json jobs 2>/dev/null)" || jobs_json='{"jobs":[]}'
+    JOBS_CACHE[${run_id}]="${jobs_json}"
+  fi
+
+  # Signature: sorted "job_name|sorted_failed_step_names" for each failed (filtered) job.
+  jq -r --arg filter "${job_filter}" '
+    .jobs[]
+    | (if ($filter == "") then . else select(.name | ascii_downcase | contains($filter | ascii_downcase)) end)
+    | select((.conclusion // "") | IN("success","skipped") | not)
+    | (.name + "|" +
+        ((.steps // [])
+          | map(select((.conclusion // "") != "success" and (.conclusion // "") != "skipped"))
+          | map(.name) | sort | join("+")))
+  ' <<<"${jobs_json}" 2>/dev/null | sort | tr '\n' ':' | sed 's/:$//'
+}
+
+# Print every failure block with its stacktrace, cause, and fix.
+# Splits job_log_content on BLOCK_SEP into individual failure blocks extracted
+# by regex (e.g. GTest [ RUN ] → [ FAILED ] blocks). Each block is printed
+# directly as the stacktrace; AI is called per-block (if ANALYZE_CAUSE=true)
+# for cause+fix only.
+# Args: job_log_content, job_name, wf_name, related_items, slack (true/false)
+print_blocks_with_analysis() {
+  local job_log_content="$1"
+  local job_name="$2"
+  local wf_name="$3"
+  local related_items="$4"
+  local slack="${5:-false}"
+
+  local st_label cause_label fix_label
+  if [[ "${slack}" == "true" ]]; then
+    st_label="*Stacktrace"
+    cause_label="*Cause:*"
+    fix_label="*Fix:*"
+  else
+    st_label="- Stacktrace"
+    cause_label="- Cause:"
+    fix_label="- Fix:"
+  fi
+
+  if [[ -z "${job_log_content}" ]]; then
+    echo "    ${st_label}: _Unavailable_"
+    if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
+      echo "    ${cause_label} _Unable to fetch logs for this job_"
+      [[ "${ANALYZE_FIX}" == "true" ]] && echo "    ${fix_label} _Check the run link above for details_"
+    fi
+    return
+  fi
+
+  # Split content into individual failure blocks on BLOCK_SEP
+  local blocks=()
+  local current_block=""
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" == "${BLOCK_SEP}" ]]; then
+      if [[ -n "$(printf '%s\n' "${current_block}" | sed '/^[[:space:]]*$/d')" ]]; then
+        blocks+=("${current_block}")
+      fi
+      current_block=""
+    else
+      current_block+="${line}"$'\n'
+    fi
+  done <<< "${job_log_content}"
+  # Include last block (non-GTest fallback has no trailing separator)
+  if [[ -n "$(printf '%s\n' "${current_block}" | sed '/^[[:space:]]*$/d')" ]]; then
+    blocks+=("${current_block}")
+  fi
+
+  local n_blocks="${#blocks[@]}"
+  local idx=0
+  for block in "${blocks[@]}"; do
+    idx=$((idx + 1))
+    local label_suffix=""
+    [[ "${n_blocks}" -gt 1 ]] && label_suffix=" ${idx}/${n_blocks}"
+
+    # Print the regex-extracted stacktrace directly — no AI needed for this part
+    if [[ "${slack}" == "true" ]]; then
+      echo "    ${st_label}${label_suffix}:*"
+    else
+      echo "    ${st_label}${label_suffix}:"
+    fi
+    echo '```'
+    if [[ "${slack}" == "true" ]]; then
+      local cleaned_block
+      cleaned_block="$(printf '%s\n' "${block}" | sed '/^[[:space:]]*$/d')"
+      printf '%s\n' "${cleaned_block}"
+    else
+      printf '%s\n' "${block}" | sed '/^[[:space:]]*$/d'
+    fi
+    echo '```'
+
+    # AI analysis for cause + fix of this specific failure block
+    if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
+      local ai_response cause fix
+      if [[ "${USE_CLAUDE}" == "true" ]]; then
+        ai_response="$(analyze_logs_with_claude_ai "${block}" "${job_name}" "${wf_name}" "${related_items}")"
+      else
+        ai_response="$(analyze_logs_with_ai "${block}" "${job_name}" "${wf_name}")"
+      fi
+      cause="$(printf '%s\n' "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1 || true)"
+      fix="$(printf '%s\n' "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1 || true)"
+      echo "    ${cause_label} _${cause:-Unable to determine cause}_"
+      [[ "${ANALYZE_FIX}" == "true" ]] && echo "    ${fix_label} _${fix:-Pending investigation}_"
+    fi
+  done
+}
+
 # Search velox and presto GitHub repos for issues AND PRs related to given
 # identifiers (used to build Claude's context).  Also includes bare GTest
 # method names extracted from the identifiers so PR titles that omit the
@@ -1027,7 +1165,7 @@ $(echo "${log_content}" | tail -c 30000)"
   fi
 
   # Use pre-fetched related items if provided; otherwise search GitHub internally
-  local related_items related_items_section=""
+  local related_items="" related_items_section=""
   if [[ -n "${prefetched_items}" ]]; then
     related_items="${prefetched_items}"
   else
@@ -1116,6 +1254,7 @@ print_slack_failure_details() {
   local label="$2"      # e.g., "Velox Build / Upstream"
   local run_json="$3"
   local job_filter="${4:-}"  # optional: filter jobs by name pattern (e.g. "cpu", "gpu")
+  local extra_affects="${5:-}"  # optional: newline-sep "label\turl" for grouped duplicates
 
   local run_id run_url wf_name conclusion
   run_id="$(jq -r '.databaseId' <<<"${run_json}")"
@@ -1129,6 +1268,15 @@ print_slack_failure_details() {
   echo "*${idx}. ${label}*"
   echo "• *Workflow:* ${wf_name}"
   echo "• *Run:* ${run_url}"
+  # If the same failure was detected in other builds, list them here
+  if [[ -n "${extra_affects}" ]]; then
+    local also_str=""
+    while IFS=$'\t' read -r al_label al_url; do
+      [[ -z "${al_label}" ]] && continue
+      also_str+="${al_label} (${al_url}), "
+    done <<< "${extra_affects}"
+    echo "• *Also fails in:* ${also_str%, }"
+  fi
   echo "• *Conclusion:* ${conclusion}"
 
   # Fetch logs if needed for printing or AI analysis
@@ -1196,65 +1344,20 @@ print_slack_failure_details() {
       fi
 
       # Analyze this job's logs with AI (only if --cause flag is set)
+      # Pre-fetch related GitHub items if AI analysis is enabled
+      local repo="" related_items=""
       if [[ "${ANALYZE_CAUSE}" == "true" ]]; then
-        # Pre-fetch related GitHub items once; pass to AI to avoid duplicate searches
-        local repo related_items
         repo="$(upstream_repo_for_label "${label}")"
         related_items="$(find_related_github_items "${repo}" "${job_log_content}" "${since_date}" "    • ")"
+      fi
 
-        local ai_response cause fix stacktrace
-        if [[ -n "${job_log_content}" ]]; then
-          if [[ "${USE_CLAUDE}" == "true" ]]; then
-            ai_response="$(analyze_logs_with_claude_ai "${job_log_content}" "${job_name}" "${wf_name}" "${related_items}")"
-          else
-            ai_response="$(analyze_logs_with_ai "${job_log_content}" "${job_name}" "${wf_name}")"
-          fi
-        else
-          ai_response="STACKTRACE:Unable to fetch logs for this job
-END_STACKTRACE
-CAUSE:Unable to fetch logs for this job
-FIX:Check the run link above for details"
-        fi
+      # Print every failure block with its stacktrace (regex-extracted) and AI cause/fix
+      print_blocks_with_analysis "${job_log_content}" "${job_name}" "${wf_name}" "${related_items}" "true"
 
-        # Parse STACKTRACE (multiline, between STACKTRACE: and END_STACKTRACE)
-        stacktrace="$(echo "${ai_response}" | sed -n '/^STACKTRACE:/,/^END_STACKTRACE/p' | sed '1s/^STACKTRACE:[[:space:]]*//' | sed '/^END_STACKTRACE/d')"
-        # Parse CAUSE and FIX from response (guard against no matches)
-        cause="$(echo "${ai_response}" | grep -i "^CAUSE:" | sed 's/^CAUSE:[[:space:]]*//' | head -1 || true)"
-        fix="$(echo "${ai_response}" | grep -i "^FIX:" | sed 's/^FIX:[[:space:]]*//' | head -1 || true)"
-
-        # Fallback if parsing failed
-        if [[ -z "${stacktrace}" ]]; then
-          stacktrace="_Unable to extract stacktrace_"
-        fi
-        if [[ -z "${cause}" ]]; then
-          cause="_Unable to determine cause_"
-        fi
-        if [[ -z "${fix}" ]]; then
-          fix="_Pending investigation_"
-        fi
-
-        # Print stacktrace (LLM-extracted relevant error portion)
-        # Strip any backticks the LLM may have included
-        local clean_stacktrace
-        clean_stacktrace="$(echo "${stacktrace}" | sed '/^```/d; /```$/d' | sed '/^$/d')"
-        if [[ -n "${clean_stacktrace}" ]]; then
-          echo "    *Stacktrace:*"
-          echo '```'
-          echo "${clean_stacktrace}"
-          echo '```'
-        else
-          echo "    *Stacktrace:* _Unavailable_"
-        fi
-        echo "    *Cause:* _${cause}_"
-        if [[ "${ANALYZE_FIX}" == "true" ]]; then
-          echo "    *Fix:* _${fix}_"
-        fi
-
-        if [[ -n "${related_items}" ]]; then
-          echo ""
-          echo "    *Related issues/PRs (last 7 days):*"
-          printf '%s\n' "${related_items}"
-        fi
+      if [[ -n "${related_items}" ]]; then
+        echo ""
+        echo "    *Related issues/PRs (last 7 days):*"
+        printf '%s\n' "${related_items}"
       fi
 
     done <<< "${failed_jobs}"
@@ -1265,12 +1368,12 @@ FIX:Check the run link above for details"
   # Print all logs if enabled (combined for all jobs)
   if [[ "${PRINT_LOGS}" == "true" ]]; then
     echo ""
-    echo "*Failed log tail (last ${LOG_TAIL_LINES} lines):*"
+    echo "*Failed test stacktraces:*"
     if [[ -n "${log_out}" ]]; then
       local log_content
-      log_content="$(echo "${log_out}" | awk '{print} /Post job cleanup\./ {exit}' | tail -n "${LOG_TAIL_LINES}" || true)"
+      log_content="$(extract_relevant_failures "${log_out}" | sed '/^[[:space:]]*$/d')"
       echo '```'
-      echo "${log_content}"
+      printf '%s\n' "${log_content}"
       echo '```'
     else
       echo "_Unable to fetch logs (network/API timeout). Open the run link above for full logs._"
@@ -1315,15 +1418,11 @@ print_slack_in_progress_details() {
 
       # Print first attempt failed logs if enabled.
       if [[ "${first_status}" == "completed" && "${first_conclusion}" != "success" && "${PRINT_LOGS}" == "true" ]]; then
-        LOG_TAIL_LINES="${LOG_TAIL_LINES:-150}"
         echo ""
-        echo "*First attempt failed log tail (last ${LOG_TAIL_LINES} lines):*"
+        echo "*First attempt failed test stacktraces:*"
         if log_out="$(gh_retry gh run view -R "${REPO}" "${first_id}" --log-failed 2>/dev/null)"; then
           echo '```'
-          # Use || true to prevent pipefail from exiting before closing backticks
-          echo "${log_out}" \
-            | awk '{print} /Post job cleanup\./ {exit}' \
-            | tail -n "${LOG_TAIL_LINES}" || true
+          extract_relevant_failures "${log_out}" | sed '/^[[:space:]]*$/d' || true
           echo '```'
         else
           echo "_Unable to fetch logs. Open the run link above for full logs._"
@@ -1481,13 +1580,39 @@ if [[ "${SLACK_FORMAT}" == "true" ]]; then
     exit 0
   fi
 
-  fail_idx=1
+  # Phase 1: Pre-compute a step-based signature for every failure so we can
+  # group identical errors that appear in multiple builds (Staging + Upstream, etc.).
+  declare -a fail_sig=()
   for i in "${!fail_runs[@]}"; do
-    print_slack_failure_details "${fail_idx}" "${fail_labels[$i]}" "${fail_runs[$i]}" "${fail_filters[$i]}"
-    if [[ $((i + 1)) -lt "${#fail_runs[@]}" ]]; then
+    sig_run_id="$(jq -r '.databaseId' <<<"${fail_runs[$i]}")"
+    sig_result="$(compute_failure_signature "${sig_run_id}" "${fail_filters[$i]}")"
+    fail_sig+=("${sig_result:-unique_${i}}")
+  done
+
+  # Phase 2: Print failures grouped by signature — each unique error shown once.
+  declare -A dedup_seen_sigs=()
+  fail_idx=1
+  fail_first_printed=true
+  for i in "${!fail_runs[@]}"; do
+    dedup_sig="${fail_sig[$i]}"
+    [[ -n "${dedup_seen_sigs[${dedup_sig}]:-}" ]] && continue
+    dedup_seen_sigs["${dedup_sig}"]=1
+
+    # Collect all other failures sharing this signature (same error, different build)
+    dedup_extra_affects=""
+    for j in "${!fail_runs[@]}"; do
+      [[ "$j" == "$i" ]] && continue
+      [[ "${fail_sig[$j]}" != "${dedup_sig}" ]] && continue
+      dedup_extra_affects+="${fail_labels[$j]}"$'\t'"$(jq -r '.url' <<<"${fail_runs[$j]}")"$'\n'
+    done
+
+    if [[ "${fail_first_printed}" != "true" ]]; then
       echo ""
       echo "---"
     fi
+    fail_first_printed=false
+
+    print_slack_failure_details "${fail_idx}" "${fail_labels[$i]}" "${fail_runs[$i]}" "${fail_filters[$i]}" "${dedup_extra_affects}"
     fail_idx=$((fail_idx + 1))
   done
 
