@@ -6,6 +6,12 @@ x-presto-native-worker-gpu: &gpu_worker_base
   build:
     args:
       - GPU=ON
+{% if sccache %}
+    ulimits: {nofile: {soft: 500000, hard: 500000}}
+    secrets:
+      - github_token
+      - aws_credentials
+{% endif %}
   runtime: nvidia
   cap_add:
     - IPC_LOCK
@@ -131,3 +137,11 @@ services:
 {%- endfor %}
 {%- endif %}
 {%- endif %}
+{% if sccache %}
+
+secrets:
+  github_token:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/github_token"
+  aws_credentials:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/aws_credentials"
+{% endif %}
