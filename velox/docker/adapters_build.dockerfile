@@ -158,7 +158,7 @@ gcc --version | head -1;
 # Install and configure sccache if enabled
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
   # Add sccache distributed compilation control (disabled by default)
-  if [ -n "$SCCACHE_NO_DIST_COMPILE" ]; then
+  if [ -n "${SCCACHE_NO_DIST_COMPILE:-}" ]; then
     export SCCACHE_NO_DIST_COMPILE=1;
   fi
   # Run sccache setup script
