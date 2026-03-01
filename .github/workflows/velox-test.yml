@@ -31,6 +31,10 @@ on:
         description: 'Enable sccache for build acceleration'
         type: boolean
         default: true
+      enable_sccache_dist: &enable_sccache_dist
+        description: 'Enable sccache distributed compilation (requires scheduler access)'
+        type: boolean
+        default: false
 
   workflow_call:
     inputs:
@@ -43,6 +47,7 @@ on:
         default: 'gpu'
       use_upstream_deps_image: *use_upstream_deps_image
       enable_sccache: *enable_sccache
+      enable_sccache_dist: *enable_sccache_dist
 
 permissions:
   id-token: write
@@ -102,16 +107,22 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          dist-auth-token: ${{ inputs.enable_sccache_dist && secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN || '' }}
+          enable-dist: ${{ inputs.enable_sccache_dist }}
 
       - name: Building Velox for CPU
         run: |
           echo "   - CUDF support: DISABLED"
           echo "   - Target: CPU-only build"
           echo "   - sccache: ${{ steps.sccache.outputs.enabled || 'false' }}"
+          echo "   - sccache dist: ${{ steps.sccache.outputs.dist-enabled || 'false' }}"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
           SCCACHE_FLAG=""
           if [[ "${{ steps.sccache.outputs.enabled }}" == "true" ]]; then
             SCCACHE_FLAG="--sccache"
+            if [[ "${{ steps.sccache.outputs.dist-enabled }}" == "true" ]]; then
+              SCCACHE_FLAG="--sccache --sccache-enable-dist"
+            fi
           fi
           TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --cpu ${SCCACHE_FLAG} --log build_velox_cpu.log
 
@@ -162,9 +173,13 @@ jobs:
           echo "   - CUDF support: ENABLED"
           echo "   - Target: GPU-accelerated build"
           echo "   - sccache: ${{ steps.sccache.outputs.enabled || 'false' }}"
+          echo "   - sccache dist: ${{ steps.sccache.outputs.dist-enabled || 'false' }}"
           SCCACHE_FLAG=""
           if [[ "${{ steps.sccache.outputs.enabled }}" == "true" ]]; then
             SCCACHE_FLAG="--sccache"
+            if [[ "${{ steps.sccache.outputs.dist-enabled }}" == "true" ]]; then
+              SCCACHE_FLAG="--sccache --sccache-enable-dist"
+            fi
           fi
           TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --gpu ${SCCACHE_FLAG} --log build_velox_gpu.log
 

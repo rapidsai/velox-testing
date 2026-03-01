@@ -1,5 +1,5 @@
 name: 'Setup sccache for CI'
-description: 'Configure sccache with OIDC-based AWS credentials for S3 caching'
+description: 'Configure sccache with OIDC-based AWS credentials for S3 caching and optional distributed compilation'
 
 inputs:
   role-to-assume:
@@ -10,11 +10,22 @@ inputs:
     description: 'AWS region for the sccache S3 bucket'
     required: false
     default: 'us-east-2'
+  dist-auth-token:
+    description: 'GitHub token for sccache distributed compilation scheduler auth. When empty, dist compile is disabled.'
+    required: false
+    default: ''
+  enable-dist:
+    description: 'Enable sccache distributed compilation (requires dist-auth-token)'
+    required: false
+    default: 'false'
 
 outputs:
   enabled:
     description: 'Whether sccache was successfully configured'
     value: ${{ steps.finalize.outputs.enabled }}
+  dist-enabled:
+    description: 'Whether distributed compilation is enabled'
+    value: ${{ steps.finalize.outputs.dist_enabled }}
 
 runs:
   using: composite
@@ -65,11 +76,20 @@ runs:
         # Strip leading whitespace from credentials file (from YAML indentation)
         sed -i 's/^[[:space:]]*//' "${SCCACHE_AUTH_DIR}/aws_credentials"
 
-        # Create placeholder github_token (not used when dist compile is disabled)
-        echo "placeholder-ci-no-dist-compile" > "${SCCACHE_AUTH_DIR}/github_token"
+        # Write github_token for dist compile auth (real token or placeholder)
+        DIST_ENABLED="false"
+        if [[ "${{ inputs.enable-dist }}" == "true" && -n "${{ inputs.dist-auth-token }}" ]]; then
+          echo "${{ inputs.dist-auth-token }}" > "${SCCACHE_AUTH_DIR}/github_token"
+          DIST_ENABLED="true"
+          echo "Distributed compilation enabled with provided auth token"
+        else
+          echo "placeholder-ci-no-dist-compile" > "${SCCACHE_AUTH_DIR}/github_token"
+          echo "Distributed compilation disabled (no token or enable-dist=false)"
+        fi
 
         # Export auth dir for downstream steps
         echo "SCCACHE_AUTH_DIR=${SCCACHE_AUTH_DIR}" >> "$GITHUB_ENV"
 
         echo "enabled=true" >> "$GITHUB_OUTPUT"
+        echo "dist_enabled=${DIST_ENABLED}" >> "$GITHUB_OUTPUT"
         echo "sccache auth files created in ${SCCACHE_AUTH_DIR}"

@@ -108,6 +108,8 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     SCCACHE_BUCKET=rapids-sccache-devs \
     SCCACHE_REGION=us-east-2 \
     SCCACHE_S3_NO_CREDENTIALS=false \
+    # enable preprocessor cache mode
+    SCCACHE_DIRECT=true \
     # disable shutdown-on-idle
     SCCACHE_IDLE_TIMEOUT=0 \
     SCCACHE_DIST_AUTH_TYPE=token \
