@@ -416,9 +416,7 @@ def convert_local_files(input_dir: str, output_dir: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Presto metrics collector and converter."
-    )
+    parser = argparse.ArgumentParser(description="Presto metrics collector and converter.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     convert_parser = subparsers.add_parser(
