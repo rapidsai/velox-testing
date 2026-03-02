@@ -42,17 +42,10 @@ if ! test -v SCCACHE_NO_DIST_COMPILE; then
     echo "SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=${SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE:-<unset>}"
     echo "SCCACHE_SERVER_LOG=${SCCACHE_SERVER_LOG:-<unset>}"
 
-    if command -v curl &>/dev/null; then
-        echo "Testing network connectivity to scheduler..."
-        curl -sSf -o /dev/null --connect-timeout 5 "${SCCACHE_DIST_SCHEDULER_URL:-}" \
-            && echo "Scheduler URL is reachable" \
-            || echo "WARNING: Cannot reach scheduler URL (curl exit code: $?)"
-    fi
     echo "=== end diagnostics ==="
 fi
 
-sccache --start-server
-sccache --show-stats
+sccache --zero-stats
 
 if test -v SCCACHE_NO_DIST_COMPILE; then
     echo "Distributed compilation is DISABLED - using local compilation with remote S3 caching"
@@ -61,11 +54,16 @@ else
         echo "Distributed compilation is available:"
         sccache --dist-status | jq -r '["scheduler URL: " + .SchedulerStatus[0], "server count: " + (.SchedulerStatus[1].servers | length | tostring)][]';
     else
-        echo "WARNING: Distributed compilation not available, falling back to local compilation with S3 cache"
+        echo "Error: Distributed compilation not available, check connectivity"
         if [[ -f "${SCCACHE_ERROR_LOG:-}" ]]; then
             echo "sccache error log:"
             cat "$SCCACHE_ERROR_LOG";
         fi
-        export SCCACHE_NO_DIST_COMPILE=1
+        if [[ "${SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE:-false}" == "true" ]]; then
+            echo "SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true, continuing with local compilation"
+            export SCCACHE_NO_DIST_COMPILE=1
+        else
+            exit 1
+        fi
     fi
 fi
