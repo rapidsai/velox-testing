@@ -58,6 +58,10 @@ def setup_and_teardown(request, presto_cursor):
         if reference_results_dir.exists():
             if not user_reference_results_dir or Path(user_reference_results_dir) != reference_results_dir:
                 shutil.rmtree(reference_results_dir)
+            else:
+                raise Exception(
+                    "Reference results directory and store-reference-results should not be set at the same time"
+                )
         reference_results_dir.mkdir(exist_ok=False)
 
     yield
