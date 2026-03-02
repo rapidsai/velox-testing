@@ -74,11 +74,14 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     iterations = request.config.getoption("--iterations")
     profile = request.config.getoption("--profile")
     profile_script_path = request.config.getoption("--profile-script-path")
+    explain = request.config.getoption("--explain")
+    explain_analyze = request.config.getoption("--explain-analyze")
     metrics = request.config.getoption("--metrics")
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     bench_output_dir = request.config.getoption("--output-dir")
     hostname = request.config.getoption("--hostname")
     port = request.config.getoption("--port")
+    explain_statement = "EXPLAIN " if explain else "EXPLAIN ANALYZE " if explain_analyze else ""
 
     if profile:
         assert profile_script_path is not None
@@ -107,7 +110,14 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             result = []
             for _ in range(iterations):
                 cursor = presto_cursor.execute(
-                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
+                    "--"
+                    + str(benchmark_type)
+                    + "_"
+                    + str(query_id)
+                    + "--"
+                    + "\n"
+                    + explain_statement
+                    + benchmark_queries[query_id]
                 )
                 result.append(cursor.stats["elapsedTimeMillis"])
 
