@@ -19,17 +19,56 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Get the root of the git repository
-REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+if command -v git &> /dev/null; then
+  REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+else
+  REPO_ROOT="$SCRIPT_DIR/../.."
+fi
+
 
 # Validate sibling repos
-if [[ "$VARIANT_TYPE" == "java" ]]; then
-  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
-else
-  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
-fi
+function validate_sibling_repos() {
+  if [[ "$VARIANT_TYPE" == "java" ]]; then
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
+  else
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
+  fi
+}
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
+validate_sccache_auth() {
+  if [[ "$ENABLE_SCCACHE" == true ]]; then
+    echo "Checking for sccache authentication files in: $SCCACHE_AUTH_DIR"
+
+    if [[ ! -d "$SCCACHE_AUTH_DIR" ]]; then
+      echo "ERROR: sccache auth directory not found: $SCCACHE_AUTH_DIR" >&2
+      echo "Run scripts/sccache/setup_sccache_auth.sh to set up authentication." >&2
+      exit 1
+    fi
+
+    if [[ ! -f "$SCCACHE_AUTH_DIR/github_token" ]]; then
+      echo "ERROR: GitHub token not found: $SCCACHE_AUTH_DIR/github_token" >&2
+      echo "Run scripts/sccache/setup_sccache_auth.sh to set up authentication." >&2
+      exit 1
+    fi
+
+    if [[ ! -f "$SCCACHE_AUTH_DIR/aws_credentials" ]]; then
+      echo "ERROR: AWS credentials not found: $SCCACHE_AUTH_DIR/aws_credentials" >&2
+      echo "Run scripts/sccache/setup_sccache_auth.sh to set up authentication." >&2
+      exit 1
+    fi
+
+    echo "sccache authentication files found."
+  fi
+}
+
+if [[ "$ENABLE_SCCACHE" == true && "$VARIANT_TYPE" == "java" ]]; then
+  echo "WARNING: --sccache is not applicable for java variant, ignoring."
+  ENABLE_SCCACHE=false
+fi
+
+validate_sccache_auth
 
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   echo "Error: the --profile argument is only supported for Presto GPU"
@@ -43,7 +82,9 @@ fi
 
 # Set PRESTO_IMAGE_TAG to the username in order to avoid conflicts when multiple users build images.
 # Falls back to "latest" if USER is not set.
-export PRESTO_IMAGE_TAG="${USER:-latest}"
+if [ -z "${PRESTO_IMAGE_TAG}" ]; then
+  export PRESTO_IMAGE_TAG="${USER:-latest}"
+fi
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 COORDINATOR_SERVICE="presto-coordinator"
@@ -79,7 +120,11 @@ if [[ "$VARIANT_TYPE" == "java" ]]; then
   DOCKER_COMPOSE_FILE="java"
   conditionally_add_build_target $JAVA_WORKER_IMAGE $JAVA_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
-  DOCKER_COMPOSE_FILE="native-cpu"
+  if [[ "$ENABLE_SCCACHE" == true ]]; then
+    DOCKER_COMPOSE_FILE="native-cpu.sccache"
+  else
+    DOCKER_COMPOSE_FILE="native-cpu"
+  fi
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
@@ -93,12 +138,6 @@ elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
-fi
-
-# Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
-if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
-  # Generate default GPU IDs: 0,1,2,...,N-1
-  export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
 fi
 
 "${SCRIPT_DIR}/stop_presto.sh"
@@ -137,14 +176,15 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
+  RENDER_ARGS="--template-path $TEMPLATE_PATH --output-path $RENDERED_PATH --num-workers $NUM_WORKERS --single-container $SINGLE_CONTAINER --kvikio-threads $KVIKIO_THREADS --sccache $ENABLE_SCCACHE"
   if [[ -n $GPU_IDS ]]; then
-    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS"
-  else
-    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS"
+    RENDER_ARGS="$RENDER_ARGS --gpu-ids $GPU_IDS"
   fi
+  "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" $RENDER_ARGS
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
 if (( ${#BUILD_TARGET_ARG[@]} )); then
+  validate_sibling_repos
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
     echo "Either build a local image using build_centos9_deps_image.sh or fetch a pre-built"
@@ -157,11 +197,26 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     PRESTO_VERSION=$PRESTO_VERSION "${SCRIPT_DIR}/build_presto_java_package.sh"
   fi
 
+  SCCACHE_BUILD_ARGS=()
+  SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_VERSION="${SCCACHE_VERSION}")
+  if [[ "$ENABLE_SCCACHE" == true ]]; then
+    SCCACHE_BUILD_ARGS+=(--build-arg ENABLE_SCCACHE="ON")
+    if [[ "$SCCACHE_ENABLE_DIST" == true ]]; then
+      echo "WARNING: sccache distributed compilation enabled - may cause compilation differences"
+    else
+      SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
+    fi
+  else
+    SCCACHE_BUILD_ARGS+=(--build-arg ENABLE_SCCACHE="OFF")
+    SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
+  fi
+
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
+  "${SCCACHE_BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}
 fi
 
