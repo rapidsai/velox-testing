@@ -58,7 +58,7 @@ ARG TREAT_WARNINGS_AS_ERRORS=1
 ARG BUILD_BASE_DIR=/opt/velox-build
 ARG BUILD_TYPE=release
 ARG ENABLE_SCCACHE=OFF
-ARG SCCACHE_SERVER_LOG="sccache=info"
+ARG SCCACHE_SERVER_LOG="sccache=debug"
 ARG SCCACHE_VERSION=latest
 ARG UPDATE_NINJA=true
 # Don't read from cache, but do put/replace entries
@@ -108,14 +108,13 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     SCCACHE_BUCKET=rapids-sccache-devs \
     SCCACHE_REGION=us-east-2 \
     SCCACHE_S3_NO_CREDENTIALS=false \
-    # enable preprocessor cache mode
+    SCCACHE_S3_USE_SSL=true \
     SCCACHE_DIRECT=true \
-    # disable shutdown-on-idle
     SCCACHE_IDLE_TIMEOUT=0 \
     SCCACHE_DIST_AUTH_TYPE=token \
     SCCACHE_DIST_REQUEST_TIMEOUT=7140 \
     SCCACHE_DIST_SCHEDULER_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com" \
-    SCCACHE_DIST_MAX_RETRIES=4 \
+    SCCACHE_DIST_MAX_RETRIES=10 \
     SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true
 
 WORKDIR /workspace/velox
