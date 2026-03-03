@@ -107,9 +107,7 @@ else
     echo "Warning: For GPU mode, setting NUM_THREADS to 2 to avoid possible OOM errors."
     NUM_THREADS=2
   fi
-  # disable velox_cudf_s3_read_test pending inheritance of RMM with shutdown error-avoidance (PR 2202)
-  # seves 1/9/26
-  SKIP_TESTS="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3|velox_cudf_s3_read_test"
+  SKIP_TESTS="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_s3"
   TEST_CMD="ctest -j ${NUM_THREADS} -L cuda_driver --output-on-failure --no-tests=error -E \"${SKIP_TESTS}\""
 fi
 if docker compose -f "$COMPOSE_FILE" run --rm "${CONTAINER_NAME}" bash -c "set -euo pipefail; cd ${EXPECTED_OUTPUT_DIR} && ${TEST_PREAMBLE} && ${TEST_CMD}"; then

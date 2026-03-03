@@ -6,14 +6,19 @@ Metrics collector for Presto queries.
 
 Collects detailed metrics from Presto REST API endpoints after each query
 and stores them as a combined JSON file.
+
+Can also be run standalone to convert pre-downloaded query JSON files:
+    python metrics_collector.py /path/to/input_dir /path/to/output_dir
 """
 
+import argparse
 import json
 import math
-import requests
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+import requests
 
 
 def collect_metrics(query_id: str, query_name: str, hostname: str, port: int, output_dir: str) -> None:
@@ -121,6 +126,30 @@ def _collect_worker_data(query_info: dict) -> tuple[dict, dict]:
     return all_worker_tasks, all_worker_metrics
 
 
+def _extract_embedded_tasks(query_info: dict) -> dict:
+    """Extract task data already embedded in the query's stage tree, grouped by worker.
+
+    Mirrors the structure produced by _collect_worker_data but without HTTP fetches,
+    using the task objects present in each stage's latestAttemptExecutionInfo.
+    """
+    tasks_by_worker: dict[str, list] = {}
+    stack = [query_info.get("outputStage")]
+    while stack:
+        stage_info = stack.pop()
+        if stage_info is None:
+            continue
+        latest_attempt = stage_info.get("latestAttemptExecutionInfo", {})
+        for task in latest_attempt.get("tasks", []):
+            task_self = task.get("taskStatus", {}).get("self")
+            if task_self:
+                parsed = urlparse(task_self)
+                worker_uri = f"{parsed.scheme}://{parsed.netloc}"
+                worker_id = _worker_id_from_uri(worker_uri)
+                tasks_by_worker.setdefault(worker_id, []).append(task)
+        stack.extend(stage_info.get("subStages", []))
+    return tasks_by_worker
+
+
 def _fetch_worker_metrics(worker_uri: str) -> dict | None:
     """Fetch metrics from a worker node and convert to nested object structure."""
     text = _fetch_text(f"{worker_uri}/v1/info/metrics")
@@ -146,10 +175,10 @@ def _metrics_to_nested_object(metrics: list) -> dict:
         # Determine the prefix (presto_cpp or velox or other)
         if metric_name.startswith("presto_cpp_"):
             prefix = "presto_cpp"
-            key = metric_name[len("presto_cpp_"):]
+            key = metric_name[len("presto_cpp_") :]
         elif metric_name.startswith("velox_"):
             prefix = "velox"
-            key = metric_name[len("velox_"):]
+            key = metric_name[len("velox_") :]
         else:
             # For other metrics, use the first underscore-separated component
             parts = metric_name.split("_", 1)
@@ -198,3 +227,74 @@ def _sanitize_json_values(obj: Any) -> Any:
         if math.isnan(obj) or math.isinf(obj):
             return None
     return obj
+
+
+def convert_local_files(input_dir: str, output_dir: str) -> None:
+    """
+    Convert pre-downloaded Presto query JSON files into the visualiser format.
+
+    Reads all .json files from input_dir. Files containing a dict with a
+    "queryId" key are treated as query data; list-typed files (e.g. node.json)
+    are treated as node data. Each query file produces an output combining
+    {"nodes": ..., "query": ...} with NaN/Inf sanitization.
+
+    Args:
+        input_dir: Directory containing pre-downloaded query JSON files
+        output_dir: Directory to write converted metrics files
+    """
+    input_path = Path(input_dir)
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    json_files = sorted(input_path.glob("*.json"))
+    if not json_files:
+        print(f"No .json files found in {input_path}")
+        return
+
+    nodes: list | None = None
+    query_files: list[tuple[Path, dict]] = []
+
+    for json_file in json_files:
+        with open(json_file) as f:
+            data = json.load(f)
+        if isinstance(data, dict) and "queryId" in data:
+            query_files.append((json_file, data))
+        elif isinstance(data, list):
+            print(f"Using {json_file.name} as node data")
+            nodes = data
+        else:
+            print(f"Skipping {json_file.name} (unrecognized format)")
+
+    if not query_files:
+        print("No query JSON files found (expected dicts with 'queryId' key)")
+        return
+
+    for json_file, query_info in query_files:
+        print(f"Processing {json_file.name}...")
+        combined: dict[str, Any] = {}
+        if nodes is not None:
+            combined["nodes"] = nodes
+        combined["query"] = query_info
+        tasks = _extract_embedded_tasks(query_info)
+        if tasks:
+            combined["tasks"] = tasks
+        combined = _sanitize_json_values(combined)
+
+        query_id = query_info.get("queryId", "unknown")
+        out_name = f"{json_file.stem}_{query_id}.presto_metrics.json"
+        out_file = output_path / out_name
+        with open(out_file, "w") as f:
+            json.dump(combined, f, indent=2)
+        print(f"  -> {out_file}")
+
+    print(f"Converted {len(query_files)} file(s).")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Convert pre-downloaded Presto query JSON files into visualiser format."
+    )
+    parser.add_argument("input_dir", help="Directory containing query JSON files")
+    parser.add_argument("output_dir", help="Directory to write converted metrics files")
+    args = parser.parse_args()
+    convert_local_files(args.input_dir, args.output_dir)
