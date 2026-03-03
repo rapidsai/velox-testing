@@ -152,14 +152,6 @@ parse_args() {
         PROFILE=true
         shift
         ;;
-      -e|--explain)
-        EXPLAIN=true
-        shift
-        ;;
-      -ea|--explain-analyze)
-        EXPLAIN_ANALYZE=true
-        shift
-        ;;
       --skip-drop-cache)
         SKIP_DROP_CACHE=true
         shift
@@ -234,14 +226,6 @@ fi
 
 if [[ "${PROFILE}" == "true" ]]; then
   PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
-fi
-
-if [[ "${EXPLAIN}" == "true" ]]; then
-  PYTEST_ARGS+=("--explain")
-fi
-
-if [[ "${EXPLAIN_ANALYZE}" == "true" ]]; then
-  PYTEST_ARGS+=("--explain-analyze")
 fi
 
 if [[ "${METRICS}" == "true" ]]; then

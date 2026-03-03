@@ -40,8 +40,6 @@ def pytest_addoption(parser):
     parser.addoption("--tag")
     parser.addoption("--profile", action="store_true", default=False)
     parser.addoption("--profile-script-path")
-    parser.addoption("--explain", action="store_true", default=False)
-    parser.addoption("--explain-analyze", action="store_true", default=False)
     parser.addoption("--metrics", action="store_true", default=False)
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
 
