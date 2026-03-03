@@ -80,7 +80,7 @@ jobs:
 
       - name: Generate ${{ inputs.benchmark_type }} benchmark data
         working-directory: ${{ github.workspace }}/velox-testing/presto/testing/integration_tests/scripts
-        run: ./generate_test_files.sh -b ${{ inputs.benchmark_type }}
+        run: ./generate_test_files.sh -b ${{ inputs.benchmark_type }} --convert-decimals-to-floats
 
       - name: Run ${{ inputs.benchmark_type }} Velox GPU Benchmarks
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
