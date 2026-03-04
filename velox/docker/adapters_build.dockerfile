@@ -58,7 +58,7 @@ ARG TREAT_WARNINGS_AS_ERRORS=1
 ARG BUILD_BASE_DIR=/opt/velox-build
 ARG BUILD_TYPE=release
 ARG ENABLE_SCCACHE=OFF
-ARG SCCACHE_SERVER_LOG="sccache=debug"
+ARG SCCACHE_SERVER_LOG="sccache=info"
 ARG SCCACHE_VERSION=latest
 ARG UPDATE_NINJA=true
 # Don't read from cache, but do put/replace entries
