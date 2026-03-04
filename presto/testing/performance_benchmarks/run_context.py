@@ -229,6 +229,49 @@ def get_engine_from_docker_containers(hostname: str, port: int) -> str | None:
     return None
 
 
+_ENGINE_TO_VARIANT = {
+    "velox-gpu": "gpu",
+    "velox-cpu": "cpu",
+    "java": "java",
+}
+
+
+def get_num_drivers(engine: str) -> int | None:
+    """Read task.max-drivers-per-task from the generated worker config_native.properties.
+
+    Falls back to None when the generated config directory does not exist
+    (e.g. pre-configured cluster or SLURM without local config generation).
+    """
+    variant = _ENGINE_TO_VARIANT.get(engine)
+    if variant is None:
+        return None
+
+    config_file = (
+        Path(__file__).resolve().parent
+        / ".."
+        / ".."
+        / "docker"
+        / "config"
+        / "generated"
+        / variant
+        / "etc_worker"
+        / "config_native.properties"
+    )
+    if not config_file.is_file():
+        _debug(f"num_drivers: config not found at {config_file}")
+        return None
+
+    for line in config_file.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("task.max-drivers-per-task="):
+            try:
+                return int(line.split("=", 1)[1])
+            except (ValueError, IndexError):
+                pass
+    _debug(f"num_drivers: task.max-drivers-per-task not found in {config_file}")
+    return None
+
+
 def gather_run_context(
     hostname: str,
     port: int,
@@ -291,5 +334,11 @@ def gather_run_context(
     worker_image = get_worker_image()
     if worker_image is not None:
         ctx["worker_image"] = worker_image
+
+    num_drivers = get_num_drivers(engine)
+    if num_drivers is not None:
+        ctx["num_drivers"] = num_drivers
+
+    ctx["execution_number"] = 1
 
     return ctx
