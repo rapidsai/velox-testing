@@ -3,22 +3,20 @@
 
 """
 Gather run configuration from execution context. Engine (java / velox-cpu / velox-gpu)
-is inferred only from: (1) Docker running images with expected names and tag =
-username, or (2) SLURM nvidia-smi in LOGS/worker_0.log. Scale factor, n_workers,
-gpu_name, etc. come from schema, Presto /v1/node (node count), and nvidia-smi/env.
+is determined from the coordinator's cluster-tag (via /v1/cluster). GPU name is
+parsed from nvidia-smi output in worker log files (LOGS env var). Scale factor and
+n_workers come from schema and Presto /v1/node respectively.
 """
 
-import getpass
 import json
 import os
 import re
-import subprocess
 from pathlib import Path
 
 import prestodb
-import requests
 
 from ..common import test_utils
+from .presto_api import get_cluster_tag, get_nodes
 
 # Set PRESTO_BENCHMARK_DEBUG=1 or DEBUG=1 to print engine-detection debug logs
 _DEBUG = os.environ.get("PRESTO_BENCHMARK_DEBUG") or os.environ.get("DEBUG")
@@ -29,31 +27,17 @@ def _debug(msg: str) -> None:
         print(f"[run_context] {msg}")
 
 
-def _fetch_json(url: str, timeout: int = 10):
-    try:
-        response = requests.get(url, timeout=timeout)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        _debug(f"GET {url} failed: {e!r}")
-        return None
-
-
-def get_node_count(hostname: str, port: int) -> int | None:
+def _get_node_count(hostname: str, port: int) -> int | None:
     """Return number of nodes in the Presto /v1/node list (workers only; coordinator not listed)."""
-    url = f"http://{hostname}:{port}/v1/node"
-    raw = _fetch_json(url)
-    if raw is None:
+    nodes = get_nodes(hostname, port)
+    if nodes is None:
         return None
-    if not isinstance(raw, list):
-        _debug(f"get_node_count: {url} returned type {type(raw).__name__}, expected list: {raw!r}")
-        return None
-    n = len(raw)
-    _debug(f"get_node_count: {url} -> {n} node(s). First node sample: {raw[0] if raw else 'N/A'}")
+    n = len(nodes)
+    _debug(f"get_node_count: {n} node(s)")
     return n
 
 
-def get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_name: str) -> int | float | None:
+def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_name: str) -> int | float | None:
     """
     Resolve scale factor from the schema's data source (metadata.json next to table data).
     Uses same logic as test_utils.get_scale_factor but without pytest request.
@@ -101,14 +85,14 @@ def _parse_gpu_name_from_text(line: str) -> str | None:
     return None
 
 
-def get_gpu_name_from_slurm_logs() -> str | None:
+def _get_gpu_name_from_worker_logs() -> str | None:
+    """Parse GPU model from nvidia-smi output in worker log files.
+
+    Both Docker and SLURM workers write nvidia-smi -L output to
+    LOGS/worker_<id>.log before starting the server.  All workers are
+    assumed to have the same GPU model; only worker_0.log is read.
+    Returns None when LOGS is unset or no matching line is found.
     """
-    When running under SLURM, workers run nvidia-smi -L and write to LOGS/worker_<id>.log.
-    All workers are assumed the same GPU; read worker_0.log only. LOGS env must be set.
-    Returns None if not in SLURM, LOGS unset, or no matching line found.
-    """
-    if not os.environ.get("SLURM_JOB_ID"):
-        return None
     logs_dir = os.environ.get("LOGS")
     if not logs_dir:
         return None
@@ -126,107 +110,51 @@ def get_gpu_name_from_slurm_logs() -> str | None:
     return None
 
 
-def get_engine_from_slurm() -> str | None:
-    """
-    Infer engine when running under SLURM from nvidia-smi -L output in LOGS/worker_0.log.
-    If that log contains GPU lines (from nvidia-smi -L), return 'velox-gpu'; otherwise
-    'velox-cpu'. Returns None if not in SLURM (SLURM_JOB_ID and LOGS unset) or LOGS
-    not available. Does not use the Presto API for engine type.
-    """
-    if not os.environ.get("SLURM_JOB_ID"):
-        return None
-    if not os.environ.get("LOGS"):
-        return None
-    gpu_name = get_gpu_name_from_slurm_logs()
-    if gpu_name is not None:
-        _debug(f"SLURM: nvidia-smi in logs -> velox-gpu ({gpu_name!r})")
-        return "velox-gpu"
-    # SLURM but no GPU in logs -> CPU native
-    _debug("SLURM: no nvidia-smi in logs -> velox-cpu")
-    return "velox-cpu"
+_CLUSTER_TAG_TO_ENGINE = {
+    "native-gpu": "velox-gpu",
+    "native-cpu": "velox-cpu",
+    "java": "java",
+}
 
 
-def get_gpu_name() -> str | None:
+def _get_engine(hostname: str, port: int) -> str:
+    """Determine worker engine type from the coordinator's cluster-tag.
+
+    Queries /v1/cluster for the tag set in the coordinator's config
+    (e.g. 'native-gpu', 'native-cpu', 'java') and maps it to our
+    internal engine name.  Raises RuntimeError if the tag is missing or
+    unrecognised.
     """
-    Return GPU model name. Under SLURM, read from LOGS/worker_<id>.log if LOGS is set;
-    otherwise run nvidia-smi -L on the current host (e.g. Docker host).
-    """
-    gpu_from_logs = get_gpu_name_from_slurm_logs()
-    if gpu_from_logs is not None:
-        return gpu_from_logs
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "-L"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
+    tag = get_cluster_tag(hostname, port)
+    if tag is None:
+        raise RuntimeError(
+            "Could not determine worker engine: cluster-tag is not set on the "
+            "coordinator.  Ensure the coordinator's config.properties includes "
+            "cluster-tag=native-gpu, cluster-tag=native-cpu, or cluster-tag=java."
         )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        first_line = result.stdout.strip().split("\n")[0]
-        return _parse_gpu_name_from_text(first_line)
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-        return None
+    engine = _CLUSTER_TAG_TO_ENGINE.get(tag)
+    if engine is None:
+        raise RuntimeError(
+            f"Unrecognised cluster-tag '{tag}'.  "
+            f"Expected one of: {', '.join(sorted(_CLUSTER_TAG_TO_ENGINE))}."
+        )
+    _debug(f"cluster-tag={tag!r} -> engine={engine!r}")
+    return engine
 
 
-def get_worker_image() -> str | None:
+def _get_gpu_name() -> str | None:
+    """Return GPU model name from worker log files.
+
+    Worker containers (Docker and SLURM) run nvidia-smi -L and write the
+    output to LOGS/worker_<id>.log.  Returns None when LOGS is unset or
+    no GPU info is found in the logs.
+    """
+    return _get_gpu_name_from_worker_logs()
+
+
+def _get_worker_image() -> str | None:
     """Return worker image name from env (set by cluster/container setup)."""
     return os.environ.get("WORKER_IMAGE")
-
-
-def _current_username() -> str:
-    """Return the username of the user running the process (for Docker image tag matching)."""
-    return os.environ.get("USER") or os.environ.get("USERNAME") or getpass.getuser() or ""
-
-
-def get_engine_from_docker_containers(hostname: str, port: int) -> str | None:
-    """
-    Infer engine from running Docker containers whose image has an expected name
-    (presto-native-worker-gpu, presto-native-worker-cpu, presto-java-worker) and
-    a tag equal to the username of the user running the benchmarks. Returns
-    'velox-gpu', 'velox-cpu', 'java', or None.
-    """
-    username = _current_username()
-    if not username:
-        _debug("docker: could not determine username, skip Docker engine detection")
-        return None
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Image}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        images = [s.strip() for s in result.stdout.strip().splitlines() if s.strip()]
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-        _debug("docker ps failed or not available")
-        return None
-    has_gpu = has_cpu = has_java = False
-    for image in images:
-        parts = image.rsplit(":", 1)
-        name = parts[0] if parts else ""
-        tag = parts[1] if len(parts) == 2 else ""
-        if tag != username:
-            continue
-        if "presto-native-worker-gpu" in name:
-            has_gpu = True
-        if "presto-native-worker-cpu" in name:
-            has_cpu = True
-        if "presto-java-worker" in name:
-            has_java = True
-    if has_gpu or has_cpu or has_java:
-        _debug(f"docker (image tag={username!r}): gpu={has_gpu}, cpu={has_cpu}, java={has_java}")
-    if has_gpu:
-        return "velox-gpu"
-    if has_cpu:
-        return "velox-cpu"
-    if has_java:
-        return "java"
-    return None
 
 
 _ENGINE_TO_VARIANT = {
@@ -236,7 +164,7 @@ _ENGINE_TO_VARIANT = {
 }
 
 
-def get_num_drivers(engine: str) -> int | None:
+def _get_num_drivers(engine: str) -> int | None:
     """Read task.max-drivers-per-task from the generated worker config_native.properties.
 
     Falls back to None when the generated config directory does not exist
@@ -277,65 +205,41 @@ def gather_run_context(
     port: int,
     user: str,
     schema_name: str,
-    scale_factor_override: str | int | None = None,
 ) -> dict:
     """
-    Build run-config dict from context. Engine is taken only from Docker (running
-    images presto-native-worker-gpu/cpu or presto-java-worker with tag = username)
-    or SLURM (nvidia-smi in LOGS/worker_0.log). scale_factor_override takes
-    precedence over schema-derived scale factor.
+    Build run-config dict from context. Engine is determined from the
+    coordinator's cluster-tag (via /v1/cluster). Scale factor is read
+    from the metadata file next to the schema's table data.
     """
     ctx = {}
-    # Scale factor: CLI override first, then from schema data source
-    if scale_factor_override is not None:
-        try:
-            ctx["scale_factor"] = int(scale_factor_override)
-        except (TypeError, ValueError):
-            ctx["scale_factor"] = scale_factor_override
-    else:
-        sf = get_scale_factor_from_schema(hostname, port, user, schema_name)
-        if sf is not None:
-            ctx["scale_factor"] = int(sf) if isinstance(sf, float) and sf == int(sf) else sf
+    sf = _get_scale_factor_from_schema(hostname, port, user, schema_name)
+    if sf is not None:
+        ctx["scale_factor"] = int(sf) if isinstance(sf, float) and sf == int(sf) else sf
 
-    n_workers = get_node_count(hostname, port)
-    # Engine only from Docker (container names) or SLURM (nvidia-smi in LOGS). No API fallback.
-    engine_from_docker = get_engine_from_docker_containers(hostname, port)
-    engine_from_slurm = get_engine_from_slurm() if engine_from_docker is None else None
-    engine = engine_from_docker or engine_from_slurm
-    if engine_from_docker is not None:
-        _debug(f"using engine from Docker containers: {engine_from_docker}")
-    elif engine_from_slurm is not None:
-        _debug(f"using engine from SLURM (nvidia-smi in logs): {engine_from_slurm}")
+    n_workers = _get_node_count(hostname, port)
+    engine = _get_engine(hostname, port)
 
     if n_workers is not None:
         ctx["n_workers"] = n_workers
         ctx["kind"] = "single-node" if n_workers == 1 else f"{n_workers}-node"
 
-    if engine == "velox-cpu":
-        ctx["gpu_count"] = 0
-        ctx["gpu_name"] = "NA"
-        ctx["engine"] = "velox-cpu"
-    elif engine == "velox-gpu":
+    ctx["engine"] = engine
+    if engine == "velox-gpu":
         ctx["gpu_count"] = n_workers if n_workers is not None else 0
-        gpu_name = get_gpu_name()
+        gpu_name = _get_gpu_name()
         if gpu_name is not None:
             ctx["gpu_name"] = gpu_name
-        ctx["engine"] = "velox-gpu"
+    elif engine == "velox-cpu":
+        ctx["gpu_count"] = 0
+        ctx["gpu_name"] = "NA"
     elif engine == "java":
         ctx["gpu_count"] = 0
-        ctx["engine"] = "java"
-    else:
-        raise RuntimeError(
-            "Could not determine worker engine. Run in Docker (worker images "
-            "presto-native-worker-gpu, presto-native-worker-cpu, or presto-java-worker with "
-            "tag equal to your username) or on SLURM with LOGS set and nvidia-smi -L in LOGS/worker_0.log."
-        )
 
-    worker_image = get_worker_image()
+    worker_image = _get_worker_image()
     if worker_image is not None:
         ctx["worker_image"] = worker_image
 
-    num_drivers = get_num_drivers(engine)
+    num_drivers = _get_num_drivers(engine)
     if num_drivers is not None:
         ctx["num_drivers"] = num_drivers
 

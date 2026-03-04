@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import requests
+from .presto_api import fetch_json, fetch_text, get_nodes
 
 
 def collect_metrics(query_id: str, query_name: str, hostname: str, port: int, output_dir: str) -> None:
@@ -43,12 +43,12 @@ def collect_metrics(query_id: str, query_name: str, hostname: str, port: int, ou
     combined = {}
 
     # Collect node information
-    nodes = _fetch_json(f"{base_url}/v1/node")
+    nodes = get_nodes(hostname, port)
     if nodes:
         combined["nodes"] = nodes
 
     # Collect query details and extract task information
-    query_info = _fetch_json(f"{base_url}/v1/query/{query_id}")
+    query_info = fetch_json(f"{base_url}/v1/query/{query_id}")
     if query_info:
         combined["query"] = query_info
         tasks, metrics = _collect_worker_data(query_info)
@@ -64,27 +64,6 @@ def collect_metrics(query_id: str, query_name: str, hostname: str, port: int, ou
         with open(combined_path, "w") as f:
             json.dump(combined, f, indent=2)
 
-
-def _fetch_json(url: str, timeout: int = 30) -> Any | None:
-    """Fetch JSON from a URL, returning None on error."""
-    try:
-        response = requests.get(url, timeout=timeout)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"Warning: Failed to fetch {url}: {e}")
-        return None
-
-
-def _fetch_text(url: str, timeout: int = 30) -> str | None:
-    """Fetch text from a URL, returning None on error."""
-    try:
-        response = requests.get(url, timeout=timeout)
-        response.raise_for_status()
-        return response.text
-    except Exception as e:
-        print(f"Warning: Failed to fetch {url}: {e}")
-        return None
 
 
 def _collect_worker_data(query_info: dict) -> tuple[dict, dict]:
@@ -115,7 +94,7 @@ def _collect_worker_data(query_info: dict) -> tuple[dict, dict]:
         # Collect detailed task info from worker
         worker_tasks = []
         for task_id in task_ids:
-            task_data = _fetch_json(f"{worker_uri}/v1/task/{task_id}")
+            task_data = fetch_json(f"{worker_uri}/v1/task/{task_id}")
             if task_data:
                 worker_tasks.append(task_data)
 
@@ -156,7 +135,7 @@ def _extract_embedded_tasks(query_info: dict) -> dict:
 
 def _fetch_worker_metrics(worker_uri: str) -> dict | None:
     """Fetch metrics from a worker node and convert to nested object structure."""
-    text = _fetch_text(f"{worker_uri}/v1/info/metrics")
+    text = fetch_text(f"{worker_uri}/v1/info/metrics")
     if text is None:
         return None
     metrics = _parse_prometheus_metrics(text)
@@ -301,7 +280,7 @@ def interactive_collect(base_url: str, output_dir: str) -> None:
         return
 
     print(f"Fetching query list from {base_url}/v1/query ...")
-    queries = _fetch_json(f"{base_url}/v1/query")
+    queries = fetch_json(f"{base_url}/v1/query")
     if not queries:
         print("No queries returned from coordinator.")
         return

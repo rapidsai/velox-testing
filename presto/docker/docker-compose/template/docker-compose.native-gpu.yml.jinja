@@ -49,6 +49,8 @@ x-presto-native-worker-gpu: &gpu_worker_base
     - ../../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
     - ../../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
     - ../../config/generated/gpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+    - ../../worker_logs:/opt/presto-server/logs
+    - ../../launch_presto_servers.sh:/opt/launch_presto_servers.sh:ro
 
 services:
   presto-coordinator:
@@ -68,6 +70,7 @@ services:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu-{{ gpu_id }}
     environment:
+      WORKER_ID: {{ gpu_id }}
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE}
       PROFILE_ARGS: ${PROFILE_ARGS}
@@ -82,9 +85,12 @@ services:
       KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
     volumes:
+      - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc/config.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      - ../../worker_logs:/opt/presto-server/logs
+      - ../../launch_presto_servers.sh:/opt/launch_presto_servers.sh:ro
   {% endfor %}
   {% else %}
   # Combined GPU worker - runs {{ workers|length if workers else 1 }} presto servers in parallel, each pinned to a specific GPU
@@ -124,6 +130,8 @@ services:
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
     volumes:
+      - ../../worker_logs:/opt/presto-server/logs
+      - ../../launch_presto_servers.sh:/opt/launch_presto_servers.sh:ro
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}

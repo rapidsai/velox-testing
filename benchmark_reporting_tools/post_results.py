@@ -15,13 +15,12 @@ This script operates on the parsed output of the benchmark runner. The
 expected directory structure is:
 
     ../benchmark-root/
-    ├── benchmark_config.json           # optional
+    ├── benchmark_result.json
     ├── configs                  # optional
     │   ├── coordinator.config
     │   └── worker.config
-    ├── logs                     # optional
-    │   └── slurm-4575179.out
-    └── benchmark_result.json
+    └── logs                     # optional
+        └── slurm-4575179.out
 
 Usage:
     python benchmark_reporting_tools/post_results.py /path/to/benchmark/dir \
@@ -72,13 +71,16 @@ class BenchmarkMetadata:
     engine: str
 
     @classmethod
-    def from_file(cls, file_path: Path) -> "BenchmarkMetadata":
-        data = json.loads(file_path.read_text())
-
-        # parse fields, like the timestamp
+    def from_result_file(cls, file_path: Path) -> "BenchmarkMetadata":
+        """Extract metadata from the 'context' section of benchmark_result.json."""
+        raw = json.loads(file_path.read_text())
+        data = raw["context"]
         data["timestamp"] = datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00"))
 
-        return cls(**data)
+        known_fields = {f.name for f in dataclasses.fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in known_fields}
+
+        return cls(**filtered)
 
     def serialize(self) -> dict:
         out = dataclasses.asdict(self)
@@ -109,7 +111,7 @@ class BenchmarkResults:
         )
 
 
-def parse_config_file(file_path: Path) -> dict[str, str]:
+def _parse_config_file(file_path: Path) -> dict[str, str]:
     """Parse a key=value config file, ignoring comments and blank lines.
 
     Args:
@@ -142,15 +144,15 @@ class EngineConfig:
 
         Expects coordinator.config and worker.config files.
         """
-        coordinator_config = parse_config_file(configs_dir / "coordinator.config")
-        worker_config = parse_config_file(configs_dir / "worker.config")
+        coordinator_config = _parse_config_file(configs_dir / "coordinator.config")
+        worker_config = _parse_config_file(configs_dir / "worker.config")
         return cls(coordinator=coordinator_config, worker=worker_config)
 
     def serialize(self) -> dict:
         return dataclasses.asdict(self)
 
 
-def parse_args() -> argparse.Namespace:
+def _parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Post Velox benchmark results to the API.",
@@ -159,7 +161,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "input_path",
         type=str,
-        help="Path to benchmark directory containing benchmark_config.json and benchmark_result.json",
+        help="Path to benchmark directory containing benchmark_result.json",
     )
     parser.add_argument(
         "--api-url",
@@ -190,7 +192,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--engine-name",
         default=None,
-        help="Query engine name (optionally derived from benchmark_config.json 'engine' field)",
+        help="Query engine name (overrides the 'engine' field from benchmark_result.json context)",
     )
     parser.add_argument(
         "--identifier-hash",
@@ -241,61 +243,10 @@ def parse_args() -> argparse.Namespace:
         default=1,
     )
 
-    # A bunch of optional arguments for when benchmark_config.json is not present.
-    parser.add_argument(
-        "--kind",
-        help="Run kind (e.g. 'single-node', 'multi-node')",
-    )
-    parser.add_argument(
-        "--benchmark",
-        help="Benchmark name (e.g. 'tpch')",
-        default="tpch",
-    )
-    parser.add_argument(
-        "--timestamp",
-        help="Timestamp of the benchmark run",
-        default=None,
-    )
-    parser.add_argument("--execution-number", help="Execution number of the benchmark run", type=int, default=1)
-    parser.add_argument(
-        "--n-workers",
-        help="Number of workers in the benchmark run",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--scale-factor",
-        help="Scale factor of the benchmark run",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--gpu-count",
-        help="Number of GPUs in the benchmark run",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--gpu-name",
-        help="GPU name (e.g. 'H100')",
-        default=None,
-    )
-    parser.add_argument(
-        "--num-drivers",
-        help="Number of drivers in the benchmark run",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--worker-image",
-        help="Worker image (e.g. 'velox/worker:latest')",
-        default=None,
-    )
-
-    return parser.parse_args()
+    return parser._parse_args()
 
 
-def normalize_api_url(url: str) -> str:
+def _normalize_api_url(url: str) -> str:
     """Normalize a user-provided API URL to a base URL.
 
     Handles various formats:
@@ -313,7 +264,7 @@ def normalize_api_url(url: str) -> str:
     return normalized.rstrip("/")
 
 
-def build_submission_payload(
+def _build_submission_payload(
     benchmark_metadata: BenchmarkMetadata,
     benchmark_results: BenchmarkResults,
     engine_config: EngineConfig | None,
@@ -332,7 +283,7 @@ def build_submission_payload(
     """Build a BenchmarkSubmission payload from parsed dataclasses.
 
     Args:
-        benchmark_metadata: Parsed benchmark_config.json as BenchmarkMetadata
+        benchmark_metadata: Parsed from the 'context' section of benchmark_result.json
         benchmark_results: Parsed benchmark_result.json as BenchmarkResults
         engine_config: Parsed config files as EngineConfig, optional
         sku_name: Hardware SKU name
@@ -435,8 +386,8 @@ def build_submission_payload(
     }
 
 
-def build_http_client(api_url: str, api_key: str, timeout: float) -> httpx.AsyncClient:
-    base_url = normalize_api_url(api_url)
+def _build_http_client(api_url: str, api_key: str, timeout: float) -> httpx.AsyncClient:
+    base_url = _normalize_api_url(api_url)
     transport = httpx.AsyncHTTPTransport(retries=3)
     return httpx.AsyncClient(
         base_url=base_url,
@@ -446,7 +397,7 @@ def build_http_client(api_url: str, api_key: str, timeout: float) -> httpx.Async
     )
 
 
-async def upload_log_files(
+async def _upload_log_files(
     benchmark_dir: Path,
     api_url: str,
     api_key: str,
@@ -472,7 +423,7 @@ async def upload_log_files(
     print(f"  Uploading {len(log_files)} log file(s) (max {max_concurrency} concurrent)...", file=sys.stderr)
     semaphore = asyncio.Semaphore(max_concurrency)
 
-    async with build_http_client(api_url, api_key, timeout) as client:
+    async with _build_http_client(api_url, api_key, timeout) as client:
 
         async def _upload_one(log_file: Path) -> int:
             async with semaphore:
@@ -495,18 +446,18 @@ async def upload_log_files(
     return list(asset_ids)
 
 
-async def post_submission(api_url: str, api_key: str, payload: dict, timeout: float) -> tuple[int, str]:
+async def _post_submission(api_url: str, api_key: str, payload: dict, timeout: float) -> tuple[int, str]:
     """Post a benchmark submission to the API.
 
     Returns:
         Tuple of (status_code, response_text)
     """
-    async with build_http_client(api_url, api_key, timeout) as client:
+    async with _build_http_client(api_url, api_key, timeout) as client:
         response = await client.post("/api/benchmark/", json=payload)
     return response.status_code, response.text
 
 
-async def process_benchmark_dir(
+async def _process_benchmark_dir(
     benchmark_dir: Path,
     *,
     sku_name: str,
@@ -523,18 +474,7 @@ async def process_benchmark_dir(
     timeout: float,
     upload_logs: bool = True,
     benchmark_definition_name: str,
-    # all the optional arguments for when benchmark_config.json is not present.
     concurrency_streams: int = 1,
-    kind: str | None = None,
-    benchmark: str | None = None,
-    timestamp: str | None = None,
-    execution_number: int = 1,
-    n_workers: int | None = None,
-    scale_factor: int | None = None,
-    gpu_count: int | None = None,
-    gpu_name: str | None = None,
-    worker_image: str | None = None,
-    num_drivers: int | None = None,
 ) -> int:
     """Process a benchmark directory and post results to API.
 
@@ -543,66 +483,23 @@ async def process_benchmark_dir(
     """
     print(f"\nProcessing: {benchmark_dir}", file=sys.stderr)
 
-    # Load metadata, results, and config
+    # Load metadata and results from benchmark_result.json.
+    # The "context" section contains run metadata; benchmark data sits
+    # under a top-level key matching the benchmark name (e.g. "tpch").
 
-    # benchmark_config.json is only optionally written out.
-    # We give preference to getting this from the user CLI options,
-    # falling back to
+    result_file = benchmark_dir / "benchmark_result.json"
 
-    benchmark_json_path = benchmark_dir / "benchmark_config.json"
-
-    if not benchmark_json_path.exists():
-        missing_args = []
-        if kind is None:
-            missing_args.append("kind")
-        if benchmark is None:
-            missing_args.append("benchmark")
-        if timestamp is None:
-            missing_args.append("timestamp")
-        if n_workers is None:
-            missing_args.append("n_workers")
-        if scale_factor is None:
-            missing_args.append("scale_factor")
-        if gpu_count is None:
-            missing_args.append("gpu_count")
-        if gpu_name is None:
-            missing_args.append("gpu_name")
-        if num_drivers is None:
-            missing_args.append("num_drivers")
-        if engine_name is None:
-            missing_args.append("engine_name")
-
-        if missing_args:
-            print("  Error: must provide benchmark metadata when benchmark_config.json is not present", file=sys.stderr)
-            print(f"  Error: missing arguments: {', '.join(missing_args)}", file=sys.stderr)
-            return 1
-
-        # mypy doesn't realize that kind, benchmark, etc. have been narrowed to not-None by the check above.
-        benchmark_metadata = BenchmarkMetadata(
-            kind=kind,  # type: ignore[arg-type]
-            benchmark=benchmark,  # type: ignore[arg-type]
-            timestamp=datetime.fromisoformat(timestamp.replace("Z", "+00:00")),  # type: ignore[union-attr]
-            execution_number=execution_number,
-            n_workers=n_workers,  # type: ignore[arg-type]
-            scale_factor=scale_factor,  # type: ignore[arg-type]
-            gpu_count=gpu_count,  # type: ignore[arg-type]
-            gpu_name=gpu_name,  # type: ignore[arg-type]
-            num_drivers=num_drivers,  # type: ignore[arg-type]
-            worker_image=worker_image,
-            engine=engine_name,  # type: ignore[arg-type]
-        )
-    else:
-        try:
-            benchmark_metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark_config.json")
-        except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
-            print(f"  Error loading metadata: {e}", file=sys.stderr)
-            return 1
+    try:
+        benchmark_metadata = BenchmarkMetadata.from_result_file(result_file)
+    except (ValueError, KeyError, json.JSONDecodeError, FileNotFoundError) as e:
+        print(f"  Error loading metadata: {e}", file=sys.stderr)
+        return 1
 
     try:
         results = BenchmarkResults.from_file(
-            benchmark_dir / "benchmark_result.json", benchmark_name=benchmark_metadata.benchmark
+            result_file, benchmark_name=benchmark_metadata.benchmark
         )
-    except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
+    except (ValueError, KeyError, json.JSONDecodeError, FileNotFoundError) as e:
         print(f"  Error loading results: {e}", file=sys.stderr)
         return 1
 
@@ -623,14 +520,14 @@ async def process_benchmark_dir(
             )
         else:
             try:
-                asset_ids = await upload_log_files(benchmark_dir, api_url, api_key, timeout)
+                asset_ids = await _upload_log_files(benchmark_dir, api_url, api_key, timeout)
             except (RuntimeError, httpx.RequestError) as e:
                 print(f"  Error uploading logs: {e}", file=sys.stderr)
                 return 1
 
     # Build submission payload
     try:
-        payload = build_submission_payload(
+        payload = _build_submission_payload(
             benchmark_metadata=benchmark_metadata,
             benchmark_results=results,
             engine_config=engine_config,
@@ -664,7 +561,7 @@ async def process_benchmark_dir(
 
     # Post to API
     try:
-        status_code, response_text = await post_submission(api_url, api_key, payload, timeout)
+        status_code, response_text = await _post_submission(api_url, api_key, payload, timeout)
         print(f"  Status: {status_code}", file=sys.stderr)
         if status_code >= 400:
             print(f"  Response: {response_text}", file=sys.stderr)
@@ -678,7 +575,7 @@ async def process_benchmark_dir(
 
 
 async def main() -> int:
-    args = parse_args()
+    args = _parse_args()
 
     # Resolve to str (parser already falls back to BENCHMARK_API_URL / BENCHMARK_API_KEY)
     api_url = args.api_url or ""
@@ -704,7 +601,7 @@ async def main() -> int:
         print(f"Error: Input path is not a directory: {args.input_path}", file=sys.stderr)
         return 1
 
-    result = await process_benchmark_dir(
+    result = await _process_benchmark_dir(
         benchmark_dir,
         sku_name=args.sku_name,
         storage_configuration_name=args.storage_configuration_name,
@@ -720,16 +617,6 @@ async def main() -> int:
         timeout=args.timeout,
         upload_logs=args.upload_logs,
         benchmark_definition_name=args.benchmark_name,
-        kind=args.kind,
-        benchmark=args.benchmark,
-        timestamp=args.timestamp,
-        execution_number=args.execution_number,
-        n_workers=args.n_workers,
-        scale_factor=args.scale_factor,
-        gpu_count=args.gpu_count,
-        gpu_name=args.gpu_name,
-        worker_image=args.worker_image,
-        num_drivers=args.num_drivers,
         concurrency_streams=args.concurrency_streams,
     )
 

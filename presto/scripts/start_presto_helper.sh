@@ -213,5 +213,11 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   ${BUILD_TARGET_ARG[@]}
 fi
 
+# Prepare a clean worker_logs directory so containers can write nvidia-smi
+# output before starting the server.  Stale logs from a prior run are removed.
+WORKER_LOGS_DIR="${SCRIPT_DIR}/../docker/worker_logs"
+rm -rf "${WORKER_LOGS_DIR}"
+mkdir -p "${WORKER_LOGS_DIR}"
+
 # Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d

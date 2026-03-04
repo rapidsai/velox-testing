@@ -8,6 +8,11 @@ set -e
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Default LOGS to the Docker worker_logs directory so that run_context.py
+# can find nvidia-smi output written by the worker containers.  SLURM
+# environments set LOGS themselves, so this only takes effect for Docker.
+export LOGS="${LOGS:-${SCRIPT_DIR}/../docker/worker_logs}"
+
 source "${SCRIPT_DIR}/presto_connection_defaults.sh"
 
 print_help() {
@@ -41,11 +46,11 @@ OPTIONS:
 
 ENVIRONMENT:
     PRESTO_BENCHMARK_DEBUG   Set to 1 to print debug logs for worker/engine detection
-                             (e.g. node URIs, reachability, metrics, Docker containers).
+                             (e.g. node URIs, reachability, metrics).
                              Use when engine is misdetected or the run fails.
-    Docker                  In Docker setups, engine is inferred from running worker
-                             images (presto-native-worker-gpu/cpu, presto-java-worker)
-                             whose tag equals the username. Ensure 'docker ps' is available.
+    LOGS                     Directory containing worker_<id>.log files with nvidia-smi
+                             output.  Defaults to the Docker worker_logs directory.
+                             SLURM environments set this to their own logs path.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
