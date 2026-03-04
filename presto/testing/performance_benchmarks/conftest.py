@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..common.conftest import *  # noqa: F403
-from .benchmark_keys import BenchmarkKeys
 from .run_context import gather_run_context
 
 # ruff: noqa: I001
