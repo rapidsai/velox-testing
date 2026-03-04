@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+
 import json
 import statistics
 from datetime import datetime, timezone
@@ -9,6 +10,30 @@ from pathlib import Path
 from ..common.conftest import *  # noqa: F403
 from .benchmark_keys import BenchmarkKeys
 from .run_context import gather_run_context
+
+# ruff: noqa: I001
+import pytest
+
+from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
+from common.testing.performance_benchmarks.common_fixtures import (
+    benchmark_queries,  # noqa: F401
+    benchmark_result_collector,  # noqa: F401
+    drop_cache_once,  # noqa: F401
+)
+from common.testing.performance_benchmarks.conftest import (
+    DataLocation,
+    pytest_sessionfinish,  # noqa: F401
+    pytest_terminal_summary,  # noqa: F401
+)
+
+from ..common.fixtures import (
+    tpcds_queries,  # noqa: F401
+    tpch_queries,  # noqa: F401
+)
+from .common_fixtures import (
+    benchmark_query,  # noqa: F401
+    presto_cursor,  # noqa: F401
+)
 
 
 def pytest_addoption(parser):
@@ -246,3 +271,7 @@ def compute_aggregate_timings(benchmark_results):
                     agg_sums[i] = round(agg_sums[i] + stat, 2)
     benchmark_results[BenchmarkKeys.AGGREGATE_TIMES_SUM_KEY] = agg_sums
     benchmark_results[BenchmarkKeys.FORMAT_WIDTH_KEY] = format_width
+
+
+def pytest_configure(config):
+    pytest.data_location = DataLocation("--schema-name", "Schema", BenchmarkKeys.SCHEMA_NAME_KEY)
