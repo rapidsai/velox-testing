@@ -303,7 +303,6 @@ jobs:
             ENABLE_SCCACHE=ON
             SCCACHE_NO_DIST_COMPILE=1
             NUM_THREADS=12
-            TREAT_WARNINGS_AS_ERRORS=0
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
