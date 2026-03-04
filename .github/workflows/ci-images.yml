@@ -144,7 +144,7 @@ jobs:
           target: adapters
           build-args: |
             CUDA_VERSION=${{ matrix.cuda_version }}
-          outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${{ needs.resolve-commits.outputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ needs.resolve-commits.outputs.date }}-${{ matrix.arch }}
@@ -288,7 +288,7 @@ jobs:
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
-          outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
@@ -372,7 +372,7 @@ jobs:
           file: presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
           build-args: |
             CUDA_VERSION=${{ matrix.cuda_version }}
-          outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ needs.resolve-commits.outputs.presto_short_sha }}-velox-${{ needs.resolve-commits.outputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ needs.resolve-commits.outputs.date }}-${{ matrix.arch }}
@@ -525,7 +525,7 @@ jobs:
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
-          outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
