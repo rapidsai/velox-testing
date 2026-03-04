@@ -561,10 +561,9 @@ jobs:
           create_manifest() {
             local tag="$1"
             echo "Creating multi-arch manifest: ${tag}"
-            docker manifest create "${REGISTRY}/${IMAGE}:${tag}" \
-              --amend "${REGISTRY}/${IMAGE}:${tag}-amd64" \
-              --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
-            docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
+              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE}:${tag}-arm64"
           }
           for cuda in 12.9 13.1; do
             create_manifest "velox-deps-${VSHA}-cuda${cuda}-${DATE}"
@@ -593,10 +592,9 @@ jobs:
           create_manifest() {
             local tag="$1"
             echo "Creating multi-arch manifest: ${tag}"
-            docker manifest create "${REGISTRY}/${IMAGE}:${tag}" \
-              --amend "${REGISTRY}/${IMAGE}:${tag}-amd64" \
-              --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
-            docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
+              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE}:${tag}-arm64"
           }
           for cuda in 12.9 13.1; do
             create_manifest "velox-${VSHA}-gpu-cuda${cuda}-${DATE}"
@@ -627,10 +625,9 @@ jobs:
           create_manifest() {
             local tag="$1"
             echo "Creating multi-arch manifest: ${tag}"
-            docker manifest create "${REGISTRY}/${IMAGE}:${tag}" \
-              --amend "${REGISTRY}/${IMAGE}:${tag}-amd64" \
-              --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
-            docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
+              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE}:${tag}-arm64"
           }
           for cuda in 12.9 13.1; do
             create_manifest "presto-deps-${PSHA}-velox-${VSHA}-cuda${cuda}-${DATE}"
@@ -660,10 +657,9 @@ jobs:
           create_manifest() {
             local tag="$1"
             echo "Creating multi-arch manifest: ${tag}"
-            docker manifest create "${REGISTRY}/${IMAGE}:${tag}" \
-              --amend "${REGISTRY}/${IMAGE}:${tag}-amd64" \
-              --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
-            docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
+              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE}:${tag}-arm64"
           }
           for cuda in 12.9 13.1; do
             create_manifest "presto-${PSHA}-velox-${VSHA}-gpu-cuda${cuda}-${DATE}"
