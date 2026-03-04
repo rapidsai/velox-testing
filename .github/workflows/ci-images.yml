@@ -572,11 +572,11 @@ jobs:
           push-to-registry: true
 
   # ---------------------------------------------------------------------------
-  # Job 5: Create multi-arch manifests
+  # Job 5: Create multi-arch manifests (one per image type)
   # ---------------------------------------------------------------------------
-  merge-manifests:
-    name: merge-manifests
-    needs: [resolve-commits, velox-deps, velox-build, presto-deps, presto-build]
+  merge-velox-deps:
+    name: merge-manifests (velox-deps)
+    needs: [resolve-commits, velox-deps]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -588,7 +588,71 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
+      - name: Create and push multi-arch manifests
+        run: |
+          REGISTRY="${{ env.REGISTRY }}"
+          IMAGE="${{ env.IMAGE_NAME }}"
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          create_manifest() {
+            local tag="$1"
+            echo "Creating multi-arch manifest: ${tag}"
+            docker manifest create "${REGISTRY}/${IMAGE}:${tag}" \
+              --amend "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
+            docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
+          }
+          for cu in 12 13; do
+            create_manifest "velox-deps-${VSHA}-cuda${cu}-${DATE}"
+          done
 
+  merge-velox-build:
+    name: merge-manifests (velox-build)
+    needs: [resolve-commits, velox-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Create and push multi-arch manifests
+        run: |
+          REGISTRY="${{ env.REGISTRY }}"
+          IMAGE="${{ env.IMAGE_NAME }}"
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          create_manifest() {
+            local tag="$1"
+            echo "Creating multi-arch manifest: ${tag}"
+            docker manifest create "${REGISTRY}/${IMAGE}:${tag}" \
+              --amend "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
+            docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
+          }
+          for cu in 12 13; do
+            create_manifest "velox-${VSHA}-gpu-cuda${cu}-${DATE}"
+          done
+          create_manifest "velox-${VSHA}-cpu-${DATE}"
+
+  merge-presto-deps:
+    name: merge-manifests (presto-deps)
+    needs: [resolve-commits, presto-deps]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
       - name: Create and push multi-arch manifests
         run: |
           REGISTRY="${{ env.REGISTRY }}"
@@ -596,50 +660,58 @@ jobs:
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
-
           create_manifest() {
             local tag="$1"
             echo "Creating multi-arch manifest: ${tag}"
-            docker manifest create \
-              "${REGISTRY}/${IMAGE}:${tag}" \
+            docker manifest create "${REGISTRY}/${IMAGE}:${tag}" \
               --amend "${REGISTRY}/${IMAGE}:${tag}-amd64" \
               --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
             docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
-            echo "  Pushed: ${REGISTRY}/${IMAGE}:${tag}"
           }
-
-          # Velox deps manifests
-          for cu in 12 13; do
-            create_manifest "velox-deps-${VSHA}-cuda${cu}-${DATE}"
-          done
-
-          # Velox GPU build manifests
-          for cu in 12 13; do
-            create_manifest "velox-${VSHA}-gpu-cuda${cu}-${DATE}"
-          done
-
-          # Velox CPU build manifest
-          create_manifest "velox-${VSHA}-cpu-${DATE}"
-
-          # Presto deps manifests
           for cu in 12 13; do
             create_manifest "presto-deps-${PSHA}-velox-${VSHA}-cuda${cu}-${DATE}"
           done
 
-          # Presto GPU build manifests
+  merge-presto-build:
+    name: merge-manifests (presto-build)
+    needs: [resolve-commits, presto-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Create and push multi-arch manifests
+        run: |
+          REGISTRY="${{ env.REGISTRY }}"
+          IMAGE="${{ env.IMAGE_NAME }}"
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          create_manifest() {
+            local tag="$1"
+            echo "Creating multi-arch manifest: ${tag}"
+            docker manifest create "${REGISTRY}/${IMAGE}:${tag}" \
+              --amend "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
+            docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
+          }
           for cu in 12 13; do
             create_manifest "presto-${PSHA}-velox-${VSHA}-gpu-cuda${cu}-${DATE}"
           done
-
-          # Presto CPU build manifest
           create_manifest "presto-${PSHA}-velox-${VSHA}-cpu-${DATE}"
 
   # ---------------------------------------------------------------------------
-  # Job 6: Smoke test
+  # Job 6: Smoke tests (run as soon as each image is ready)
   # ---------------------------------------------------------------------------
-  test:
-    name: test (${{ matrix.image_type }}, ${{ matrix.arch }})
-    needs: [resolve-commits, merge-manifests]
+  test-velox:
+    name: test (velox-gpu, ${{ matrix.arch }})
+    needs: [resolve-commits, merge-velox-build]
     permissions:
       contents: read
       packages: read
@@ -647,14 +719,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image_type: velox-gpu
-            arch: amd64
+          - arch: amd64
             gpu: l4
-            tag_suffix: gpu-cuda13
-          - image_type: presto-gpu
-            arch: amd64
-            gpu: l4
-            tag_suffix: gpu-cuda13
     runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     steps:
       - name: Log in to the Container registry
@@ -663,30 +729,47 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
+      - name: Smoke test
+        run: |
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-gpu-cuda13-${DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          echo "--- arch ---"
+          docker run --rm "${IMAGE}" arch
+          echo "--- nvidia-smi ---"
+          docker run --rm --gpus all "${IMAGE}" nvidia-smi
 
-      - name: Determine image tag
-        id: tag
+  test-presto:
+    name: test (presto-gpu, ${{ matrix.arch }})
+    needs: [resolve-commits, merge-presto-build]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            gpu: l4
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Smoke test
         run: |
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
-          case "${{ matrix.image_type }}" in
-            velox-gpu)
-              echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-${{ matrix.tag_suffix }}-${DATE}" >> "$GITHUB_OUTPUT"
-              ;;
-            presto-gpu)
-              echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-${PSHA}-velox-${VSHA}-${{ matrix.tag_suffix }}-${DATE}" >> "$GITHUB_OUTPUT"
-              ;;
-          esac
-
-      - name: Smoke test
-        run: |
-          IMAGE="${{ steps.tag.outputs.image }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-${PSHA}-velox-${VSHA}-gpu-cuda13-${DATE}"
           echo "Testing image: ${IMAGE}"
           docker pull "${IMAGE}"
-
           echo "--- arch ---"
           docker run --rm "${IMAGE}" arch
-
           echo "--- nvidia-smi ---"
           docker run --rm --gpus all "${IMAGE}" nvidia-smi
