@@ -128,6 +128,9 @@ jobs:
         with:
           enable-apt: true
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -144,6 +147,8 @@ jobs:
           target: adapters
           build-args: |
             CUDA_VERSION=${{ matrix.cuda_version }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-velox-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-velox-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }},mode=max
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
@@ -357,6 +362,9 @@ jobs:
         with:
           enable-apt: true
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -378,6 +386,8 @@ jobs:
           file: presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
           build-args: |
             CUDA_VERSION=${{ matrix.cuda_version }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }},mode=max
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
