@@ -81,6 +81,7 @@ runs:
           | jq -r '.value'                                                        \
           )" https://token.rapids.nvidia.com/gh/token/exchange                    \
           | jq -r '.token' \
+          | tr -d '\n' \
           | tee "${SCCACHE_AUTH_DIR}/github_token"
           DIST_ENABLED="true"
           echo "Distributed compilation enabled with provided auth token"
