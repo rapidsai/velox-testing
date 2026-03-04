@@ -26,14 +26,17 @@ Usage:
     python benchmark_reporting_tools/post_results.py /path/to/benchmark/dir \
         --sku-name PDX-H100 \
         --storage-configuration-name pdx-lustre-sf-100 \
+        --benchmark-name tpch \
+        --identifier-hash abc123 \
         --cache-state warm
 
     # With optional version info
     python benchmark_reporting_tools/post_results.py /path/to/benchmark/dir \
         --sku-name PDX-H100 \
         --storage-configuration-name pdx-lustre-sf-100 \
-        --cache-state warm \
+        --benchmark-name tpch \
         --identifier-hash abc123 \
+        --cache-state warm \
         --version 1.0.0 \
         --commit-hash def456
 

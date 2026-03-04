@@ -237,6 +237,7 @@ def gather_run_context(
         ctx["gpu_name"] = "NA"
     elif engine == "java":
         ctx["gpu_count"] = 0
+        ctx["gpu_name"] = "NA"
 
     worker_image = _get_worker_image()
     if worker_image is not None:

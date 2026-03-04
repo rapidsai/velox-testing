@@ -239,7 +239,7 @@ if [[ -n ${TAG} ]]; then
 fi
 
 if [[ "${PROFILE}" == "true" ]]; then
-  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
+  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f "${SCRIPT_DIR}/profiler_functions.sh")")
 fi
 
 if [[ "${METRICS}" == "true" ]]; then
