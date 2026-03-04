@@ -277,7 +277,7 @@ jobs:
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
         with:
           context: .
-          file: velox/docker/adapters_build.dockerfile
+          file: velox-testing/velox/docker/adapters_build.dockerfile
           build-contexts: |
             ghcr.io/facebookincubator/velox-dev:adapters=docker-image://${{ steps.deps.outputs.image }}
           build-args: |
