@@ -30,10 +30,10 @@ if ! test -v SCCACHE_NO_DIST_COMPILE; then
     echo "=== sccache-dist diagnostics ==="
     echo "SCCACHE_DIST_SCHEDULER_URL=${SCCACHE_DIST_SCHEDULER_URL:-<unset>}"
     echo "SCCACHE_DIST_AUTH_TYPE=${SCCACHE_DIST_AUTH_TYPE:-<unset>}"
-    if [[ -n "${SCCACHE_DIST_AUTH_TOKEN:-}" ]]; then
-        _tok="${SCCACHE_DIST_AUTH_TOKEN}"
-        echo "SCCACHE_DIST_AUTH_TOKEN is set (${#_tok} chars"
-        unset _tok
+    if [[ -n "${SCCACHE_DIST_AUTH_TOKEN:+x}" ]]; then
+        echo "SCCACHE_DIST_AUTH_TOKEN is set"
+        #print the length of the token
+        echo "SCCACHE_DIST_AUTH_TOKEN length: ${#SCCACHE_DIST_AUTH_TOKEN}"
     else
         echo "SCCACHE_DIST_AUTH_TOKEN is EMPTY/UNSET"
     fi
