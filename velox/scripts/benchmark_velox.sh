@@ -296,14 +296,15 @@ echo ""
 # Validate repo layout
 "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../velox"
 
+# Check benchmark data before creating Docker env file (realpath requires the directory to exist)
+check_benchmark_data
+
 # Create environment file for Docker Compose
 create_docker_env_file
 
-# Get BUILD_TYPE from container environment
-export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
-
-# Check benchmark data
-check_benchmark_data
+# Get BUILD_TYPE from container environment — avoid `export VAR=$(cmd)` which masks failures under set -e
+BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
+export BUILD_TYPE
 
 # Check Velox build
 check_velox_build

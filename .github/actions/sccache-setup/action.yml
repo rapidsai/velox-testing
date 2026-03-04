@@ -10,10 +10,6 @@ inputs:
     description: 'AWS region for the sccache S3 bucket'
     required: false
     default: 'us-east-2'
-  dist-auth-token:
-    description: 'GitHub token for sccache distributed compilation scheduler auth. When empty, dist compile is disabled.'
-    required: false
-    default: ''
   enable-dist:
     description: 'Enable sccache distributed compilation (requires dist-auth-token)'
     required: false
@@ -78,8 +74,15 @@ runs:
 
         # Write github_token for dist compile auth (real token or placeholder)
         DIST_ENABLED="false"
-        if [[ "${{ inputs.enable-dist }}" == "true" && -n "${{ inputs.dist-auth-token }}" ]]; then
-          echo "${{ inputs.dist-auth-token }}" > "${SCCACHE_AUTH_DIR}/github_token"
+        if [[ "${{ inputs.enable-dist }}" == "true" ]]; then
+          # Properly fetch a GitHub OIDC token for distributed sccache auth in a readable, shell-correct way.
+          GH_ID_TOKEN="$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=token.rapids.nvidia.com" \
+            | jq -r '.value')"
+          SC_DIST_TOKEN="$(curl -fsSL -H "Authorization: Bearer ${GH_ID_TOKEN}" \
+            https://token.rapids.nvidia.com/gh/token/exchange \
+            | jq -r '.token')"
+          echo "${SC_DIST_TOKEN}" > "${SCCACHE_AUTH_DIR}/github_token"
           DIST_ENABLED="true"
           echo "Distributed compilation enabled with provided auth token"
         else

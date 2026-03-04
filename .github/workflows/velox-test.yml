@@ -107,7 +107,6 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-          dist-auth-token: ${{ inputs.enable_sccache_dist && secrets.GIST_REPO_READ_ORG_GITHUB_TOKEN || '' }}
           enable-dist: ${{ inputs.enable_sccache_dist }}
 
       - name: Building Velox for CPU
