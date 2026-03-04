@@ -381,10 +381,9 @@ jobs:
 
       - name: Stage presto-deps build context
         run: |
-          mkdir -p presto-deps-context/velox/CMake/resolve_dependency_modules/arrow
-          cp -r presto/presto-native-execution/scripts presto-deps-context/scripts
+          cp -r presto/presto-native-execution presto-deps-context
           cp -r velox/scripts presto-deps-context/velox/scripts
-          cp velox/CMake/resolve_dependency_modules/arrow/cmake-compatibility.patch presto-deps-context/velox/CMake/resolve_dependency_modules/arrow/
+          cp -r velox/CMake presto-deps-context/velox/CMake
 
       - name: Build and push Presto deps image
         id: push
