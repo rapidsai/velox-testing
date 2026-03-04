@@ -294,17 +294,19 @@ jobs:
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
         with:
           context: .
-          file: velox-testing/docker/velox-build/Dockerfile
+          file: velox/docker/adapters_build.dockerfile
+          build-contexts: |
+            ghcr.io/facebookincubator/velox-dev:adapters=docker-image://${{ steps.deps.outputs.image }}
           build-args: |
-            DEPS_IMAGE=${{ steps.deps.outputs.image }}
             BUILD_WITH_VELOX_ENABLE_CUDF=${{ matrix.cudf }}
             CUDA_VERSION=${{ matrix.cuda_version || '12.9' }}
             ENABLE_SCCACHE=ON
             SCCACHE_NO_DIST_COMPILE=1
             NUM_THREADS=12
-          secrets: |
-            github_token=src=${{ env.SCCACHE_AUTH_DIR }}/github_token
-            aws_credentials=src=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
+            TREAT_WARNINGS_AS_ERRORS=0
+          secret-files: |
+            github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
+            aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
           outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
           push: true
           tags: |
@@ -555,17 +557,18 @@ jobs:
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
         with:
           context: .
-          file: velox-testing/docker/presto-build/Dockerfile
+          file: presto/docker/native_build.dockerfile
+          build-contexts: |
+            presto/prestissimo-dependency:centos9=docker-image://${{ steps.deps.outputs.image }}
           build-args: |
-            DEPS_IMAGE=${{ steps.deps.outputs.image }}
             GPU=${{ matrix.gpu_flag }}
             ENABLE_SCCACHE=ON
             SCCACHE_NO_DIST_COMPILE=1
             NUM_THREADS=12
             CUDA_ARCHITECTURES=${{ matrix.build_type == 'gpu' && '"75;80;86;90;100;120"' || '"70"' }}
-          secrets: |
-            github_token=src=${{ env.SCCACHE_AUTH_DIR }}/github_token
-            aws_credentials=src=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
+          secret-files: |
+            github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
+            aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
           outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
           push: true
           tags: |
