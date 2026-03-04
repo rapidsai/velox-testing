@@ -15,7 +15,7 @@ Replace the trivial `ci-images.yml` workflow with a comprehensive image-building
 
 ### Why This Matters
 
-Every CI run currently rebuilds everything from scratch. Pre-built images eliminate redundant compilation, speed up CI, and provide reproducible build artifacts. Supporting CUDA 12 and CUDA 13 requires building our own dependency images (upstream only publishes one CUDA version).
+Every CI run currently rebuilds everything from scratch. Pre-built images eliminate redundant compilation, speed up CI, and provide reproducible build artifacts. Supporting CUDA 12.9 and CUDA 13.1 requires building our own dependency images (upstream only publishes one CUDA version).
 
 ### Upstream PRs Enabling CUDA Version Configuration
 
@@ -23,6 +23,37 @@ Every CI run currently rebuilds everything from scratch. Pre-built images elimin
 - **Presto:** [prestodb/presto#27074](https://github.com/prestodb/presto/pull/27074) — Added `CUDA_VERSION` build arg to `centos-dependency.dockerfile`. Defaults to `12.9`.
 
 Both Dockerfiles accept `CUDA_VERSION` as a build arg, allowing us to build dependency images for any CUDA version.
+
+## Key Design Decisions
+
+### Use upstream Dockerfiles directly — no forked Dockerfiles in the repo
+
+All four image types use upstream Dockerfiles without modification:
+
+- **velox-deps:** `velox/scripts/docker/centos-multi.dockerfile` with `--target adapters`
+- **velox-build:** `velox/docker/adapters_build.dockerfile` with `build-contexts` to remap the `FROM` image
+- **presto-deps:** `presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile` with a staged build context
+- **presto-build:** `velox-testing/presto/docker/native_build.dockerfile` with `build-contexts` to remap the `FROM` image
+
+The `docker/build-push-action` `build-contexts` input remaps `FROM` image references. For example, setting `ghcr.io/facebookincubator/velox-dev:adapters=docker-image://our-deps-image` makes the upstream `adapters_build.dockerfile` use our custom deps image instead of the upstream one. This avoids maintaining forked Dockerfiles.
+
+Upstream Dockerfiles that use `--mount=type=bind,source=X` work because `source` resolves relative to the Docker build context. When the build context (`.`) is the workspace root containing `velox/` and `presto/`, the bind mounts resolve correctly.
+
+### presto-deps requires a staged build context
+
+The upstream `centos-dependency.dockerfile` expects a build context laid out like `presto-native-execution/` with `scripts/`, `velox/scripts/`, `velox/CMake/`, and `CMake/`. A staging step copies `presto/presto-native-execution` as `presto-deps-context` and overlays `velox/scripts` and `velox/CMake` on top. The entire `presto-native-execution` tree is copied (rather than cherry-picking specific files) to avoid breakage when upstream adds new `COPY` lines.
+
+### sccache is required, not optional
+
+If sccache setup fails, the build job fails. There is no graceful degradation — building without sccache would be too slow for CI. Distributed sccache is enabled (no `SCCACHE_NO_DIST_COMPILE`).
+
+Sccache credentials are passed to Docker builds via the `secret-files` input of `docker/build-push-action` (not the `secrets` input), since the sccache-setup action writes credential files to disk.
+
+### NUM_THREADS=16
+
+Overrides the upstream defaults (8 for Velox, 12 for Presto) to match the cpu16 runners.
+
+### TREAT_WARNINGS_AS_ERRORS uses upstream default (not overridden)
 
 ## Image Dependency Chain
 
@@ -50,12 +81,12 @@ All images are published under the single GitHub package `ghcr.io/rapidsai/velox
 
 | Image | CUDA Versions | Architectures | Tag Format |
 |---|---|---|---|
-| Velox deps | cu12, cu13 | amd64, arm64 | `velox-deps-{vsha}-cu{12,13}-{date}-{arch}` |
-| Velox built GPU | cu12, cu13 | amd64, arm64 | `velox-{vsha}-gpu-cu{12,13}-{date}-{arch}` |
-| Velox built CPU | (default) | amd64, arm64 | `velox-{vsha}-cpu-{date}-{arch}` |
-| Presto deps | cu12, cu13 | amd64, arm64 | `presto-deps-{psha}-velox-{vsha}-cu{12,13}-{date}-{arch}` |
-| Presto native GPU | cu12, cu13 | amd64, arm64 | `presto-{psha}-velox-{vsha}-gpu-cu{12,13}-{date}-{arch}` |
-| Presto native CPU | (default) | amd64, arm64 | `presto-{psha}-velox-{vsha}-cpu-{date}-{arch}` |
+| Velox deps | cuda12.9, cuda13.1 | amd64, arm64 | `velox-deps-{vsha}-cuda{12.9,13.1}-{date}-{arch}` |
+| Velox built GPU | cuda12.9, cuda13.1 | amd64, arm64 | `velox-{vsha}-gpu-cuda{12.9,13.1}-{date}-{arch}` |
+| Velox built CPU | (default cu12.9) | amd64, arm64 | `velox-{vsha}-cpu-{date}-{arch}` |
+| Presto deps | cuda12.9, cuda13.1 | amd64, arm64 | `presto-deps-{psha}-velox-{vsha}-cuda{12.9,13.1}-{date}-{arch}` |
+| Presto native GPU | cuda12.9, cuda13.1 | amd64, arm64 | `presto-{psha}-velox-{vsha}-gpu-cuda{12.9,13.1}-{date}-{arch}` |
+| Presto native CPU | (default cu12.9) | amd64, arm64 | `presto-{psha}-velox-{vsha}-cpu-{date}-{arch}` |
 
 After per-arch builds complete, multi-arch manifests are created (without the `-{arch}` suffix) that point to both the amd64 and arm64 images.
 
@@ -67,15 +98,17 @@ After per-arch builds complete, multi-arch manifests are created (without the `-
 - `{psha}` is the first 7 characters of the resolved Presto git commit SHA (never `master`).
 - `{date}` is the build date in `YYYYMMDD` format.
 - `{arch}` is `amd64` or `arm64` (only in per-arch tags; the multi-arch manifest tags omit this).
-- CPU images do not include a CUDA version in the tag.
-- GPU images always include the CUDA version (`cu12` or `cu13`).
+- CPU images do not include a CUDA version in the tag. CPU builds default to the cuda12.9 deps image.
+- GPU images always include the CUDA version (e.g., `cuda12.9` or `cuda13.1`).
 
 ### CUDA Version Strings
 
-| Short Name | `CUDA_VERSION` Build Arg | Notes |
+Tags use the full `cuda_version` string (e.g., `cuda12.9`, `cuda13.1`) — not short names like `cu12`/`cu13`.
+
+| `cuda_version` | `CUDA_VERSION` Build Arg | Notes |
 |---|---|---|
-| cu12 | `12.9` | Matches upstream Velox/Presto default |
-| cu13 | `13.1` | CUDA 13.1 (current trivial Dockerfile uses `13.1.1` for the nvidia/cuda base image) |
+| `12.9` | `12.9` | Matches upstream Velox/Presto default |
+| `13.1` | `13.1` | CUDA 13.1 |
 
 ## Workflow Inputs
 
@@ -100,7 +133,7 @@ workflow_dispatch:
       default: 'master'
 ```
 
-On scheduled (cron) runs, inputs default to `main`/`master`. The actual commit SHA is resolved via `git rev-parse HEAD` after checkout and used in image tags (the tag never says `main` or `master`).
+On scheduled (cron) runs, inputs default to `main`/`master`. The actual commit SHA is resolved via `git ls-remote` in the `resolve-commits` job and used in image tags (the tag never says `main` or `master`).
 
 **Required permissions** (for OIDC-based sccache, ghcr.io push, and attestations):
 ```yaml
@@ -114,153 +147,182 @@ permissions:
 
 ## Workflow Jobs
 
+The workflow has 10 jobs:
+
+```
+resolve-commits ─┬─→ velox-deps  ─┬─→ velox-build  ──→ merge-velox-build  ──→ test-velox
+                 │                 └─→ merge-velox-deps
+                 └─→ presto-deps ─┬─→ presto-build ──→ merge-presto-build ──→ test-presto
+                                  └─→ merge-presto-deps
+```
+
+Each image type gets its own merge-manifests job that runs as soon as its per-arch builds complete — not blocked by other image types. Each image type gets its own test job that runs as soon as its merge-manifests job completes.
+
+### Job 0: `resolve-commits`
+
+**Purpose:** Resolve branch names to concrete commit SHAs via `git ls-remote`, and compute the build date.
+
+**Runner:** `ubuntu-latest`
+
+**Outputs:** `velox_sha`, `velox_short_sha`, `presto_sha`, `presto_short_sha`, `date`
+
 ### Job 1: `velox-deps`
 
 **Purpose:** Build the Velox dependency base image (equivalent to `ghcr.io/facebookincubator/velox-dev:adapters`) for each CUDA version and architecture.
 
-**Matrix:** `cuda_version: [12, 13]` × `arch: [amd64, arm64]` = 4 builds
+**Matrix:** `cuda_version: [12.9, 13.1]` × `arch: [amd64, arm64]` = 4 builds (explicit `include` entries)
 
 **Runner:** `linux-{arch}-cpu16`
 
 **Steps:**
-1. Checkout Velox at specified commit (needed for `centos-multi.dockerfile` and setup scripts)
-2. Checkout velox-testing (for workflow scripts)
-3. Resolve Velox commit SHA
-4. Compute content hash of Dockerfile + setup scripts + CUDA version (for cache key)
-5. Log in to ghcr.io
-6. Build using `docker/build-push-action` with:
-   - `file: velox/scripts/docker/centos-multi.dockerfile` (the upstream Dockerfile)
+1. Checkout Velox at resolved commit SHA
+2. Setup proxy cache (`nv-gha-runners/setup-proxy-cache@main`)
+3. Log in to ghcr.io
+4. Build using `docker/build-push-action` with:
+   - `file: velox/scripts/docker/centos-multi.dockerfile` (upstream Dockerfile)
+   - `context: velox` (the Velox checkout)
    - `target: adapters`
    - `build-args: CUDA_VERSION={version}` (e.g., `12.9` or `13.1`)
-   - `context: velox/` (the Velox checkout)
-   - Registry-based cache (`cache-from`/`cache-to` using content hash)
-7. Push to `ghcr.io/rapidsai/velox-testing-images:velox-deps-{vsha}-cu{12,13}-{date}-{arch}`
-
-**Caching:** These images change infrequently (only when dependency versions or setup scripts change). Content-hash based caching means rebuilds are skipped when nothing changed. The cache key is derived from a hash of the Dockerfile, setup scripts, and CUDA version argument.
+   - `outputs: type=registry,compression=zstd,...,compression-level=15`
+5. Push to `ghcr.io/rapidsai/velox-testing-images:velox-deps-{vsha}-cuda{version}-{date}-{arch}`
+6. Generate artifact attestation via `actions/attest-build-provenance`
 
 ### Job 2: `velox-build`
 
 **Purpose:** Build Velox from source and publish the image.
 
-**Depends on:** `velox-deps`
+**Depends on:** `resolve-commits`, `velox-deps`
 
-**Matrix:**
-- GPU builds: `cuda_version: [12, 13]` × `arch: [amd64, arm64]` = 4 builds
-- CPU builds: `arch: [amd64, arm64]` = 2 builds
+**Matrix:** `build_type` × `arch` (explicit `include` entries):
+- GPU builds: `build_type: [gpu-cuda12.9, gpu-cuda13.1]` × `arch: [amd64, arm64]` = 4 builds (with `cudf: ON`)
+- CPU builds: `build_type: cpu` × `arch: [amd64, arm64]` = 2 builds (with `cudf: OFF`, no `cuda_version`)
 - Total: 6 builds
 
 **Runner:** `linux-{arch}-cpu16`
 
 **Steps:**
-1. Checkout Velox + velox-testing
-2. Resolve Velox commit SHA
+1. Checkout velox-testing + Velox at resolved commit SHA
+2. Setup proxy cache
 3. Log in to ghcr.io
 4. Setup sccache via `./velox-testing/.github/actions/sccache-setup` (OIDC → AWS credentials)
-5. Build using `docker/build-push-action` with a new Dockerfile (`docker/velox-build/Dockerfile`) that:
-   - `FROM` our velox-deps image (from Job 1)
-   - `COPY`s the Velox source tree into the image
-   - Runs the cmake + make build (adapted from `adapters_build.dockerfile`)
-   - Receives sccache secrets via `--mount=type=secret` (see [sccache section](#sccache-integration))
-   - For GPU: `BUILD_WITH_VELOX_ENABLE_CUDF=ON`
-   - For CPU: `BUILD_WITH_VELOX_ENABLE_CUDF=OFF`
-6. Push with appropriate tag
+5. Fail if sccache setup did not succeed
+6. Create `.dockerignore` (excludes `.git`, `build`, `__pycache__`, etc.)
+7. Determine deps image tag (CPU builds default to `cuda12.9`)
+8. Build using `docker/build-push-action` with:
+   - `context: .` (workspace root — bind mounts in the upstream Dockerfile resolve from here)
+   - `file: velox/docker/adapters_build.dockerfile` (upstream Dockerfile)
+   - `build-contexts: ghcr.io/facebookincubator/velox-dev:adapters=docker-image://{deps-image}` (remaps `FROM` to our deps image)
+   - `build-args: BUILD_WITH_VELOX_ENABLE_CUDF={ON|OFF}, CUDA_VERSION={version}, ENABLE_SCCACHE=ON, NUM_THREADS=16`
+   - `secret-files: github_token=..., aws_credentials=...` (sccache credentials)
+9. Push with appropriate tag
+10. Generate artifact attestation
 
 **Tags:**
-- GPU: `velox-{vsha}-gpu-cu{12,13}-{date}-{arch}`
+- GPU: `velox-{vsha}-gpu-cuda{version}-{date}-{arch}`
 - CPU: `velox-{vsha}-cpu-{date}-{arch}`
 
 ### Job 3: `presto-deps`
 
 **Purpose:** Build the Presto dependency base image (equivalent to `presto/prestissimo-dependency:centos9`) for each CUDA version and architecture.
 
-**Matrix:** `cuda_version: [12, 13]` × `arch: [amd64, arm64]` = 4 builds
+**Matrix:** `cuda_version: [12.9, 13.1]` × `arch: [amd64, arm64]` = 4 builds (explicit `include` entries)
 
 **Runner:** `linux-{arch}-cpu16`
 
 **Steps:**
-1. Checkout Presto, Velox, and velox-testing
-2. Resolve Presto and Velox commit SHAs
-3. The Presto deps image build requires Velox scripts to be overlaid into the Presto source tree (the existing `build_centos_deps_image.sh` copies `velox/scripts` and `velox/CMake` into `presto/presto-native-execution/velox/`). The new Dockerfile must handle this in its build context or with a multi-stage approach.
-4. Build using `docker/build-push-action` with:
-   - A new Dockerfile (`docker/presto-deps/Dockerfile`, replacing the current trivial one) based on upstream `centos-dependency.dockerfile`
-   - `build-args: CUDA_VERSION={version}` (e.g., `12.9` or `13.1`)
-   - Build context that includes both Presto and Velox sources
-   - Registry-based caching (content hash of Dockerfile + setup scripts + CUDA version)
-5. Push to `ghcr.io/rapidsai/velox-testing-images:presto-deps-{psha}-velox-{vsha}-cu{12,13}-{date}-{arch}`
-
-**Caching:** Same content-hash strategy as velox-deps.
+1. Checkout velox-testing, Velox, and Presto at resolved commit SHAs
+2. Setup proxy cache
+3. Log in to ghcr.io
+4. Stage presto-deps build context:
+   ```bash
+   cp -r presto/presto-native-execution presto-deps-context
+   cp -r velox/scripts presto-deps-context/velox/scripts
+   cp -r velox/CMake presto-deps-context/velox/CMake
+   ```
+5. Build using `docker/build-push-action` with:
+   - `context: presto-deps-context` (the staged directory)
+   - `file: presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile` (upstream Dockerfile)
+   - `build-args: CUDA_VERSION={version}`
+   - `outputs: type=registry,compression=zstd,...,compression-level=15`
+6. Push to `ghcr.io/rapidsai/velox-testing-images:presto-deps-{psha}-velox-{vsha}-cuda{version}-{date}-{arch}`
+7. Generate artifact attestation
 
 ### Job 4: `presto-build`
 
 **Purpose:** Build the Presto native worker binary image.
 
-**Depends on:** `presto-deps`
+**Depends on:** `resolve-commits`, `presto-deps`
 
-**Matrix:**
-- GPU builds: `cuda_version: [12, 13]` × `arch: [amd64, arm64]` = 4 builds
-- CPU builds: `arch: [amd64, arm64]` = 2 builds
+**Matrix:** `build_type` × `arch` (explicit `include` entries):
+- GPU builds: `build_type: [gpu-cuda12.9, gpu-cuda13.1]` × `arch: [amd64, arm64]` = 4 builds (with `gpu_flag: ON`)
+- CPU builds: `build_type: cpu` × `arch: [amd64, arm64]` = 2 builds (with `gpu_flag: OFF`, no `cuda_version`)
 - Total: 6 builds
 
 **Runner:** `linux-{arch}-cpu16`
 
 **Steps:**
-1. Checkout Presto, Velox, and velox-testing
-2. Resolve Presto + Velox commit SHAs
+1. Checkout velox-testing, Velox, and Presto at resolved commit SHAs
+2. Setup proxy cache
 3. Log in to ghcr.io
-4. Setup sccache via `./velox-testing/.github/actions/sccache-setup` (OIDC → AWS credentials)
-5. Build using `docker/build-push-action` with a new Dockerfile (`docker/presto-build/Dockerfile`) that:
-   - `FROM` our presto-deps image (from Job 3)
-   - `COPY`s Presto + Velox sources
-   - Compiles Presto native worker (adapted from `native_build.dockerfile`)
-   - Receives sccache secrets via `--mount=type=secret` (see [sccache section](#sccache-integration))
-   - For GPU: `-DPRESTO_ENABLE_CUDF=ON`
-   - For CPU: `-DPRESTO_ENABLE_CUDF=OFF`
-6. Push with appropriate tag
+4. Setup sccache (OIDC → AWS credentials), fail if it doesn't succeed
+5. Create `.dockerignore`
+6. Determine deps image tag (CPU builds default to `cuda12.9`)
+7. Build using `docker/build-push-action` with:
+   - `context: .` (workspace root)
+   - `file: velox-testing/presto/docker/native_build.dockerfile` (from velox-testing repo)
+   - `build-contexts: presto/prestissimo-dependency:centos9=docker-image://{deps-image}` (remaps `FROM`)
+   - `build-args: GPU={ON|OFF}, ENABLE_SCCACHE=ON, NUM_THREADS=16, CUDA_ARCHITECTURES=...`
+   - `secret-files: github_token=..., aws_credentials=...`
+   - GPU builds: `CUDA_ARCHITECTURES="75;80;86;90;100;120"`
+   - CPU builds: `CUDA_ARCHITECTURES="70"`
+8. Push with appropriate tag
+9. Generate artifact attestation
 
 **Tags:**
-- GPU: `presto-{psha}-velox-{vsha}-gpu-cu{12,13}-{date}-{arch}`
+- GPU: `presto-{psha}-velox-{vsha}-gpu-cuda{version}-{date}-{arch}`
 - CPU: `presto-{psha}-velox-{vsha}-cpu-{date}-{arch}`
 
-### Job 5: `merge-manifests`
+### Jobs 5–8: `merge-velox-deps`, `merge-velox-build`, `merge-presto-deps`, `merge-presto-build`
 
 **Purpose:** Create multi-arch manifests that combine the amd64 and arm64 images under a single tag.
 
-**Depends on:** `velox-deps`, `velox-build`, `presto-deps`, `presto-build`
+**Runner:** `ubuntu-latest` (lightweight — just runs `docker manifest` commands)
 
-**Runner:** `linux-amd64-cpu4` (lightweight, just runs docker manifest commands)
-
-**Steps:**
-For each logical image (e.g., `velox-{vsha}-gpu-cu13-{date}`):
-1. `docker manifest create ghcr.io/.../velox-testing-images:{tag} --amend ghcr.io/.../velox-testing-images:{tag}-amd64 --amend ghcr.io/.../velox-testing-images:{tag}-arm64`
-2. `docker manifest push ghcr.io/.../velox-testing-images:{tag}`
-
-This covers all 10 logical image tags (2 velox-deps + 4 velox-build + 2 presto-deps + 4 presto-build... wait, let me recount):
-- Velox deps: 2 (cu12, cu13)
-- Velox built: 4 GPU (cu12, cu13) + 2 CPU = 6
-- Presto deps: 2 (cu12, cu13)
-- Presto built: 4 GPU (cu12, cu13) + 2 CPU = 6
-- **Total: 16 multi-arch manifests**
-
-### Job 6: `test` (optional)
-
-**Purpose:** Smoke test the published images.
-
-**Depends on:** `merge-manifests`
-
-**Runner:** GPU runners for GPU images, CPU runners for CPU images
+Each merge job depends only on its corresponding build job and `resolve-commits`, so image types are not blocked by each other.
 
 **Steps:**
-1. Pull the multi-arch image
-2. Verify `nvidia-smi` works (GPU images)
-3. Run a trivial Velox or Presto command to verify the build artifacts are present
+1. Log in to ghcr.io
+2. For each tag: `docker manifest create {tag} --amend {tag}-amd64 --amend {tag}-arm64`
+3. `docker manifest push {tag}`
+
+Manifest counts:
+- `merge-velox-deps`: 2 (cuda12.9, cuda13.1)
+- `merge-velox-build`: 3 (gpu-cuda12.9, gpu-cuda13.1, cpu)
+- `merge-presto-deps`: 2 (cuda12.9, cuda13.1)
+- `merge-presto-build`: 3 (gpu-cuda12.9, gpu-cuda13.1, cpu)
+- **Total: 10 multi-arch manifests**
+
+### Jobs 9–10: `test-velox`, `test-presto`
+
+**Purpose:** Smoke test the published GPU images.
+
+**Depends on:** `merge-velox-build` / `merge-presto-build` respectively
+
+**Runner:** `linux-{arch}-gpu-{gpu}-latest-1` (currently amd64 + L4 only)
+
+**Steps:**
+1. Log in to ghcr.io
+2. Pull the `cuda13.1` GPU multi-arch image
+3. Verify `arch` reports correctly
+4. Verify `nvidia-smi` works under `--gpus all`
 
 ## sccache Integration
 
-All compilation jobs (velox-build, presto-build) must use sccache for build caching. This is essential for performance.
+All compilation jobs (`velox-build`, `presto-build`) use sccache for build caching. This is required — if sccache setup fails, the job fails.
 
 ### How sccache Works
 
-The RAPIDS sccache fork (`rapidsai/sccache`) provides S3-backed compilation caching and optional distributed compilation. Key components:
+The RAPIDS sccache fork (`rapidsai/sccache`) provides S3-backed compilation caching and distributed compilation. Key components:
 
 1. **sccache setup script:** `scripts/sccache/sccache_setup.sh` installs the RAPIDS sccache fork from GitHub releases, configures it, and starts the server.
 
@@ -268,15 +330,15 @@ The RAPIDS sccache fork (`rapidsai/sccache`) provides S3-backed compilation cach
 
 3. **S3 cache bucket:** `rapids-sccache-devs` in `us-east-2`.
 
-4. **Docker build secrets:** Two secrets are mounted during Docker builds:
+4. **Docker build secrets:** Two secrets are passed via `secret-files` during Docker builds:
    - `github_token` → mounted as env var `SCCACHE_DIST_AUTH_TOKEN` (for distributed compilation auth)
    - `aws_credentials` → mounted at `/root/.aws/credentials` (for S3 cache bucket access)
 
-5. **Distributed compilation:** The sccache fork supports distributing compilation to a build cluster at `https://{arch}.linux.sccache.rapids.nvidia.com`. This can be disabled with `SCCACHE_NO_DIST_COMPILE=1`.
+5. **Distributed compilation:** The sccache fork distributes compilation to a build cluster at `https://{arch}.linux.sccache.rapids.nvidia.com`. Distributed compilation is enabled (no `SCCACHE_NO_DIST_COMPILE`).
 
 ### CI Authentication: OIDC-Based AWS Credentials
 
-The existing `.github/actions/sccache-setup/action.yml` (added in [#228](https://github.com/rapidsai/velox-testing/pull/228)) provides the CI authentication pattern. It does **not** use stored secrets. Instead, it uses GitHub Actions OIDC to assume an AWS IAM role:
+The `.github/actions/sccache-setup/action.yml` (added in [#228](https://github.com/rapidsai/velox-testing/pull/228)) provides CI authentication using GitHub Actions OIDC to assume an AWS IAM role:
 
 ```yaml
 - name: Setup sccache
@@ -285,38 +347,38 @@ The existing `.github/actions/sccache-setup/action.yml` (added in [#228](https:/
   with:
     role-to-assume: ${{ vars.AWS_ROLE_ARN }}
     aws-region: ${{ vars.AWS_REGION }}
+
+- name: Ensure sccache auth dir exists
+  run: |
+    if [[ "${{ steps.sccache.outputs.enabled }}" != "true" ]]; then
+      echo "::error::sccache setup failed. sccache is required for ci-images builds."
+      exit 1
+    fi
 ```
 
 The action:
-1. Uses `aws-actions/configure-aws-credentials@v4` with OIDC to assume `${{ vars.AWS_ROLE_ARN }}` (repository variable, not a secret)
-2. Creates `~/.sccache-auth/aws_credentials` with the temporary session credentials
-3. Creates `~/.sccache-auth/github_token` as a placeholder (distributed compilation is disabled in CI; `SCCACHE_NO_DIST_COMPILE=1`)
+1. Uses `aws-actions/configure-aws-credentials@v4` with OIDC to assume `${{ vars.AWS_ROLE_ARN }}`
+2. Creates `~/.sccache-auth/aws_credentials` with temporary session credentials
+3. Creates `~/.sccache-auth/github_token`
 4. Exports `SCCACHE_AUTH_DIR` for downstream steps
 
 **Required permissions:** The workflow must declare `id-token: write` and `contents: read` for OIDC to work.
 
-**Required repository variables:** `AWS_ROLE_ARN` and `AWS_REGION` (default `us-east-2`) must be set as repository variables.
+**Required repository variables:** `AWS_ROLE_ARN` and `AWS_REGION` (default `us-east-2`).
 
 ### sccache in `docker/build-push-action`
 
-The `docker/build-push-action` supports Docker build secrets via its `secrets` input. After the sccache-setup action creates the auth files, they are passed to the Docker build:
+After the sccache-setup action creates the auth files, they are passed to the Docker build via `secret-files`:
 
 ```yaml
-- name: Setup sccache
-  id: sccache
-  uses: ./velox-testing/.github/actions/sccache-setup
-  with:
-    role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-    aws-region: ${{ vars.AWS_REGION }}
-
 - uses: docker/build-push-action@...
   with:
-    secrets: |
+    secret-files: |
       github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
       aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
     build-args: |
       ENABLE_SCCACHE=ON
-      SCCACHE_NO_DIST_COMPILE=1
+      NUM_THREADS=16
 ```
 
 The Dockerfiles reference these secrets via `--mount=type=secret`:
@@ -328,53 +390,24 @@ RUN --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \
 
 This is the same pattern already used by `adapters_build.dockerfile` and `native_build.dockerfile`. The only difference is that in CI, the auth files come from OIDC (via the sccache-setup action) rather than from interactive `setup_sccache_auth.sh`.
 
-### Reference: velox-test.yml Usage
-
-The `velox-test.yml` workflow (as of [#228](https://github.com/rapidsai/velox-testing/pull/228)) demonstrates the pattern:
-1. Runs the `sccache-setup` action to obtain credentials
-2. Passes `--sccache` flag to `build_velox.sh`
-3. `build_velox.sh` selects the sccache compose file which includes the secret mounts
-4. Shows sccache stats after the build
-
-For `ci-images.yml`, we follow the same credential setup but pass the secrets directly to `docker/build-push-action` instead of through `build_velox.sh`.
-
-## New Files
-
-### Dockerfiles
-
-| File | Purpose | Based on |
-|---|---|---|
-| `docker/velox-build/Dockerfile` | Build Velox from source on top of deps image | `velox/docker/adapters_build.dockerfile` |
-| `docker/presto-deps/Dockerfile` | Build Presto deps image (replaces current trivial file) | upstream `presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile` |
-| `docker/presto-build/Dockerfile` | Build Presto native worker on top of deps image | `presto/docker/native_build.dockerfile` |
-
-The Velox deps image does **not** need a new Dockerfile — it uses the upstream `centos-multi.dockerfile` directly from the Velox checkout, targeting the `adapters` stage with `--target adapters`.
-
-### Key Differences from Existing Dockerfiles
-
-The existing `adapters_build.dockerfile` and `native_build.dockerfile` use `--mount=type=bind,source=velox,...` to bind-mount the source tree from the host. This only works with local `docker compose build`. For `docker/build-push-action`, we must use `COPY` to bring sources into the build context. This means:
-
-1. The build context must include the source trees (Velox, Presto, velox-testing as needed)
-2. A `.dockerignore` should be added to exclude `.git/`, build artifacts, and other unnecessary files to keep context size reasonable
-3. The Dockerfiles will `COPY` the source instead of using bind mounts
-
 ## Build Triggers
 
-- **Scheduled:** Weekly on Tuesdays at 4:00 UTC (existing cron), builds against latest `main`/`master`
+- **Scheduled:** Daily at 5:00 UTC / 1:00 AM EST (`0 5 * * *`), builds against latest `main`/`master`
 - **Manual:** `workflow_dispatch` with configurable repository/commit inputs
-- **Push:** Remove the `push` trigger before merging (it's marked as TODO in the current file)
+- **Push:** Kept for testing on the `ci-images` branch (TODO: remove before merging to `main`)
 
 ## Runner Configuration
 
 | Job | Runner Label |
 |---|---|
+| resolve-commits | `ubuntu-latest` |
 | velox-deps | `linux-{arch}-cpu16` |
 | velox-build | `linux-{arch}-cpu16` |
 | presto-deps | `linux-{arch}-cpu16` |
 | presto-build | `linux-{arch}-cpu16` |
-| merge-manifests | `linux-amd64-cpu4` (lightweight) |
-| test (GPU) | `linux-{arch}-gpu-l4-latest-1` |
-| test (CPU) | `linux-{arch}-cpu4` |
+| merge-* | `ubuntu-latest` |
+| test-velox | `linux-{arch}-gpu-l4-latest-1` |
+| test-presto | `linux-{arch}-gpu-l4-latest-1` |
 
 ## Estimated Build Times
 
@@ -384,24 +417,33 @@ The existing `adapters_build.dockerfile` and `native_build.dockerfile` use `--mo
 | velox-build | ~10-15 min | ~30 min |
 | presto-deps | ~1 min (Docker layer cached) | ~45 min |
 | presto-build | ~10-15 min | ~30 min |
-| merge-manifests | ~2 min | ~2 min |
-| test | ~5 min | ~5 min |
+| merge-* | ~2 min | ~2 min |
+| test-* | ~5 min | ~5 min |
 
 sccache "warm" means prior compilations of similar code are cached in S3. Even on the first run of this workflow, the sccache S3 bucket may already contain cache entries from `velox-test.yml` runs, so builds should benefit immediately.
 
 **Wall clock (warm caches):** ~30 min (deps cached + sccache-accelerated build + merge + test)
 **Wall clock (cold, first run):** ~110 min (deps build + cold compile + merge + test)
 
+## Discoveries During Implementation
+
+- `--mount=type=bind,source=X` in Dockerfiles resolves `source` relative to the Docker build context, so upstream Dockerfiles that use bind mounts work with `docker/build-push-action` when `context: .` matches the expected layout. This eliminated the need for forked Dockerfiles.
+- `docker/build-push-action` `build-contexts` input can remap `FROM` image references (e.g., `ghcr.io/facebookincubator/velox-dev:adapters=docker-image://our-image`).
+- GitHub Actions `include`-only matrices skip entries with empty string values. CPU builds originally had `cuda_short: ''` which caused them to be silently skipped. Fixed by giving all matrix entries concrete values and using `build_type` as the unique key.
+- `docker/build-push-action` has both `secrets` (inline values) and `secret-files` (file paths) inputs. We use `secret-files` since sccache-setup writes credential files to disk.
+- The upstream Presto `centos-dependency.dockerfile` evolves (e.g., added `COPY CMake/arrow/arrow-flight.patch`). The staging step now copies the entire `presto-native-execution` tree rather than cherry-picking files, to avoid breakage when upstream adds new `COPY` lines.
+- `workflow_dispatch` only works when the workflow file is on `main`, so the `push` trigger is needed for testing on branches.
+
 ## Open Items and Risks
 
-1. **Build context size:** `COPY`ing the full Velox source tree (~2 GB with submodules) into the Docker build context may be slow. A `.dockerignore` is essential. Alternatively, we may explore multi-stage builds that `git clone` at a specific SHA to avoid large contexts.
+1. **Upstream Dockerfile evolution:** Since we use upstream Dockerfiles directly, changes to their expected build context or `FROM` references could break our builds. The staging step for presto-deps already accounts for this by copying the full tree.
 
-2. **Presto source layout:** The Presto deps build requires Velox scripts overlaid into the Presto directory structure (`presto-native-execution/velox/scripts/`). The Dockerfile or build context must replicate this layout. This can be handled with a multi-stage Dockerfile or by structuring the `docker/build-push-action` context appropriately.
+2. **Registry storage:** GitHub Container Registry has storage limits. 20 per-arch images per run across multiple CUDA versions and architectures may consume significant space. Monitor usage after deployment.
 
-3. **Upstream Velox deps image compatibility:** The `centos-multi.dockerfile` expects to be built from within the Velox repo root as context (it `COPY`s `scripts/setup-centos-adapters.sh`). When building from `ci-images.yml`, the context must be the Velox checkout directory.
+3. **CUDA 13.1 compatibility:** CUDA 13.1 is newer than the upstream default (12.9). Verify that the Velox and Presto build systems compile cleanly against CUDA 13.1 with all dependencies.
 
-4. **sccache OIDC prerequisites:** The `AWS_ROLE_ARN` and `AWS_REGION` repository variables must be configured. The workflow must declare `id-token: write` permission. The sccache-setup action gracefully degrades (builds without sccache) if OIDC fails, but builds will be significantly slower.
+4. **sccache OIDC prerequisites:** The `AWS_ROLE_ARN` and `AWS_REGION` repository variables must be configured. The workflow must declare `id-token: write` permission. If OIDC is misconfigured, the build will fail (no graceful degradation).
 
-5. **Registry cache quotas:** GitHub Container Registry has storage limits. Aggressive caching of deps images across multiple CUDA versions and architectures may consume significant space. Monitor usage after deployment.
+5. **Test coverage:** Smoke tests currently only run the `cuda13.1` GPU image on amd64/L4. Expand to cover CPU images, cuda12.9, and arm64 as runners become available.
 
-6. **CUDA 13.1 compatibility:** CUDA 13.1 is newer than the upstream default (12.9). Verify that the Velox and Presto build systems compile cleanly against CUDA 13.1 with all dependencies.
+6. **Remove `push` trigger:** The `push` trigger on `ci-images.yml` must be removed before merging to `main`.
