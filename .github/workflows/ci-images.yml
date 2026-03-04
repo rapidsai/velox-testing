@@ -164,7 +164,7 @@ jobs:
   # Job 2: Velox built images (GPU + CPU)
   # ---------------------------------------------------------------------------
   velox-build:
-    name: velox-build (${{ matrix.build_type }}, ${{ matrix.cuda_short && format('cuda{0}', matrix.cuda_short) || 'default' }}, ${{ matrix.arch }})
+    name: velox-build (${{ matrix.build_type }}, ${{ matrix.arch }})
     needs: [resolve-commits, velox-deps]
     runs-on: linux-${{ matrix.arch }}-cpu16
     permissions:
@@ -181,32 +181,32 @@ jobs:
           - arch: amd64
             cuda_short: '12'
             cuda_version: '12.9'
-            build_type: gpu
+            build_type: gpu-cuda12
             cudf: 'ON'
           - arch: arm64
             cuda_short: '12'
             cuda_version: '12.9'
-            build_type: gpu
+            build_type: gpu-cuda12
             cudf: 'ON'
           - arch: amd64
             cuda_short: '13'
             cuda_version: '13.1'
-            build_type: gpu
+            build_type: gpu-cuda13
             cudf: 'ON'
           - arch: arm64
             cuda_short: '13'
             cuda_version: '13.1'
-            build_type: gpu
+            build_type: gpu-cuda13
             cudf: 'ON'
           # CPU builds
           - arch: amd64
-            cuda_short: ''
-            cuda_version: ''
+            cuda_short: '12'
+            cuda_version: '12.9'
             build_type: cpu
             cudf: 'OFF'
           - arch: arm64
-            cuda_short: ''
-            cuda_version: ''
+            cuda_short: '12'
+            cuda_version: '12.9'
             build_type: cpu
             cudf: 'OFF'
     steps:
@@ -269,13 +269,7 @@ jobs:
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
           ARCH="${{ matrix.arch }}"
-          if [[ "${{ matrix.build_type }}" == "gpu" ]]; then
-            # GPU builds use the matching CUDA deps image
-            echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${VSHA}-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
-          else
-            # CPU builds use the default (cuda12) deps image
-            echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${VSHA}-cuda12-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${VSHA}-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -283,10 +277,10 @@ jobs:
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
           ARCH="${{ matrix.arch }}"
-          if [[ "${{ matrix.build_type }}" == "gpu" ]]; then
-            echo "tag=velox-${VSHA}-gpu-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "${{ matrix.build_type }}" == "cpu" ]]; then
             echo "tag=velox-${VSHA}-cpu-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=velox-${VSHA}-gpu-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Velox image
@@ -409,7 +403,7 @@ jobs:
   # Job 4: Presto native worker images (GPU + CPU)
   # ---------------------------------------------------------------------------
   presto-build:
-    name: presto-build (${{ matrix.build_type }}, ${{ matrix.cuda_short && format('cuda{0}', matrix.cuda_short) || 'default' }}, ${{ matrix.arch }})
+    name: presto-build (${{ matrix.build_type }}, ${{ matrix.arch }})
     needs: [resolve-commits, presto-deps]
     runs-on: linux-${{ matrix.arch }}-cpu16
     permissions:
@@ -426,32 +420,32 @@ jobs:
           - arch: amd64
             cuda_short: '12'
             cuda_version: '12.9'
-            build_type: gpu
+            build_type: gpu-cuda12
             gpu_flag: 'ON'
           - arch: arm64
             cuda_short: '12'
             cuda_version: '12.9'
-            build_type: gpu
+            build_type: gpu-cuda12
             gpu_flag: 'ON'
           - arch: amd64
             cuda_short: '13'
             cuda_version: '13.1'
-            build_type: gpu
+            build_type: gpu-cuda13
             gpu_flag: 'ON'
           - arch: arm64
             cuda_short: '13'
             cuda_version: '13.1'
-            build_type: gpu
+            build_type: gpu-cuda13
             gpu_flag: 'ON'
           # CPU builds
           - arch: amd64
-            cuda_short: ''
-            cuda_version: ''
+            cuda_short: '12'
+            cuda_version: '12.9'
             build_type: cpu
             gpu_flag: 'OFF'
           - arch: arm64
-            cuda_short: ''
-            cuda_version: ''
+            cuda_short: '12'
+            cuda_version: '12.9'
             build_type: cpu
             gpu_flag: 'OFF'
     steps:
@@ -522,12 +516,7 @@ jobs:
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
           ARCH="${{ matrix.arch }}"
-          if [[ "${{ matrix.build_type }}" == "gpu" ]]; then
-            echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${PSHA}-velox-${VSHA}-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
-          else
-            # CPU builds use the default (cuda12) deps image
-            echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${PSHA}-velox-${VSHA}-cuda12-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${PSHA}-velox-${VSHA}-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -536,10 +525,10 @@ jobs:
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
           ARCH="${{ matrix.arch }}"
-          if [[ "${{ matrix.build_type }}" == "gpu" ]]; then
-            echo "tag=presto-${PSHA}-velox-${VSHA}-gpu-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "${{ matrix.build_type }}" == "cpu" ]]; then
             echo "tag=presto-${PSHA}-velox-${VSHA}-cpu-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=presto-${PSHA}-velox-${VSHA}-gpu-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Presto native worker image
@@ -554,7 +543,7 @@ jobs:
             GPU=${{ matrix.gpu_flag }}
             ENABLE_SCCACHE=ON
             NUM_THREADS=16
-            CUDA_ARCHITECTURES=${{ matrix.build_type == 'gpu' && '"75;80;86;90;100;120"' || '"70"' }}
+            CUDA_ARCHITECTURES=${{ matrix.build_type != 'cpu' && '"75;80;86;90;100;120"' || '"70"' }}
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
