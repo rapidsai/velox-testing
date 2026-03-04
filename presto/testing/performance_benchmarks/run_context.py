@@ -62,7 +62,8 @@ def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_na
         with open(meta_path) as f:
             data = json.load(f)
         return data.get("scale_factor")
-    except Exception:
+    except Exception as e:
+        _debug(f"scale factor lookup failed: {e}")
         return None
     finally:
         if conn is not None:
@@ -149,7 +150,9 @@ def _get_gpu_name() -> str | None:
     output to LOGS/worker_<id>.log.  Returns None when LOGS is unset or
     no GPU info is found in the logs.
     """
-    return _get_gpu_name_from_worker_logs()
+    gpu_name = _get_gpu_name_from_worker_logs()
+    _debug(f"gpu_name: {gpu_name!r}")
+    return gpu_name
 
 
 def _get_worker_image() -> str | None:

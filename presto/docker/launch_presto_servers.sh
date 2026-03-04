@@ -2,7 +2,7 @@
 
 set -e
 # Run ldconfig once
-echo ldconfig
+ldconfig
 
 LOGS_DIR="/opt/presto-server/logs"
 mkdir -p "${LOGS_DIR}"

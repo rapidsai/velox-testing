@@ -243,7 +243,7 @@ def _parse_args() -> argparse.Namespace:
         default=1,
     )
 
-    return parser._parse_args()
+    return parser.parse_args()
 
 
 def _normalize_api_url(url: str) -> str:

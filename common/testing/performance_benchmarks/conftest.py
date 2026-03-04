@@ -109,7 +109,7 @@ def pytest_sessionfinish(session, exitstatus):
     iterations = session.config.getoption("--iterations")
 
     data_location_option = pytest.data_location.option_name
-    data_location_key = pytest.data_location.option_name
+    data_location_key = pytest.data_location.key
     data_location_name = session.config.getoption(data_location_option)
     json_result = {
         BenchmarkKeys.CONTEXT_KEY: {
