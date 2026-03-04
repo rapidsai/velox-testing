@@ -301,8 +301,7 @@ jobs:
             BUILD_WITH_VELOX_ENABLE_CUDF=${{ matrix.cudf }}
             CUDA_VERSION=${{ matrix.cuda_version || '12.9' }}
             ENABLE_SCCACHE=ON
-            SCCACHE_NO_DIST_COMPILE=1
-            NUM_THREADS=12
+            NUM_THREADS=16
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
@@ -555,8 +554,7 @@ jobs:
           build-args: |
             GPU=${{ matrix.gpu_flag }}
             ENABLE_SCCACHE=ON
-            SCCACHE_NO_DIST_COMPILE=1
-            NUM_THREADS=12
+            NUM_THREADS=16
             CUDA_ARCHITECTURES=${{ matrix.build_type == 'gpu' && '"75;80;86;90;100;120"' || '"70"' }}
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
