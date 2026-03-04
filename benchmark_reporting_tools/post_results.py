@@ -15,7 +15,7 @@ This script operates on the parsed output of the benchmark runner. The
 expected directory structure is:
 
     ../benchmark-root/
-    ├── benchmark.json           # optional
+    ├── benchmark_config.json           # optional
     ├── configs                  # optional
     │   ├── coordinator.config
     │   └── worker.config
@@ -160,7 +160,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "input_path",
         type=str,
-        help="Path to benchmark directory containing benchmark.json and result_dir/",
+        help="Path to benchmark directory containing benchmark_config.json and result_dir/",
     )
     parser.add_argument(
         "--api-url",
@@ -191,7 +191,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--engine-name",
         default=None,
-        help="Query engine name (optionally derived from benchmark.json 'engine' field)",
+        help="Query engine name (optionally derived from benchmark_config.json 'engine' field)",
     )
     parser.add_argument(
         "--identifier-hash",
@@ -242,7 +242,7 @@ def parse_args() -> argparse.Namespace:
         default=1,
     )
 
-    # A bunch of optional arguments for when benchmark.json is not present.
+    # A bunch of optional arguments for when benchmark_config.json is not present.
     parser.add_argument(
         "--kind",
         help="Run kind (e.g. 'single-node', 'multi-node')",
@@ -333,7 +333,7 @@ def build_submission_payload(
     """Build a BenchmarkSubmission payload from parsed dataclasses.
 
     Args:
-        benchmark_metadata: Parsed benchmark.json as BenchmarkMetadata
+        benchmark_metadata: Parsed benchmark_config.json as BenchmarkMetadata
         benchmark_results: Parsed benchmark_result.json as BenchmarkResults
         engine_config: Parsed config files as EngineConfig, optional
         sku_name: Hardware SKU name
@@ -524,7 +524,7 @@ async def process_benchmark_dir(
     timeout: float,
     upload_logs: bool = True,
     benchmark_definition_name: str,
-    # all the optional arguments for when benchmark.json is not present.
+    # all the optional arguments for when benchmark_config.json is not present.
     concurrency_streams: int = 1,
     kind: str | None = None,
     benchmark: str | None = None,
@@ -546,11 +546,11 @@ async def process_benchmark_dir(
 
     # Load metadata, results, and config
 
-    # benchmark.json is only optionally written out.
+    # benchmark_config.json is only optionally written out.
     # We give preference to getting this from the user CLI options,
     # falling back to
 
-    benchmark_json_path = benchmark_dir / "benchmark.json"
+    benchmark_json_path = benchmark_dir / "benchmark_config.json"
 
     if not benchmark_json_path.exists():
         missing_args = []
@@ -574,7 +574,7 @@ async def process_benchmark_dir(
             missing_args.append("engine_name")
 
         if missing_args:
-            print("  Error: must provide benchmark metadata when benchmark.json is not present", file=sys.stderr)
+            print("  Error: must provide benchmark metadata when benchmark_config.json is not present", file=sys.stderr)
             print(f"  Error: missing arguments: {', '.join(missing_args)}", file=sys.stderr)
             return 1
 
@@ -594,7 +594,7 @@ async def process_benchmark_dir(
         )
     else:
         try:
-            benchmark_metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark.json")
+            benchmark_metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark_config.json")
         except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
             print(f"  Error loading metadata: {e}", file=sys.stderr)
             return 1
