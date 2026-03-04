@@ -27,6 +27,10 @@ on:
         description: 'Use upstream deps image from ghcr.io'
         type: boolean
         default: true
+      enable_sccache: &enable_sccache
+        description: 'Enable sccache for build acceleration'
+        type: boolean
+        default: true
 
   workflow_call:
     inputs:
@@ -38,6 +42,11 @@ on:
         required: false
         default: 'gpu'
       use_upstream_deps_image: *use_upstream_deps_image
+      enable_sccache: *enable_sccache
+
+permissions:
+  id-token: write
+  contents: read
 
 defaults:
   run:
@@ -85,12 +94,38 @@ jobs:
           fail_on_fetch_error: false
           auto_build_on_failure: true
 
+      - &setup-sccache
+        name: Setup sccache
+        id: sccache
+        if: ${{ inputs.enable_sccache }}
+        uses: ./velox-testing/.github/actions/sccache-setup
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
       - name: Building Velox for CPU
         run: |
           echo "   - CUDF support: DISABLED"
           echo "   - Target: CPU-only build"
+          echo "   - sccache: ${{ steps.sccache.outputs.enabled || 'false' }}"
           cd ${{ github.workspace }}/velox-testing/velox/scripts
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --cpu --log build_velox_cpu.log
+          SCCACHE_FLAG=""
+          if [[ "${{ steps.sccache.outputs.enabled }}" == "true" ]]; then
+            SCCACHE_FLAG="--sccache"
+          fi
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --cpu ${SCCACHE_FLAG} --log build_velox_cpu.log
+
+      - &show-sccache-stats
+        name: Show sccache stats
+        if: always() && steps.sccache.outputs.enabled == 'true'
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: |
+          LOG_FILE=$(ls build_velox_*.log 2>/dev/null | head -1)
+          if [[ -n "$LOG_FILE" ]]; then
+            grep -A 30 "Post-build sccache statistics:" "$LOG_FILE" || echo "sccache stats not found in build log"
+          else
+            echo "No build log found"
+          fi
 
       - name: Upload velox_cpu_build_log as an artifact
         uses: actions/upload-artifact@v4
@@ -119,12 +154,21 @@ jobs:
       - *pull-deps
       - *fetch-and-load-deps
 
+      - *setup-sccache
+
       - name: Building Velox for GPU
         working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
         run: |
           echo "   - CUDF support: ENABLED"
           echo "   - Target: GPU-accelerated build"
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --gpu --log build_velox_gpu.log
+          echo "   - sccache: ${{ steps.sccache.outputs.enabled || 'false' }}"
+          SCCACHE_FLAG=""
+          if [[ "${{ steps.sccache.outputs.enabled }}" == "true" ]]; then
+            SCCACHE_FLAG="--sccache"
+          fi
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --gpu ${SCCACHE_FLAG} --log build_velox_gpu.log
+
+      - *show-sccache-stats
 
       - name: Upload velox_gpu_build_log as an artifact
         uses: actions/upload-artifact@v4
