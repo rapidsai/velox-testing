@@ -57,16 +57,10 @@ ARG BUILD_WITH_VELOX_ENABLE_WAVE=OFF
 ARG TREAT_WARNINGS_AS_ERRORS=1
 ARG BUILD_BASE_DIR=/opt/velox-build
 ARG BUILD_TYPE=release
-ARG ENABLE_SCCACHE=OFF
 ARG SCCACHE_SERVER_LOG="sccache=info"
 ARG SCCACHE_VERSION=latest
 ARG UPDATE_NINJA=true
-# Don't read from cache, but do put/replace entries
-ARG SCCACHE_RECACHE
-# Don't read from cache and don't write new entries
-ARG SCCACHE_NO_CACHE
-# Always compile locally (even if the build cluster is configured/available)
-ARG SCCACHE_NO_DIST_COMPILE
+
 
 # Environment mirroring upstream CI defaults and incorporating build args
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
@@ -100,7 +94,6 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rmm-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/rapids_logger-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/kvikio-build:\
 ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
-    ENABLE_SCCACHE="${ENABLE_SCCACHE}" \
     SCCACHE_VERSION="${SCCACHE_VERSION}" \
     SCCACHE_SERVER_LOG="${SCCACHE_SERVER_LOG}" \
     SCCACHE_ERROR_LOG=/tmp/sccache.log \
@@ -153,20 +146,11 @@ export CC=gcc CXX=g++;
 echo "Using GCC version:";
 gcc --version | head -1;
 
-# Install and configure sccache if enabled
-if [ "$ENABLE_SCCACHE" = "ON" ]; then
-  # Add sccache distributed compilation control (disabled by default)
-  if [ -n "$SCCACHE_NO_DIST_COMPILE" ]; then
-    export SCCACHE_NO_DIST_COMPILE=1;
-  fi
-  # Run sccache setup script
-  bash /sccache_setup.sh;
-  # Zero sccache stats
-  sccache --zero-stats;
-  # Add sccache CMake flags
-  EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
-  export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
-fi
+# Install and configure sccache
+bash /sccache_setup.sh;
+sccache --zero-stats;
+EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
+export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
 
 if test -n "${MAX_HIGH_MEM_JOBS:-}"; then
   MAKEFLAGS="${MAKEFLAGS} MAX_HIGH_MEM_JOBS=${MAX_HIGH_MEM_JOBS}";
@@ -181,10 +165,8 @@ make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" EXTRA_CMAKE_FLAG
 # Run the build with timings
 time make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
 
-# Show final sccache stats if enabled
-if [ "$ENABLE_SCCACHE" = "ON" ]; then
-  echo "Post-build sccache statistics:";
-  sccache --show-stats;
-fi
+# Show sccache stats
+echo "Post-build sccache statistics:";
+sccache --show-stats;
 
 EOF

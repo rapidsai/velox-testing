@@ -18,19 +18,14 @@ ARG EXTRA_CMAKE_FLAGS="\
     -DPRESTO_STATS_REPORTER_TYPE=PROMETHEUS"
 ARG CUDA_ARCHITECTURES="75;80;86;90;100;120"
 ARG TARGETARCH
-ARG ENABLE_SCCACHE=OFF
 ARG SCCACHE_SERVER_LOG="sccache=info"
 ARG SCCACHE_VERSION=latest
-ARG SCCACHE_RECACHE
-ARG SCCACHE_NO_CACHE
-ARG SCCACHE_NO_DIST_COMPILE
 
 ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     CXX=/opt/rh/gcc-toolset-14/root/bin/g++ \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS} \
     NUM_THREADS=${NUM_THREADS} \
-    ENABLE_SCCACHE="${ENABLE_SCCACHE}" \
     SCCACHE_VERSION="${SCCACHE_VERSION}" \
     SCCACHE_SERVER_LOG="${SCCACHE_SERVER_LOG}" \
     SCCACHE_ERROR_LOG=/tmp/sccache.log \
@@ -72,23 +67,15 @@ if [ -f "${BUILD_BASE_DIR}/CMakeCache.txt" ]; then
   fi
 fi
 
-if [ "$ENABLE_SCCACHE" = "ON" ]; then
-  # Add sccache distributed compilation control (disabled by default)
-  if [ -n "$SCCACHE_NO_DIST_COMPILE" ]; then
-    export SCCACHE_NO_DIST_COMPILE;
-  fi
-  bash /sccache_setup.sh;
-  sccache --zero-stats;
-  EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
-  export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
-fi
+bash /sccache_setup.sh;
+sccache --zero-stats;
+EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
+export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
 
 make --directory="/presto_native_staging/presto" cmake-and-build BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR};
 
-if [ "$ENABLE_SCCACHE" = "ON" ]; then
-  echo "Post-build sccache statistics:";
-  sccache --show-stats;
-fi
+echo "Post-build sccache statistics:";
+sccache --show-stats;
 
 !(LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | grep "not found" | grep -v -E "libcuda\.so|libnvidia");
 LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 && $3 != "not" && $1 !~ /libcuda\.so|libnvidia/ { system("cp " $3 " /runtime-libraries") }';
