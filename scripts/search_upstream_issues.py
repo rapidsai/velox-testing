@@ -537,14 +537,14 @@ def format_rca_report(
         if causes:
             lines.append("")
             cause_text = causes[0]
-            if len(cause_text) > 300:
-                cause_text = cause_text[:297] + "..."
+            if len(cause_text) > 1000:
+                cause_text = cause_text[:997] + "..."
             lines.append(f"• *Root Cause:* _{cause_text}_")
 
         if fixes:
             fix_text = fixes[0]
-            if len(fix_text) > 300:
-                fix_text = fix_text[:297] + "..."
+            if len(fix_text) > 1000:
+                fix_text = fix_text[:997] + "..."
             lines.append(f"• *Suggested Fix:* _{fix_text}_")
 
         lines.append("")
