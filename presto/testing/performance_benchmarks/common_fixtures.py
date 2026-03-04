@@ -3,14 +3,13 @@
 
 from pathlib import Path
 
+import pandas as pd
 import prestodb
 import pytest
 
-from ..common.fixtures import tpcds_queries as tpcds_queries
-from ..common.fixtures import tpch_queries as tpch_queries
+from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
+
 from ..integration_tests.analyze_tables import check_tables_analyzed
-from .benchmark_keys import BenchmarkKeys
-from .cache_utils import drop_cache
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
 
@@ -39,34 +38,6 @@ def presto_cursor(request):
     schema = request.config.getoption("--schema-name")
     conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
     return conn.cursor()
-
-
-@pytest.fixture(scope="session")
-def benchmark_result_collector(request):
-    benchmark_results = {}
-    yield benchmark_results
-
-    request.session.benchmark_results = benchmark_results
-
-
-@pytest.fixture(scope="session", autouse=True)
-def drop_cache_once(request):
-    """Session-scoped fixture that drops the cache once at the start of the benchmark run."""
-    drop_cache_enabled = not request.config.getoption("--skip-drop-cache")
-    if drop_cache_enabled:
-        drop_cache()
-        print("[Cache] System cache dropped successfully.")
-    else:
-        print("[Cache] Skipping cache drop (--skip-drop-cache flag set).")
-
-
-@pytest.fixture(scope="module")
-def benchmark_queries(request, tpch_queries, tpcds_queries):  # noqa: F811
-    if request.node.obj.BENCHMARK_TYPE == "tpch":
-        return tpch_queries
-    else:
-        assert request.node.obj.BENCHMARK_TYPE == "tpcds"
-        return tpcds_queries
 
 
 @pytest.fixture(scope="module")
@@ -105,11 +76,23 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
-            for _ in range(iterations):
+            for iteration_num in range(iterations):
                 cursor = presto_cursor.execute(
                     "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
                 )
                 result.append(cursor.stats["elapsedTimeMillis"])
+
+                # Save query results to Parquet (only on first iteration)
+                if iteration_num == 0:
+                    rows = cursor.fetchall()
+                    columns = [desc[0] for desc in cursor.description]
+                    df = pd.DataFrame(rows, columns=columns)
+
+                    # Save to Parquet format to match expected results
+                    results_dir = Path(f"{bench_output_dir}/query_results")
+                    results_dir.mkdir(parents=True, exist_ok=True)
+                    parquet_path = results_dir / f"{query_id.lower()}.parquet"
+                    df.to_parquet(parquet_path, index=False)
 
                 # Collect metrics after each query iteration if enabled
                 if metrics:

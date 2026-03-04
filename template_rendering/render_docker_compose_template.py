@@ -48,6 +48,14 @@ def parse_args():
                         help="Whether to render in dev (gpu-dev) mode (default: false).")
     parser.add_argument("--config-variant", type=str, default="gpu", dest="config_variant", required=False,
                         help="Config directory suffix under presto/docker/config/generated (e.g. 'gpu', 'gpu-dev').")
+    parser.add_argument(
+        "--sccache",
+        type=str_to_bool,
+        default=False,
+        dest="sccache",
+        required=False,
+        help="Enable sccache build secrets in the rendered compose file.",
+    )
     return parser.parse_args()
 
 
@@ -91,6 +99,7 @@ def main() -> int:
         kvikio_threads=parsed_args.kvikio_threads,
         dev_mode=parsed_args.dev_mode,
         config_variant=parsed_args.config_variant,
+        sccache=parsed_args.sccache,
     )
 
     os.makedirs(os.path.dirname(parsed_args.output_path), exist_ok=True)

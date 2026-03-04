@@ -141,7 +141,7 @@ RUN \
     --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \
     --mount=type=secret,id=aws_credentials,target=/root/.aws/credentials \
     # Mount sccache setup script
-    --mount=type=bind,source=velox-testing/velox/docker/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
+    --mount=type=bind,source=velox-testing/scripts/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
 <<EOF
 set -euxo pipefail;
 

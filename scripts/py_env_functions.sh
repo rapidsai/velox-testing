@@ -38,12 +38,15 @@ function init_conda() {
 function activate_python_virtual_env() {
   local venv_dir=${1:-".venv"}
 
-  if [[ -f "$venv_dir/pyvenv.cfg" ]]; then
+  if [[ -d "$venv_dir/conda-meta" ]]; then
+    echo "Activating conda environment"
+    conda activate "$(readlink -f $venv_dir)"
+  elif [[ -f "$venv_dir/pyvenv.cfg" ]]; then
     echo "Activating venv environment"
     source $venv_dir/bin/activate
   else
-    echo "Activating conda environment"
-    conda activate "$(readlink -f $venv_dir)"
+    echo "Error: $venv_dir is not a valid virtual environment"
+    exit 1
   fi
 }
 
@@ -51,7 +54,7 @@ function init_python_virtual_env() {
   local venv_dir=${1:-".venv"}
   rm -rf $venv_dir
 
-  if python3 -m venv $venv_dir &>/dev/null; then
+  if python3.12 -m venv $venv_dir &>/dev/null; then
     echo "Created virtual environment using the venv module"
   else
     if [[ -z $MINIFORGE_HOME ]]; then
@@ -67,7 +70,9 @@ function init_python_virtual_env() {
     init_conda
 
     echo "Creating virtual environment using conda"
-    conda create -q -y --prefix "$venv_dir" python=3.12 > /dev/null
+    # Downgrade the version of python in conda because there is an issue with conda's python 3.12 on ARM.
+    # Installing python3.12 here leads to: "ModuleNotFoundError: No module named '_posixsubprocess'"
+    conda create -q -y --prefix "$venv_dir" python=3.11 > /dev/null
   fi
 
   activate_python_virtual_env $venv_dir
