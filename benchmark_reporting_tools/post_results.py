@@ -21,8 +21,7 @@ expected directory structure is:
     │   └── worker.config
     ├── logs                     # optional
     │   └── slurm-4575179.out
-    └── result_dir
-        └── benchmark_result.json
+    └── benchmark_result.json
 
 Usage:
     python benchmark_reporting_tools/post_results.py /path/to/benchmark/dir \
@@ -160,7 +159,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "input_path",
         type=str,
-        help="Path to benchmark directory containing benchmark_config.json and result_dir/",
+        help="Path to benchmark directory containing benchmark_config.json and benchmark_result.json",
     )
     parser.add_argument(
         "--api-url",
@@ -601,7 +600,7 @@ async def process_benchmark_dir(
 
     try:
         results = BenchmarkResults.from_file(
-            benchmark_dir / "result_dir" / "benchmark_result.json", benchmark_name=benchmark_metadata.benchmark
+            benchmark_dir / "benchmark_result.json", benchmark_name=benchmark_metadata.benchmark
         )
     except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
         print(f"  Error loading results: {e}", file=sys.stderr)
