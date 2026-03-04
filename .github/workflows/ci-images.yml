@@ -216,6 +216,11 @@ jobs:
         with:
           enable-apt: true
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+        with:
+          driver-opts: network=host
+
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -278,6 +283,8 @@ jobs:
         with:
           context: .
           file: velox-testing/velox/docker/adapters_build.dockerfile
+          network: host
+          allow: network.host
           build-contexts: |
             ghcr.io/facebookincubator/velox-dev:adapters=docker-image://${{ steps.deps.outputs.image }}
           build-args: |
@@ -450,6 +457,11 @@ jobs:
         with:
           enable-apt: true
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+        with:
+          driver-opts: network=host
+
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -514,6 +526,8 @@ jobs:
         with:
           context: .
           file: velox-testing/presto/docker/native_build.dockerfile
+          network: host
+          allow: network.host
           build-contexts: |
             presto/prestissimo-dependency:centos9=docker-image://${{ steps.deps.outputs.image }}
           build-args: |
