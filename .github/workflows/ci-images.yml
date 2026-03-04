@@ -45,7 +45,7 @@ jobs:
   # Resolve commit SHAs from branch names
   # ---------------------------------------------------------------------------
   resolve-commits:
-    runs-on: linux-amd64-cpu4
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
@@ -584,7 +584,7 @@ jobs:
   merge-manifests:
     name: merge-manifests
     needs: [resolve-commits, velox-deps, velox-build, presto-deps, presto-build]
-    runs-on: linux-amd64-cpu4
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
