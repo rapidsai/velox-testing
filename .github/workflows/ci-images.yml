@@ -93,7 +93,7 @@ jobs:
   # Job 1: Velox deps images (centos-multi.dockerfile -> adapters stage)
   # ---------------------------------------------------------------------------
   velox-deps:
-    name: velox-deps (cuda${{ matrix.cuda_short }}, ${{ matrix.arch }})
+    name: velox-deps (cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-commits]
     runs-on: linux-${{ matrix.arch }}-cpu16
     permissions:
@@ -107,16 +107,12 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            cuda_short: '12'
             cuda_version: '12.9'
           - arch: arm64
-            cuda_short: '12'
             cuda_version: '12.9'
           - arch: amd64
-            cuda_short: '13'
             cuda_version: '13.1'
           - arch: arm64
-            cuda_short: '13'
             cuda_version: '13.1'
     steps:
       - name: Checkout Velox
@@ -151,7 +147,7 @@ jobs:
           outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${{ needs.resolve-commits.outputs.velox_short_sha }}-cuda${{ matrix.cuda_short }}-${{ needs.resolve-commits.outputs.date }}-${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${{ needs.resolve-commits.outputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ needs.resolve-commits.outputs.date }}-${{ matrix.arch }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
@@ -179,34 +175,26 @@ jobs:
         include:
           # GPU builds
           - arch: amd64
-            cuda_short: '12'
             cuda_version: '12.9'
-            build_type: gpu-cuda12
+            build_type: gpu-cuda12.9
             cudf: 'ON'
           - arch: arm64
-            cuda_short: '12'
             cuda_version: '12.9'
-            build_type: gpu-cuda12
+            build_type: gpu-cuda12.9
             cudf: 'ON'
           - arch: amd64
-            cuda_short: '13'
             cuda_version: '13.1'
-            build_type: gpu-cuda13
+            build_type: gpu-cuda13.1
             cudf: 'ON'
           - arch: arm64
-            cuda_short: '13'
             cuda_version: '13.1'
-            build_type: gpu-cuda13
+            build_type: gpu-cuda13.1
             cudf: 'ON'
           # CPU builds
           - arch: amd64
-            cuda_short: '12'
-            cuda_version: '12.9'
             build_type: cpu
             cudf: 'OFF'
           - arch: arm64
-            cuda_short: '12'
-            cuda_version: '12.9'
             build_type: cpu
             cudf: 'OFF'
     steps:
@@ -269,7 +257,8 @@ jobs:
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
           ARCH="${{ matrix.arch }}"
-          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${VSHA}-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          CUDA="${{ matrix.cuda_version || '12.9' }}"
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${VSHA}-cuda${CUDA}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -280,7 +269,7 @@ jobs:
           if [[ "${{ matrix.build_type }}" == "cpu" ]]; then
             echo "tag=velox-${VSHA}-cpu-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=velox-${VSHA}-gpu-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=velox-${VSHA}-gpu-cuda${{ matrix.cuda_version }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Velox image
@@ -315,7 +304,7 @@ jobs:
   # Job 3: Presto deps images
   # ---------------------------------------------------------------------------
   presto-deps:
-    name: presto-deps (cuda${{ matrix.cuda_short }}, ${{ matrix.arch }})
+    name: presto-deps (cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-commits]
     runs-on: linux-${{ matrix.arch }}-cpu16
     permissions:
@@ -329,16 +318,12 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            cuda_short: '12'
             cuda_version: '12.9'
           - arch: arm64
-            cuda_short: '12'
             cuda_version: '12.9'
           - arch: amd64
-            cuda_short: '13'
             cuda_version: '13.1'
           - arch: arm64
-            cuda_short: '13'
             cuda_version: '13.1'
     steps:
       - name: Checkout velox-testing
@@ -390,7 +375,7 @@ jobs:
           outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ needs.resolve-commits.outputs.presto_short_sha }}-velox-${{ needs.resolve-commits.outputs.velox_short_sha }}-cuda${{ matrix.cuda_short }}-${{ needs.resolve-commits.outputs.date }}-${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ needs.resolve-commits.outputs.presto_short_sha }}-velox-${{ needs.resolve-commits.outputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ needs.resolve-commits.outputs.date }}-${{ matrix.arch }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
@@ -418,34 +403,26 @@ jobs:
         include:
           # GPU builds
           - arch: amd64
-            cuda_short: '12'
             cuda_version: '12.9'
-            build_type: gpu-cuda12
+            build_type: gpu-cuda12.9
             gpu_flag: 'ON'
           - arch: arm64
-            cuda_short: '12'
             cuda_version: '12.9'
-            build_type: gpu-cuda12
+            build_type: gpu-cuda12.9
             gpu_flag: 'ON'
           - arch: amd64
-            cuda_short: '13'
             cuda_version: '13.1'
-            build_type: gpu-cuda13
+            build_type: gpu-cuda13.1
             gpu_flag: 'ON'
           - arch: arm64
-            cuda_short: '13'
             cuda_version: '13.1'
-            build_type: gpu-cuda13
+            build_type: gpu-cuda13.1
             gpu_flag: 'ON'
           # CPU builds
           - arch: amd64
-            cuda_short: '12'
-            cuda_version: '12.9'
             build_type: cpu
             gpu_flag: 'OFF'
           - arch: arm64
-            cuda_short: '12'
-            cuda_version: '12.9'
             build_type: cpu
             gpu_flag: 'OFF'
     steps:
@@ -516,7 +493,8 @@ jobs:
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
           ARCH="${{ matrix.arch }}"
-          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${PSHA}-velox-${VSHA}-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          CUDA="${{ matrix.cuda_version || '12.9' }}"
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${PSHA}-velox-${VSHA}-cuda${CUDA}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -528,7 +506,7 @@ jobs:
           if [[ "${{ matrix.build_type }}" == "cpu" ]]; then
             echo "tag=presto-${PSHA}-velox-${VSHA}-cpu-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=presto-${PSHA}-velox-${VSHA}-gpu-cuda${{ matrix.cuda_short }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=presto-${PSHA}-velox-${VSHA}-gpu-cuda${{ matrix.cuda_version }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Presto native worker image
@@ -590,8 +568,8 @@ jobs:
               --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
             docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
           }
-          for cu in 12 13; do
-            create_manifest "velox-deps-${VSHA}-cuda${cu}-${DATE}"
+          for cuda in 12.9 13.1; do
+            create_manifest "velox-deps-${VSHA}-cuda${cuda}-${DATE}"
           done
 
   merge-velox-build:
@@ -622,8 +600,8 @@ jobs:
               --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
             docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
           }
-          for cu in 12 13; do
-            create_manifest "velox-${VSHA}-gpu-cuda${cu}-${DATE}"
+          for cuda in 12.9 13.1; do
+            create_manifest "velox-${VSHA}-gpu-cuda${cuda}-${DATE}"
           done
           create_manifest "velox-${VSHA}-cpu-${DATE}"
 
@@ -656,8 +634,8 @@ jobs:
               --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
             docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
           }
-          for cu in 12 13; do
-            create_manifest "presto-deps-${PSHA}-velox-${VSHA}-cuda${cu}-${DATE}"
+          for cuda in 12.9 13.1; do
+            create_manifest "presto-deps-${PSHA}-velox-${VSHA}-cuda${cuda}-${DATE}"
           done
 
   merge-presto-build:
@@ -689,8 +667,8 @@ jobs:
               --amend "${REGISTRY}/${IMAGE}:${tag}-arm64"
             docker manifest push "${REGISTRY}/${IMAGE}:${tag}"
           }
-          for cu in 12 13; do
-            create_manifest "presto-${PSHA}-velox-${VSHA}-gpu-cuda${cu}-${DATE}"
+          for cuda in 12.9 13.1; do
+            create_manifest "presto-${PSHA}-velox-${VSHA}-gpu-cuda${cuda}-${DATE}"
           done
           create_manifest "presto-${PSHA}-velox-${VSHA}-cpu-${DATE}"
 
@@ -721,7 +699,7 @@ jobs:
         run: |
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-gpu-cuda13-${DATE}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-gpu-cuda13.1-${DATE}"
           echo "Testing image: ${IMAGE}"
           docker pull "${IMAGE}"
           echo "--- arch ---"
@@ -754,7 +732,7 @@ jobs:
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-${PSHA}-velox-${VSHA}-gpu-cuda13-${DATE}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-${PSHA}-velox-${VSHA}-gpu-cuda13.1-${DATE}"
           echo "Testing image: ${IMAGE}"
           docker pull "${IMAGE}"
           echo "--- arch ---"
