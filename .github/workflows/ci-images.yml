@@ -381,26 +381,19 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
 
-      - name: Create .dockerignore
+      - name: Stage presto-deps build context
         run: |
-          cat > .dockerignore <<'IGNORE'
-          **/.git
-          **/.github
-          **/.gitignore
-          **/.gitmodules
-          **/build
-          **/cmake-build-*
-          **/_build
-          **/__pycache__
-          **/*.pyc
-          IGNORE
+          mkdir -p presto-deps-context/velox/CMake/resolve_dependency_modules/arrow
+          cp -r presto/presto-native-execution/scripts presto-deps-context/scripts
+          cp -r velox/scripts presto-deps-context/velox/scripts
+          cp velox/CMake/resolve_dependency_modules/arrow/cmake-compatibility.patch presto-deps-context/velox/CMake/resolve_dependency_modules/arrow/
 
       - name: Build and push Presto deps image
         id: push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
         with:
-          context: .
-          file: velox-testing/docker/presto-deps/Dockerfile
+          context: presto-deps-context
+          file: presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
           build-args: |
             CUDA_VERSION=${{ matrix.cuda_version }}
           outputs: type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
