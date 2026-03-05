@@ -152,11 +152,6 @@ def _get_gpu_name() -> str | None:
     return gpu_name
 
 
-def _get_worker_image() -> str | None:
-    """Return worker image name from env (set by cluster/container setup)."""
-    return os.environ.get("WORKER_IMAGE")
-
-
 _ENGINE_TO_VARIANT = {
     "velox-gpu": "gpu",
     "velox-cpu": "cpu",
@@ -235,10 +230,6 @@ def gather_run_context(
     elif engine == "java":
         ctx["gpu_count"] = 0
         ctx["gpu_name"] = "NA"
-
-    worker_image = _get_worker_image()
-    if worker_image is not None:
-        ctx["worker_image"] = worker_image
 
     num_drivers = _get_num_drivers(engine)
     if num_drivers is not None:
