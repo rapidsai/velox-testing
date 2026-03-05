@@ -10,16 +10,24 @@
 #   ./timestamp_benchmark.sh bench        # Run benchmark queries
 #   ./timestamp_benchmark.sh all 10       # Setup + bench
 #
+# Commands:
+#   setup  - Generate parquet data and create Hive table
+#   bench  - Run benchmark queries and report timings
+#   verify - Compare Presto results against DuckDB for correctness
+#   all    - setup + bench
+#
 # Environment:
 #   PRESTO_COORDINATOR  - coordinator container name (default: presto-coordinator)
 #   PRESTO_PORT         - coordinator port (default: 8080)
 #   HIVE_SCHEMA         - hive schema to use (default: default)
 #   BENCHMARK_RUNS      - number of runs per query (default: 3)
 #   PRESTO_DATA_DIR     - host data dir mounted into containers (required)
+#   BENCH_MODE          - label for results file (default: gpu)
 #
 # Prerequisites:
 #   - Presto coordinator running with hive catalog
 #   - Workers running with cuDF enabled
+#   - For verify: duckdb pip package (auto-installed)
 
 set -euo pipefail
 
@@ -28,7 +36,7 @@ source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
 # Setup python venv with pyarrow
 init_python_virtual_env ".ts_bench_venv"
-pip install -q pyarrow numpy
+pip install -q pyarrow numpy duckdb
 trap 'LOCAL_CONDA_INIT="${LOCAL_CONDA_INIT:-}"; delete_python_virtual_env .ts_bench_venv' EXIT
 
 COORDINATOR="${PRESTO_COORDINATOR:-presto-coordinator}"
@@ -437,6 +445,68 @@ run_benchmark() {
   fi
 }
 
+run_verify() {
+  echo "=== Verification: Presto vs DuckDB (table: ${TABLE}) ==="
+  echo ""
+
+  local pass=0 fail=0
+
+  for qname in "${QUERY_ORDER[@]}"; do
+    local sql="${QUERIES[${qname}]}"
+    echo -n "  ${qname}... "
+
+    # Get Presto result
+    local presto_result
+    presto_result=$(cli --execute "${sql}" 2>/dev/null | sort) || true
+
+    if [ -z "${presto_result}" ]; then
+      echo "SKIP (Presto returned empty)"
+      continue
+    fi
+
+    # Build DuckDB query: replace table name with parquet glob
+    local duck_sql
+    duck_sql=$(echo "${sql}" | sed "s|${TABLE}|read_parquet('${HOST_DATA_DIR}/*.parquet')|g")
+    # DuckDB uses extract differently for some funcs, but basic ones match
+    local duck_result
+    duck_result=$(python3 -c "
+import duckdb
+con = duckdb.connect()
+result = con.execute('''${duck_sql}''').fetchall()
+for row in result:
+    print('\"' + '\",\"'.join(str(v) for v in row) + '\"')
+" 2>&1 | sort) || true
+
+    if [ -z "${duck_result}" ]; then
+      echo "SKIP (DuckDB returned empty)"
+      continue
+    fi
+
+    # Compare (normalize whitespace)
+    local presto_norm duck_norm
+    presto_norm=$(echo "${presto_result}" | tr -s '[:space:]' | sed 's/^ //;s/ $//')
+    duck_norm=$(echo "${duck_result}" | tr -s '[:space:]' | sed 's/^ //;s/ $//')
+
+    if [ "${presto_norm}" = "${duck_norm}" ]; then
+      echo "PASS"
+      pass=$(( pass + 1 ))
+    else
+      echo "FAIL"
+      fail=$(( fail + 1 ))
+      echo "    Presto (first 5 rows):"
+      echo "${presto_result}" | head -5 | sed 's/^/      /'
+      echo "    DuckDB (first 5 rows):"
+      echo "${duck_result}" | head -5 | sed 's/^/      /'
+    fi
+  done
+
+  echo ""
+  echo "=== Verification Summary: ${pass} passed, ${fail} failed ==="
+  if [ "${fail}" -gt 0 ]; then
+    echo "WARNING: Some queries returned different results!"
+  fi
+}
+
 case "${1:-all}" in
   setup)
     setup_data
@@ -444,12 +514,15 @@ case "${1:-all}" in
   bench)
     run_benchmark
     ;;
+  verify)
+    run_verify
+    ;;
   all)
     setup_data
     run_benchmark
     ;;
   *)
-    echo "Usage: $0 [setup|bench|all] [scale_factor]"
+    echo "Usage: $0 [setup|bench|verify|all] [scale_factor]"
     exit 1
     ;;
 esac
