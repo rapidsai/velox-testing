@@ -29,7 +29,7 @@ source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 # Setup python venv with pyarrow
 init_python_virtual_env ".ts_bench_venv"
 pip install -q pyarrow numpy
-trap 'delete_python_virtual_env .ts_bench_venv' EXIT
+trap 'LOCAL_CONDA_INIT="${LOCAL_CONDA_INIT:-}"; delete_python_virtual_env .ts_bench_venv' EXIT
 
 COORDINATOR="${PRESTO_COORDINATOR:-presto-coordinator}"
 PORT="${PRESTO_PORT:-8080}"
