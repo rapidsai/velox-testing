@@ -18,14 +18,15 @@ set -euo pipefail
 COORDINATOR="${PRESTO_COORDINATOR:-presto-coordinator}"
 PORT="${PRESTO_PORT:-8080}"
 SF="${2:-10}"
-TABLE="hive.default.ts_bench_sf${SF}"
+SCHEMA="${HIVE_SCHEMA:-default}"
+TABLE="hive.${SCHEMA}.ts_bench_sf${SF}"
 RUNS="${BENCHMARK_RUNS:-3}"
 
 cli() {
   docker exec -i "${COORDINATOR}" presto-cli \
     --server "localhost:${PORT}" \
     --catalog hive \
-    --schema default \
+    --schema "${SCHEMA}" \
     "$@"
 }
 
@@ -44,9 +45,31 @@ run_query() {
   echo "${elapsed}"
 }
 
+ensure_schema() {
+  echo "Ensuring schema hive.${SCHEMA} exists..."
+  cli --execute "CREATE SCHEMA IF NOT EXISTS hive.${SCHEMA}" 2>/dev/null || {
+    # Check if schema already exists (CREATE SCHEMA may not be supported)
+    local schemas
+    schemas=$(cli --execute "SHOW SCHEMAS IN hive" 2>/dev/null || true)
+    if echo "${schemas}" | grep -qw "${SCHEMA}"; then
+      echo "Schema hive.${SCHEMA} already exists."
+    else
+      echo "ERROR: Schema hive.${SCHEMA} does not exist and could not be created."
+      echo "Available schemas:"
+      echo "${schemas}"
+      echo ""
+      echo "Set HIVE_SCHEMA=<schema> to use a different schema."
+      exit 1
+    fi
+  }
+  echo "Schema hive.${SCHEMA} is ready."
+}
+
 setup_data() {
   echo "=== Setting up timestamp benchmark table: ${TABLE} (sf${SF}) ==="
   echo "This may take a few minutes for large scale factors..."
+
+  ensure_schema
 
   cli --execute "DROP TABLE IF EXISTS ${TABLE}" 2>/dev/null || true
 
