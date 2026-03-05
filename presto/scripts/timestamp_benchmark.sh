@@ -63,14 +63,25 @@ preflight_check() {
   fi
   echo "  Coordinator is up."
 
-  # Check at least one worker via REST API (/v1/node returns workers only)
-  local worker_count
-  worker_count=$(docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/node" 2>/dev/null | grep -c '"uri"' || echo "0")
+  # Wait for at least one worker to register
+  local worker_retries=30
+  local worker_count=0
+  for i in $(seq 1 ${worker_retries}); do
+    local node_json
+    node_json=$(docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/node" 2>/dev/null || echo "[]")
+    worker_count=$(echo "${node_json}" | grep -o '"uri"' | wc -l)
+    if [ "${worker_count}" -gt 0 ]; then
+      break
+    fi
+    echo "  Waiting for workers (attempt ${i}/${worker_retries})..."
+    sleep 2
+  done
+
   if [ "${worker_count}" -eq 0 ]; then
-    echo "WARNING: No active worker nodes found. Queries may fail."
-  else
-    echo "  ${worker_count} active worker(s) found."
+    echo "ERROR: No active worker nodes found after ${worker_retries} attempts."
+    exit 1
   fi
+  echo "  ${worker_count} active worker(s) found."
   echo ""
 }
 
