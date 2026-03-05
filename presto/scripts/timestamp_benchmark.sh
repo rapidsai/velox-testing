@@ -509,6 +509,16 @@ def normalize_row(row_str):
     parts = [p.strip('"') for p in parts]
     return tuple(normalize_value(p) for p in parts)
 
+def sort_key(row):
+    """Sort key that handles numeric values correctly."""
+    result = []
+    for v in row:
+        try:
+            result.append((0, float(v), v))
+        except ValueError:
+            result.append((1, 0, v))
+    return result
+
 def run_presto(sql):
     """Run query via presto-cli and return normalized rows."""
     cmd = [
@@ -525,7 +535,7 @@ def run_presto(sql):
     for line in result.stdout.strip().split("\n"):
         if line.strip():
             rows.append(normalize_row(line))
-    return sorted(rows), None
+    return sorted(rows, key=sort_key), None
 
 def run_duckdb(sql):
     """Run query via DuckDB and return normalized rows."""
@@ -537,7 +547,7 @@ def run_duckdb(sql):
     for row in result:
         normalized = tuple(normalize_value(str(v)) for v in row)
         rows.append(normalized)
-    return sorted(rows)
+    return sorted(rows, key=sort_key)
 
 passed = 0
 failed = 0
