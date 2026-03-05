@@ -391,18 +391,37 @@ run_benchmark() {
     echo "No worker containers found. Skipping fallback check."
   else
     local unexpected_fallbacks=0
+    local expected_count=0
     for w in ${workers}; do
-      local fallbacks
-      fallbacks=$(docker logs "${w}" 2>&1 | grep "Replacement with cuDF operator failed" | grep -v "PartitionedOutput\|LocalMerge\|CallbackSink\|Values" || true)
-      if [ -n "${fallbacks}" ]; then
+      # Grep for "Replacement Failed Operator:" lines which contain the operator name
+      local all_fallbacks
+      all_fallbacks=$(docker logs "${w}" 2>&1 | grep "Replacement Failed Operator:" || true)
+      if [ -z "${all_fallbacks}" ]; then
+        continue
+      fi
+
+      # Filter out expected fallbacks
+      local unexpected
+      unexpected=$(echo "${all_fallbacks}" | grep -v "PartitionedOutput\|LocalMerge\|CallbackSink\|Values" || true)
+      local expected
+      expected=$(echo "${all_fallbacks}" | grep "PartitionedOutput\|LocalMerge\|CallbackSink\|Values" || true)
+
+      if [ -n "${expected}" ]; then
+        expected_count=$(( expected_count + $(echo "${expected}" | wc -l) ))
+      fi
+
+      if [ -n "${unexpected}" ]; then
         echo "UNEXPECTED fallbacks on ${w}:"
-        echo "${fallbacks}" | head -10
+        echo "${unexpected}" | head -10
         unexpected_fallbacks=1
       fi
     done
+
     if [ "${unexpected_fallbacks}" -eq 0 ]; then
-      echo "No unexpected GPU fallbacks detected."
-      echo "(PartitionedOutput[SINGLE], LocalMerge, CallbackSink, Values fallbacks are expected)"
+      echo "OK: No unexpected GPU fallbacks."
+      if [ "${expected_count}" -gt 0 ]; then
+        echo "  (${expected_count} expected fallbacks: PartitionedOutput[SINGLE], LocalMerge, etc.)"
+      fi
     fi
   fi
 }
