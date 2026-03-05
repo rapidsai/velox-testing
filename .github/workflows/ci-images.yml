@@ -189,18 +189,22 @@ jobs:
             cuda_version: '12.9'
             build_type: gpu-cuda12.9
             cudf: 'ON'
+            cuda_architectures: '70;75;80;86;90;100;120'
           - arch: arm64
             cuda_version: '12.9'
             build_type: gpu-cuda12.9
             cudf: 'ON'
+            cuda_architectures: '70;75;80;86;90;100;120'
           - arch: amd64
             cuda_version: '13.1'
             build_type: gpu-cuda13.1
             cudf: 'ON'
+            cuda_architectures: '75;80;86;90;100;120'
           - arch: arm64
             cuda_version: '13.1'
             build_type: gpu-cuda13.1
             cudf: 'ON'
+            cuda_architectures: '75;80;86;90;100;120'
           # CPU builds
           - arch: amd64
             build_type: cpu
@@ -308,6 +312,7 @@ jobs:
           build-args: |
             BUILD_WITH_VELOX_ENABLE_CUDF=${{ matrix.cudf }}
             CUDA_VERSION=${{ matrix.cuda_version || '12.9' }}
+            CUDA_ARCHITECTURES=${{ matrix.cuda_architectures || '70' }}
             ENABLE_SCCACHE=ON
             NUM_THREADS=16
           secret-files: |
@@ -442,18 +447,22 @@ jobs:
             cuda_version: '12.9'
             build_type: gpu-cuda12.9
             gpu_flag: 'ON'
+            cuda_architectures: '70;75;80;86;90;100;120'
           - arch: arm64
             cuda_version: '12.9'
             build_type: gpu-cuda12.9
             gpu_flag: 'ON'
+            cuda_architectures: '70;75;80;86;90;100;120'
           - arch: amd64
             cuda_version: '13.1'
             build_type: gpu-cuda13.1
             gpu_flag: 'ON'
+            cuda_architectures: '75;80;86;90;100;120'
           - arch: arm64
             cuda_version: '13.1'
             build_type: gpu-cuda13.1
             gpu_flag: 'ON'
+            cuda_architectures: '75;80;86;90;100;120'
           # CPU builds
           - arch: amd64
             build_type: cpu
@@ -571,7 +580,7 @@ jobs:
             GPU=${{ matrix.gpu_flag }}
             ENABLE_SCCACHE=ON
             NUM_THREADS=16
-            CUDA_ARCHITECTURES=${{ matrix.build_type != 'cpu' && '"75;80;86;90;100;120"' || '"70"' }}
+            CUDA_ARCHITECTURES=${{ matrix.cuda_architectures || '70' }}
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
