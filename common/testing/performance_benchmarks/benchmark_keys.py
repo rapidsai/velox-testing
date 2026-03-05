@@ -25,7 +25,7 @@ class BenchmarkKeys(str, Enum):
     TIMESTAMP_KEY = "timestamp"
     NUM_WORKERS_KEY = "n_workers"
     GPU_NAME_KEY = "gpu_name"
-    WORKER_IMAGE_KEY = "worker_image"
+
     ENGINE_KEY = "engine"
     KIND_KEY = "kind"
     GPU_COUNT_KEY = "gpu_count"
