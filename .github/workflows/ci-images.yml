@@ -173,7 +173,7 @@ jobs:
   velox-build:
     name: velox-build (${{ matrix.build_type }}, ${{ matrix.arch }})
     needs: [resolve-commits, velox-deps]
-    runs-on: linux-${{ matrix.arch }}-cpu16
+    runs-on: linux-${{ matrix.arch }}-cpu32
     permissions:
       contents: read
       id-token: write
@@ -311,10 +311,10 @@ jobs:
             ghcr.io/facebookincubator/velox-dev:adapters=docker-image://${{ steps.deps.outputs.image }}
           build-args: |
             BUILD_WITH_VELOX_ENABLE_CUDF=${{ matrix.cudf }}
-            CUDA_VERSION=${{ matrix.cuda_version || '12.9' }}
             CUDA_ARCHITECTURES=${{ matrix.cuda_architectures || '70' }}
+            CUDA_VERSION=${{ matrix.cuda_version || '12.9' }}
             ENABLE_SCCACHE=ON
-            NUM_THREADS=16
+            NUM_THREADS=31
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
@@ -431,7 +431,7 @@ jobs:
   presto-build:
     name: presto-build (${{ matrix.build_type }}, ${{ matrix.arch }})
     needs: [resolve-commits, presto-deps]
-    runs-on: linux-${{ matrix.arch }}-cpu16
+    runs-on: linux-${{ matrix.arch }}-cpu32
     permissions:
       contents: read
       id-token: write
@@ -577,10 +577,10 @@ jobs:
           build-contexts: |
             presto/prestissimo-dependency:centos9=docker-image://${{ steps.deps.outputs.image }}
           build-args: |
-            GPU=${{ matrix.gpu_flag }}
-            ENABLE_SCCACHE=ON
-            NUM_THREADS=16
             CUDA_ARCHITECTURES=${{ matrix.cuda_architectures || '70' }}
+            ENABLE_SCCACHE=ON
+            GPU=${{ matrix.gpu_flag }}
+            NUM_THREADS=31
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
