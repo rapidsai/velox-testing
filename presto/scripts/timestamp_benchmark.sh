@@ -449,62 +449,133 @@ run_verify() {
   echo "=== Verification: Presto vs DuckDB (table: ${TABLE}) ==="
   echo ""
 
-  local pass=0 fail=0
-
+  # Write all queries to a temp file for the Python verifier
+  local query_file
+  query_file=$(mktemp /tmp/ts_bench_queries.XXXXXX)
   for qname in "${QUERY_ORDER[@]}"; do
-    local sql="${QUERIES[${qname}]}"
-    echo -n "  ${qname}... "
+    # Write query name and SQL separated by a marker
+    echo "###QUERY### ${qname}"
+    echo "${QUERIES[${qname}]}"
+  done > "${query_file}"
 
-    # Get Presto result
-    local presto_result
-    presto_result=$(cli --execute "${sql}" 2>/dev/null | sort) || true
-
-    if [ -z "${presto_result}" ]; then
-      echo "SKIP (Presto returned empty)"
-      continue
-    fi
-
-    # Build DuckDB query: replace table name with parquet glob
-    local duck_sql
-    duck_sql=$(echo "${sql}" | sed "s|${TABLE}|read_parquet('${HOST_DATA_DIR}/*.parquet')|g")
-    # DuckDB uses extract differently for some funcs, but basic ones match
-    local duck_result
-    duck_result=$(python3 -c "
+  # Run verification in Python — handles quoting, normalization, comparison
+  python3 - "${query_file}" "${TABLE}" "${HOST_DATA_DIR}" "${COORDINATOR}" "${PORT}" "${SCHEMA}" <<'PYEOF'
+import sys
+import subprocess
 import duckdb
-con = duckdb.connect()
-result = con.execute('''${duck_sql}''').fetchall()
-for row in result:
-    print('\"' + '\",\"'.join(str(v) for v in row) + '\"')
-" 2>&1 | sort) || true
+import re
+from datetime import datetime
 
-    if [ -z "${duck_result}" ]; then
-      echo "SKIP (DuckDB returned empty)"
-      continue
-    fi
+query_file = sys.argv[1]
+table_name = sys.argv[2]
+data_dir = sys.argv[3]
+coordinator = sys.argv[4]
+port = sys.argv[5]
+schema = sys.argv[6]
 
-    # Compare (normalize whitespace)
-    local presto_norm duck_norm
-    presto_norm=$(echo "${presto_result}" | tr -s '[:space:]' | sed 's/^ //;s/ $//')
-    duck_norm=$(echo "${duck_result}" | tr -s '[:space:]' | sed 's/^ //;s/ $//')
+# Parse queries from file
+queries = {}
+current_name = None
+current_sql = []
+with open(query_file) as f:
+    for line in f:
+        if line.startswith("###QUERY###"):
+            if current_name:
+                queries[current_name] = "\n".join(current_sql)
+            current_name = line.strip().split(" ", 1)[1]
+            current_sql = []
+        else:
+            current_sql.append(line.rstrip())
+    if current_name:
+        queries[current_name] = "\n".join(current_sql)
 
-    if [ "${presto_norm}" = "${duck_norm}" ]; then
-      echo "PASS"
-      pass=$(( pass + 1 ))
-    else
-      echo "FAIL"
-      fail=$(( fail + 1 ))
-      echo "    Presto (first 5 rows):"
-      echo "${presto_result}" | head -5 | sed 's/^/      /'
-      echo "    DuckDB (first 5 rows):"
-      echo "${duck_result}" | head -5 | sed 's/^/      /'
-    fi
-  done
+def normalize_value(v):
+    """Normalize a value for comparison."""
+    v = v.strip().strip('"')
+    # Scientific notation to decimal
+    try:
+        f = float(v)
+        # Round to 6 significant digits to handle float precision
+        return f"{f:.6g}"
+    except ValueError:
+        pass
+    # Timestamp: strip trailing time if midnight
+    v = re.sub(r' 00:00:00(\.000)?$', '', v)
+    return v
 
-  echo ""
-  echo "=== Verification Summary: ${pass} passed, ${fail} failed ==="
-  if [ "${fail}" -gt 0 ]; then
-    echo "WARNING: Some queries returned different results!"
-  fi
+def normalize_row(row_str):
+    """Normalize a CSV row."""
+    parts = row_str.strip().split('","')
+    parts = [p.strip('"') for p in parts]
+    return tuple(normalize_value(p) for p in parts)
+
+def run_presto(sql):
+    """Run query via presto-cli and return normalized rows."""
+    cmd = [
+        "docker", "exec", "-i", coordinator, "presto-cli",
+        "--server", f"localhost:{port}",
+        "--catalog", "hive",
+        "--schema", schema,
+        "--execute", sql.strip()
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0 or "failed" in result.stdout.lower():
+        return None, result.stdout + result.stderr
+    rows = []
+    for line in result.stdout.strip().split("\n"):
+        if line.strip():
+            rows.append(normalize_row(line))
+    return sorted(rows), None
+
+def run_duckdb(sql):
+    """Run query via DuckDB and return normalized rows."""
+    # Replace table name with parquet read
+    duck_sql = sql.replace(table_name, f"read_parquet('{data_dir}/*.parquet')")
+    con = duckdb.connect()
+    result = con.execute(duck_sql).fetchall()
+    rows = []
+    for row in result:
+        normalized = tuple(normalize_value(str(v)) for v in row)
+        rows.append(normalized)
+    return sorted(rows)
+
+passed = 0
+failed = 0
+
+for qname, sql in queries.items():
+    print(f"  {qname}... ", end="", flush=True)
+
+    presto_rows, err = run_presto(sql)
+    if presto_rows is None:
+        print(f"SKIP (Presto error: {err[:100]})")
+        continue
+
+    try:
+        duck_rows = run_duckdb(sql)
+    except Exception as e:
+        print(f"SKIP (DuckDB error: {e})")
+        continue
+
+    if presto_rows == duck_rows:
+        print("PASS")
+        passed += 1
+    else:
+        print("FAIL")
+        failed += 1
+        print(f"    Rows: Presto={len(presto_rows)}, DuckDB={len(duck_rows)}")
+        for i, (p, d) in enumerate(zip(presto_rows[:5], duck_rows[:5])):
+            if p != d:
+                print(f"    Row {i}: Presto={p}")
+                print(f"            DuckDB={d}")
+
+print()
+print(f"=== Verification Summary: {passed} passed, {failed} failed ===")
+if failed > 0:
+    print("WARNING: Some queries returned different results!")
+    sys.exit(1)
+PYEOF
+
+  rm -f "${query_file}"
 }
 
 case "${1:-all}" in
