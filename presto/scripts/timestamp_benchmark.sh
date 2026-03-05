@@ -46,12 +46,11 @@ preflight_check() {
     exit 1
   fi
 
-  # Check coordinator responds
+  # Check coordinator responds via HTTP API (doesn't need presto-cli)
   local retries=5
   local ok=false
   for i in $(seq 1 ${retries}); do
-    if docker exec -i "${COORDINATOR}" presto-cli --server "localhost:${PORT}" \
-        --execute "SELECT 1" > /dev/null 2>&1; then
+    if docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/info" > /dev/null 2>&1; then
       ok=true
       break
     fi
@@ -64,16 +63,13 @@ preflight_check() {
   fi
   echo "  Coordinator is up."
 
-  # Check at least one worker
-  local nodes
-  nodes=$(docker exec -i "${COORDINATOR}" presto-cli --server "localhost:${PORT}" \
-    --execute "SELECT node_id FROM system.runtime.nodes WHERE coordinator = false AND state = 'active'" 2>/dev/null || true)
-  if [ -z "${nodes}" ]; then
-    echo "WARNING: No active worker nodes found. Queries may fail or run on coordinator only."
+  # Check at least one worker via REST API
+  local node_count
+  node_count=$(docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/node" 2>/dev/null | grep -c '"uri"' || echo "0")
+  if [ "${node_count}" -le 1 ]; then
+    echo "WARNING: No active worker nodes found (only coordinator). Queries may run on coordinator only."
   else
-    local worker_count
-    worker_count=$(echo "${nodes}" | wc -l)
-    echo "  ${worker_count} active worker(s) found."
+    echo "  $((node_count - 1)) active worker(s) found."
   fi
   echo ""
 }
