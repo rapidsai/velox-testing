@@ -295,6 +295,7 @@ jobs:
           build-args: |
             BUILD_WITH_VELOX_ENABLE_CUDF=${{ matrix.cudf }}
             CUDA_VERSION=${{ matrix.cuda_version || '12.9' }}
+            ENABLE_SCCACHE=ON
             NUM_THREADS=16
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
@@ -542,6 +543,7 @@ jobs:
             presto/prestissimo-dependency:centos9=docker-image://${{ steps.deps.outputs.image }}
           build-args: |
             GPU=${{ matrix.gpu_flag }}
+            ENABLE_SCCACHE=ON
             NUM_THREADS=16
             CUDA_ARCHITECTURES=${{ matrix.build_type != 'cpu' && '"75;80;86;90;100;120"' || '"70"' }}
           secret-files: |
