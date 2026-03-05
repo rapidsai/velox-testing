@@ -53,13 +53,24 @@ run_query() {
   local session="$2"
   local sql="$3"
 
-  echo -n "  [${label}] running... "
+  echo -n "  [${label}] running... " >&2
   local start end elapsed
   start=$(date +%s%N)
-  cli --session "${session}" --execute "${sql}" > /dev/null 2>&1
+  local query_output
+  query_output=$(cli --session "${session}" --execute "${sql}" 2>&1) || true
   end=$(date +%s%N)
   elapsed=$(( (end - start) / 1000000 ))
-  echo "${elapsed} ms"
+
+  # Check for query failure
+  if echo "${query_output}" | grep -q "failed\|error\|FAILED"; then
+    echo "FAILED (${elapsed} ms)" >&2
+    echo "    Query error: ${query_output}" >&2
+    echo "-1"
+    return
+  fi
+
+  echo "${elapsed} ms" >&2
+  # Return only the number on stdout
   echo "${elapsed}"
 }
 
@@ -321,14 +332,42 @@ run_benchmark() {
     gpu_median=$(grep "^${qname},gpu," "${results_file}" | cut -d, -f4 | sort -n | sed -n "$((( RUNS + 1 ) / 2))p")
     cpu_median=$(grep "^${qname},cpu," "${results_file}" | cut -d, -f4 | sort -n | sed -n "$((( RUNS + 1 ) / 2))p")
 
-    if [ -n "${gpu_median}" ] && [ "${gpu_median}" -gt 0 ]; then
-      local speedup
-      speedup=$(echo "scale=2; ${cpu_median} / ${gpu_median}" | bc 2>/dev/null || echo "N/A")
-      printf "%-25s %10s %10s %10sx\n" "${qname}" "${gpu_median}" "${cpu_median}" "${speedup}"
+    if [ -n "${gpu_median}" ] && [ "${gpu_median}" != "-1" ] && [ "${gpu_median}" -gt 0 ] 2>/dev/null; then
+      if [ -n "${cpu_median}" ] && [ "${cpu_median}" != "-1" ] && [ "${cpu_median}" -gt 0 ] 2>/dev/null; then
+        local speedup
+        speedup=$(echo "scale=2; ${cpu_median} / ${gpu_median}" | bc 2>/dev/null || echo "N/A")
+        printf "%-25s %10s %10s %10sx\n" "${qname}" "${gpu_median}" "${cpu_median}" "${speedup}"
+      else
+        printf "%-25s %10s %10s %10s\n" "${qname}" "${gpu_median}" "FAILED" "N/A"
+      fi
     else
-      printf "%-25s %10s %10s %10s\n" "${qname}" "${gpu_median:-N/A}" "${cpu_median:-N/A}" "N/A"
+      printf "%-25s %10s %10s %10s\n" "${qname}" "${gpu_median:-FAILED}" "${cpu_median:-N/A}" "N/A"
     fi
   done
+
+  # Check for unexpected GPU fallbacks
+  echo ""
+  echo "=== Fallback Check ==="
+  local workers
+  workers=$(docker ps --format '{{.Names}}' | grep -i worker || true)
+  if [ -z "${workers}" ]; then
+    echo "No worker containers found. Skipping fallback check."
+  else
+    local unexpected_fallbacks=0
+    for w in ${workers}; do
+      local fallbacks
+      fallbacks=$(docker logs "${w}" 2>&1 | grep "Replacement with cuDF operator failed" | grep -v "PartitionedOutput\|LocalMerge\|CallbackSink\|Values" || true)
+      if [ -n "${fallbacks}" ]; then
+        echo "UNEXPECTED fallbacks on ${w}:"
+        echo "${fallbacks}" | head -10
+        unexpected_fallbacks=1
+      fi
+    done
+    if [ "${unexpected_fallbacks}" -eq 0 ]; then
+      echo "No unexpected GPU fallbacks detected."
+      echo "(PartitionedOutput[SINGLE], LocalMerge, CallbackSink, Values fallbacks are expected)"
+    fi
+  fi
 }
 
 case "${1:-all}" in
