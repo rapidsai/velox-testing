@@ -15,7 +15,7 @@
 #   PRESTO_PORT         - coordinator port (default: 8080)
 #   HIVE_SCHEMA         - hive schema to use (default: default)
 #   BENCHMARK_RUNS      - number of runs per query (default: 3)
-#   DATA_DIR            - shared directory for parquet files (default: /data/ts_bench)
+#   PRESTO_DATA_DIR     - host data dir mounted into containers (required)
 #
 # Prerequisites:
 #   - Presto coordinator running with hive catalog
@@ -30,7 +30,8 @@ SF="${2:-10}"
 SCHEMA="${HIVE_SCHEMA:-default}"
 TABLE="hive.${SCHEMA}.ts_bench_sf${SF}"
 RUNS="${BENCHMARK_RUNS:-3}"
-DATA_DIR="${DATA_DIR:-/data/ts_bench/sf${SF}}"
+HOST_DATA_DIR="${PRESTO_DATA_DIR:?PRESTO_DATA_DIR must be set}/ts_bench/sf${SF}"
+CONTAINER_DATA_DIR="/var/lib/presto/data/hive/data/user_data/ts_bench/sf${SF}"
 
 cli() {
   docker exec -i "${COORDINATOR}" presto-cli \
@@ -151,8 +152,8 @@ setup_data() {
 
   ensure_schema
 
-  # Generate parquet files
-  generate_parquet "${num_rows}" "${DATA_DIR}"
+  # Generate parquet files on host
+  generate_parquet "${num_rows}" "${HOST_DATA_DIR}"
 
   # Drop old table if exists
   cli --execute "DROP TABLE IF EXISTS ${TABLE}" 2>/dev/null || true
@@ -174,7 +175,7 @@ setup_data() {
     )
     WITH (
       format = 'PARQUET',
-      external_location = '${DATA_DIR}'
+      external_location = 'file://${CONTAINER_DATA_DIR}'
     )
   "
 
@@ -185,9 +186,9 @@ setup_data() {
 
   if [ "${count_result}" = "0" ] || [ -z "${count_result}" ]; then
     echo ""
-    echo "WARNING: Table appears empty. Check that DATA_DIR=${DATA_DIR}"
-    echo "is accessible from the Presto workers (shared filesystem / mount)."
-    echo "You may need to set DATA_DIR to a path visible inside the containers."
+    echo "WARNING: Table appears empty. Check that PRESTO_DATA_DIR=${PRESTO_DATA_DIR}"
+    echo "is mounted into containers at /var/lib/presto/data/hive/data/user_data"
+    echo "Container path: ${CONTAINER_DATA_DIR}"
   fi
   echo ""
 }
