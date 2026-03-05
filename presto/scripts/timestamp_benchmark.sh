@@ -20,9 +20,16 @@
 # Prerequisites:
 #   - Presto coordinator running with hive catalog
 #   - Workers running with cuDF enabled
-#   - Python3 with pyarrow available on the host or in a container
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
+
+# Setup python venv with pyarrow
+init_python_virtual_env ".ts_bench_venv"
+pip install -q pyarrow numpy
+trap 'delete_python_virtual_env .ts_bench_venv' EXIT
 
 COORDINATOR="${PRESTO_COORDINATOR:-presto-coordinator}"
 PORT="${PRESTO_PORT:-8080}"
