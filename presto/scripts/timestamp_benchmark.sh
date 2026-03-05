@@ -5,13 +5,22 @@
 #   ./timestamp_benchmark.sh [setup|bench|all] [sf]
 #
 # Examples:
-#   ./timestamp_benchmark.sh setup 10     # Create table from tpch sf10 (~60M rows)
+#   ./timestamp_benchmark.sh setup 1      # Create table (~6M rows)
+#   ./timestamp_benchmark.sh setup 10     # Create table (~60M rows)
 #   ./timestamp_benchmark.sh bench        # Run benchmark queries
 #   ./timestamp_benchmark.sh all 10       # Setup + bench
 #
+# Environment:
+#   PRESTO_COORDINATOR  - coordinator container name (default: presto-coordinator)
+#   PRESTO_PORT         - coordinator port (default: 8080)
+#   HIVE_SCHEMA         - hive schema to use (default: default)
+#   BENCHMARK_RUNS      - number of runs per query (default: 3)
+#   DATA_DIR            - shared directory for parquet files (default: /data/ts_bench)
+#
 # Prerequisites:
-#   - Presto coordinator running with tpch and hive catalogs
+#   - Presto coordinator running with hive catalog
 #   - Workers running with cuDF enabled
+#   - Python3 with pyarrow available on the host or in a container
 
 set -euo pipefail
 
@@ -21,6 +30,7 @@ SF="${2:-10}"
 SCHEMA="${HIVE_SCHEMA:-default}"
 TABLE="hive.${SCHEMA}.ts_bench_sf${SF}"
 RUNS="${BENCHMARK_RUNS:-3}"
+DATA_DIR="${DATA_DIR:-/data/ts_bench/sf${SF}}"
 
 cli() {
   docker exec -i "${COORDINATOR}" presto-cli \
@@ -35,20 +45,19 @@ run_query() {
   local session="$2"
   local sql="$3"
 
-  echo "  [${label}] running..."
+  echo -n "  [${label}] running... "
   local start end elapsed
   start=$(date +%s%N)
   cli --session "${session}" --execute "${sql}" > /dev/null 2>&1
   end=$(date +%s%N)
   elapsed=$(( (end - start) / 1000000 ))
-  echo "  [${label}] ${elapsed} ms"
+  echo "${elapsed} ms"
   echo "${elapsed}"
 }
 
 ensure_schema() {
   echo "Ensuring schema hive.${SCHEMA} exists..."
   cli --execute "CREATE SCHEMA IF NOT EXISTS hive.${SCHEMA}" 2>/dev/null || {
-    # Check if schema already exists (CREATE SCHEMA may not be supported)
     local schemas
     schemas=$(cli --execute "SHOW SCHEMAS IN hive" 2>/dev/null || true)
     if echo "${schemas}" | grep -qw "${SCHEMA}"; then
@@ -57,7 +66,6 @@ ensure_schema() {
       echo "ERROR: Schema hive.${SCHEMA} does not exist and could not be created."
       echo "Available schemas:"
       echo "${schemas}"
-      echo ""
       echo "Set HIVE_SCHEMA=<schema> to use a different schema."
       exit 1
     fi
@@ -65,34 +73,122 @@ ensure_schema() {
   echo "Schema hive.${SCHEMA} is ready."
 }
 
+generate_parquet() {
+  local num_rows=$1
+  local out_dir=$2
+
+  echo "Generating ${num_rows} rows of timestamp data..."
+  python3 - "${num_rows}" "${out_dir}" <<'PYEOF'
+import sys
+import os
+import pyarrow as pa
+import pyarrow.parquet as pq
+import numpy as np
+from datetime import datetime
+
+num_rows = int(sys.argv[1])
+out_dir = sys.argv[2]
+os.makedirs(out_dir, exist_ok=True)
+
+rng = np.random.default_rng(42)
+
+# Generate data in chunks to manage memory
+chunk_size = min(num_rows, 5_000_000)
+file_idx = 0
+
+rows_remaining = num_rows
+while rows_remaining > 0:
+    n = min(chunk_size, rows_remaining)
+
+    orderkey = rng.integers(1, num_rows * 4, size=n, dtype=np.int64)
+    partkey = rng.integers(1, 200_000, size=n, dtype=np.int64)
+    suppkey = rng.integers(1, 10_000, size=n, dtype=np.int64)
+    quantity = rng.uniform(1.0, 50.0, size=n).astype(np.float64)
+    price = rng.uniform(900.0, 105000.0, size=n).astype(np.float64)
+
+    # Timestamps: 1992-01-01 to 1998-12-31 (~2557 days) with random hours
+    base_us = int(datetime(1992, 1, 1).timestamp() * 1_000_000)
+    day_offsets = rng.integers(0, 2557, size=n, dtype=np.int64)
+    hour_offsets = rng.integers(0, 24, size=n, dtype=np.int64)
+    minute_offsets = rng.integers(0, 60, size=n, dtype=np.int64)
+    second_offsets = rng.integers(0, 60, size=n, dtype=np.int64)
+
+    ship_us = base_us + day_offsets * 86400_000_000 + hour_offsets * 3600_000_000 + minute_offsets * 60_000_000 + second_offsets * 1_000_000
+    # commit ~7 days before ship, receipt ~3 days after ship
+    commit_us = ship_us - rng.integers(1, 14, size=n, dtype=np.int64) * 86400_000_000
+    receipt_us = ship_us + rng.integers(1, 30, size=n, dtype=np.int64) * 86400_000_000
+
+    returnflag = pa.array(rng.choice(['A', 'N', 'R'], size=n))
+    linestatus = pa.array(rng.choice(['F', 'O'], size=n))
+
+    table = pa.table({
+        'l_orderkey': pa.array(orderkey, type=pa.int64()),
+        'l_partkey': pa.array(partkey, type=pa.int64()),
+        'l_suppkey': pa.array(suppkey, type=pa.int64()),
+        'l_quantity': pa.array(quantity, type=pa.float64()),
+        'l_extendedprice': pa.array(price, type=pa.float64()),
+        'ship_ts': pa.array(ship_us, type=pa.timestamp('us')),
+        'commit_ts': pa.array(commit_us, type=pa.timestamp('us')),
+        'receipt_ts': pa.array(receipt_us, type=pa.timestamp('us')),
+        'l_returnflag': returnflag,
+        'l_linestatus': linestatus,
+    })
+
+    out_path = os.path.join(out_dir, f'part-{file_idx:05d}.parquet')
+    pq.write_table(table, out_path)
+    rows_remaining -= n
+    file_idx += 1
+    print(f'  Wrote {out_path} ({n} rows)')
+
+print(f'Done. {file_idx} file(s), {num_rows} total rows in {out_dir}')
+PYEOF
+}
+
 setup_data() {
-  echo "=== Setting up timestamp benchmark table: ${TABLE} (sf${SF}) ==="
-  echo "This may take a few minutes for large scale factors..."
+  local num_rows=$(( SF * 6000000 ))
+
+  echo "=== Setting up timestamp benchmark table: ${TABLE} (sf${SF}, ~${num_rows} rows) ==="
 
   ensure_schema
 
+  # Generate parquet files
+  generate_parquet "${num_rows}" "${DATA_DIR}"
+
+  # Drop old table if exists
   cli --execute "DROP TABLE IF EXISTS ${TABLE}" 2>/dev/null || true
 
+  # Create external table pointing to the parquet files
+  echo "Creating external Hive table ${TABLE}..."
   cli --execute "
-    CREATE TABLE ${TABLE}
-    WITH (format = 'PARQUET')
-    AS SELECT
-      l_orderkey,
-      l_partkey,
-      l_suppkey,
-      l_quantity,
-      l_extendedprice,
-      CAST(l_shipdate AS TIMESTAMP) AS ship_ts,
-      CAST(l_commitdate AS TIMESTAMP) AS commit_ts,
-      CAST(l_receiptdate AS TIMESTAMP) AS receipt_ts,
-      l_returnflag,
-      l_linestatus
-    FROM tpch.sf${SF}.lineitem
+    CREATE TABLE ${TABLE} (
+      l_orderkey BIGINT,
+      l_partkey BIGINT,
+      l_suppkey BIGINT,
+      l_quantity DOUBLE,
+      l_extendedprice DOUBLE,
+      ship_ts TIMESTAMP,
+      commit_ts TIMESTAMP,
+      receipt_ts TIMESTAMP,
+      l_returnflag VARCHAR,
+      l_linestatus VARCHAR
+    )
+    WITH (
+      format = 'PARQUET',
+      external_location = '${DATA_DIR}'
+    )
   "
 
-  local row_count
-  row_count=$(cli --execute "SELECT count(*) FROM ${TABLE}" 2>/dev/null | tr -d '[:space:]')
-  echo "Table ${TABLE} created with ${row_count} rows."
+  echo "Verifying table..."
+  local count_result
+  count_result=$(cli --execute "SELECT count(*) FROM ${TABLE}" 2>/dev/null | tr -d '"[:space:]')
+  echo "Table ${TABLE} created with ${count_result} rows."
+
+  if [ "${count_result}" = "0" ] || [ -z "${count_result}" ]; then
+    echo ""
+    echo "WARNING: Table appears empty. Check that DATA_DIR=${DATA_DIR}"
+    echo "is accessible from the Presto workers (shared filesystem / mount)."
+    echo "You may need to set DATA_DIR to a path visible inside the containers."
+  fi
   echo ""
 }
 
@@ -167,7 +263,16 @@ run_benchmark() {
   echo "=== Timestamp Benchmark (${RUNS} runs per query, table: ${TABLE}) ==="
   echo ""
 
-  # Results file
+  # Verify table has data
+  local count_result
+  count_result=$(cli --execute "SELECT count(*) FROM ${TABLE}" 2>/dev/null | tr -d '"[:space:]')
+  if [ "${count_result}" = "0" ] || [ -z "${count_result}" ]; then
+    echo "ERROR: Table ${TABLE} is empty. Run setup first."
+    exit 1
+  fi
+  echo "Table has ${count_result} rows."
+  echo ""
+
   local results_file="timestamp_benchmark_results_$(date +%Y%m%d_%H%M%S).csv"
   echo "query,mode,run,elapsed_ms" > "${results_file}"
 
