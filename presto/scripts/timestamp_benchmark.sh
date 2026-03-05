@@ -284,9 +284,12 @@ run_benchmark() {
 
   # Verify table has data
   local count_result
-  count_result=$(cli --execute "SELECT count(*) FROM ${TABLE}" 2>/dev/null | tr -d '"[:space:]')
-  if [ "${count_result}" = "0" ] || [ -z "${count_result}" ]; then
-    echo "ERROR: Table ${TABLE} is empty. Run setup first."
+  echo "Verifying table ${TABLE}..."
+  count_result=$(cli --execute "SELECT count(*) FROM ${TABLE}" 2>&1 | tr -d '"[:space:]') || true
+  echo "Count result: '${count_result}'"
+  if [ -z "${count_result}" ] || [ "${count_result}" = "0" ]; then
+    echo "ERROR: Table ${TABLE} is empty or not accessible. Run setup first."
+    echo "Try: $0 setup ${SF}"
     exit 1
   fi
   echo "Table has ${count_result} rows."
