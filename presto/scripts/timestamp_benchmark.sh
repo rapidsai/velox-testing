@@ -34,6 +34,51 @@ trap 'LOCAL_CONDA_INIT="${LOCAL_CONDA_INIT:-}"; delete_python_virtual_env .ts_be
 COORDINATOR="${PRESTO_COORDINATOR:-presto-coordinator}"
 PORT="${PRESTO_PORT:-8080}"
 SF="${2:-10}"
+
+# Preflight: check coordinator and at least one worker are alive
+preflight_check() {
+  echo "Checking Presto cluster..."
+
+  # Check coordinator container is running
+  if ! docker ps --format '{{.Names}}' | grep -qw "${COORDINATOR}"; then
+    echo "ERROR: Coordinator container '${COORDINATOR}' is not running."
+    echo "Running containers: $(docker ps --format '{{.Names}}' | tr '\n' ' ')"
+    exit 1
+  fi
+
+  # Check coordinator responds
+  local retries=5
+  local ok=false
+  for i in $(seq 1 ${retries}); do
+    if docker exec -i "${COORDINATOR}" presto-cli --server "localhost:${PORT}" \
+        --execute "SELECT 1" > /dev/null 2>&1; then
+      ok=true
+      break
+    fi
+    echo "  Waiting for coordinator (attempt ${i}/${retries})..."
+    sleep 2
+  done
+  if ! ${ok}; then
+    echo "ERROR: Coordinator is not responding on port ${PORT}."
+    exit 1
+  fi
+  echo "  Coordinator is up."
+
+  # Check at least one worker
+  local nodes
+  nodes=$(docker exec -i "${COORDINATOR}" presto-cli --server "localhost:${PORT}" \
+    --execute "SELECT node_id FROM system.runtime.nodes WHERE coordinator = false AND state = 'active'" 2>/dev/null || true)
+  if [ -z "${nodes}" ]; then
+    echo "WARNING: No active worker nodes found. Queries may fail or run on coordinator only."
+  else
+    local worker_count
+    worker_count=$(echo "${nodes}" | wc -l)
+    echo "  ${worker_count} active worker(s) found."
+  fi
+  echo ""
+}
+
+preflight_check
 SCHEMA="${HIVE_SCHEMA:-default}"
 TABLE="hive.${SCHEMA}.ts_bench_sf${SF}"
 RUNS="${BENCHMARK_RUNS:-3}"
