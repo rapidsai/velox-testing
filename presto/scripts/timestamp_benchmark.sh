@@ -50,27 +50,25 @@ cli() {
 
 run_query() {
   local label="$1"
-  local session="$2"
-  local sql="$3"
+  local sql="$2"
 
   echo -n "  [${label}] running... " >&2
   local start end elapsed
   start=$(date +%s%N)
   local query_output
-  query_output=$(cli --session "${session}" --execute "${sql}" 2>&1) || true
+  query_output=$(cli --execute "${sql}" 2>&1) || true
   end=$(date +%s%N)
   elapsed=$(( (end - start) / 1000000 ))
 
   # Check for query failure
-  if echo "${query_output}" | grep -q "failed\|error\|FAILED"; then
+  if echo "${query_output}" | grep -qi "failed\|error"; then
     echo "FAILED (${elapsed} ms)" >&2
-    echo "    Query error: ${query_output}" >&2
+    echo "    ${query_output}" >&2
     echo "-1"
     return
   fi
 
   echo "${elapsed} ms" >&2
-  # Return only the number on stdout
   echo "${elapsed}"
 }
 
@@ -193,7 +191,7 @@ setup_data() {
     )
     WITH (
       format = 'PARQUET',
-      external_location = 'file://${CONTAINER_DATA_DIR}'
+      external_location = 'file:${CONTAINER_DATA_DIR}'
     )
   "
 
@@ -295,8 +293,13 @@ run_benchmark() {
   echo "Table has ${count_result} rows."
   echo ""
 
-  local results_file="timestamp_benchmark_results_$(date +%Y%m%d_%H%M%S).csv"
-  echo "query,mode,run,elapsed_ms" > "${results_file}"
+  local mode="${BENCH_MODE:-gpu}"
+  local results_file="timestamp_benchmark_${mode}_$(date +%Y%m%d_%H%M%S).csv"
+  echo "query,run,elapsed_ms" > "${results_file}"
+
+  echo "Mode: ${mode} (set BENCH_MODE=gpu or BENCH_MODE=cpu to label runs)"
+  echo "Timing ${RUNS} runs per query against the running server config."
+  echo ""
 
   for qname in "${QUERY_ORDER[@]}"; do
     local sql="${QUERIES[${qname}]}"
@@ -307,17 +310,9 @@ run_benchmark() {
     cli --execute "${sql}" > /dev/null 2>&1 || true
 
     for run in $(seq 1 "${RUNS}"); do
-      echo "  Run ${run}/${RUNS}:"
-
-      # GPU
-      local gpu_ms
-      gpu_ms=$(run_query "GPU" "cudf.enabled=true" "${sql}")
-      echo "${qname},gpu,${run},${gpu_ms}" >> "${results_file}"
-
-      # CPU
-      local cpu_ms
-      cpu_ms=$(run_query "CPU" "cudf.enabled=false" "${sql}")
-      echo "${qname},cpu,${run},${cpu_ms}" >> "${results_file}"
+      local ms
+      ms=$(run_query "Run ${run}/${RUNS}" "${sql}")
+      echo "${qname},${run},${ms}" >> "${results_file}"
     done
     echo ""
   done
@@ -327,26 +322,24 @@ run_benchmark() {
 
   # Print summary
   echo "=== Summary (median of ${RUNS} runs) ==="
-  printf "%-25s %10s %10s %10s\n" "Query" "GPU (ms)" "CPU (ms)" "Speedup"
-  printf "%-25s %10s %10s %10s\n" "-------------------------" "----------" "----------" "----------"
+  printf "%-25s %12s\n" "Query" "Median (ms)"
+  printf "%-25s %12s\n" "-------------------------" "------------"
 
   for qname in "${QUERY_ORDER[@]}"; do
-    local gpu_median cpu_median
-    gpu_median=$(grep "^${qname},gpu," "${results_file}" | cut -d, -f4 | sort -n | sed -n "$((( RUNS + 1 ) / 2))p")
-    cpu_median=$(grep "^${qname},cpu," "${results_file}" | cut -d, -f4 | sort -n | sed -n "$((( RUNS + 1 ) / 2))p")
+    local median
+    median=$(grep "^${qname}," "${results_file}" | cut -d, -f3 | sort -n | sed -n "$((( RUNS + 1 ) / 2))p")
 
-    if [ -n "${gpu_median}" ] && [ "${gpu_median}" != "-1" ] && [ "${gpu_median}" -gt 0 ] 2>/dev/null; then
-      if [ -n "${cpu_median}" ] && [ "${cpu_median}" != "-1" ] && [ "${cpu_median}" -gt 0 ] 2>/dev/null; then
-        local speedup
-        speedup=$(echo "scale=2; ${cpu_median} / ${gpu_median}" | bc 2>/dev/null || echo "N/A")
-        printf "%-25s %10s %10s %10sx\n" "${qname}" "${gpu_median}" "${cpu_median}" "${speedup}"
-      else
-        printf "%-25s %10s %10s %10s\n" "${qname}" "${gpu_median}" "FAILED" "N/A"
-      fi
+    if [ -n "${median}" ] && [ "${median}" != "-1" ] 2>/dev/null; then
+      printf "%-25s %12s\n" "${qname}" "${median}"
     else
-      printf "%-25s %10s %10s %10s\n" "${qname}" "${gpu_median:-FAILED}" "${cpu_median:-N/A}" "N/A"
+      printf "%-25s %12s\n" "${qname}" "FAILED"
     fi
   done
+
+  echo ""
+  echo "To compare GPU vs CPU, run benchmark twice with different server configs:"
+  echo "  1. Start workers with cudf.enabled=true,  run: BENCH_MODE=gpu $0 bench ${SF}"
+  echo "  2. Start workers with cudf.enabled=false, run: BENCH_MODE=cpu $0 bench ${SF}"
 
   # Check for unexpected GPU fallbacks
   echo ""
