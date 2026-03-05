@@ -499,9 +499,7 @@ async def _process_benchmark_dir(
         return 1
 
     try:
-        results = BenchmarkResults.from_file(
-            result_file, benchmark_name=benchmark_metadata.benchmark
-        )
+        results = BenchmarkResults.from_file(result_file, benchmark_name=benchmark_metadata.benchmark)
     except (ValueError, KeyError, json.JSONDecodeError, FileNotFoundError) as e:
         print(f"  Error loading results: {e}", file=sys.stderr)
         return 1

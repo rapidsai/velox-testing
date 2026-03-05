@@ -44,9 +44,7 @@ def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_na
     """
     conn = None
     try:
-        conn = prestodb.dbapi.connect(
-            host=hostname, port=port, user=user, catalog="hive", schema=schema_name
-        )
+        conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema_name)
         cursor = conn.cursor()
         tables = cursor.execute(f"SHOW TABLES IN {schema_name}").fetchall()
         if not tables:
@@ -136,8 +134,7 @@ def _get_engine(hostname: str, port: int) -> str:
     engine = _CLUSTER_TAG_TO_ENGINE.get(tag)
     if engine is None:
         raise RuntimeError(
-            f"Unrecognised cluster-tag '{tag}'.  "
-            f"Expected one of: {', '.join(sorted(_CLUSTER_TAG_TO_ENGINE))}."
+            f"Unrecognised cluster-tag '{tag}'.  Expected one of: {', '.join(sorted(_CLUSTER_TAG_TO_ENGINE))}."
         )
     _debug(f"cluster-tag={tag!r} -> engine={engine!r}")
     return engine

@@ -65,7 +65,6 @@ def collect_metrics(query_id: str, query_name: str, hostname: str, port: int, ou
             json.dump(combined, f, indent=2)
 
 
-
 def _collect_worker_data(query_info: dict) -> tuple[dict, dict]:
     """Collect task details and metrics from each worker."""
     # Group tasks by worker
