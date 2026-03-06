@@ -153,37 +153,48 @@ ensure_schema() {
 generate_parquet() {
   local num_rows=$1
   local out_dir=$2
+  local num_workers=${GENERATE_WORKERS:-$(nproc)}
 
-  echo "Generating ${num_rows} rows of timestamp data..."
-  python3 - "${num_rows}" "${out_dir}" <<'PYEOF'
+  echo "Generating ${num_rows} rows of timestamp data (${num_workers} threads)..."
+  python3 - "${num_rows}" "${out_dir}" "${num_workers}" <<'PYEOF'
 import sys
 import os
 import pyarrow as pa
 import pyarrow.parquet as pq
 import numpy as np
 from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
 
 num_rows = int(sys.argv[1])
 out_dir = sys.argv[2]
+num_workers = int(sys.argv[3])
 os.makedirs(out_dir, exist_ok=True)
 
-rng = np.random.default_rng(42)
-
-# Generate data in chunks to manage memory
+# Split work into chunks
 chunk_size = min(num_rows, 5_000_000)
-file_idx = 0
-
+chunks = []
 rows_remaining = num_rows
+file_idx = 0
 while rows_remaining > 0:
     n = min(chunk_size, rows_remaining)
+    chunks.append((file_idx, n, num_rows))
+    rows_remaining -= n
+    file_idx += 1
 
-    orderkey = rng.integers(1, num_rows * 4, size=n, dtype=np.int64)
+total_files = len(chunks)
+
+def generate_chunk(args):
+    idx, n, total_rows = args
+    seed = 42 + idx  # Deterministic but different per chunk
+    rng = np.random.default_rng(seed)
+
+    orderkey = rng.integers(1, total_rows * 4, size=n, dtype=np.int64)
     partkey = rng.integers(1, 200_000, size=n, dtype=np.int64)
     suppkey = rng.integers(1, 10_000, size=n, dtype=np.int64)
     quantity = rng.uniform(1.0, 50.0, size=n).astype(np.float64)
     price = rng.uniform(900.0, 105000.0, size=n).astype(np.float64)
 
-    # Timestamps: 1992-01-01 to 1998-12-31 (~2557 days) with random hours
     base_us = int(datetime(1992, 1, 1).timestamp() * 1_000_000)
     day_offsets = rng.integers(0, 2557, size=n, dtype=np.int64)
     hour_offsets = rng.integers(0, 24, size=n, dtype=np.int64)
@@ -191,7 +202,6 @@ while rows_remaining > 0:
     second_offsets = rng.integers(0, 60, size=n, dtype=np.int64)
 
     ship_us = base_us + day_offsets * 86400_000_000 + hour_offsets * 3600_000_000 + minute_offsets * 60_000_000 + second_offsets * 1_000_000
-    # commit ~7 days before ship, receipt ~3 days after ship
     commit_us = ship_us - rng.integers(1, 14, size=n, dtype=np.int64) * 86400_000_000
     receipt_us = ship_us + rng.integers(1, 30, size=n, dtype=np.int64) * 86400_000_000
 
@@ -211,14 +221,37 @@ while rows_remaining > 0:
         'l_linestatus': linestatus,
     })
 
-    out_path = os.path.join(out_dir, f'part-{file_idx:05d}.parquet')
+    out_path = os.path.join(out_dir, f'part-{idx:05d}.parquet')
     pq.write_table(table, out_path)
-    rows_remaining -= n
-    file_idx += 1
-    print(f'  Wrote {out_path} ({n} rows)')
+    return idx, n, out_path
 
-print(f'Done. {file_idx} file(s), {num_rows} total rows in {out_dir}')
+completed = 0
+with ProcessPoolExecutor(max_workers=min(num_workers, total_files)) as pool:
+    futures = {pool.submit(generate_chunk, c): c for c in chunks}
+    for future in as_completed(futures):
+        idx, n, path = future.result()
+        completed += 1
+        pct = completed * 100 // total_files
+        bar = '=' * (pct // 2) + '>' + ' ' * (50 - pct // 2)
+        print(f'\r  [{bar}] {pct}% ({completed}/{total_files} files)', end='', flush=True)
+
+print(f'\n  Done. {total_files} file(s), {num_rows} total rows in {out_dir}')
 PYEOF
+}
+
+detect_cudf_mode() {
+  local workers
+  workers=$(docker ps --format '{{.Names}}' | grep -i worker | head -1 || true)
+  if [ -n "${workers}" ]; then
+    if docker logs "${workers}" 2>&1 | grep -q "cudf.enabled=true"; then
+      echo "gpu"
+      return
+    elif docker logs "${workers}" 2>&1 | grep -q "cuDF is registered"; then
+      echo "gpu"
+      return
+    fi
+  fi
+  echo "cpu"
 }
 
 setup_data() {
@@ -226,9 +259,23 @@ setup_data() {
 
   echo "=== Setting up timestamp benchmark table: ${TABLE} (sf${SF}, ~${num_rows} rows) ==="
 
+  # Check that workers are in CPU mode for setup (ANALYZE needs CPU)
+  local mode
+  mode=$(detect_cudf_mode)
+  if [ "${mode}" = "gpu" ]; then
+    echo ""
+    echo "ERROR: Setup requires workers running with cudf.enabled=false (CPU mode)."
+    echo "ANALYZE TABLE runs on the workers and may fail or produce wrong stats"
+    echo "when cuDF is enabled."
+    echo ""
+    echo "Please restart workers with cudf.enabled=false, then run setup again."
+    exit 1
+  fi
+  echo "Workers are in CPU mode. Good."
+
   ensure_schema
 
-  # Generate parquet files on host
+  # Generate parquet files on host (parallel)
   generate_parquet "${num_rows}" "${HOST_DATA_DIR}"
 
   # Drop old table if exists
@@ -265,7 +312,16 @@ setup_data() {
     echo "WARNING: Table appears empty. Check that PRESTO_DATA_DIR=${PRESTO_DATA_DIR}"
     echo "is mounted into containers at /var/lib/presto/data/hive/data/user_data"
     echo "Container path: ${CONTAINER_DATA_DIR}"
+    return
   fi
+
+  # Run ANALYZE to collect table statistics for query optimization
+  echo ""
+  echo "Running ANALYZE TABLE to collect statistics..."
+  cli --execute "ANALYZE ${TABLE}" 2>/dev/null || {
+    echo "WARNING: ANALYZE TABLE failed. Stats may not be available for query planning."
+  }
+  echo "Setup complete."
   echo ""
 }
 
