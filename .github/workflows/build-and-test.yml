@@ -56,9 +56,10 @@ jobs:
 
       - name: Resolve Presto commit
         id: presto
+        env:
+          PRESTO_REF: ${{ inputs.presto_commit }}
+          PRESTO_REPO: ${{ inputs.presto_repository }}
         run: |
-          PRESTO_REF="${{ inputs.presto_commit }}"
-          PRESTO_REPO="${{ inputs.presto_repository }}"
           SHA=$(git ls-remote "https://github.com/${PRESTO_REPO}.git" "${PRESTO_REF}" | head -1 | cut -f1)
           if [[ -z "$SHA" ]]; then
             SHA="${PRESTO_REF}"
@@ -71,13 +72,13 @@ jobs:
         id: velox
         env:
           GH_TOKEN: ${{ github.token }}
+          VELOX_REF: ${{ inputs.velox_commit }}
+          VELOX_REPO: ${{ inputs.velox_repository }}
+          PRESTO_REPO: ${{ inputs.presto_repository }}
+          PRESTO_SHA: ${{ steps.presto.outputs.sha }}
         run: |
-          VELOX_REF="${{ inputs.velox_commit }}"
-          VELOX_REPO="${{ inputs.velox_repository }}"
           if [[ "${VELOX_REF}" == "presto-pinned" ]]; then
             # Resolve the Velox SHA pinned by Presto's submodule
-            PRESTO_REPO="${{ inputs.presto_repository }}"
-            PRESTO_SHA="${{ steps.presto.outputs.sha }}"
             SHA=$(gh api "repos/${PRESTO_REPO}/contents/presto-native-execution/velox?ref=${PRESTO_SHA}" --jq '.sha')
             echo "Resolved Velox SHA from Presto submodule pin: ${SHA}"
           else
@@ -262,8 +263,10 @@ jobs:
           enable-dist: 'true'
 
       - name: Ensure sccache auth dir exists
+        env:
+          SCCACHE_ENABLED: ${{ steps.sccache.outputs.enabled }}
         run: |
-          if [[ "${{ steps.sccache.outputs.enabled }}" != "true" ]]; then
+          if [[ "${SCCACHE_ENABLED}" != "true" ]]; then
             echo "::error::sccache setup failed. sccache is required for ci-images builds."
             exit 1
           fi
@@ -273,23 +276,27 @@ jobs:
 
       - name: Determine deps image tag
         id: deps
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
+          ARCH: ${{ matrix.arch }}
+          CUDA: ${{ matrix.cuda_version || '12.9' }}
         run: |
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
-          ARCH="${{ matrix.arch }}"
-          CUDA="${{ matrix.cuda_version || '12.9' }}"
-          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${VSHA}-cuda${CUDA}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
+          ARCH: ${{ matrix.arch }}
+          BUILD_TYPE: ${{ matrix.build_type }}
+          CUDA_VERSION: ${{ matrix.cuda_version }}
         run: |
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
-          ARCH="${{ matrix.arch }}"
-          if [[ "${{ matrix.build_type }}" == "cpu" ]]; then
-            echo "tag=velox-${VSHA}-cpu-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          if [[ "${BUILD_TYPE}" == "cpu" ]]; then
+            echo "tag=velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=velox-${VSHA}-gpu-cuda${{ matrix.cuda_version }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Velox image
@@ -515,8 +522,10 @@ jobs:
           enable-dist: 'true'
 
       - name: Ensure sccache auth dir exists
+        env:
+          SCCACHE_ENABLED: ${{ steps.sccache.outputs.enabled }}
         run: |
-          if [[ "${{ steps.sccache.outputs.enabled }}" != "true" ]]; then
+          if [[ "${SCCACHE_ENABLED}" != "true" ]]; then
             echo "::error::sccache setup failed. sccache is required for ci-images builds."
             exit 1
           fi
@@ -526,25 +535,29 @@ jobs:
 
       - name: Determine deps image tag
         id: deps
+        env:
+          PRESTO_SHORT_SHA: ${{ needs.resolve-commits.outputs.presto_short_sha }}
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
+          ARCH: ${{ matrix.arch }}
+          CUDA: ${{ matrix.cuda_version || '12.9' }}
         run: |
-          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
-          ARCH="${{ matrix.arch }}"
-          CUDA="${{ matrix.cuda_version || '12.9' }}"
-          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${PSHA}-velox-${VSHA}-cuda${CUDA}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
+        env:
+          PRESTO_SHORT_SHA: ${{ needs.resolve-commits.outputs.presto_short_sha }}
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
+          ARCH: ${{ matrix.arch }}
+          BUILD_TYPE: ${{ matrix.build_type }}
+          CUDA_VERSION: ${{ matrix.cuda_version }}
         run: |
-          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
-          ARCH="${{ matrix.arch }}"
-          if [[ "${{ matrix.build_type }}" == "cpu" ]]; then
-            echo "tag=presto-${PSHA}-velox-${VSHA}-cpu-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          if [[ "${BUILD_TYPE}" == "cpu" ]]; then
+            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=presto-${PSHA}-velox-${VSHA}-gpu-cuda${{ matrix.cuda_version }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Presto native worker image
@@ -593,20 +606,19 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
       - name: Create and push multi-arch manifests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
         run: |
-          REGISTRY="${{ env.REGISTRY }}"
-          IMAGE="${{ env.IMAGE_NAME }}"
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
           create_manifest() {
             local tag="$1"
             echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
-              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
-              "${REGISTRY}/${IMAGE}:${tag}-arm64"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
           }
           for cuda in 12.9 13.1; do
-            create_manifest "velox-deps-${VSHA}-cuda${cuda}-${DATE}"
+            create_manifest "velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
           done
 
   merge-velox-build:
@@ -625,22 +637,21 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
       - name: Create and push multi-arch manifests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
         run: |
-          REGISTRY="${{ env.REGISTRY }}"
-          IMAGE="${{ env.IMAGE_NAME }}"
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
           create_manifest() {
             local tag="$1"
             echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
-              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
-              "${REGISTRY}/${IMAGE}:${tag}-arm64"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
           }
           for cuda in 12.9 13.1; do
-            create_manifest "velox-${VSHA}-gpu-cuda${cuda}-${DATE}"
+            create_manifest "velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
           done
-          create_manifest "velox-${VSHA}-cpu-${DATE}"
+          create_manifest "velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
 
   merge-presto-deps:
     if: inputs.build_presto
@@ -658,21 +669,20 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
       - name: Create and push multi-arch manifests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          PRESTO_SHORT_SHA: ${{ needs.resolve-commits.outputs.presto_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
         run: |
-          REGISTRY="${{ env.REGISTRY }}"
-          IMAGE="${{ env.IMAGE_NAME }}"
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
           create_manifest() {
             local tag="$1"
             echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
-              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
-              "${REGISTRY}/${IMAGE}:${tag}-arm64"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
           }
           for cuda in 12.9 13.1; do
-            create_manifest "presto-deps-${PSHA}-velox-${VSHA}-cuda${cuda}-${DATE}"
+            create_manifest "presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
           done
 
   merge-presto-build:
@@ -691,23 +701,22 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
       - name: Create and push multi-arch manifests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          PRESTO_SHORT_SHA: ${{ needs.resolve-commits.outputs.presto_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
         run: |
-          REGISTRY="${{ env.REGISTRY }}"
-          IMAGE="${{ env.IMAGE_NAME }}"
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
           create_manifest() {
             local tag="$1"
             echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
-              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
-              "${REGISTRY}/${IMAGE}:${tag}-arm64"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
           }
           for cuda in 12.9 13.1; do
-            create_manifest "presto-${PSHA}-velox-${VSHA}-gpu-cuda${cuda}-${DATE}"
+            create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
           done
-          create_manifest "presto-${PSHA}-velox-${VSHA}-cpu-${DATE}"
+          create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
 
   test-velox-cpu:
     if: inputs.build_velox && inputs.run_tests
@@ -735,10 +744,12 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
       - name: Run CPU tests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
+          IMAGE_TAG: ${{ matrix.image_tag }}
         run: |
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-${{ matrix.image_tag }}-${DATE}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-${IMAGE_TAG}-${BUILD_DATE}"
           echo "Testing image: ${IMAGE}"
           docker pull "${IMAGE}"
           docker run --rm "${IMAGE}" bash -c \
@@ -770,10 +781,12 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
       - name: Run GPU tests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
+          IMAGE_TAG: ${{ matrix.image_tag }}
         run: |
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-${{ matrix.image_tag }}-${DATE}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-${IMAGE_TAG}-${BUILD_DATE}"
           echo "Testing image: ${IMAGE}"
           docker pull "${IMAGE}"
           docker run --rm --gpus all "${IMAGE}" bash -c \
@@ -781,7 +794,7 @@ jobs:
 
   test-presto:
     if: inputs.build_presto && inputs.run_tests
-    name: test (presto-gpu, ${{ matrix.arch }})
+    name: test (presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-commits, merge-presto-build]
     permissions:
       contents: read
@@ -791,9 +804,16 @@ jobs:
       matrix:
         include:
           - arch: amd64
+            cuda_version: *cuda12
+            gpu: l4
+          - arch: amd64
+            cuda_version: *cuda13
             gpu: l4
     runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -801,14 +821,43 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
       - name: Smoke test
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+          PRESTO_SHORT_SHA: ${{ needs.resolve-commits.outputs.presto_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-commits.outputs.date }}
+          CUDA_VERSION: ${{ matrix.cuda_version }}
         run: |
-          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
-          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
-          DATE="${{ needs.resolve-commits.outputs.date }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-${PSHA}-velox-${VSHA}-gpu-cuda13.1-${DATE}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}"
           echo "Testing image: ${IMAGE}"
           docker pull "${IMAGE}"
-          echo "--- arch ---"
-          docker run --rm "${IMAGE}" arch
           echo "--- nvidia-smi ---"
           docker run --rm --gpus all "${IMAGE}" nvidia-smi
+          echo "--- presto_server startup with cudf.enabled=true ---"
+          docker run --rm --gpus all \
+            -v "${GITHUB_WORKSPACE}/presto/docker/config/smoke-test:/opt/presto-server/etc:ro" \
+            "${IMAGE}" bash -c '
+          set -euo pipefail
+          ldconfig
+          mkdir -p /var/lib/presto/data/hive/metastore
+
+          /usr/bin/presto_server --etc-dir=/opt/presto-server/etc &
+          SERVER_PID=$!
+
+          MAX_RETRIES=12
+          for i in $(seq 1 $MAX_RETRIES); do
+            STATE=$(curl -sf http://localhost:8080/v1/info/state 2>/dev/null || true)
+            if [[ "$STATE" == "\"ACTIVE\"" ]]; then
+              echo "presto_server reached ACTIVE state after ~$((i * 5))s"
+              INFO=$(curl -sf http://localhost:8080/v1/info)
+              echo "Server info: ${INFO}"
+              kill $SERVER_PID
+              wait $SERVER_PID 2>/dev/null || true
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ERROR: presto_server did not reach ACTIVE state within 60s"
+          kill $SERVER_PID 2>/dev/null
+          wait $SERVER_PID 2>/dev/null || true
+          exit 1
+          '
