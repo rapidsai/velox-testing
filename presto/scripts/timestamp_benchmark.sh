@@ -647,9 +647,9 @@ def fmt_rows(n):
     if n >= 1e3: return f"{n/1e3:.1f}K"
     return str(n)
 
-def fmt_ns(ns_str):
-    try: return float(ns_str.replace("ns", "")) / 1e6
-    except: return 0.0
+def fmt_ns(duration_str):
+    """Convert Presto duration string to milliseconds."""
+    return parse_duration(str(duration_str))
 
 # Read wall-clock timings from CSV
 timings = {}
