@@ -34,6 +34,7 @@ def pytest_addoption(parser):
     parser.addoption("--tag")
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
     parser.addoption("--gluten-jar-path")
+    parser.addoption("--spark-config")
 
 
 def pytest_configure(config):

@@ -18,6 +18,9 @@ __pycache__/
 # Default benchmark output directory
 benchmark_output
 
+# Default integration test output directory
+integ_test_output
+
 # Generated Presto Config
 presto/docker/config/generated*/
 
@@ -35,3 +38,5 @@ presto/slurm/presto-nvl72/worker_data*
 devstate*
 
 spark-gluten-install/
+
+build_artifacts
