@@ -564,13 +564,19 @@ run_benchmark() {
       echo "${qname},${run},${ms}" >> "${results_csv}"
     done
 
-    # Save latest query stats immediately (before stage data expires)
+    # Save query stats immediately after last run (before stage data expires).
+    # Match by SQL text to get the right query.
+    local escaped_sql
+    escaped_sql=$(echo "${sql}" | python3 -c "import sys; print(repr(sys.stdin.read().strip()))")
     docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/query" 2>/dev/null | \
       python3 -c "
 import json, sys
+expected = ${escaped_sql}
+norm = lambda s: ' '.join(s.split()).strip().lower()
+expected_norm = norm(expected)
 queries = json.load(sys.stdin)
 for q in queries:
-    if q.get('state') == 'FINISHED':
+    if q.get('state') == 'FINISHED' and norm(q.get('query', '')) == expected_norm:
         print(q['queryId'])
         break
 " 2>/dev/null | while read qid; do
