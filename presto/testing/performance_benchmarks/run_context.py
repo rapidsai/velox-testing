@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Gather run configuration from execution context. Engine (java / velox-cpu / velox-gpu)
+Gather run configuration from execution context. Engine (presto-java / presto-velox-cpu / presto-velox-gpu)
 is determined from the coordinator's cluster-tag (via /v1/cluster). GPU name is
 parsed from nvidia-smi output in worker log files (LOGS env var). Scale factor and
 n_workers come from schema and Presto /v1/node respectively.
@@ -110,9 +110,9 @@ def _get_gpu_name_from_worker_logs() -> str | None:
 
 
 _CLUSTER_TAG_TO_ENGINE = {
-    "native-gpu": "velox-gpu",
-    "native-cpu": "velox-cpu",
-    "java": "java",
+    "native-gpu": "presto-velox-gpu",
+    "native-cpu": "presto-velox-cpu",
+    "java": "presto-java",
 }
 
 
@@ -153,9 +153,9 @@ def _get_gpu_name() -> str | None:
 
 
 _ENGINE_TO_VARIANT = {
-    "velox-gpu": "gpu",
-    "velox-cpu": "cpu",
-    "java": "java",
+    "presto-velox-gpu": "gpu",
+    "presto-velox-cpu": "cpu",
+    "presto-java": "java",
 }
 
 
@@ -219,15 +219,15 @@ def gather_run_context(
         ctx["kind"] = "single-node" if n_workers == 1 else f"{n_workers}-node"
 
     ctx["engine"] = engine
-    if engine == "velox-gpu":
+    if engine == "presto-velox-gpu":
         ctx["gpu_count"] = n_workers if n_workers is not None else 0
         gpu_name = _get_gpu_name()
         if gpu_name is not None:
             ctx["gpu_name"] = gpu_name
-    elif engine == "velox-cpu":
+    elif engine == "presto-velox-cpu":
         ctx["gpu_count"] = 0
         ctx["gpu_name"] = "NA"
-    elif engine == "java":
+    elif engine == "presto-java":
         ctx["gpu_count"] = 0
         ctx["gpu_name"] = "NA"
 
