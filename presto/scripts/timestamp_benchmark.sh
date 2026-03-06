@@ -384,10 +384,14 @@ PYEOF
 
 declare -A QUERIES
 QUERIES["ts_filter_count"]="
-  SELECT count(*)
+  SELECT
+    l_returnflag,
+    count(*) AS cnt
   FROM ${TABLE}
   WHERE ship_ts >= TIMESTAMP '1995-01-01 00:00:00'
     AND ship_ts < TIMESTAMP '1995-04-01 00:00:00'
+  GROUP BY 1
+  ORDER BY 1
 "
 
 QUERIES["ts_extract_groupby"]="
@@ -414,9 +418,13 @@ QUERIES["ts_date_trunc_agg"]="
 "
 
 QUERIES["ts_column_compare"]="
-  SELECT count(*)
+  SELECT
+    l_returnflag,
+    count(*) AS cnt
   FROM ${TABLE}
   WHERE receipt_ts > commit_ts
+  GROUP BY 1
+  ORDER BY 1
 "
 
 QUERIES["ts_multi_ops"]="
