@@ -77,7 +77,7 @@ preflight_check() {
   for i in $(seq 1 ${worker_retries}); do
     local node_json
     node_json=$(docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/node" 2>/dev/null || echo "[]")
-    worker_count=$(echo "${node_json}" | grep -o '"uri"' | wc -l)
+    worker_count=$(echo "${node_json}" | { grep -o '"uri"' || true; } | wc -l)
     if [ "${worker_count}" -gt 0 ]; then
       break
     fi
@@ -93,7 +93,6 @@ preflight_check() {
   echo ""
 }
 
-preflight_check
 SCHEMA="${HIVE_SCHEMA:-default}"
 TABLE="hive.${SCHEMA}.ts_bench_sf${SF}"
 RUNS="${BENCHMARK_RUNS:-3}"
@@ -482,6 +481,7 @@ QUERY_ORDER=(
 )
 
 run_benchmark() {
+  preflight_check
   echo "=== Timestamp Benchmark (${RUNS} runs per query, table: ${TABLE}) ==="
   echo ""
 
@@ -587,14 +587,20 @@ def fmt_rows(n):
     return str(n)
 
 def parse_presto_duration(s):
-    """Parse '517.35ms' or '1.23s' to ms float."""
+    """Parse '517.35ms', '1.23s', '0.00ns', '2.50m' to ms float."""
     s = s.strip()
+    if s.endswith("ns"):
+        return float(s[:-2]) / 1e6
+    if s.endswith("us"):
+        return float(s[:-2]) / 1e3
     if s.endswith("ms"):
         return float(s[:-2])
-    if s.endswith("s"):
+    if s.endswith("s") and not s.endswith("ms") and not s.endswith("ns") and not s.endswith("us"):
         return float(s[:-1]) * 1000
-    if s.endswith("m"):
+    if s.endswith("m") and not s.endswith("ms"):
         return float(s[:-1]) * 60000
+    if s.endswith("h"):
+        return float(s[:-1]) * 3600000
     return 0
 
 queries = curl_json("/v1/query")
@@ -711,6 +717,7 @@ PYEOF
 }
 
 run_verify() {
+  preflight_check
   echo "=== Verification: Presto vs DuckDB (table: ${TABLE}) ==="
   echo ""
 
