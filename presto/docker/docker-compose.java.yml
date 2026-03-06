@@ -20,5 +20,7 @@ services:
       - ./config/generated/java/etc_worker/config_java.properties:/opt/presto-server/etc/config.properties
       - ./config/generated/java/etc_worker/node.properties:/opt/presto-server/etc/node.properties
       - ./config/generated/java/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+      - ./worker_logs:/opt/presto-server/logs
+      - ./launch_presto_servers.sh:/opt/launch_presto_servers.sh:ro
     depends_on:
       - presto-coordinator
