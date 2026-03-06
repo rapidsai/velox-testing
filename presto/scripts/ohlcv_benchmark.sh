@@ -559,7 +559,8 @@ def normalize_value(v):
         return f"{f:.6g}"
     except ValueError:
         pass
-    v = re.sub(r' 00:00:00(\.000)?$', '', v)
+    v = re.sub(r'\.000$', '', v)  # strip trailing .000 milliseconds
+    v = re.sub(r' 00:00:00$', '', v)  # strip midnight time
     return v
 
 def normalize_row(row_str):
