@@ -713,20 +713,27 @@ PYEOF
   # Check for unexpected GPU fallbacks
   echo ""
   echo "=== Fallback Check ==="
-  local workers
-  workers=$(docker ps --format '{{.Names}}' | grep -i worker || true)
-  if [ -z "${workers}" ]; then
-    echo "No worker containers found. Skipping fallback check."
+  local all_containers
+  all_containers=$(docker ps --format '{{.Names}}' || true)
+  local fallback_file="${out_dir}/fallbacks.txt"
+  : > "${fallback_file}"
+
+  if [ -z "${all_containers}" ]; then
+    echo "No containers found. Skipping fallback check."
   else
     local unexpected_fallbacks=0
     local expected_count=0
-    for w in ${workers}; do
-      # Grep for "Replacement Failed Operator:" lines which contain the operator name
+    for c in ${all_containers}; do
       local all_fallbacks
-      all_fallbacks=$(docker logs "${w}" 2>&1 | grep "Replacement Failed Operator:" || true)
+      all_fallbacks=$(docker logs "${c}" 2>&1 | grep "Replacement Failed Operator:" || true)
       if [ -z "${all_fallbacks}" ]; then
         continue
       fi
+
+      # Save all fallbacks to file
+      echo "=== ${c} ===" >> "${fallback_file}"
+      echo "${all_fallbacks}" >> "${fallback_file}"
+      echo "" >> "${fallback_file}"
 
       # Filter out expected fallbacks
       local unexpected
@@ -739,7 +746,7 @@ PYEOF
       fi
 
       if [ -n "${unexpected}" ]; then
-        echo "UNEXPECTED fallbacks on ${w}:"
+        echo "UNEXPECTED fallbacks on ${c}:"
         echo "${unexpected}" | head -10
         unexpected_fallbacks=1
       fi
@@ -751,7 +758,15 @@ PYEOF
         echo "  (${expected_count} expected fallbacks: PartitionedOutput[SINGLE], LocalMerge, etc.)"
       fi
     fi
+    echo "  Full fallback log saved to ${fallback_file}"
   fi
+
+  echo ""
+  echo "=== Full report saved to ${out_dir}/ ==="
+  echo "  report.txt    - complete benchmark output"
+  echo "  timings.csv   - per-run wall clock times"
+  echo "  fallbacks.txt - GPU fallback details"
+  echo "  config_*.txt  - worker/coordinator configs"
 }
 
 run_verify() {
