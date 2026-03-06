@@ -23,3 +23,4 @@ def pytest_addoption(parser):
     parser.addoption("--preview-rows-count", default=3, type=int)
     parser.addoption("--skip-reference-comparison", action="store_true", default=False)
     parser.addoption("--gluten-jar-path")
+    parser.addoption("--spark-config")

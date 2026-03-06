@@ -11,6 +11,21 @@ from common.testing.test_utils import get_abs_file_path, get_queries
 
 from . import test_utils
 
+DEFAULT_CONFIG_PATH = get_abs_file_path(__file__, "../config/default.conf")
+
+
+def load_spark_config(config_path):
+    configs = {}
+    with open(config_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                configs[parts[0]] = parts[1]
+    return configs
+
 
 @pytest.fixture(scope="module")
 def tpch_queries(request):
@@ -41,23 +56,24 @@ def spark_session(request):
     # indicates both need to be accessible.
     java_opts = "-Dio.netty.tryReflectionSetAccessible=true"
 
-    # TODO: Add option to get below configurations from a file.
+    # Load default Spark configurations from the default config file, then
+    # override with any values from a user-supplied config file (--config).
+    spark_configs = load_spark_config(DEFAULT_CONFIG_PATH)
+    config_path = request.config.getoption("--spark-config")
+    if config_path:
+        spark_configs.update(load_spark_config(config_path))
+
     builder = (
         SparkSession.builder.appName(f"{benchmark_type} Test")
         .master("local[*]")
         .config("spark.jars", gluten_jar_path)
         .config("spark.plugins", "org.apache.gluten.GlutenPlugin")
-        .config("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
-        .config("spark.memory.offHeap.enabled", "true")
-        .config("spark.memory.offHeap.size", "2g")
-        .config("spark.gluten.sql.columnar.forceShuffledHashJoin", "true")
-        .config("spark.sql.adaptive.enabled", "true")
-        .config("spark.sql.parquet.enableVectorizedReader", "true")
-        .config("spark.driver.memory", "4g")
-        .config("spark.executor.memory", "4g")
         .config("spark.driver.extraJavaOptions", java_opts)
         .config("spark.executor.extraJavaOptions", java_opts)
     )
+
+    for key, value in spark_configs.items():
+        builder = builder.config(key, value)
 
     spark = builder.getOrCreate()
 
