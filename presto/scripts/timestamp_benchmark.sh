@@ -315,11 +315,56 @@ setup_data() {
     return
   fi
 
+  # Generate supplier dimension table
+  local dim_host_dir="${PRESTO_DATA_DIR}/ts_bench/suppliers_sf${SF}"
+  local dim_container_dir="/var/lib/presto/data/hive/data/user_data/ts_bench/suppliers_sf${SF}"
+  echo ""
+  echo "Generating supplier dimension table..."
+  python3 - "${dim_host_dir}" <<'PYEOF'
+import sys, os
+import pyarrow as pa
+import pyarrow.parquet as pq
+import numpy as np
+
+out_dir = sys.argv[1]
+os.makedirs(out_dir, exist_ok=True)
+
+rng = np.random.default_rng(99)
+num_suppliers = 10_000
+regions = ['AFRICA', 'AMERICA', 'ASIA', 'EUROPE', 'MIDDLE EAST']
+
+table = pa.table({
+    's_suppkey': pa.array(np.arange(1, num_suppliers + 1), type=pa.int64()),
+    'region': pa.array(rng.choice(regions, size=num_suppliers)),
+    's_name': pa.array([f'Supplier#{i:09d}' for i in range(1, num_suppliers + 1)]),
+})
+
+pq.write_table(table, os.path.join(out_dir, 'suppliers.parquet'))
+print(f'  Wrote {num_suppliers} suppliers to {out_dir}')
+PYEOF
+
+  cli --execute "DROP TABLE IF EXISTS ${DIM_TABLE}" 2>/dev/null || true
+  echo "Creating dimension table ${DIM_TABLE}..."
+  cli --execute "
+    CREATE TABLE ${DIM_TABLE} (
+      s_suppkey BIGINT,
+      region VARCHAR,
+      s_name VARCHAR
+    )
+    WITH (
+      format = 'PARQUET',
+      external_location = 'file:${dim_container_dir}'
+    )
+  "
+
   # Run ANALYZE to collect table statistics for query optimization
   echo ""
   echo "Running ANALYZE TABLE to collect statistics..."
   cli --execute "ANALYZE ${TABLE}" 2>/dev/null || {
-    echo "WARNING: ANALYZE TABLE failed. Stats may not be available for query planning."
+    echo "WARNING: ANALYZE on ${TABLE} failed."
+  }
+  cli --execute "ANALYZE ${DIM_TABLE}" 2>/dev/null || {
+    echo "WARNING: ANALYZE on ${DIM_TABLE} failed."
   }
   echo "Setup complete."
   echo ""
@@ -383,6 +428,35 @@ QUERIES["ts_dense_filter"]="
   ORDER BY 1
 "
 
+DIM_TABLE="hive.${SCHEMA}.ts_bench_suppliers_sf${SF}"
+
+QUERIES["ts_self_join"]="
+  SELECT
+    a.l_returnflag,
+    count(*) AS cnt
+  FROM ${TABLE} a
+  JOIN ${TABLE} b ON a.l_orderkey = b.l_orderkey
+  WHERE a.ship_ts >= TIMESTAMP '1995-01-01 00:00:00'
+    AND a.ship_ts < TIMESTAMP '1995-02-01 00:00:00'
+    AND b.receipt_ts > b.commit_ts
+  GROUP BY 1
+  ORDER BY 1
+"
+
+QUERIES["ts_dim_join"]="
+  SELECT
+    s.region,
+    extract(year FROM t.ship_ts) AS yr,
+    count(*) AS cnt,
+    sum(t.l_extendedprice) AS revenue
+  FROM ${TABLE} t
+  JOIN ${DIM_TABLE} s ON t.l_suppkey = s.s_suppkey
+  WHERE t.ship_ts >= TIMESTAMP '1994-01-01 00:00:00'
+    AND t.ship_ts < TIMESTAMP '1995-01-01 00:00:00'
+  GROUP BY 1, 2
+  ORDER BY 1, 2
+"
+
 QUERY_ORDER=(
   ts_filter_count
   ts_extract_groupby
@@ -390,6 +464,8 @@ QUERY_ORDER=(
   ts_column_compare
   ts_multi_ops
   ts_dense_filter
+  ts_self_join
+  ts_dim_join
 )
 
 run_benchmark() {
@@ -526,8 +602,10 @@ run_verify() {
     echo "${QUERIES[${qname}]}"
   done > "${query_file}"
 
+  local dim_host_dir="${PRESTO_DATA_DIR}/ts_bench/suppliers_sf${SF}"
+
   # Run verification in Python — handles quoting, normalization, comparison
-  python3 - "${query_file}" "${TABLE}" "${HOST_DATA_DIR}" "${COORDINATOR}" "${PORT}" "${SCHEMA}" <<'PYEOF'
+  python3 - "${query_file}" "${TABLE}" "${HOST_DATA_DIR}" "${DIM_TABLE}" "${dim_host_dir}" "${COORDINATOR}" "${PORT}" "${SCHEMA}" <<'PYEOF'
 import sys
 import subprocess
 import duckdb
@@ -537,9 +615,11 @@ from datetime import datetime
 query_file = sys.argv[1]
 table_name = sys.argv[2]
 data_dir = sys.argv[3]
-coordinator = sys.argv[4]
-port = sys.argv[5]
-schema = sys.argv[6]
+dim_table_name = sys.argv[4]
+dim_data_dir = sys.argv[5]
+coordinator = sys.argv[6]
+port = sys.argv[7]
+schema = sys.argv[8]
 
 # Parse queries from file
 queries = {}
@@ -607,8 +687,9 @@ def run_presto(sql):
 
 def run_duckdb(sql):
     """Run query via DuckDB and return normalized rows."""
-    # Replace table name with parquet read
+    # Replace table names with parquet reads
     duck_sql = sql.replace(table_name, f"read_parquet('{data_dir}/*.parquet')")
+    duck_sql = duck_sql.replace(dim_table_name, f"read_parquet('{dim_data_dir}/*.parquet')")
     con = duckdb.connect()
     result = con.execute(duck_sql).fetchall()
     rows = []
