@@ -239,30 +239,25 @@ PYEOF
 }
 
 detect_cudf_mode() {
-  # Check all running containers for cudf.enabled
   local containers
-  containers=$(docker ps --format '{{.Names}}' || true)
-  echo "  Checking containers: ${containers:-none}" >&2
+  containers=$(docker ps --format '{{.Names}}' 2>/dev/null || true)
   if [ -z "${containers}" ]; then
     echo "unknown"
     return
   fi
   for c in ${containers}; do
-    # Skip coordinator
-    if echo "${c}" | grep -qi coordinator; then
-      continue
-    fi
-    if docker logs "${c}" 2>&1 | grep -q "cudf.enabled=true"; then
-      echo "  Found cudf.enabled=true in ${c}" >&2
-      echo "gpu"
-      return
-    elif docker logs "${c}" 2>&1 | grep -q "cuDF is registered"; then
-      echo "  Found cuDF registered in ${c}" >&2
-      echo "gpu"
+    local cudf_line
+    cudf_line=$(docker logs "${c}" 2>&1 | { grep "cudf.enabled=" || true; } | tail -1)
+    if [ -n "${cudf_line}" ]; then
+      if echo "${cudf_line}" | { grep -q "cudf.enabled=true" || true; }; then
+        echo "gpu"
+      else
+        echo "cpu"
+      fi
       return
     fi
   done
-  echo "cpu"
+  echo "unknown"
 }
 
 setup_data() {
