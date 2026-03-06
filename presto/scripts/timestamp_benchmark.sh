@@ -543,6 +543,13 @@ run_benchmark() {
   echo "Output: ${out_dir}/"
   echo ""
 
+  # Save query name -> SQL mapping for Presto stats matching
+  local query_map="${out_dir}/query_map.txt"
+  for qname in "${QUERY_ORDER[@]}"; do
+    echo "###QUERY### ${qname}"
+    echo "${QUERIES[${qname}]}"
+  done > "${query_map}"
+
   for qname in "${QUERY_ORDER[@]}"; do
     local sql="${QUERIES[${qname}]}"
     echo "--- ${qname} ---"
@@ -561,7 +568,7 @@ run_benchmark() {
 
   # Print summary with both wall time and Presto-reported times
   echo "=== Summary ==="
-  python3 - "${results_csv}" "${COORDINATOR}" "${PORT}" "${RUNS}" <<'PYEOF'
+  python3 - "${results_csv}" "${COORDINATOR}" "${PORT}" "${RUNS}" "${query_map}" <<'PYEOF'
 import subprocess
 import json
 import sys
@@ -572,6 +579,27 @@ results_csv = sys.argv[1]
 coordinator = sys.argv[2]
 port = sys.argv[3]
 num_runs = int(sys.argv[4])
+query_map_file = sys.argv[5]
+
+# Parse query name -> SQL mapping
+query_sql_map = {}
+current_name = None
+current_sql = []
+with open(query_map_file) as f:
+    for line in f:
+        if line.startswith("###QUERY###"):
+            if current_name:
+                query_sql_map[current_name] = " ".join("".join(current_sql).split()).strip()
+            current_name = line.strip().split(" ", 1)[1]
+            current_sql = []
+        else:
+            current_sql.append(line)
+    if current_name:
+        query_sql_map[current_name] = " ".join("".join(current_sql).split()).strip()
+
+def normalize_sql(s):
+    """Normalize SQL for comparison: collapse whitespace, lowercase."""
+    return " ".join(s.split()).strip().lower()
 
 def curl_json(path):
     r = subprocess.run(
@@ -614,22 +642,21 @@ for qname, vals in timings.items():
     vals.sort()
     medians[qname] = vals[len(vals) // 2]
 
-# Fetch Presto query stats
+# Fetch Presto query stats — index by normalized SQL for matching
 queries_api = curl_json("/v1/query") or []
 finished = [q for q in queries_api if q.get("state") == "FINISHED"]
-seen = set()
-presto_stats = {}
+# Most recent first — keep only the first (latest) match per normalized SQL
+presto_by_sql = {}
 for q in finished:
-    sql_key = " ".join(q.get("query", "").split())[:100]
-    if sql_key in seen:
+    norm = normalize_sql(q.get("query", ""))
+    if norm in presto_by_sql:
         continue
-    seen.add(sql_key)
     qid = q["queryId"]
     data = curl_json(f"/v1/query/{qid}")
     if not data:
         continue
     qs = data.get("queryStats", {})
-    presto_stats[sql_key] = {
+    presto_by_sql[norm] = {
         "qid": qid,
         "elapsed": qs.get("elapsedTime", "?"),
         "cpu": qs.get("totalCpuTime", "?"),
@@ -641,17 +668,11 @@ hdr = "{:<25s} {:>10s} {:>10s} {:>10s} {:>10s}"
 print(hdr.format("Query", "Wall (ms)", "Presto ms", "CPU ms", "Overhead"))
 print(hdr.format("-" * 25, "-" * 10, "-" * 10, "-" * 10, "-" * 10))
 
-# Match queries by SQL prefix
+# Match queries by normalized SQL
 query_details = {}
 for qname, wall_median in medians.items():
-    # Find matching Presto stats
-    best_match = None
-    for sql_key, stats in presto_stats.items():
-        if qname.replace("ts_", "") in sql_key.lower() or any(
-            kw in sql_key.lower() for kw in qname.replace("ts_", "").split("_")
-        ):
-            best_match = stats
-            break
+    expected_sql = normalize_sql(query_sql_map.get(qname, ""))
+    best_match = presto_by_sql.get(expected_sql)
 
     if best_match:
         elapsed_ms = parse_duration(best_match["elapsed"])
