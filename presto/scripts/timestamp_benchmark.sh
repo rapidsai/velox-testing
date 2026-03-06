@@ -521,6 +521,18 @@ run_benchmark() {
   local report_file="${out_dir}/report.txt"
   echo "query,run,elapsed_ms" > "${results_csv}"
 
+  # Save worker configs from docker logs
+  local all_containers
+  all_containers=$(docker ps --format '{{.Names}}' || true)
+  for c in ${all_containers}; do
+    local config_file="${out_dir}/config_${c}.txt"
+    echo "=== Container: ${c} ===" > "${config_file}"
+    docker logs "${c}" 2>&1 | grep -E "Registered properties|Unregistered properties|^\s+\S+=\S+" >> "${config_file}" 2>/dev/null || true
+    echo "" >> "${config_file}"
+    echo "=== Full startup log (first 100 lines) ===" >> "${config_file}"
+    docker logs "${c}" 2>&1 | head -100 >> "${config_file}" 2>/dev/null || true
+  done
+
   # Tee all output to report file and terminal
   exec > >(tee -a "${report_file}") 2>&1
 
