@@ -240,17 +240,19 @@ PYEOF
 }
 
 detect_cudf_mode() {
-  local workers
-  workers=$(docker ps --format '{{.Names}}' | grep -i worker | head -1 || true)
-  if [ -n "${workers}" ]; then
-    if docker logs "${workers}" 2>&1 | grep -q "cudf.enabled=true"; then
+  # Check all non-coordinator presto containers for cudf.enabled
+  local containers
+  containers=$(docker ps --format '{{.Names}}' | grep -v coordinator || true)
+  for c in ${containers}; do
+    # Look for cudf config in container logs
+    if docker logs "${c}" 2>&1 | grep -q "cudf.enabled=true"; then
       echo "gpu"
       return
-    elif docker logs "${workers}" 2>&1 | grep -q "cuDF is registered"; then
+    elif docker logs "${c}" 2>&1 | grep -q "cuDF is registered"; then
       echo "gpu"
       return
     fi
-  fi
+  done
   echo "cpu"
 }
 
