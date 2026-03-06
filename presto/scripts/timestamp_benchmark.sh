@@ -239,18 +239,25 @@ PYEOF
 }
 
 detect_cudf_mode() {
-  # Check all non-coordinator presto containers for cudf.enabled
+  # Check all running containers for cudf.enabled
   local containers
-  containers=$(docker ps --format '{{.Names}}' | grep -v coordinator || true)
+  containers=$(docker ps --format '{{.Names}}' || true)
+  echo "  Checking containers: ${containers:-none}" >&2
   if [ -z "${containers}" ]; then
     echo "unknown"
     return
   fi
   for c in ${containers}; do
+    # Skip coordinator
+    if echo "${c}" | grep -qi coordinator; then
+      continue
+    fi
     if docker logs "${c}" 2>&1 | grep -q "cudf.enabled=true"; then
+      echo "  Found cudf.enabled=true in ${c}" >&2
       echo "gpu"
       return
     elif docker logs "${c}" 2>&1 | grep -q "cuDF is registered"; then
+      echo "  Found cuDF registered in ${c}" >&2
       echo "gpu"
       return
     fi
