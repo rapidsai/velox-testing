@@ -542,8 +542,116 @@ run_benchmark() {
 
   echo ""
   echo "To compare GPU vs CPU, run benchmark twice with different server configs:"
-  echo "  1. Start workers with cudf.enabled=true,  run: BENCH_MODE=gpu $0 bench ${SF}"
-  echo "  2. Start workers with cudf.enabled=false, run: BENCH_MODE=cpu $0 bench ${SF}"
+  echo "  1. Start workers with cudf.enabled=true,  run: $0 bench ${SF}"
+  echo "  2. Start workers with cudf.enabled=false, run: $0 bench ${SF}"
+
+  # Fetch per-operator breakdown for each query's last run
+  echo ""
+  echo "=== Per-Operator Breakdown (last run of each query) ==="
+  python3 - "${COORDINATOR}" "${PORT}" <<'PYEOF'
+import subprocess
+import json
+import sys
+
+coordinator = sys.argv[1]
+port = sys.argv[2]
+
+def curl_json(path):
+    r = subprocess.run(
+        ["docker", "exec", coordinator, "curl", "-sf", f"http://localhost:{port}{path}"],
+        capture_output=True, text=True, timeout=10)
+    return json.loads(r.stdout) if r.returncode == 0 else None
+
+def fmt_time(ns_str):
+    try:
+        return float(ns_str.replace("ns", "")) / 1e6
+    except:
+        return 0.0
+
+def fmt_rows(n):
+    if n >= 1e6: return f"{n/1e6:.1f}M"
+    if n >= 1e3: return f"{n/1e3:.1f}K"
+    return str(n)
+
+def parse_presto_duration(s):
+    """Parse '517.35ms' or '1.23s' to ms float."""
+    s = s.strip()
+    if s.endswith("ms"):
+        return float(s[:-2])
+    if s.endswith("s"):
+        return float(s[:-1]) * 1000
+    if s.endswith("m"):
+        return float(s[:-1]) * 60000
+    return 0
+
+queries = curl_json("/v1/query")
+if not queries:
+    print("  Could not fetch query list")
+    sys.exit(0)
+
+# Get all finished queries, most recent first
+finished = [q for q in queries if q.get("state") == "FINISHED"]
+
+# Deduplicate by query SQL (keep most recent = first occurrence)
+seen_sql = set()
+unique_queries = []
+for q in finished:
+    sql_hash = q.get("query", "")[:100]
+    if sql_hash not in seen_sql:
+        seen_sql.add(sql_hash)
+        unique_queries.append(q)
+
+# Process each unique query
+for qi, q in enumerate(unique_queries[:20]):  # limit to 20
+    qid = q["queryId"]
+    data = curl_json(f"/v1/query/{qid}")
+    if not data:
+        continue
+
+    qs = data.get("queryStats", {})
+    query_sql = data.get("query", "?")
+    # Truncate SQL for display
+    sql_oneline = " ".join(query_sql.split())[:80]
+
+    elapsed = qs.get("elapsedTime", "?")
+    cpu_time = qs.get("totalCpuTime", "?")
+    elapsed_ms = parse_presto_duration(elapsed)
+    cpu_ms = parse_presto_duration(cpu_time)
+
+    ops = qs.get("operatorSummaries", [])
+    if not ops:
+        continue
+
+    # Aggregate by operator
+    op_data = {}
+    for op in ops:
+        name = op.get("operatorType", "?")
+        pid = op.get("planNodeId", "")
+        key = f"{name}[{pid}]" if pid and pid != "N/A" else name
+
+        if key not in op_data:
+            op_data[key] = {"cpu": 0, "wall": 0, "in_r": 0, "out_r": 0}
+
+        op_data[key]["wall"] += fmt_time(op.get("getOutputWall", "0ns")) + fmt_time(op.get("addInputWall", "0ns"))
+        op_data[key]["cpu"] += fmt_time(op.get("getOutputCpu", "0ns")) + fmt_time(op.get("addInputCpu", "0ns"))
+        op_data[key]["in_r"] += op.get("inputPositions", 0)
+        op_data[key]["out_r"] += op.get("outputPositions", 0)
+
+    sorted_ops = sorted(op_data.items(), key=lambda x: x[1]["wall"], reverse=True)
+
+    print(f"\n  Query: {sql_oneline}...")
+    print(f"  Elapsed: {elapsed} | CPU: {cpu_time} | Overhead: {max(0, elapsed_ms - cpu_ms):.0f}ms")
+    hdr = "    {:<40s} {:>8s} {:>8s} {:>10s} {:>10s}"
+    print(hdr.format("Operator", "CPU ms", "Wall ms", "In Rows", "Out Rows"))
+    print(hdr.format("-" * 40, "-" * 8, "-" * 8, "-" * 10, "-" * 10))
+
+    for name, d in sorted_ops:
+        if d["wall"] < 0.01 and d["cpu"] < 0.01:
+            continue
+        print(hdr.format(
+            name[:40], f"{d['cpu']:.1f}", f"{d['wall']:.1f}",
+            fmt_rows(d["in_r"]), fmt_rows(d["out_r"])))
+PYEOF
 
   # Check for unexpected GPU fallbacks
   echo ""
