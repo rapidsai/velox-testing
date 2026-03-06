@@ -747,27 +747,27 @@ for qname, details in query_details.items():
         pid = op.get("planNodeId", "")
         key = f"{name}[{pid}]" if pid and pid != "N/A" else name
         if key not in op_data:
-            op_data[key] = {"cpu": 0, "wall": 0, "in_r": 0, "out_r": 0, "drivers": 0}
+            op_data[key] = {"cpu": 0, "wall": 0, "in_r": 0, "out_r": 0, "tasks": 0}
         op_data[key]["wall"] += fmt_ns(op.get("getOutputWall", "0ns")) + fmt_ns(op.get("addInputWall", "0ns"))
         op_data[key]["cpu"] += fmt_ns(op.get("getOutputCpu", "0ns")) + fmt_ns(op.get("addInputCpu", "0ns"))
         op_data[key]["in_r"] += op.get("inputPositions", 0)
         op_data[key]["out_r"] += op.get("outputPositions", 0)
-        op_data[key]["drivers"] += op.get("totalDrivers", 0)
+        op_data[key]["tasks"] += 1  # count how many task instances were aggregated
 
     sorted_ops = sorted(op_data.items(), key=lambda x: x[1]["wall"], reverse=True)
 
     qid = details.get("qid", "?")
     num_ops = len(ops)
     print(f"\n--- {qname} (wall={details['wall']}ms, presto={details.get('presto','?')}ms, cpu={details.get('cpu','?')}ms, qid={qid}, ops={num_ops}) ---")
-    ohdr = "  {:<40s} {:>8s} {:>8s} {:>10s} {:>10s} {:>6s}"
-    print(ohdr.format("Operator", "CPU ms", "Wall ms", "In Rows", "Out Rows", "Drvrs"))
-    print(ohdr.format("-" * 40, "-" * 8, "-" * 8, "-" * 10, "-" * 10, "-" * 6))
+    ohdr = "  {:<40s} {:>8s} {:>8s} {:>10s} {:>10s} {:>5s}"
+    print(ohdr.format("Operator", "CPU ms", "Wall ms", "In Rows", "Out Rows", "Tasks"))
+    print(ohdr.format("-" * 40, "-" * 8, "-" * 8, "-" * 10, "-" * 10, "-" * 5))
     for name, d in sorted_ops:
         if d["wall"] < 0.01 and d["cpu"] < 0.01:
             continue
         print(ohdr.format(name[:40], f"{d['cpu']:.1f}", f"{d['wall']:.1f}",
                           fmt_rows(d["in_r"]), fmt_rows(d["out_r"]),
-                          str(d.get("drivers", ""))))
+                          str(d["tasks"])))
 PYEOF
 
   echo ""
