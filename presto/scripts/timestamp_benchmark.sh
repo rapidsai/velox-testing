@@ -239,25 +239,37 @@ PYEOF
 }
 
 detect_cudf_mode() {
+  # Write detection result to a temp file to avoid pipefail issues
+  local tmpfile
+  tmpfile=$(mktemp)
+  echo "unknown" > "${tmpfile}"
+
   local containers
-  containers=$(docker ps --format '{{.Names}}' 2>/dev/null || true)
+  containers=$(docker ps --format '{{.Names}}' 2>/dev/null) || true
   if [ -z "${containers}" ]; then
-    echo "unknown"
+    cat "${tmpfile}"
+    rm -f "${tmpfile}"
     return
   fi
+
   for c in ${containers}; do
-    local cudf_line
-    cudf_line=$(docker logs "${c}" 2>&1 | { grep "cudf.enabled=" || true; } | tail -1)
-    if [ -n "${cudf_line}" ]; then
-      if echo "${cudf_line}" | { grep -q "cudf.enabled=true" || true; }; then
-        echo "gpu"
+    docker logs "${c}" 2>&1 | grep -E "cudf\.enabled=" > "${tmpfile}.grep" 2>/dev/null || true
+    if [ -s "${tmpfile}.grep" ]; then
+      if grep -q "cudf.enabled=true" "${tmpfile}.grep" 2>/dev/null; then
+        echo "gpu" > "${tmpfile}"
       else
-        echo "cpu"
+        echo "cpu" > "${tmpfile}"
       fi
+      rm -f "${tmpfile}.grep"
+      cat "${tmpfile}"
+      rm -f "${tmpfile}"
       return
     fi
+    rm -f "${tmpfile}.grep"
   done
-  echo "unknown"
+
+  cat "${tmpfile}"
+  rm -f "${tmpfile}"
 }
 
 setup_data() {
