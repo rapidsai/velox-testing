@@ -1,0 +1,821 @@
+name: build-and-test
+
+on:
+  workflow_call:
+    inputs:
+      velox_repository:
+        description: 'Velox repository'
+        type: string
+        required: true
+      velox_commit:
+        description: 'Velox commit SHA or branch'
+        type: string
+        required: true
+      presto_repository:
+        description: 'Presto repository'
+        type: string
+        required: true
+      presto_commit:
+        description: 'Presto commit SHA or branch'
+        type: string
+        required: true
+      build_velox:
+        description: 'Build Velox images'
+        type: boolean
+        required: true
+      build_presto:
+        description: 'Build Presto images'
+        type: boolean
+        required: true
+      run_tests:
+        description: 'Run tests after builds'
+        type: boolean
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  # All CI images are published under this single package name.
+  # Tags differentiate the images. See:
+  #   https://github.com/orgs/rapidsai/packages?repo_name=velox-testing
+  IMAGE_NAME: ${{ github.repository }}-images
+
+jobs:
+  resolve-commits:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      velox_sha: ${{ steps.velox.outputs.sha }}
+      velox_short_sha: ${{ steps.velox.outputs.short_sha }}
+      presto_sha: ${{ steps.presto.outputs.sha }}
+      presto_short_sha: ${{ steps.presto.outputs.short_sha }}
+      date: ${{ steps.date.outputs.date }}
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Resolve Velox commit
+        id: velox
+        run: |
+          VELOX_REF="${{ inputs.velox_commit }}"
+          VELOX_REPO="${{ inputs.velox_repository }}"
+          SHA=$(git ls-remote "https://github.com/${VELOX_REPO}.git" "${VELOX_REF}" | head -1 | cut -f1)
+          if [[ -z "$SHA" ]]; then
+            # ref might be a SHA already
+            SHA="${VELOX_REF}"
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Velox SHA: ${SHA} (short: ${SHA:0:7})"
+
+      - name: Resolve Presto commit
+        id: presto
+        run: |
+          PRESTO_REF="${{ inputs.presto_commit }}"
+          PRESTO_REPO="${{ inputs.presto_repository }}"
+          SHA=$(git ls-remote "https://github.com/${PRESTO_REPO}.git" "${PRESTO_REF}" | head -1 | cut -f1)
+          if [[ -z "$SHA" ]]; then
+            SHA="${PRESTO_REF}"
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Presto SHA: ${SHA} (short: ${SHA:0:7})"
+
+      - name: Set build date
+        id: date
+        run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+  velox-deps:
+    if: inputs.build_velox
+    name: velox-deps (cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
+    needs: [resolve-commits]
+    runs-on: linux-${{ matrix.arch }}-cpu16
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            cuda_version: '12.9'
+          - arch: arm64
+            cuda_version: '12.9'
+          - arch: amd64
+            cuda_version: '13.1'
+          - arch: arm64
+            cuda_version: '13.1'
+    steps:
+      - name: Checkout Velox
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ inputs.velox_repository }}
+          ref: ${{ needs.resolve-commits.outputs.velox_sha }}
+          path: velox
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+        continue-on-error: true
+        with:
+          enable-apt: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
+          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
+
+      - name: Build and push Velox deps image
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          context: velox
+          file: velox/scripts/docker/centos-multi.dockerfile
+          target: adapters
+          build-args: |
+            CUDA_VERSION=${{ matrix.cuda_version }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-velox-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-velox-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }},mode=max
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${{ needs.resolve-commits.outputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ needs.resolve-commits.outputs.date }}-${{ matrix.arch }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  velox-build:
+    if: inputs.build_velox
+    name: velox-build (${{ matrix.build_type }}, ${{ matrix.arch }})
+    needs: [resolve-commits, velox-deps]
+    runs-on: linux-${{ matrix.arch }}-cpu32
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GPU builds
+          - arch: amd64
+            cuda_version: '12.9'
+            build_type: gpu-cuda12.9
+            cudf: 'ON'
+            cuda_architectures: '70;75;80;86;90;100;120'
+          - arch: arm64
+            cuda_version: '12.9'
+            build_type: gpu-cuda12.9
+            cudf: 'ON'
+            cuda_architectures: '70;75;80;86;90;100;120'
+          - arch: amd64
+            cuda_version: '13.1'
+            build_type: gpu-cuda13.1
+            cudf: 'ON'
+            cuda_architectures: '75;80;86;90;100;120'
+          - arch: arm64
+            cuda_version: '13.1'
+            build_type: gpu-cuda13.1
+            cudf: 'ON'
+            cuda_architectures: '75;80;86;90;100;120'
+          # CPU builds
+          - arch: amd64
+            build_type: cpu
+            cudf: 'OFF'
+          - arch: arm64
+            build_type: cpu
+            cudf: 'OFF'
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          path: velox-testing
+
+      - name: Checkout Velox
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ inputs.velox_repository }}
+          ref: ${{ needs.resolve-commits.outputs.velox_sha }}
+          path: velox
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+        continue-on-error: true
+        with:
+          enable-apt: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+        with:
+          driver-opts: network=host
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
+          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
+
+      - name: Setup sccache
+        id: sccache
+        uses: ./velox-testing/.github/actions/sccache-setup
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          enable-dist: 'true'
+
+      - name: Ensure sccache auth dir exists
+        run: |
+          if [[ "${{ steps.sccache.outputs.enabled }}" != "true" ]]; then
+            echo "::error::sccache setup failed. sccache is required for ci-images builds."
+            exit 1
+          fi
+
+      - name: Create .dockerignore
+        run: |
+          cat > .dockerignore <<'IGNORE'
+          **/.git
+          **/.github
+          **/.gitignore
+          **/.gitmodules
+          **/build
+          **/cmake-build-*
+          **/_build
+          **/__pycache__
+          **/*.pyc
+          IGNORE
+
+      - name: Determine deps image tag
+        id: deps
+        run: |
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          ARCH="${{ matrix.arch }}"
+          CUDA="${{ matrix.cuda_version || '12.9' }}"
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${VSHA}-cuda${CUDA}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          ARCH="${{ matrix.arch }}"
+          if [[ "${{ matrix.build_type }}" == "cpu" ]]; then
+            echo "tag=velox-${VSHA}-cpu-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=velox-${VSHA}-gpu-cuda${{ matrix.cuda_version }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push Velox image
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          context: .
+          file: velox-testing/velox/docker/adapters_build.dockerfile
+          network: host
+          allow: network.host
+          build-contexts: |
+            ghcr.io/facebookincubator/velox-dev:adapters=docker-image://${{ steps.deps.outputs.image }}
+          build-args: |
+            BUILD_WITH_VELOX_ENABLE_CUDF=${{ matrix.cudf }}
+            CUDA_ARCHITECTURES=${{ matrix.cuda_architectures || '70' }}
+            CUDA_VERSION=${{ matrix.cuda_version || '12.9' }}
+            ENABLE_SCCACHE=ON
+            NUM_THREADS=31
+          secret-files: |
+            github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
+            aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  presto-deps:
+    if: inputs.build_presto
+    name: presto-deps (cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
+    needs: [resolve-commits]
+    runs-on: linux-${{ matrix.arch }}-cpu16
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            cuda_version: '12.9'
+          - arch: arm64
+            cuda_version: '12.9'
+          - arch: amd64
+            cuda_version: '13.1'
+          - arch: arm64
+            cuda_version: '13.1'
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          path: velox-testing
+
+      - name: Checkout Velox
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ inputs.velox_repository }}
+          ref: ${{ needs.resolve-commits.outputs.velox_sha }}
+          path: velox
+
+      - name: Checkout Presto
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ inputs.presto_repository }}
+          ref: ${{ needs.resolve-commits.outputs.presto_sha }}
+          path: presto
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+        continue-on-error: true
+        with:
+          enable-apt: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
+          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
+
+      - name: Stage presto-deps build context
+        run: |
+          cp -r presto/presto-native-execution presto-deps-context
+          cp -r velox/scripts presto-deps-context/velox/scripts
+          cp -r velox/CMake presto-deps-context/velox/CMake
+
+      - name: Build and push Presto deps image
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          context: presto-deps-context
+          file: presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
+          build-args: |
+            CUDA_VERSION=${{ matrix.cuda_version }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }},mode=max
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ needs.resolve-commits.outputs.presto_short_sha }}-velox-${{ needs.resolve-commits.outputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ needs.resolve-commits.outputs.date }}-${{ matrix.arch }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  presto-build:
+    if: inputs.build_presto
+    name: presto-build (${{ matrix.build_type }}, ${{ matrix.arch }})
+    needs: [resolve-commits, presto-deps]
+    runs-on: linux-${{ matrix.arch }}-cpu32
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GPU builds
+          - arch: amd64
+            cuda_version: '12.9'
+            build_type: gpu-cuda12.9
+            gpu_flag: 'ON'
+            cuda_architectures: '70;75;80;86;90;100;120'
+          - arch: arm64
+            cuda_version: '12.9'
+            build_type: gpu-cuda12.9
+            gpu_flag: 'ON'
+            cuda_architectures: '70;75;80;86;90;100;120'
+          - arch: amd64
+            cuda_version: '13.1'
+            build_type: gpu-cuda13.1
+            gpu_flag: 'ON'
+            cuda_architectures: '75;80;86;90;100;120'
+          - arch: arm64
+            cuda_version: '13.1'
+            build_type: gpu-cuda13.1
+            gpu_flag: 'ON'
+            cuda_architectures: '75;80;86;90;100;120'
+          # CPU builds
+          - arch: amd64
+            build_type: cpu
+            gpu_flag: 'OFF'
+          - arch: arm64
+            build_type: cpu
+            gpu_flag: 'OFF'
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          path: velox-testing
+
+      - name: Checkout Velox
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ inputs.velox_repository }}
+          ref: ${{ needs.resolve-commits.outputs.velox_sha }}
+          path: velox
+
+      - name: Checkout Presto
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ inputs.presto_repository }}
+          ref: ${{ needs.resolve-commits.outputs.presto_sha }}
+          path: presto
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+        continue-on-error: true
+        with:
+          enable-apt: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+        with:
+          driver-opts: network=host
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
+          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
+
+      - name: Setup sccache
+        id: sccache
+        uses: ./velox-testing/.github/actions/sccache-setup
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          enable-dist: 'true'
+
+      - name: Ensure sccache auth dir exists
+        run: |
+          if [[ "${{ steps.sccache.outputs.enabled }}" != "true" ]]; then
+            echo "::error::sccache setup failed. sccache is required for ci-images builds."
+            exit 1
+          fi
+
+      - name: Create .dockerignore
+        run: |
+          cat > .dockerignore <<'IGNORE'
+          **/.git
+          **/.github
+          **/.gitignore
+          **/.gitmodules
+          **/build
+          **/cmake-build-*
+          **/_build
+          **/__pycache__
+          **/*.pyc
+          IGNORE
+
+      - name: Determine deps image tag
+        id: deps
+        run: |
+          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          ARCH="${{ matrix.arch }}"
+          CUDA="${{ matrix.cuda_version || '12.9' }}"
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${PSHA}-velox-${VSHA}-cuda${CUDA}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          ARCH="${{ matrix.arch }}"
+          if [[ "${{ matrix.build_type }}" == "cpu" ]]; then
+            echo "tag=presto-${PSHA}-velox-${VSHA}-cpu-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=presto-${PSHA}-velox-${VSHA}-gpu-cuda${{ matrix.cuda_version }}-${DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push Presto native worker image
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          context: .
+          file: velox-testing/presto/docker/native_build.dockerfile
+          network: host
+          allow: network.host
+          build-contexts: |
+            presto/prestissimo-dependency:centos9=docker-image://${{ steps.deps.outputs.image }}
+          build-args: |
+            CUDA_ARCHITECTURES=${{ matrix.cuda_architectures || '70' }}
+            ENABLE_SCCACHE=ON
+            GPU=${{ matrix.gpu_flag }}
+            NUM_THREADS=31
+          secret-files: |
+            github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
+            aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  merge-velox-deps:
+    if: inputs.build_velox
+    name: merge-manifests (velox-deps)
+    needs: [resolve-commits, velox-deps]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Create and push multi-arch manifests
+        run: |
+          REGISTRY="${{ env.REGISTRY }}"
+          IMAGE="${{ env.IMAGE_NAME }}"
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          create_manifest() {
+            local tag="$1"
+            echo "Creating multi-arch manifest: ${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
+              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE}:${tag}-arm64"
+          }
+          for cuda in 12.9 13.1; do
+            create_manifest "velox-deps-${VSHA}-cuda${cuda}-${DATE}"
+          done
+
+  merge-velox-build:
+    if: inputs.build_velox
+    name: merge-manifests (velox-build)
+    needs: [resolve-commits, velox-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Create and push multi-arch manifests
+        run: |
+          REGISTRY="${{ env.REGISTRY }}"
+          IMAGE="${{ env.IMAGE_NAME }}"
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          create_manifest() {
+            local tag="$1"
+            echo "Creating multi-arch manifest: ${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
+              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE}:${tag}-arm64"
+          }
+          for cuda in 12.9 13.1; do
+            create_manifest "velox-${VSHA}-gpu-cuda${cuda}-${DATE}"
+          done
+          create_manifest "velox-${VSHA}-cpu-${DATE}"
+
+  merge-presto-deps:
+    if: inputs.build_presto
+    name: merge-manifests (presto-deps)
+    needs: [resolve-commits, presto-deps]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Create and push multi-arch manifests
+        run: |
+          REGISTRY="${{ env.REGISTRY }}"
+          IMAGE="${{ env.IMAGE_NAME }}"
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          create_manifest() {
+            local tag="$1"
+            echo "Creating multi-arch manifest: ${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
+              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE}:${tag}-arm64"
+          }
+          for cuda in 12.9 13.1; do
+            create_manifest "presto-deps-${PSHA}-velox-${VSHA}-cuda${cuda}-${DATE}"
+          done
+
+  merge-presto-build:
+    if: inputs.build_presto
+    name: merge-manifests (presto-build)
+    needs: [resolve-commits, presto-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Create and push multi-arch manifests
+        run: |
+          REGISTRY="${{ env.REGISTRY }}"
+          IMAGE="${{ env.IMAGE_NAME }}"
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          create_manifest() {
+            local tag="$1"
+            echo "Creating multi-arch manifest: ${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE}:${tag}" \
+              "${REGISTRY}/${IMAGE}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE}:${tag}-arm64"
+          }
+          for cuda in 12.9 13.1; do
+            create_manifest "presto-${PSHA}-velox-${VSHA}-gpu-cuda${cuda}-${DATE}"
+          done
+          create_manifest "presto-${PSHA}-velox-${VSHA}-cpu-${DATE}"
+
+  test-velox-cpu:
+    if: inputs.build_velox && inputs.run_tests
+    name: test-velox-cpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
+    needs: [resolve-commits, merge-velox-build]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            image_tag: gpu-cuda12.9
+          - arch: amd64
+            image_tag: gpu-cuda13.1
+          - arch: amd64
+            image_tag: cpu
+    runs-on: linux-${{ matrix.arch }}-cpu16
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Run CPU tests
+        run: |
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-${{ matrix.image_tag }}-${DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm "${IMAGE}" bash -c \
+            "cd /opt/velox-build/release && ctest -j 16 --label-exclude cuda_driver --output-on-failure --no-tests=error"
+
+  test-velox-gpu:
+    if: inputs.build_velox && inputs.run_tests
+    name: test-velox-gpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
+    needs: [resolve-commits, merge-velox-build]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            image_tag: gpu-cuda12.9
+            gpu: l4
+          - arch: amd64
+            image_tag: gpu-cuda13.1
+            gpu: l4
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Run GPU tests
+        run: |
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-${{ matrix.image_tag }}-${DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm --gpus all "${IMAGE}" bash -c \
+            "cd /opt/velox-build/release && ctest -j 8 --label-regex cuda_driver --output-on-failure --no-tests=error"
+
+  test-presto:
+    if: inputs.build_presto && inputs.run_tests
+    name: test (presto-gpu, ${{ matrix.arch }})
+    needs: [resolve-commits, merge-presto-build]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            gpu: l4
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Smoke test
+        run: |
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          PSHA="${{ needs.resolve-commits.outputs.presto_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-${PSHA}-velox-${VSHA}-gpu-cuda13.1-${DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          echo "--- arch ---"
+          docker run --rm "${IMAGE}" arch
+          echo "--- nvidia-smi ---"
+          docker run --rm --gpus all "${IMAGE}" nvidia-smi
