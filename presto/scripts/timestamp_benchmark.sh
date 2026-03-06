@@ -275,7 +275,11 @@ setup_data() {
 
   ensure_schema
 
-  # Generate parquet files on host (parallel)
+  # Clean old data and generate fresh parquet files
+  if [ -d "${HOST_DATA_DIR}" ]; then
+    echo "Cleaning old data in ${HOST_DATA_DIR}..."
+    rm -rf "${HOST_DATA_DIR}"
+  fi
   generate_parquet "${num_rows}" "${HOST_DATA_DIR}"
 
   # Drop old table if exists
