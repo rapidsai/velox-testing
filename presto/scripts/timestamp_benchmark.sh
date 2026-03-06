@@ -701,8 +701,9 @@ for qname, wall_median in medians.items():
         elapsed_ms = parse_duration(best_match["elapsed"])
         cpu_ms = parse_duration(best_match["cpu"])
         overhead = wall_median - elapsed_ms
+        num_ops = len(best_match["ops"])
         print(hdr.format(qname, str(wall_median), f"{elapsed_ms:.0f}", f"{cpu_ms:.0f}", f"{overhead:.0f}"))
-        query_details[qname] = {"wall": wall_median, "presto": elapsed_ms, "cpu": cpu_ms, "ops": best_match["ops"]}
+        query_details[qname] = {"wall": wall_median, "presto": elapsed_ms, "cpu": cpu_ms, "ops": best_match["ops"], "qid": best_match["qid"]}
     else:
         print(hdr.format(qname, str(wall_median), "?", "?", "?"))
         query_details[qname] = {"wall": wall_median, "ops": []}
@@ -740,7 +741,9 @@ for qname, details in query_details.items():
 
     sorted_ops = sorted(op_data.items(), key=lambda x: x[1]["wall"], reverse=True)
 
-    print(f"\n--- {qname} (wall={details['wall']}ms, presto={details.get('presto','?')}ms, cpu={details.get('cpu','?')}ms) ---")
+    qid = details.get("qid", "?")
+    num_ops = len(ops)
+    print(f"\n--- {qname} (wall={details['wall']}ms, presto={details.get('presto','?')}ms, cpu={details.get('cpu','?')}ms, qid={qid}, ops={num_ops}) ---")
     ohdr = "  {:<40s} {:>8s} {:>8s} {:>10s} {:>10s} {:>6s}"
     print(ohdr.format("Operator", "CPU ms", "Wall ms", "In Rows", "Out Rows", "Drvrs"))
     print(ohdr.format("-" * 40, "-" * 8, "-" * 8, "-" * 10, "-" * 10, "-" * 6))
