@@ -511,11 +511,24 @@ run_benchmark() {
   fi
   echo "Detected mode: ${mode}"
 
-  local results_file="timestamp_benchmark_${mode}_$(date +%Y%m%d_%H%M%S).csv"
-  echo "query,run,elapsed_ms" > "${results_file}"
+  # Create output directory for full report
+  local ts
+  ts=$(date +%Y%m%d_%H%M%S)
+  local out_dir="benchmark_results/${mode}_sf${SF}_${ts}"
+  mkdir -p "${out_dir}"
 
-  echo "Mode: ${mode} (set BENCH_MODE=gpu or BENCH_MODE=cpu to label runs)"
-  echo "Timing ${RUNS} runs per query against the running server config."
+  local results_csv="${out_dir}/timings.csv"
+  local report_file="${out_dir}/report.txt"
+  echo "query,run,elapsed_ms" > "${results_csv}"
+
+  # Tee all output to report file and terminal
+  exec > >(tee -a "${report_file}") 2>&1
+
+  echo "Mode: ${mode}"
+  echo "Scale factor: ${SF}"
+  echo "Runs per query: ${RUNS}"
+  echo "Table: ${TABLE} (${count_result} rows)"
+  echo "Output: ${out_dir}/"
   echo ""
 
   for qname in "${QUERY_ORDER[@]}"; do
@@ -529,45 +542,24 @@ run_benchmark() {
     for run in $(seq 1 "${RUNS}"); do
       local ms
       ms=$(run_query "Run ${run}/${RUNS}" "${sql}")
-      echo "${qname},${run},${ms}" >> "${results_file}"
+      echo "${qname},${run},${ms}" >> "${results_csv}"
     done
     echo ""
   done
 
-  echo "=== Results saved to ${results_file} ==="
-  echo ""
-
-  # Print summary
-  echo "=== Summary (median of ${RUNS} runs) ==="
-  printf "%-25s %12s\n" "Query" "Median (ms)"
-  printf "%-25s %12s\n" "-------------------------" "------------"
-
-  for qname in "${QUERY_ORDER[@]}"; do
-    local median
-    median=$(grep "^${qname}," "${results_file}" | cut -d, -f3 | sort -n | sed -n "$((( RUNS + 1 ) / 2))p")
-
-    if [ -n "${median}" ] && [ "${median}" != "-1" ] 2>/dev/null; then
-      printf "%-25s %12s\n" "${qname}" "${median}"
-    else
-      printf "%-25s %12s\n" "${qname}" "FAILED"
-    fi
-  done
-
-  echo ""
-  echo "To compare GPU vs CPU, run benchmark twice with different server configs:"
-  echo "  1. Start workers with cudf.enabled=true,  run: $0 bench ${SF}"
-  echo "  2. Start workers with cudf.enabled=false, run: $0 bench ${SF}"
-
-  # Fetch per-operator breakdown for each query's last run
-  echo ""
-  echo "=== Per-Operator Breakdown (last run of each query) ==="
-  python3 - "${COORDINATOR}" "${PORT}" <<'PYEOF'
+  # Print summary with both wall time and Presto-reported times
+  echo "=== Summary ==="
+  python3 - "${results_csv}" "${COORDINATOR}" "${PORT}" "${RUNS}" <<'PYEOF'
 import subprocess
 import json
 import sys
+import csv
+import re
 
-coordinator = sys.argv[1]
-port = sys.argv[2]
+results_csv = sys.argv[1]
+coordinator = sys.argv[2]
+port = sys.argv[3]
+num_runs = int(sys.argv[4])
 
 def curl_json(path):
     r = subprocess.run(
@@ -575,102 +567,136 @@ def curl_json(path):
         capture_output=True, text=True, timeout=10)
     return json.loads(r.stdout) if r.returncode == 0 else None
 
-def fmt_time(ns_str):
-    try:
-        return float(ns_str.replace("ns", "")) / 1e6
-    except:
-        return 0.0
+def parse_duration(s):
+    s = s.strip()
+    if s.endswith("ns"): return float(s[:-2]) / 1e6
+    if s.endswith("us"): return float(s[:-2]) / 1e3
+    if s.endswith("ms"): return float(s[:-2])
+    if s.endswith("s") and not s.endswith("ms") and not s.endswith("ns") and not s.endswith("us"):
+        return float(s[:-1]) * 1000
+    if s.endswith("m") and not s.endswith("ms"): return float(s[:-1]) * 60000
+    if s.endswith("h"): return float(s[:-1]) * 3600000
+    return 0
 
 def fmt_rows(n):
     if n >= 1e6: return f"{n/1e6:.1f}M"
     if n >= 1e3: return f"{n/1e3:.1f}K"
     return str(n)
 
-def parse_presto_duration(s):
-    """Parse '517.35ms', '1.23s', '0.00ns', '2.50m' to ms float."""
-    s = s.strip()
-    if s.endswith("ns"):
-        return float(s[:-2]) / 1e6
-    if s.endswith("us"):
-        return float(s[:-2]) / 1e3
-    if s.endswith("ms"):
-        return float(s[:-2])
-    if s.endswith("s") and not s.endswith("ms") and not s.endswith("ns") and not s.endswith("us"):
-        return float(s[:-1]) * 1000
-    if s.endswith("m") and not s.endswith("ms"):
-        return float(s[:-1]) * 60000
-    if s.endswith("h"):
-        return float(s[:-1]) * 3600000
-    return 0
+def fmt_ns(ns_str):
+    try: return float(ns_str.replace("ns", "")) / 1e6
+    except: return 0.0
 
-queries = curl_json("/v1/query")
-if not queries:
-    print("  Could not fetch query list")
-    sys.exit(0)
+# Read wall-clock timings from CSV
+timings = {}
+with open(results_csv) as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        qname = row["query"]
+        ms = int(row["elapsed_ms"])
+        timings.setdefault(qname, []).append(ms)
 
-# Get all finished queries, most recent first
-finished = [q for q in queries if q.get("state") == "FINISHED"]
+# Compute medians
+medians = {}
+for qname, vals in timings.items():
+    vals.sort()
+    medians[qname] = vals[len(vals) // 2]
 
-# Deduplicate by query SQL (keep most recent = first occurrence)
-seen_sql = set()
-unique_queries = []
+# Fetch Presto query stats
+queries_api = curl_json("/v1/query") or []
+finished = [q for q in queries_api if q.get("state") == "FINISHED"]
+seen = set()
+presto_stats = {}
 for q in finished:
-    sql_hash = q.get("query", "")[:100]
-    if sql_hash not in seen_sql:
-        seen_sql.add(sql_hash)
-        unique_queries.append(q)
-
-# Process each unique query
-for qi, q in enumerate(unique_queries[:20]):  # limit to 20
+    sql_key = " ".join(q.get("query", "").split())[:100]
+    if sql_key in seen:
+        continue
+    seen.add(sql_key)
     qid = q["queryId"]
     data = curl_json(f"/v1/query/{qid}")
     if not data:
         continue
-
     qs = data.get("queryStats", {})
-    query_sql = data.get("query", "?")
-    # Truncate SQL for display
-    sql_oneline = " ".join(query_sql.split())[:80]
+    presto_stats[sql_key] = {
+        "qid": qid,
+        "elapsed": qs.get("elapsedTime", "?"),
+        "cpu": qs.get("totalCpuTime", "?"),
+        "ops": qs.get("operatorSummaries", []),
+    }
 
-    elapsed = qs.get("elapsedTime", "?")
-    cpu_time = qs.get("totalCpuTime", "?")
-    elapsed_ms = parse_presto_duration(elapsed)
-    cpu_ms = parse_presto_duration(cpu_time)
+# Print summary table
+hdr = "{:<25s} {:>10s} {:>10s} {:>10s} {:>10s}"
+print(hdr.format("Query", "Wall (ms)", "Presto ms", "CPU ms", "Overhead"))
+print(hdr.format("-" * 25, "-" * 10, "-" * 10, "-" * 10, "-" * 10))
 
-    ops = qs.get("operatorSummaries", [])
+# Match queries by SQL prefix
+query_details = {}
+for qname, wall_median in medians.items():
+    # Find matching Presto stats
+    best_match = None
+    for sql_key, stats in presto_stats.items():
+        if qname.replace("ts_", "") in sql_key.lower() or any(
+            kw in sql_key.lower() for kw in qname.replace("ts_", "").split("_")
+        ):
+            best_match = stats
+            break
+
+    if best_match:
+        elapsed_ms = parse_duration(best_match["elapsed"])
+        cpu_ms = parse_duration(best_match["cpu"])
+        overhead = wall_median - elapsed_ms
+        print(hdr.format(qname, str(wall_median), f"{elapsed_ms:.0f}", f"{cpu_ms:.0f}", f"{overhead:.0f}"))
+        query_details[qname] = {"wall": wall_median, "presto": elapsed_ms, "cpu": cpu_ms, "ops": best_match["ops"]}
+    else:
+        print(hdr.format(qname, str(wall_median), "?", "?", "?"))
+        query_details[qname] = {"wall": wall_median, "ops": []}
+
+print()
+print("  Wall    = client-measured end-to-end (includes CLI startup, HTTP, scheduling)")
+print("  Presto  = server-reported elapsed time")
+print("  CPU     = server-reported total CPU time across all threads")
+print("  Overhead= Wall - Presto (client/network overhead)")
+
+# Print per-operator breakdown for each query
+print()
+print("=" * 80)
+print("Per-Operator Breakdown")
+print("=" * 80)
+
+for qname, details in query_details.items():
+    ops = details.get("ops", [])
     if not ops:
         continue
 
-    # Aggregate by operator
     op_data = {}
     for op in ops:
         name = op.get("operatorType", "?")
         pid = op.get("planNodeId", "")
         key = f"{name}[{pid}]" if pid and pid != "N/A" else name
-
         if key not in op_data:
             op_data[key] = {"cpu": 0, "wall": 0, "in_r": 0, "out_r": 0}
-
-        op_data[key]["wall"] += fmt_time(op.get("getOutputWall", "0ns")) + fmt_time(op.get("addInputWall", "0ns"))
-        op_data[key]["cpu"] += fmt_time(op.get("getOutputCpu", "0ns")) + fmt_time(op.get("addInputCpu", "0ns"))
+        op_data[key]["wall"] += fmt_ns(op.get("getOutputWall", "0ns")) + fmt_ns(op.get("addInputWall", "0ns"))
+        op_data[key]["cpu"] += fmt_ns(op.get("getOutputCpu", "0ns")) + fmt_ns(op.get("addInputCpu", "0ns"))
         op_data[key]["in_r"] += op.get("inputPositions", 0)
         op_data[key]["out_r"] += op.get("outputPositions", 0)
 
     sorted_ops = sorted(op_data.items(), key=lambda x: x[1]["wall"], reverse=True)
 
-    print(f"\n  Query: {sql_oneline}...")
-    print(f"  Elapsed: {elapsed} | CPU: {cpu_time} | Overhead: {max(0, elapsed_ms - cpu_ms):.0f}ms")
-    hdr = "    {:<40s} {:>8s} {:>8s} {:>10s} {:>10s}"
-    print(hdr.format("Operator", "CPU ms", "Wall ms", "In Rows", "Out Rows"))
-    print(hdr.format("-" * 40, "-" * 8, "-" * 8, "-" * 10, "-" * 10))
-
+    print(f"\n--- {qname} (wall={details['wall']}ms, presto={details.get('presto','?')}ms, cpu={details.get('cpu','?')}ms) ---")
+    ohdr = "  {:<40s} {:>8s} {:>8s} {:>10s} {:>10s}"
+    print(ohdr.format("Operator", "CPU ms", "Wall ms", "In Rows", "Out Rows"))
+    print(ohdr.format("-" * 40, "-" * 8, "-" * 8, "-" * 10, "-" * 10))
     for name, d in sorted_ops:
         if d["wall"] < 0.01 and d["cpu"] < 0.01:
             continue
-        print(hdr.format(
-            name[:40], f"{d['cpu']:.1f}", f"{d['wall']:.1f}",
-            fmt_rows(d["in_r"]), fmt_rows(d["out_r"])))
+        print(ohdr.format(name[:40], f"{d['cpu']:.1f}", f"{d['wall']:.1f}",
+                          fmt_rows(d["in_r"]), fmt_rows(d["out_r"])))
 PYEOF
+
+  echo ""
+  echo "To compare GPU vs CPU, run benchmark twice with different server configs:"
+  echo "  1. Start workers with cudf.enabled=true,  run: $0 bench ${SF}"
+  echo "  2. Start workers with cudf.enabled=false, run: $0 bench ${SF}"
 
   # Check for unexpected GPU fallbacks
   echo ""
