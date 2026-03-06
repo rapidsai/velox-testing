@@ -243,8 +243,11 @@ detect_cudf_mode() {
   # Check all non-coordinator presto containers for cudf.enabled
   local containers
   containers=$(docker ps --format '{{.Names}}' | grep -v coordinator || true)
+  if [ -z "${containers}" ]; then
+    echo "unknown"
+    return
+  fi
   for c in ${containers}; do
-    # Look for cudf config in container logs
     if docker logs "${c}" 2>&1 | grep -q "cudf.enabled=true"; then
       echo "gpu"
       return
@@ -272,8 +275,12 @@ setup_data() {
     echo ""
     echo "Please restart workers with cudf.enabled=false, then run setup again."
     exit 1
+  elif [ "${mode}" = "unknown" ]; then
+    echo "WARNING: No worker containers found. Will generate data and create table,"
+    echo "but ANALYZE TABLE will be skipped. Start workers and run ANALYZE manually."
+  else
+    echo "Workers are in CPU mode. Good."
   fi
-  echo "Workers are in CPU mode. Good."
 
   ensure_schema
 
