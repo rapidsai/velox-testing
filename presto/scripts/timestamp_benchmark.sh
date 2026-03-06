@@ -315,11 +315,11 @@ setup_data() {
   "
 
   echo "Verifying table..."
-  local verify_result
-  verify_result=$(cli --execute "SELECT l_returnflag FROM ${TABLE} LIMIT 1" 2>/dev/null | tr -d '"[:space:]') || true
-  echo "Table ${TABLE} created. Verify result: '${verify_result}'"
+  local count_result
+  count_result=$(cli --execute "SELECT count(*) FROM ${TABLE}" 2>/dev/null | tr -d '"[:space:]')
+  echo "Table ${TABLE} created with ${count_result} rows."
 
-  if [ -z "${verify_result}" ]; then
+  if [ "${count_result}" = "0" ] || [ -z "${count_result}" ]; then
     echo ""
     echo "WARNING: Table appears empty. Check that PRESTO_DATA_DIR=${PRESTO_DATA_DIR}"
     echo "is mounted into containers at /var/lib/presto/data/hive/data/user_data"
@@ -384,14 +384,10 @@ PYEOF
 
 declare -A QUERIES
 QUERIES["ts_filter_count"]="
-  SELECT
-    l_returnflag,
-    count(*) AS cnt
+  SELECT count(*)
   FROM ${TABLE}
   WHERE ship_ts >= TIMESTAMP '1995-01-01 00:00:00'
     AND ship_ts < TIMESTAMP '1995-04-01 00:00:00'
-  GROUP BY 1
-  ORDER BY 1
 "
 
 QUERIES["ts_extract_groupby"]="
@@ -418,13 +414,9 @@ QUERIES["ts_date_trunc_agg"]="
 "
 
 QUERIES["ts_column_compare"]="
-  SELECT
-    l_returnflag,
-    count(*) AS cnt
+  SELECT count(*)
   FROM ${TABLE}
   WHERE receipt_ts > commit_ts
-  GROUP BY 1
-  ORDER BY 1
 "
 
 QUERIES["ts_multi_ops"]="
@@ -493,17 +485,17 @@ run_benchmark() {
   echo "=== Timestamp Benchmark (${RUNS} runs per query, table: ${TABLE}) ==="
   echo ""
 
-  # Verify table has data (avoid global count(*) which triggers cuDF empty vector bug)
+  # Verify table has data
   local count_result
   echo "Verifying table ${TABLE}..."
-  count_result=$(cli --execute "SELECT l_returnflag, count(*) AS cnt FROM ${TABLE} GROUP BY 1 LIMIT 1" 2>&1 | tr -d '[:space:]') || true
-  if [ -z "${count_result}" ] || echo "${count_result}" | grep -qi "failed\|error"; then
+  count_result=$(cli --execute "SELECT count(*) FROM ${TABLE}" 2>&1 | tr -d '"[:space:]') || true
+  if [ -z "${count_result}" ] || [ "${count_result}" = "0" ] || echo "${count_result}" | grep -qi "failed\|error"; then
     echo "ERROR: Table ${TABLE} is empty or not accessible. Run setup first."
     echo "  Result: ${count_result}"
     echo "  Try: $0 setup ${SF}"
     exit 1
   fi
-  echo "Table verified (has data)."
+  echo "Table has ${count_result} rows."
   echo ""
 
   # Auto-detect GPU or CPU mode from worker logs
