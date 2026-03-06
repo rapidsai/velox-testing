@@ -752,7 +752,7 @@ for qname, details in query_details.items():
         op_data[key]["cpu"] += fmt_ns(op.get("getOutputCpu", "0ns")) + fmt_ns(op.get("addInputCpu", "0ns"))
         op_data[key]["in_r"] += op.get("inputPositions", 0)
         op_data[key]["out_r"] += op.get("outputPositions", 0)
-        op_data[key]["tasks"] += 1  # count how many task instances were aggregated
+        op_data[key]["tasks"] += op.get("totalDrivers", 1)
 
     sorted_ops = sorted(op_data.items(), key=lambda x: x[1]["wall"], reverse=True)
 
