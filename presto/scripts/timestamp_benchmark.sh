@@ -353,7 +353,19 @@ run_benchmark() {
   echo "Table has ${count_result} rows."
   echo ""
 
-  local mode="${BENCH_MODE:-gpu}"
+  # Auto-detect GPU or CPU mode from worker logs
+  local mode="cpu"
+  local workers
+  workers=$(docker ps --format '{{.Names}}' | grep -i worker | head -1 || true)
+  if [ -n "${workers}" ]; then
+    if docker logs "${workers}" 2>&1 | grep -q "cudf.enabled=true"; then
+      mode="gpu"
+    elif docker logs "${workers}" 2>&1 | grep -q "cuDF is registered"; then
+      mode="gpu"
+    fi
+  fi
+  echo "Detected mode: ${mode}"
+
   local results_file="timestamp_benchmark_${mode}_$(date +%Y%m%d_%H%M%S).csv"
   echo "query,run,elapsed_ms" > "${results_file}"
 
