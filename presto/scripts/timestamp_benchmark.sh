@@ -563,23 +563,38 @@ run_benchmark() {
       ms=$(run_query "Run ${run}/${RUNS}" "${sql}")
       echo "${qname},${run},${ms}" >> "${results_csv}"
     done
+
+    # Save latest query stats immediately (before stage data expires)
+    docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/query" 2>/dev/null | \
+      python3 -c "
+import json, sys
+queries = json.load(sys.stdin)
+for q in queries:
+    if q.get('state') == 'FINISHED':
+        print(q['queryId'])
+        break
+" 2>/dev/null | while read qid; do
+      docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/query/${qid}" > "${out_dir}/query_${qname}.json" 2>/dev/null || true
+    done
     echo ""
   done
 
   # Print summary with both wall time and Presto-reported times
   echo "=== Summary ==="
-  python3 - "${results_csv}" "${COORDINATOR}" "${PORT}" "${RUNS}" "${query_map}" <<'PYEOF'
+  python3 - "${results_csv}" "${COORDINATOR}" "${PORT}" "${RUNS}" "${query_map}" "${out_dir}" <<'PYEOF'
 import subprocess
 import json
 import sys
 import csv
 import re
+import os
 
 results_csv = sys.argv[1]
 coordinator = sys.argv[2]
 port = sys.argv[3]
 num_runs = int(sys.argv[4])
 query_map_file = sys.argv[5]
+out_dir = sys.argv[6]
 
 # Parse query name -> SQL mapping
 query_sql_map = {}
@@ -642,45 +657,37 @@ for qname, vals in timings.items():
     vals.sort()
     medians[qname] = vals[len(vals) // 2]
 
-# Fetch Presto query stats — index by normalized SQL for matching
-queries_api = curl_json("/v1/query") or []
-finished = [q for q in queries_api if q.get("state") == "FINISHED"]
-# Most recent first — keep only the first (latest) match per normalized SQL
-presto_by_sql = {}
-for q in finished:
-    norm = normalize_sql(q.get("query", ""))
-    if norm in presto_by_sql:
+# Load query stats from saved JSON files (captured immediately after each query)
+def collect_all_ops(stage):
+    """Walk stage tree and collect operator summaries from all stages."""
+    ops = []
+    if not stage:
+        return ops
+    exec_info = stage.get("latestAttemptExecutionInfo", {})
+    stats = exec_info.get("stats", {})
+    for op in stats.get("operatorSummaries", []):
+        op["_stageId"] = stage.get("stageId", "?")
+        ops.append(op)
+    for sub in stage.get("subStages", []):
+        ops.extend(collect_all_ops(sub))
+    return ops
+
+presto_by_name = {}
+for qname in query_sql_map:
+    json_file = os.path.join(out_dir, f"query_{qname}.json")
+    if not os.path.exists(json_file):
         continue
-    qid = q["queryId"]
-    data = curl_json(f"/v1/query/{qid}")
-    if not data:
-        continue
+    with open(json_file) as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            continue
     qs = data.get("queryStats", {})
-
-    # Collect operator summaries from ALL stages (not just top-level).
-    # Walk the stage tree: outputStage -> subStages -> ...
-    all_ops = []
-    def collect_stage_ops(stage):
-        if not stage:
-            return
-        # Get ops from this stage's execution info
-        exec_info = stage.get("latestAttemptExecutionInfo", {})
-        stats = exec_info.get("stats", {})
-        for op in stats.get("operatorSummaries", []):
-            op["_stageId"] = stage.get("stageId", "?")
-            all_ops.append(op)
-        # Recurse into sub-stages
-        for sub in stage.get("subStages", []):
-            collect_stage_ops(sub)
-
-    collect_stage_ops(data.get("outputStage"))
-
-    # Fallback to top-level operatorSummaries if stage walk found nothing
+    all_ops = collect_all_ops(data.get("outputStage"))
     if not all_ops:
         all_ops = qs.get("operatorSummaries", [])
-
-    presto_by_sql[norm] = {
-        "qid": qid,
+    presto_by_name[qname] = {
+        "qid": data.get("queryId", "?"),
         "elapsed": qs.get("elapsedTime", "?"),
         "cpu": qs.get("totalCpuTime", "?"),
         "ops": all_ops,
@@ -691,11 +698,10 @@ hdr = "{:<25s} {:>10s} {:>10s} {:>10s} {:>10s}"
 print(hdr.format("Query", "Wall (ms)", "Presto ms", "CPU ms", "Overhead"))
 print(hdr.format("-" * 25, "-" * 10, "-" * 10, "-" * 10, "-" * 10))
 
-# Match queries by normalized SQL
+# Match queries by name (directly from saved JSON files)
 query_details = {}
 for qname, wall_median in medians.items():
-    expected_sql = normalize_sql(query_sql_map.get(qname, ""))
-    best_match = presto_by_sql.get(expected_sql)
+    best_match = presto_by_name.get(qname)
 
     if best_match:
         elapsed_ms = parse_duration(best_match["elapsed"])
