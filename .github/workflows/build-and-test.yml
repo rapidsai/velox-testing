@@ -8,7 +8,7 @@ on:
         type: string
         required: true
       velox_commit:
-        description: 'Velox commit SHA or branch'
+        description: 'Velox commit SHA, branch, or "presto-pinned" to use Presto submodule pin'
         type: string
         required: true
       presto_repository:
@@ -54,20 +54,6 @@ jobs:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      - name: Resolve Velox commit
-        id: velox
-        run: |
-          VELOX_REF="${{ inputs.velox_commit }}"
-          VELOX_REPO="${{ inputs.velox_repository }}"
-          SHA=$(git ls-remote "https://github.com/${VELOX_REPO}.git" "${VELOX_REF}" | head -1 | cut -f1)
-          if [[ -z "$SHA" ]]; then
-            # ref might be a SHA already
-            SHA="${VELOX_REF}"
-          fi
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "Velox SHA: ${SHA} (short: ${SHA:0:7})"
-
       - name: Resolve Presto commit
         id: presto
         run: |
@@ -80,6 +66,29 @@ jobs:
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "Presto SHA: ${SHA} (short: ${SHA:0:7})"
+
+      - name: Resolve Velox commit
+        id: velox
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VELOX_REF="${{ inputs.velox_commit }}"
+          VELOX_REPO="${{ inputs.velox_repository }}"
+          if [[ "${VELOX_REF}" == "presto-pinned" ]]; then
+            # Resolve the Velox SHA pinned by Presto's submodule
+            PRESTO_REPO="${{ inputs.presto_repository }}"
+            PRESTO_SHA="${{ steps.presto.outputs.sha }}"
+            SHA=$(gh api "repos/${PRESTO_REPO}/contents/presto-native-execution/velox?ref=${PRESTO_SHA}" --jq '.sha')
+            echo "Resolved Velox SHA from Presto submodule pin: ${SHA}"
+          else
+            SHA=$(git ls-remote "https://github.com/${VELOX_REPO}.git" "${VELOX_REF}" | head -1 | cut -f1)
+            if [[ -z "$SHA" ]]; then
+              SHA="${VELOX_REF}"
+            fi
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Velox SHA: ${SHA} (short: ${SHA:0:7})"
 
       - name: Set build date
         id: date
@@ -101,13 +110,13 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            cuda_version: '12.9'
+            cuda_version: &cuda12 '12.9'
           - arch: arm64
-            cuda_version: '12.9'
+            cuda_version: *cuda12
           - arch: amd64
-            cuda_version: '13.1'
+            cuda_version: &cuda13 '13.1'
           - arch: arm64
-            cuda_version: '13.1'
+            cuda_version: *cuda13
     steps:
       - name: Checkout Velox
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -124,6 +133,8 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+        with:
+          buildkitd-config: /etc/buildkit/buildkitd.toml
 
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
@@ -178,25 +189,25 @@ jobs:
         include:
           # GPU builds
           - arch: amd64
-            cuda_version: '12.9'
+            cuda_version: *cuda12
             build_type: gpu-cuda12.9
             cudf: 'ON'
-            cuda_architectures: '70;75;80;86;90;100;120'
+            cuda_architectures: &cuda12_archs '70;75;80;86;90;100;120'
           - arch: arm64
-            cuda_version: '12.9'
+            cuda_version: *cuda12
             build_type: gpu-cuda12.9
             cudf: 'ON'
-            cuda_architectures: '70;75;80;86;90;100;120'
+            cuda_architectures: *cuda12_archs
           - arch: amd64
-            cuda_version: '13.1'
+            cuda_version: *cuda13
             build_type: gpu-cuda13.1
             cudf: 'ON'
-            cuda_architectures: '75;80;86;90;100;120'
+            cuda_architectures: &cuda13_archs '75;80;86;90;100;120'
           - arch: arm64
-            cuda_version: '13.1'
+            cuda_version: *cuda13
             build_type: gpu-cuda13.1
             cudf: 'ON'
-            cuda_architectures: '75;80;86;90;100;120'
+            cuda_architectures: *cuda13_archs
           # CPU builds
           - arch: amd64
             build_type: cpu
@@ -226,6 +237,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
         with:
+          buildkitd-config: /etc/buildkit/buildkitd.toml
           driver-opts: network=host
 
       - name: Log in to the Container registry
@@ -256,19 +268,8 @@ jobs:
             exit 1
           fi
 
-      - name: Create .dockerignore
-        run: |
-          cat > .dockerignore <<'IGNORE'
-          **/.git
-          **/.github
-          **/.gitignore
-          **/.gitmodules
-          **/build
-          **/cmake-build-*
-          **/_build
-          **/__pycache__
-          **/*.pyc
-          IGNORE
+      - name: Copy .dockerignore
+        run: cp velox-testing/.dockerignore .dockerignore
 
       - name: Determine deps image tag
         id: deps
@@ -338,13 +339,13 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            cuda_version: '12.9'
+            cuda_version: *cuda12
           - arch: arm64
-            cuda_version: '12.9'
+            cuda_version: *cuda12
           - arch: amd64
-            cuda_version: '13.1'
+            cuda_version: *cuda13
           - arch: arm64
-            cuda_version: '13.1'
+            cuda_version: *cuda13
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -373,6 +374,8 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+        with:
+          buildkitd-config: /etc/buildkit/buildkitd.toml
 
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
@@ -432,25 +435,25 @@ jobs:
         include:
           # GPU builds
           - arch: amd64
-            cuda_version: '12.9'
+            cuda_version: *cuda12
             build_type: gpu-cuda12.9
             gpu_flag: 'ON'
-            cuda_architectures: '70;75;80;86;90;100;120'
+            cuda_architectures: *cuda12_archs
           - arch: arm64
-            cuda_version: '12.9'
+            cuda_version: *cuda12
             build_type: gpu-cuda12.9
             gpu_flag: 'ON'
-            cuda_architectures: '70;75;80;86;90;100;120'
+            cuda_architectures: *cuda12_archs
           - arch: amd64
-            cuda_version: '13.1'
+            cuda_version: *cuda13
             build_type: gpu-cuda13.1
             gpu_flag: 'ON'
-            cuda_architectures: '75;80;86;90;100;120'
+            cuda_architectures: *cuda13_archs
           - arch: arm64
-            cuda_version: '13.1'
+            cuda_version: *cuda13
             build_type: gpu-cuda13.1
             gpu_flag: 'ON'
-            cuda_architectures: '75;80;86;90;100;120'
+            cuda_architectures: *cuda13_archs
           # CPU builds
           - arch: amd64
             build_type: cpu
@@ -487,6 +490,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
         with:
+          buildkitd-config: /etc/buildkit/buildkitd.toml
           driver-opts: network=host
 
       - name: Log in to the Container registry
@@ -517,19 +521,8 @@ jobs:
             exit 1
           fi
 
-      - name: Create .dockerignore
-        run: |
-          cat > .dockerignore <<'IGNORE'
-          **/.git
-          **/.github
-          **/.gitignore
-          **/.gitmodules
-          **/build
-          **/cmake-build-*
-          **/_build
-          **/__pycache__
-          **/*.pyc
-          IGNORE
+      - name: Copy .dockerignore
+        run: cp velox-testing/.dockerignore .dockerignore
 
       - name: Determine deps image tag
         id: deps

@@ -187,3 +187,6 @@ if [ "$ENABLE_SCCACHE" = "ON" ]; then
 fi
 
 EOF
+
+# Copy velox source into the image so tests can find it at /workspace/velox
+COPY velox /workspace/velox
