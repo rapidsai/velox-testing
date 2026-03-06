@@ -27,6 +27,21 @@ on:
         type: string
         required: false
         default: 'master'
+      build_velox:
+        description: 'Build Velox images'
+        type: boolean
+        required: false
+        default: true
+      build_presto:
+        description: 'Build Presto images'
+        type: boolean
+        required: false
+        default: true
+      run_tests:
+        description: 'Run tests after builds'
+        type: boolean
+        required: false
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -40,10 +55,6 @@ env:
   IMAGE_NAME: ${{ github.repository }}-images
 
 jobs:
-
-  # ---------------------------------------------------------------------------
-  # Resolve commit SHAs from branch names
-  # ---------------------------------------------------------------------------
   resolve-commits:
     runs-on: ubuntu-latest
     permissions:
@@ -89,10 +100,8 @@ jobs:
         id: date
         run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
-  # ---------------------------------------------------------------------------
-  # Job 1: Velox deps images (centos-multi.dockerfile -> adapters stage)
-  # ---------------------------------------------------------------------------
   velox-deps:
+    if: inputs.build_velox != false
     name: velox-deps (cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-commits]
     runs-on: linux-${{ matrix.arch }}-cpu16
@@ -167,10 +176,8 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-  # ---------------------------------------------------------------------------
-  # Job 2: Velox built images (GPU + CPU)
-  # ---------------------------------------------------------------------------
   velox-build:
+    if: inputs.build_velox != false
     name: velox-build (${{ matrix.build_type }}, ${{ matrix.arch }})
     needs: [resolve-commits, velox-deps]
     runs-on: linux-${{ matrix.arch }}-cpu32
@@ -330,10 +337,8 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-  # ---------------------------------------------------------------------------
-  # Job 3: Presto deps images
-  # ---------------------------------------------------------------------------
   presto-deps:
+    if: inputs.build_presto != false
     name: presto-deps (cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-commits]
     runs-on: linux-${{ matrix.arch }}-cpu16
@@ -425,10 +430,8 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-  # ---------------------------------------------------------------------------
-  # Job 4: Presto native worker images (GPU + CPU)
-  # ---------------------------------------------------------------------------
   presto-build:
+    if: inputs.build_presto != false
     name: presto-build (${{ matrix.build_type }}, ${{ matrix.arch }})
     needs: [resolve-commits, presto-deps]
     runs-on: linux-${{ matrix.arch }}-cpu32
@@ -596,10 +599,8 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-  # ---------------------------------------------------------------------------
-  # Job 5: Create multi-arch manifests (one per image type)
-  # ---------------------------------------------------------------------------
   merge-velox-deps:
+    if: inputs.build_velox != false
     name: merge-manifests (velox-deps)
     needs: [resolve-commits, velox-deps]
     runs-on: ubuntu-latest
@@ -631,6 +632,7 @@ jobs:
           done
 
   merge-velox-build:
+    if: inputs.build_velox != false
     name: merge-manifests (velox-build)
     needs: [resolve-commits, velox-build]
     runs-on: ubuntu-latest
@@ -663,6 +665,7 @@ jobs:
           create_manifest "velox-${VSHA}-cpu-${DATE}"
 
   merge-presto-deps:
+    if: inputs.build_presto != false
     name: merge-manifests (presto-deps)
     needs: [resolve-commits, presto-deps]
     runs-on: ubuntu-latest
@@ -695,6 +698,7 @@ jobs:
           done
 
   merge-presto-build:
+    if: inputs.build_presto != false
     name: merge-manifests (presto-build)
     needs: [resolve-commits, presto-build]
     runs-on: ubuntu-latest
@@ -727,11 +731,9 @@ jobs:
           done
           create_manifest "presto-${PSHA}-velox-${VSHA}-cpu-${DATE}"
 
-  # ---------------------------------------------------------------------------
-  # Job 6: Smoke tests (run as soon as each image is ready)
-  # ---------------------------------------------------------------------------
-  test-velox:
-    name: test (velox-gpu, ${{ matrix.arch }})
+  test-velox-cpu:
+    if: inputs.build_velox != false && inputs.run_tests != false
+    name: test-velox-cpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
     needs: [resolve-commits, merge-velox-build]
     permissions:
       contents: read
@@ -741,6 +743,45 @@ jobs:
       matrix:
         include:
           - arch: amd64
+            image_tag: gpu-cuda12.9
+          - arch: amd64
+            image_tag: gpu-cuda13.1
+          - arch: amd64
+            image_tag: cpu
+    runs-on: linux-${{ matrix.arch }}-cpu16
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Run CPU tests
+        run: |
+          VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
+          DATE="${{ needs.resolve-commits.outputs.date }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-${{ matrix.image_tag }}-${DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm "${IMAGE}" bash -c \
+            "cd /opt/velox-build/release && ctest -j 16 --label-exclude cuda_driver --output-on-failure --no-tests=error"
+
+  test-velox-gpu:
+    if: inputs.build_velox != false && inputs.run_tests != false
+    name: test-velox-gpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
+    needs: [resolve-commits, merge-velox-build]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            image_tag: gpu-cuda12.9
+            gpu: l4
+          - arch: amd64
+            image_tag: gpu-cuda13.1
             gpu: l4
     runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     steps:
@@ -750,19 +791,18 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
-      - name: Smoke test
+      - name: Run GPU tests
         run: |
           VSHA="${{ needs.resolve-commits.outputs.velox_short_sha }}"
           DATE="${{ needs.resolve-commits.outputs.date }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-gpu-cuda13.1-${DATE}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-${VSHA}-${{ matrix.image_tag }}-${DATE}"
           echo "Testing image: ${IMAGE}"
           docker pull "${IMAGE}"
-          echo "--- arch ---"
-          docker run --rm "${IMAGE}" arch
-          echo "--- nvidia-smi ---"
-          docker run --rm --gpus all "${IMAGE}" nvidia-smi
+          docker run --rm --gpus all "${IMAGE}" bash -c \
+            "cd /opt/velox-build/release && ctest -j 8 --label-regex cuda_driver --output-on-failure --no-tests=error"
 
   test-presto:
+    if: inputs.build_presto != false && inputs.run_tests != false
     name: test (presto-gpu, ${{ matrix.arch }})
     needs: [resolve-commits, merge-presto-build]
     permissions:
