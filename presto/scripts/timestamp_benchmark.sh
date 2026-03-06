@@ -315,11 +315,11 @@ setup_data() {
   "
 
   echo "Verifying table..."
-  local count_result
-  count_result=$(cli --execute "SELECT count(*) FROM ${TABLE}" 2>/dev/null | tr -d '"[:space:]')
-  echo "Table ${TABLE} created with ${count_result} rows."
+  local verify_result
+  verify_result=$(cli --execute "SELECT l_returnflag FROM ${TABLE} LIMIT 1" 2>/dev/null | tr -d '"[:space:]') || true
+  echo "Table ${TABLE} created. Verify result: '${verify_result}'"
 
-  if [ "${count_result}" = "0" ] || [ -z "${count_result}" ]; then
+  if [ -z "${verify_result}" ]; then
     echo ""
     echo "WARNING: Table appears empty. Check that PRESTO_DATA_DIR=${PRESTO_DATA_DIR}"
     echo "is mounted into containers at /var/lib/presto/data/hive/data/user_data"
@@ -493,17 +493,17 @@ run_benchmark() {
   echo "=== Timestamp Benchmark (${RUNS} runs per query, table: ${TABLE}) ==="
   echo ""
 
-  # Verify table has data
+  # Verify table has data (avoid global count(*) which triggers cuDF empty vector bug)
   local count_result
   echo "Verifying table ${TABLE}..."
-  count_result=$(cli --execute "SELECT count(*) FROM ${TABLE}" 2>&1 | tr -d '"[:space:]') || true
-  echo "Count result: '${count_result}'"
-  if [ -z "${count_result}" ] || [ "${count_result}" = "0" ]; then
+  count_result=$(cli --execute "SELECT l_returnflag, count(*) AS cnt FROM ${TABLE} GROUP BY 1 LIMIT 1" 2>&1 | tr -d '[:space:]') || true
+  if [ -z "${count_result}" ] || echo "${count_result}" | grep -qi "failed\|error"; then
     echo "ERROR: Table ${TABLE} is empty or not accessible. Run setup first."
-    echo "Try: $0 setup ${SF}"
+    echo "  Result: ${count_result}"
+    echo "  Try: $0 setup ${SF}"
     exit 1
   fi
-  echo "Table has ${count_result} rows."
+  echo "Table verified (has data)."
   echo ""
 
   # Auto-detect GPU or CPU mode from worker logs
