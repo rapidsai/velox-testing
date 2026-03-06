@@ -266,6 +266,7 @@ detect_cudf_mode() {
 }
 
 setup_data() {
+  preflight_check
   local num_rows=$(( SF * 6000000 ))
 
   echo "=== Setting up timestamp benchmark table: ${TABLE} (sf${SF}, ~${num_rows} rows) ==="
@@ -281,9 +282,6 @@ setup_data() {
     echo ""
     echo "Please restart workers with cudf.enabled=false, then run setup again."
     exit 1
-  elif [ "${mode}" = "unknown" ]; then
-    echo "WARNING: No worker containers found. Will generate data and create table,"
-    echo "but ANALYZE TABLE will be skipped. Start workers and run ANALYZE manually."
   else
     echo "Workers are in CPU mode. Good."
   fi
