@@ -166,6 +166,7 @@ QUERIES["agg_daily"]="
     AND timestamp >= TIMESTAMP '2024-01-15 00:00:00'
     AND timestamp <= TIMESTAMP '2024-02-15 00:00:00'
   GROUP BY DATE_TRUNC('day', timestamp) ORDER BY bucket
+  LIMIT 1000
 "
 
 QUERIES["agg_weekly"]="
@@ -176,6 +177,7 @@ QUERIES["agg_weekly"]="
     AND timestamp >= TIMESTAMP '2024-01-01 00:00:00'
     AND timestamp <= TIMESTAMP '2024-06-30 00:00:00'
   GROUP BY DATE_TRUNC('week', timestamp) ORDER BY bucket
+  LIMIT 1000
 "
 
 QUERIES["agg_monthly"]="
@@ -186,6 +188,7 @@ QUERIES["agg_monthly"]="
     AND timestamp >= TIMESTAMP '2023-01-01 00:00:00'
     AND timestamp <= TIMESTAMP '2025-12-31 00:00:00'
   GROUP BY DATE_TRUNC('month', timestamp) ORDER BY bucket
+  LIMIT 1000
 "
 
 QUERIES["daily_high_multi"]="
@@ -195,10 +198,12 @@ QUERIES["daily_high_multi"]="
     AND timestamp >= TIMESTAMP '2024-01-02 00:00:00'
     AND timestamp <= TIMESTAMP '2024-06-30 00:00:00'
   GROUP BY symbol, DATE_TRUNC('day', timestamp) ORDER BY symbol, day
+  LIMIT 1000
 "
 
 QUERIES["distinct_symbols"]="
   SELECT DISTINCT symbol FROM ${TABLE} ORDER BY symbol
+  LIMIT 1000
 "
 
 QUERIES["yearly_agg_all"]="
@@ -208,6 +213,7 @@ QUERIES["yearly_agg_all"]="
   WHERE timestamp >= TIMESTAMP '2024-01-01 00:00:00'
     AND timestamp < TIMESTAMP '2025-01-01 00:00:00'
   GROUP BY symbol, DATE_TRUNC('month', timestamp) ORDER BY symbol, month
+  LIMIT 1000
 "
 
 QUERY_ORDER=(
