@@ -155,6 +155,7 @@ QUERIES["raw_ohlcv_range"]="
   WHERE symbol = 'NVDA'
     AND timestamp >= TIMESTAMP '2024-01-15 00:00:00'
     AND timestamp <= TIMESTAMP '2024-02-15 00:00:00'
+  LIMIT 1000
 "
 
 QUERIES["agg_daily"]="
