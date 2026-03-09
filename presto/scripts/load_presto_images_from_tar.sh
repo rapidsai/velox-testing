@@ -147,7 +147,7 @@ if [[ ${#ROLE_PATHS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-TMP_DIR="$(mktemp -d)"
+TMP_DIR="$(mktemp -d -p /tmp presto_image_load_XXXXXX)"
 cleanup() {
   rm -rf "$TMP_DIR"
 }
@@ -188,6 +188,17 @@ for prefix in "${!REMOTE_GROUPS[@]}"; do
       LOCAL_PATHS["$role"]="${local_dir}/$(basename "$rpath")"
     fi
   done
+done
+
+for role in "${!LOCAL_PATHS[@]}"; do
+  src="${LOCAL_PATHS[$role]}"
+  if [[ "$src" == "${TMP_DIR}/"* ]]; then
+    continue
+  fi
+  dest="${TMP_DIR}/local_${role}_$(basename "$src")"
+  echo "Copying local image tarball to ${dest}..."
+  cp -f "$src" "$dest"
+  LOCAL_PATHS["$role"]="$dest"
 done
 
 for role in coordinator worker_gpu worker_cpu worker_java; do
