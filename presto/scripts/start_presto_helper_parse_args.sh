@@ -33,7 +33,7 @@ OPTIONS:
     --profile-args       Arguments to pass to the profiler when it launches the Presto server.
                          This will override the default arguments.
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
-    --worker-logs-dir    Directory for worker log files (default: <script_dir>/../docker/worker_logs).
+    --logs-dir           Directory for server log files (default: <script_dir>/presto_logs).
                          Each startup creates a timestamped subdirectory and symlinks this path to it.
     --sccache            Enable sccache distributed compilation caching (requires auth files
                          in ~/.sccache-auth/). Run scripts/sccache/setup_sccache_auth.sh first.
@@ -70,7 +70,7 @@ export PROFILE=OFF
 export NUM_WORKERS=1
 export KVIKIO_THREADS=8
 export VCPU_PER_WORKER=""
-WORKER_LOGS_DIR=""
+LOGS_DIR=""
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
@@ -175,12 +175,12 @@ parse_args() {
         OVERWRITE_CONFIG=true
         shift
         ;;
-      --worker-logs-dir)
+      --logs-dir)
         if [[ -n $2 ]]; then
-          WORKER_LOGS_DIR=$2
+          LOGS_DIR=$2
           shift 2
         else
-          echo "Error: --worker-logs-dir requires a value"
+          echo "Error: --logs-dir requires a value"
           exit 1
         fi
         ;;

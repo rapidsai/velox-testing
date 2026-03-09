@@ -213,17 +213,18 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   ${BUILD_TARGET_ARG[@]}
 fi
 
-# Create a timestamped directory for this run's worker logs and point the
-# worker_logs symlink at it.  Old runs are preserved in their own directories.
-# If worker_logs is a real directory (pre-symlink migration), rename it first.
-WORKER_LOGS_DIR="${WORKER_LOGS_DIR:-${SCRIPT_DIR}/../docker/worker_logs}"
-if [ -d "${WORKER_LOGS_DIR}" ] && [ ! -L "${WORKER_LOGS_DIR}" ]; then
-  mv "${WORKER_LOGS_DIR}" "${WORKER_LOGS_DIR}_$(date -r "${WORKER_LOGS_DIR}" +"%Y%m%dT%H%M%S" 2>/dev/null || date +"%Y%m%dT%H%M%S")_migrated"
+# Create a timestamped directory for this run's logs and point the
+# logs symlink at it.  Old runs are preserved in their own directories.
+# If the target is a real directory (pre-symlink migration), rename it first.
+LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
+if [ -d "${LOGS_DIR}" ] && [ ! -L "${LOGS_DIR}" ]; then
+  mv "${LOGS_DIR}" "${LOGS_DIR}_$(date -r "${LOGS_DIR}" +"%Y%m%dT%H%M%S" 2>/dev/null || date +"%Y%m%dT%H%M%S")_migrated"
 fi
-TIMESTAMPED_LOGS_DIR="${WORKER_LOGS_DIR}_$(date +"%Y%m%dT%H%M%S")"
+TIMESTAMPED_LOGS_DIR="${LOGS_DIR}_$(date +"%Y%m%dT%H%M%S")"
 mkdir -p "${TIMESTAMPED_LOGS_DIR}"
-rm -f "${WORKER_LOGS_DIR}"
-ln -sfn "${TIMESTAMPED_LOGS_DIR}" "${WORKER_LOGS_DIR}"
+rm -f "${LOGS_DIR}"
+ln -sfn "${TIMESTAMPED_LOGS_DIR}" "${LOGS_DIR}"
+export LOGS_DIR
 
 # Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d

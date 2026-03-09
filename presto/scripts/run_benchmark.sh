@@ -8,10 +8,10 @@ set -e
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# LOGS needs to reflect the hard-coded paths to the Docker worker_logs directory so that run_context.py
-# can find nvidia-smi output written by the worker containers.  SLURM
-# environments set LOGS themselves, so this only takes effect for Docker.
-export LOGS="${LOGS:-${SCRIPT_DIR}/../docker/worker_logs}"
+# LOGS points to the directory where server log files (including nvidia-smi
+# output) are written so that run_context.py can parse GPU info.  SLURM
+# environments set LOGS themselves; this default covers Docker.
+export LOGS="${LOGS:-${SCRIPT_DIR}/presto_logs}"
 
 source "${SCRIPT_DIR}/presto_connection_defaults.sh"
 
@@ -43,11 +43,9 @@ OPTIONS:
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
-
-ENVIRONMENT:
-    PRESTO_BENCHMARK_DEBUG   Set to 1 to print debug logs for worker/engine detection
-                             (e.g. node URIs, reachability, metrics).
-                             Use when engine is misdetected or the run fails.
+    -v, --verbose           Print debug logs for worker/engine detection
+                            (e.g. node URIs, cluster-tag, GPU model).
+                            Use when engine is misdetected or the run fails.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -56,7 +54,7 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
     $0 -b tpch -s bench_sf100 --metrics
-    PRESTO_BENCHMARK_DEBUG=1 $0 -b tpch -s bench_sf100
+    $0 -b tpch -s bench_sf100 --verbose
     $0 -h
 
 EOF
@@ -169,6 +167,10 @@ parse_args() {
         ;;
       -m|--metrics)
         METRICS=true
+        shift
+        ;;
+      -v|--verbose)
+        export PRESTO_BENCHMARK_DEBUG=1
         shift
         ;;
       *)
