@@ -1,14 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 import prestodb
 import pytest
 
+from common.testing.integration_tests.test_utils import (
+    assert_rows_equal,
+    normalize_rows,
+    none_safe_sort_key,
+)
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 
+from ..common.test_utils import get_table_external_location
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
@@ -115,3 +123,91 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 stop_profiler(profile_script_path, profile_output_file_path)
 
     return benchmark_query_function
+
+
+def _derive_expected_results_dir(hostname, port, user, schema):
+    """Derive the expected results directory from the table schema.
+
+    Queries the schema to find a table's external location on the host
+    (e.g. $PRESTO_DATA_DIR/tpchsf100/lineitem), goes up one level to
+    get the data root, and appends '_expected'.
+    """
+    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
+    cursor = conn.cursor()
+    try:
+        table = cursor.execute(f"SHOW TABLES IN {schema}").fetchone()[0]
+        table_location = get_table_external_location(schema, table, cursor)
+        data_root = os.path.dirname(table_location)
+        return f"{data_root}_expected"
+    except Exception as e:
+        print(f"[Validation] Could not derive expected results directory from schema: {e}")
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def validate_benchmark_results(request):
+    """Session-scoped fixture that validates benchmark query results after all queries complete."""
+    yield
+
+    expected_results_dir = request.config.getoption("--expected-results-dir")
+    if expected_results_dir is None:
+        hostname = request.config.getoption("--hostname")
+        port = request.config.getoption("--port")
+        user = request.config.getoption("--user")
+        schema = request.config.getoption("--schema-name")
+        expected_results_dir = _derive_expected_results_dir(hostname, port, user, schema)
+
+    if expected_results_dir is None:
+        print("[Validation] Skipping result validation (could not determine expected results directory).")
+        return
+
+    expected_dir = Path(expected_results_dir)
+    if not expected_dir.is_dir():
+        print(f"[Validation] Skipping result validation (expected results directory '{expected_dir}' not found).")
+        return
+
+    expected_files = sorted(expected_dir.glob("*.parquet"))
+    if not expected_files:
+        print(f"[Validation] Skipping result validation (no parquet files in '{expected_dir}').")
+        return
+
+    output_dir = request.config.getoption("--output-dir")
+    actual_results_dir = Path(output_dir) / "query_results"
+    if not actual_results_dir.is_dir():
+        print(f"[Validation] Skipping result validation (no query results directory at '{actual_results_dir}').")
+        return
+
+    passed = 0
+    failed = 0
+    for expected_file in expected_files:
+        query_name = expected_file.name
+        actual_file = actual_results_dir / query_name
+        if not actual_file.exists():
+            print(f"[Validation] SKIPPED: {query_name} - no actual result found.")
+            continue
+        try:
+            expected_rel = duckdb.from_parquet(str(expected_file))
+            actual_rel = duckdb.from_parquet(str(actual_file))
+            types = expected_rel.types
+
+            expected_rows = sorted(normalize_rows(expected_rel.fetchall(), types), key=none_safe_sort_key)
+            actual_rows = sorted(normalize_rows(actual_rel.fetchall(), types), key=none_safe_sort_key)
+
+            assert len(actual_rows) == len(expected_rows), (
+                f"Row count mismatch: {len(actual_rows)} vs {len(expected_rows)}"
+            )
+            assert_rows_equal(actual_rows, expected_rows, types)
+            print(f"[Validation] PASSED: {query_name}")
+            passed += 1
+        except AssertionError as e:
+            print(f"[Validation] FAILED: {query_name} - {e}")
+            failed += 1
+        except Exception as e:
+            print(f"[Validation] ERROR: {query_name} - {e}")
+            failed += 1
+
+    total = passed + failed
+    print(f"[Validation] Result validation complete: {passed}/{total} queries passed.")
