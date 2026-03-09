@@ -169,9 +169,26 @@ for role in "${!ROLE_PATHS[@]}"; do
   fi
 done
 
+need_rsync=0
 if [[ ${#REMOTE_GROUPS[@]} -gt 0 ]]; then
+  need_rsync=1
+fi
+
+local_copy_roles=()
+for role in "${!LOCAL_PATHS[@]}"; do
+  src="${LOCAL_PATHS[$role]}"
+  if [[ "$src" != "${TMP_DIR}/"* ]]; then
+    local_copy_roles+=("$role")
+  fi
+done
+
+if [[ ${#local_copy_roles[@]} -gt 0 ]]; then
+  need_rsync=1
+fi
+
+if [[ $need_rsync -eq 1 ]]; then
   if ! command -v rsync >/dev/null 2>&1; then
-    echo "ERROR: rsync is required for remote paths." >&2
+    echo "ERROR: rsync is required for remote or cross-disk local copies." >&2
     exit 1
   fi
 fi
@@ -181,7 +198,7 @@ for prefix in "${!REMOTE_GROUPS[@]}"; do
   mkdir -p "$local_dir"
   read -r -a paths <<< "${REMOTE_GROUPS[$prefix]}"
   echo "Fetching from ${prefix} via rsync..."
-  rsync -avP "${paths[@]/#/${prefix}:}" "$local_dir/"
+  rsync -av --info=progress2 "${paths[@]/#/${prefix}:}" "$local_dir/"
   for role in "${!REMOTE_MAP[@]}"; do
     if [[ "${REMOTE_MAP[$role]}" == "${prefix}:"* ]]; then
       rpath="${REMOTE_MAP[$role]#*:}"
@@ -190,14 +207,11 @@ for prefix in "${!REMOTE_GROUPS[@]}"; do
   done
 done
 
-for role in "${!LOCAL_PATHS[@]}"; do
+for role in "${local_copy_roles[@]}"; do
   src="${LOCAL_PATHS[$role]}"
-  if [[ "$src" == "${TMP_DIR}/"* ]]; then
-    continue
-  fi
   dest="${TMP_DIR}/local_${role}_$(basename "$src")"
   echo "Copying local image tarball to ${dest}..."
-  cp -f "$src" "$dest"
+  rsync -a --info=progress2 "$src" "$dest"
   LOCAL_PATHS["$role"]="$dest"
 done
 
