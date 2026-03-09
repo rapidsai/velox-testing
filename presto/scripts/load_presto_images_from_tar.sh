@@ -104,8 +104,8 @@ load_and_retag() {
   docker tag "$source_image" "$new_tag"
 }
 
-declare -A ROLE_PATHS
-declare -A ROLE_IMAGES
+declare -A ROLE_PATHS=()
+declare -A ROLE_IMAGES=()
 ROLE_IMAGES[coordinator]="presto-coordinator"
 ROLE_IMAGES[worker_gpu]="presto-native-worker-gpu"
 ROLE_IMAGES[worker_cpu]="presto-native-worker-cpu"
@@ -153,9 +153,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-declare -A REMOTE_GROUPS
-declare -A REMOTE_MAP
-declare -A LOCAL_PATHS
+declare -A REMOTE_GROUPS=()
+declare -A REMOTE_MAP=()
+declare -A LOCAL_PATHS=()
 
 for role in "${!ROLE_PATHS[@]}"; do
   raw_path="$(expand_tilde "${ROLE_PATHS[$role]}")"
