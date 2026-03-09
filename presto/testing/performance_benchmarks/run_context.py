@@ -4,13 +4,12 @@
 """
 Gather run configuration from execution context. Engine (presto-java / presto-velox-cpu / presto-velox-gpu)
 is determined from the coordinator's cluster-tag (via /v1/cluster). GPU name is
-parsed from nvidia-smi output in worker log files (LOGS env var). Scale factor and
-n_workers come from schema and Presto /v1/node respectively.
+read from worker log files (LOGS env var). Scale factor and n_workers come from
+schema and Presto /v1/node respectively.
 """
 
 import json
 import os
-import re
 from pathlib import Path
 
 import prestodb
@@ -18,7 +17,7 @@ import prestodb
 from ..common import test_utils
 from .presto_api import get_cluster_tag, get_nodes
 
-# Set PRESTO_BENCHMARK_DEBUG=1 or DEBUG=1 to print engine-detection debug logs
+# Enabled by run_benchmark.sh --verbose (sets PRESTO_BENCHMARK_DEBUG=1)
 _DEBUG = os.environ.get("PRESTO_BENCHMARK_DEBUG") or os.environ.get("DEBUG")
 
 
@@ -68,25 +67,12 @@ def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_na
                 pass
 
 
-def _parse_gpu_name_from_text(line: str) -> str | None:
-    """Parse a single line of nvidia-smi -L output; return GPU model name or None."""
-    line = line.strip()
-    if not line:
-        return None
-    match = re.search(r"GPU \d+:\s*(.+?)(?:\s*\(UUID)", line)
-    if match:
-        return match.group(1).strip()
-    if line.startswith("GPU "):
-        return line.split(":", 1)[-1].strip()
-    return None
-
-
 def _get_gpu_name_from_worker_logs() -> str | None:
-    """Parse GPU model from nvidia-smi output in worker log files.
+    """Read GPU model name from worker log files.
 
-    Both Docker and SLURM workers write nvidia-smi -L output to
-    LOGS/worker_<id>.log before starting the server.  All workers are
-    assumed to have the same GPU model; only worker_0.log is read.
+    Both Docker and SLURM workers write a 'GPU Name: <model>' line
+    to LOGS/worker_<id>.log before starting the server.  All workers
+    are assumed to have the same GPU; only worker_0.log is read.
     Returns None when LOGS is unset or no matching line is found.
     """
     logs_dir = os.environ.get("LOGS")
@@ -98,9 +84,8 @@ def _get_gpu_name_from_worker_logs() -> str | None:
     try:
         with open(log_file) as f:
             for line in f:
-                gpu_name = _parse_gpu_name_from_text(line)
-                if gpu_name:
-                    return gpu_name
+                if line.startswith("GPU Name:"):
+                    return line.split(":", 1)[1].strip()
     except Exception:
         pass
     return None

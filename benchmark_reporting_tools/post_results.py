@@ -11,35 +11,34 @@
 """
 CLI for posting Velox benchmark results to the API.
 
-This script operates on the parsed output of the benchmark runner. The
-expected directory structure is:
+The script reads benchmark_result.json from the input directory.
+Engine configs and worker logs are automatically loaded from the
+velox-testing repo by detecting the engine variant from the
+benchmark results context.  Paths can be overridden with
+--config-dir and --logs-dir.
 
-    ../benchmark-root/
-    ├── benchmark_result.json
-    ├── configs                  # optional
-    │   ├── coordinator.config
-    │   └── worker.config
-    └── logs                     # optional
-        ├── worker_0.log
-        └── worker_1.log
+Default locations (derived from the repo root and detected variant):
+    configs: presto/docker/config/generated/{variant}/
+    logs:    presto/scripts/presto_logs/  (symlink to latest run)
 
 Usage:
-    python benchmark_reporting_tools/post_results.py /path/to/benchmark/dir \
+    # Auto-detect configs/logs from the repo (default):
+    python benchmark_reporting_tools/post_results.py /path/to/benchmark_output \
         --sku-name PDX-H100 \
         --storage-configuration-name pdx-lustre-sf-100 \
         --benchmark-name tpch \
         --identifier-hash abc123 \
         --cache-state warm
 
-    # With optional version info
-    python benchmark_reporting_tools/post_results.py /path/to/benchmark/dir \
+    # Override with explicit paths:
+    python benchmark_reporting_tools/post_results.py /path/to/benchmark_output \
+        --config-dir /custom/path/to/configs \
+        --logs-dir /custom/path/to/logs \
         --sku-name PDX-H100 \
         --storage-configuration-name pdx-lustre-sf-100 \
         --benchmark-name tpch \
         --identifier-hash abc123 \
-        --cache-state warm \
-        --version 1.0.0 \
-        --commit-hash def456
+        --cache-state warm
 
 Environment variables:
     BENCHMARK_API_URL: API URL
@@ -58,6 +57,31 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 import httpx
+
+_ENGINE_TO_VARIANT = {
+    "presto-velox-gpu": "gpu",
+    "presto-velox-cpu": "cpu",
+    "presto-java": "java",
+}
+
+
+def _repo_root() -> Path:
+    """Return the velox-testing repo root (parent of benchmark_reporting_tools/)."""
+    return Path(__file__).resolve().parent.parent
+
+
+def _default_config_dir(variant: str) -> Path | None:
+    """Derive the generated config directory for a given variant."""
+    d = _repo_root() / "presto" / "docker" / "config" / "generated" / variant
+    return d if d.is_dir() else None
+
+
+def _default_logs_dir() -> Path | None:
+    """Return the presto_logs directory, resolving the symlink to the latest run."""
+    link = _repo_root() / "presto" / "scripts" / "presto_logs"
+    if link.exists():
+        return link.resolve()
+    return None
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -137,19 +161,60 @@ def _parse_config_file(file_path: Path) -> dict[str, str]:
     return config
 
 
+def _find_config_file(configs_dir: Path, subdir: str, legacy_name: str, variant: str | None = None) -> Path | None:
+    """Locate a config file in either the generated repo layout or legacy flat layout.
+
+    Repo layout:  {configs_dir}/{subdir}/config_native.properties (or config_java.properties)
+    Legacy layout: {configs_dir}/{legacy_name}
+
+    When variant is known, the correct properties file is selected directly
+    (config_java for 'java', config_native for 'gpu'/'cpu').
+    """
+    sub = configs_dir / subdir
+    if sub.is_dir():
+        if variant == "java":
+            candidate = sub / "config_java.properties"
+        elif variant in ("gpu", "cpu"):
+            candidate = sub / "config_native.properties"
+        else:
+            candidate = None
+        if candidate and candidate.is_file():
+            return candidate
+        for fallback in sorted(sub.glob("config_*.properties")):
+            return fallback
+    legacy = configs_dir / legacy_name
+    if legacy.is_file():
+        return legacy
+    return None
+
+
 @dataclasses.dataclass
 class EngineConfig:
     coordinator: dict[str, str]
     worker: dict[str, str]
 
     @classmethod
-    def from_dir(cls, configs_dir: Path) -> "EngineConfig":
+    def from_dir(cls, configs_dir: Path, variant: str | None = None) -> "EngineConfig":
         """Load engine configuration from a configs directory.
 
-        Expects coordinator.config and worker.config files.
+        Supports two layouts:
+          1. Generated repo layout: etc_coordinator/config_*.properties,
+             etc_worker/config_*.properties
+          2. Legacy flat layout: coordinator.config, worker.config
+
+        When variant is provided ('gpu', 'cpu', or 'java'), selects the
+        matching properties file (config_native vs config_java).
         """
-        coordinator_config = _parse_config_file(configs_dir / "coordinator.config")
-        worker_config = _parse_config_file(configs_dir / "worker.config")
+        coord_file = _find_config_file(configs_dir, "etc_coordinator", "coordinator.config", variant)
+        worker_file = _find_config_file(configs_dir, "etc_worker", "worker.config", variant)
+        if coord_file is None or worker_file is None:
+            raise FileNotFoundError(
+                f"Could not find coordinator/worker config files in {configs_dir}. "
+                "Expected either etc_coordinator/config_*.properties + etc_worker/config_*.properties, "
+                "or coordinator.config + worker.config."
+            )
+        coordinator_config = _parse_config_file(coord_file)
+        worker_config = _parse_config_file(worker_file)
         return cls(coordinator=coordinator_config, worker=worker_config)
 
     def serialize(self) -> dict:
@@ -245,6 +310,20 @@ def _parse_args() -> argparse.Namespace:
         help="Number of concurrency streams to use for the benchmark run",
         type=int,
         default=1,
+    )
+    parser.add_argument(
+        "--config-dir",
+        type=str,
+        default=None,
+        help="Override config directory. Default: auto-detected from the engine variant "
+        "in benchmark_result.json → presto/docker/config/generated/{variant}/.",
+    )
+    parser.add_argument(
+        "--logs-dir",
+        type=str,
+        default=None,
+        help="Override server logs directory. Default: presto/scripts/presto_logs/ "
+        "(symlink to the latest timestamped run).",
     )
 
     return parser.parse_args()
@@ -479,6 +558,8 @@ async def _process_benchmark_dir(
     upload_logs: bool = True,
     benchmark_definition_name: str,
     concurrency_streams: int = 1,
+    config_dir: Path | None = None,
+    logs_dir: Path | None = None,
 ) -> int:
     """Process a benchmark directory and post results to API.
 
@@ -505,27 +586,57 @@ async def _process_benchmark_dir(
         print(f"  Error loading results: {e}", file=sys.stderr)
         return 1
 
-    if (benchmark_dir / "configs").exists():
-        print("  Loading engine config...", file=sys.stderr)
-        engine_config = EngineConfig.from_dir(benchmark_dir / "configs")
+    # Resolve config directory: explicit override → auto-detect from variant
+    effective_config_dir = config_dir
+    variant = _ENGINE_TO_VARIANT.get(benchmark_metadata.engine)
+    if effective_config_dir is None:
+        if variant:
+            effective_config_dir = _default_config_dir(variant)
+            if effective_config_dir:
+                print(f"  Auto-detected variant '{variant}' → config dir: {effective_config_dir}", file=sys.stderr)
+            else:
+                print(f"  Auto-detected variant '{variant}' but config dir does not exist.", file=sys.stderr)
+        else:
+            print(f"  Could not map engine '{benchmark_metadata.engine}' to a variant.", file=sys.stderr)
+
+    if effective_config_dir and effective_config_dir.exists():
+        print(f"  Loading engine config from {effective_config_dir}...", file=sys.stderr)
+        try:
+            engine_config = EngineConfig.from_dir(effective_config_dir, variant=variant)
+        except FileNotFoundError as e:
+            print(f"  Warning: could not load engine config: {e}", file=sys.stderr)
+            engine_config = None
     else:
-        print("  No engine config found.", file=sys.stderr)
+        if effective_config_dir:
+            print(f"  Warning: config directory does not exist: {effective_config_dir}", file=sys.stderr)
+        else:
+            print("  Warning: no config directory found. Use --config-dir to specify one.", file=sys.stderr)
         engine_config = None
 
-    # Upload log files as assets
+    # Resolve logs directory: explicit override → auto-detect from repo
+    effective_logs_dir = logs_dir
+    if effective_logs_dir is None:
+        effective_logs_dir = _default_logs_dir()
+        if effective_logs_dir:
+            print(f"  Auto-detected logs dir: {effective_logs_dir}", file=sys.stderr)
+
     asset_ids = None
-    if upload_logs:
+    if upload_logs and effective_logs_dir and effective_logs_dir.exists():
         if dry_run:
-            log_files = sorted(benchmark_dir.glob("*.log"))
+            log_files = sorted(effective_logs_dir.glob("*.log"))
             print(
-                f"  [DRY RUN] Would upload {len(log_files)} log file(s): {[f.name for f in log_files]}", file=sys.stderr
+                f"  [DRY RUN] Would upload {len(log_files)} log file(s) from {effective_logs_dir}: "
+                f"{[f.name for f in log_files]}",
+                file=sys.stderr,
             )
         else:
             try:
-                asset_ids = await _upload_log_files(benchmark_dir, api_url, api_key, timeout)
+                asset_ids = await _upload_log_files(effective_logs_dir, api_url, api_key, timeout)
             except (RuntimeError, httpx.RequestError) as e:
                 print(f"  Error uploading logs: {e}", file=sys.stderr)
                 return 1
+    elif upload_logs:
+        print("  No logs directory found; skipping log upload.", file=sys.stderr)
 
     # Build submission payload
     try:
@@ -620,6 +731,8 @@ async def main() -> int:
         upload_logs=args.upload_logs,
         benchmark_definition_name=args.benchmark_name,
         concurrency_streams=args.concurrency_streams,
+        config_dir=Path(args.config_dir) if args.config_dir else None,
+        logs_dir=Path(args.logs_dir) if args.logs_dir else None,
     )
 
     return result

@@ -18,7 +18,7 @@ from common.testing.performance_benchmarks.common_fixtures import (
 )
 from common.testing.performance_benchmarks.conftest import (
     DataLocation,
-    build_and_write_benchmark_result,
+    pytest_sessionfinish,  # noqa: F401
     pytest_terminal_summary,  # noqa: F401
 )
 
@@ -48,10 +48,11 @@ def pytest_addoption(parser):
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
 
 
-def _build_run_config(session):
-    """
-    Build run-config dict from execution context (Presto nodes, nvidia-smi, schema
-    data source, env). Used for the context section in benchmark_result.json.
+def pytest_sessionstart(session):
+    """Gather Presto-specific run context and attach it to the session.
+
+    The common pytest_sessionfinish merges session.run_context into the
+    benchmark_result.json context section.
     """
     hostname = session.config.getoption("--hostname")
     port = session.config.getoption("--port")
@@ -65,34 +66,7 @@ def _build_run_config(session):
         schema_name=schema_name,
     )
     ctx["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return ctx
-
-
-def pytest_sessionfinish(session, exitstatus):
-    iterations = session.config.getoption("--iterations")
-    schema_name = session.config.getoption("--schema-name")
-    json_result = {
-        BenchmarkKeys.CONTEXT_KEY: {
-            BenchmarkKeys.ITERATIONS_COUNT_KEY: iterations,
-            BenchmarkKeys.SCHEMA_NAME_KEY: schema_name,
-        },
-    }
-
-    tag = session.config.getoption("--tag")
-    if tag:
-        json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
-
-    run_config = _build_run_config(session)
-    for key, value in run_config.items():
-        json_result[BenchmarkKeys.CONTEXT_KEY][key] = value
-
-    if hasattr(session, "benchmark_results"):
-        benchmark_types = list(session.benchmark_results.keys())
-        json_result[BenchmarkKeys.CONTEXT_KEY]["benchmark"] = (
-            benchmark_types[0] if len(benchmark_types) == 1 else benchmark_types
-        )
-
-    build_and_write_benchmark_result(session, json_result)
+    session.run_context = ctx
 
 
 def pytest_configure(config):

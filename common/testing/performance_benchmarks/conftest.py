@@ -170,6 +170,16 @@ def pytest_sessionfinish(session, exitstatus):
     if tag:
         json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
 
+    if hasattr(session, "run_context"):
+        for key, value in session.run_context.items():
+            json_result[BenchmarkKeys.CONTEXT_KEY][key] = value
+
+    if hasattr(session, "benchmark_results"):
+        benchmark_types = list(session.benchmark_results.keys())
+        json_result[BenchmarkKeys.CONTEXT_KEY]["benchmark"] = (
+            benchmark_types[0] if len(benchmark_types) == 1 else benchmark_types
+        )
+
     build_and_write_benchmark_result(session, json_result)
 
 

@@ -23,8 +23,8 @@ presto/docker/config/generated*/
 
 # Generated Presto Docker Compose files
 presto/docker/docker-compose/generated*/
-presto/docker/worker_logs
-presto/docker/worker_logs*/
+presto/scripts/presto_logs
+presto/scripts/presto_logs*/
 
 # Slurm logs and results
 presto/slurm/presto-nvl72/logs

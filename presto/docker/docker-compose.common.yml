@@ -4,7 +4,7 @@ services:
       - ./.hive_metastore:/var/lib/presto/data/hive/metastore
       - ../../common/testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
       - ${PRESTO_DATA_DIR:-/dev/null}:/var/lib/presto/data/hive/data/user_data
-      - ./worker_logs:/opt/presto-server/logs
+      - ${LOGS_DIR:-../scripts/presto_logs}:/opt/presto-server/logs
       - ./launch_presto_servers.sh:/opt/launch_presto_servers.sh:ro
 
   presto-base-java:
