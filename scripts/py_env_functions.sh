@@ -81,7 +81,7 @@ function init_python_virtual_env() {
 function delete_python_virtual_env() {
   local venv_dir=${1:-".venv"}
 
-  if [ -n "$LOCAL_CONDA_INIT" ] && command -v conda &> /dev/null; then
+  if [ -n "${LOCAL_CONDA_INIT:-}" ] && command -v conda &> /dev/null; then
       echo "Deactivating conda environment"
       conda deactivate
       LOCAL_CONDA_INIT=""

@@ -360,7 +360,7 @@ function generate_json() {
     benchmark: $benchmark,
     timestamp: $timestamp,
     execution_number: 1,
-    n_workers: ($num_workers | tonumber),
+    worker_count: ($num_workers | tonumber),
     scale_factor: ($scale_factor | tonumber),
     gpu_count: ($num_workers | tonumber),
     num_drivers: ($num_drivers | tonumber),

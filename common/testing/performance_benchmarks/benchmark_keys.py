@@ -23,7 +23,7 @@ class BenchmarkKeys(str, Enum):
     SCHEMA_NAME_KEY = "schema_name"
     # Run configuration (from run context; written to context in benchmark_result.json)
     TIMESTAMP_KEY = "timestamp"
-    NUM_WORKERS_KEY = "n_workers"
+    NUM_WORKERS_KEY = "worker_count"
     GPU_NAME_KEY = "gpu_name"
 
     ENGINE_KEY = "engine"

@@ -213,11 +213,17 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   ${BUILD_TARGET_ARG[@]}
 fi
 
-# Prepare a clean worker_logs directory so containers can write nvidia-smi
-# output before starting the server.  Stale logs from a prior run are removed.
-WORKER_LOGS_DIR="${SCRIPT_DIR}/../docker/worker_logs"
-rm -rf "${WORKER_LOGS_DIR}"
-mkdir -p "${WORKER_LOGS_DIR}"
+# Create a timestamped directory for this run's worker logs and point the
+# worker_logs symlink at it.  Old runs are preserved in their own directories.
+# If worker_logs is a real directory (pre-symlink migration), rename it first.
+WORKER_LOGS_DIR="${WORKER_LOGS_DIR:-${SCRIPT_DIR}/../docker/worker_logs}"
+if [ -d "${WORKER_LOGS_DIR}" ] && [ ! -L "${WORKER_LOGS_DIR}" ]; then
+  mv "${WORKER_LOGS_DIR}" "${WORKER_LOGS_DIR}_$(date -r "${WORKER_LOGS_DIR}" +"%Y%m%dT%H%M%S" 2>/dev/null || date +"%Y%m%dT%H%M%S")_migrated"
+fi
+TIMESTAMPED_LOGS_DIR="${WORKER_LOGS_DIR}_$(date +"%Y%m%dT%H%M%S")"
+mkdir -p "${TIMESTAMPED_LOGS_DIR}"
+rm -f "${WORKER_LOGS_DIR}"
+ln -sfn "${TIMESTAMPED_LOGS_DIR}" "${WORKER_LOGS_DIR}"
 
 # Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d

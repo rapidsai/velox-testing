@@ -51,10 +51,7 @@ def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_na
             return None
         table = tables[0][0]
         location = test_utils.get_table_external_location(schema_name, table, cursor)
-        # metadata.json is typically in parent of table data dir
-        meta_path = Path(location).parent / "metadata.json"
-        if not meta_path.is_file():
-            meta_path = (Path(location) / ".." / "metadata.json").resolve()
+        meta_path = (Path(location).parent / "metadata.json").resolve()
         if not meta_path.is_file():
             return None
         with open(meta_path) as f:
@@ -152,46 +149,34 @@ def _get_gpu_name() -> str | None:
     return gpu_name
 
 
-_ENGINE_TO_VARIANT = {
-    "presto-velox-gpu": "gpu",
-    "presto-velox-cpu": "cpu",
-    "presto-java": "java",
-}
+def _get_num_drivers() -> int | None:
+    """Parse task.max-drivers-per-task from worker log files.
 
-
-def _get_num_drivers(engine: str) -> int | None:
-    """Read task.max-drivers-per-task from the generated worker config_native.properties.
-
-    Falls back to None when the generated config directory does not exist
-    (e.g. pre-configured cluster or SLURM without local config generation).
+    The Presto native server logs its configuration at startup.
+    Returns None when LOGS is unset or the property is not found.
     """
-    variant = _ENGINE_TO_VARIANT.get(engine)
-    if variant is None:
+    logs_dir = os.environ.get("LOGS")
+    if not logs_dir:
         return None
-
-    config_file = (
-        Path(__file__).resolve().parent
-        / ".."
-        / ".."
-        / "docker"
-        / "config"
-        / "generated"
-        / variant
-        / "etc_worker"
-        / "config_native.properties"
-    )
-    if not config_file.is_file():
-        _debug(f"num_drivers: config not found at {config_file}")
+    log_file = Path(logs_dir) / "worker_0.log"
+    if not log_file.is_file():
+        _debug(f"num_drivers: log not found at {log_file}")
         return None
-
-    for line in config_file.read_text().splitlines():
-        line = line.strip()
-        if line.startswith("task.max-drivers-per-task="):
-            try:
-                return int(line.split("=", 1)[1])
-            except (ValueError, IndexError):
-                pass
-    _debug(f"num_drivers: task.max-drivers-per-task not found in {config_file}")
+    try:
+        with open(log_file) as f:
+            for line in f:
+                line = line.strip()
+                if "task.max-drivers-per-task" in line:
+                    parts = line.split("task.max-drivers-per-task=", 1)
+                    if len(parts) == 2:
+                        value = parts[1].split()[0].rstrip(",")
+                        try:
+                            return int(value)
+                        except ValueError:
+                            pass
+    except Exception:
+        pass
+    _debug(f"num_drivers: task.max-drivers-per-task not found in {log_file}")
     return None
 
 
@@ -215,7 +200,7 @@ def gather_run_context(
     engine = _get_engine(hostname, port)
 
     if n_workers is not None:
-        ctx["n_workers"] = n_workers
+        ctx["worker_count"] = n_workers
         ctx["kind"] = "single-node" if n_workers == 1 else f"{n_workers}-node"
 
     ctx["engine"] = engine
@@ -231,7 +216,7 @@ def gather_run_context(
         ctx["gpu_count"] = 0
         ctx["gpu_name"] = "NA"
 
-    num_drivers = _get_num_drivers(engine)
+    num_drivers = _get_num_drivers()
     if num_drivers is not None:
         ctx["num_drivers"] = num_drivers
 

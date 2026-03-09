@@ -105,22 +105,13 @@ def _write_section(terminalreporter, text_report, content, **kwargs):
     text_report.append(f" {content} ".center(120, sep))
 
 
-def pytest_sessionfinish(session, exitstatus):
+def build_and_write_benchmark_result(session, json_result):
+    """Compute aggregate timings and write benchmark_result.json.
+
+    Callers populate json_result[CONTEXT_KEY] with their own context
+    before calling this function.
+    """
     iterations = session.config.getoption("--iterations")
-
-    data_location_option = pytest.data_location.option_name
-    data_location_key = pytest.data_location.key
-    data_location_name = session.config.getoption(data_location_option)
-    json_result = {
-        BenchmarkKeys.CONTEXT_KEY: {
-            BenchmarkKeys.ITERATIONS_COUNT_KEY: iterations,
-            data_location_key: data_location_name,
-        },
-    }
-
-    tag = session.config.getoption("--tag")
-    if tag:
-        json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
 
     bench_output_dir = get_output_dir(session.config)
     bench_output_dir.mkdir(parents=True, exist_ok=True)
@@ -160,6 +151,26 @@ def pytest_sessionfinish(session, exitstatus):
     with open(f"{bench_output_dir}/benchmark_result.json", "w") as file:
         json.dump(json_result, file, indent=2)
         file.write("\n")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    iterations = session.config.getoption("--iterations")
+
+    data_location_option = pytest.data_location.option_name
+    data_location_key = pytest.data_location.key
+    data_location_name = session.config.getoption(data_location_option)
+    json_result = {
+        BenchmarkKeys.CONTEXT_KEY: {
+            BenchmarkKeys.ITERATIONS_COUNT_KEY: iterations,
+            data_location_key: data_location_name,
+        },
+    }
+
+    tag = session.config.getoption("--tag")
+    if tag:
+        json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
+
+    build_and_write_benchmark_result(session, json_result)
 
 
 def get_output_dir(config):

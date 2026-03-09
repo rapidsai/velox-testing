@@ -40,7 +40,10 @@ export COORD_IMAGE
 export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 export DATA=/mnt/data/tpch-rs
 export IMAGE_DIR=/mnt/data/images/presto
-export LOGS=$SCRIPT_DIR/logs
+TIMESTAMPED_LOGS="${SCRIPT_DIR}/logs_$(date +"%Y%m%dT%H%M%S")"
+mkdir -p "${TIMESTAMPED_LOGS}"
+ln -sfn "${TIMESTAMPED_LOGS}" "${SCRIPT_DIR}/logs"
+export LOGS="${SCRIPT_DIR}/logs"
 export VARIANT_TYPE=gpu
 export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
@@ -92,7 +95,7 @@ echo "Total workers: $NUM_WORKERS (${NUM_NODES} nodes × ${NUM_GPUS_PER_NODE} GP
 echo "Single node execution: $SINGLE_NODE_EXECUTION"
 echo "========================================"
 
-# Create necessary directories
+# Ensure logs directory exists (symlink target was already created above)
 mkdir -p ${LOGS}
 
 # Launch the job script

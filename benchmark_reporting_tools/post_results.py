@@ -20,7 +20,8 @@ expected directory structure is:
     │   ├── coordinator.config
     │   └── worker.config
     └── logs                     # optional
-        └── slurm-4575179.out
+        ├── worker_0.log
+        └── worker_1.log
 
 Usage:
     python benchmark_reporting_tools/post_results.py /path/to/benchmark/dir \
@@ -65,7 +66,7 @@ class BenchmarkMetadata:
     benchmark: str
     timestamp: datetime
     execution_number: int
-    n_workers: int
+    worker_count: int
     scale_factor: int
     gpu_count: int
     num_drivers: int
@@ -379,7 +380,7 @@ def _build_submission_payload(
             "commit_hash": commit_hash,
         },
         "run_at": benchmark_metadata.timestamp.isoformat(),
-        "node_count": benchmark_metadata.n_workers,
+        "node_count": benchmark_metadata.worker_count,
         "query_logs": query_logs,
         "concurrency_streams": concurrency_streams,
         "engine_config": engine_config.serialize() if engine_config else {},

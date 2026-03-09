@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-import json
 from datetime import datetime, timezone
 
 from ..common.conftest import *  # noqa: F403
@@ -19,8 +18,7 @@ from common.testing.performance_benchmarks.common_fixtures import (
 )
 from common.testing.performance_benchmarks.conftest import (
     DataLocation,
-    compute_aggregate_timings,
-    get_output_dir,
+    build_and_write_benchmark_result,
     pytest_terminal_summary,  # noqa: F401
 )
 
@@ -88,46 +86,13 @@ def pytest_sessionfinish(session, exitstatus):
     for key, value in run_config.items():
         json_result[BenchmarkKeys.CONTEXT_KEY][key] = value
 
-    bench_output_dir = get_output_dir(session.config)
-    bench_output_dir.mkdir(parents=True, exist_ok=True)
+    if hasattr(session, "benchmark_results"):
+        benchmark_types = list(session.benchmark_results.keys())
+        json_result[BenchmarkKeys.CONTEXT_KEY]["benchmark"] = (
+            benchmark_types[0] if len(benchmark_types) == 1 else benchmark_types
+        )
 
-    if iterations > 1:
-        AGG_KEYS = [
-            BenchmarkKeys.AVG_KEY,
-            BenchmarkKeys.MIN_KEY,
-            BenchmarkKeys.MAX_KEY,
-            BenchmarkKeys.MEDIAN_KEY,
-            BenchmarkKeys.GMEAN_KEY,
-            BenchmarkKeys.LUKEWARM_KEY,
-        ]
-    else:
-        AGG_KEYS = [BenchmarkKeys.LUKEWARM_KEY]
-    if not hasattr(session, "benchmark_results"):
-        return
-    benchmark_types = list(session.benchmark_results.keys())
-    json_result[BenchmarkKeys.CONTEXT_KEY]["benchmark"] = (
-        benchmark_types[0] if len(benchmark_types) == 1 else benchmark_types
-    )
-    for benchmark_type, result in session.benchmark_results.items():
-        compute_aggregate_timings(result)
-        json_result[benchmark_type] = {
-            BenchmarkKeys.AGGREGATE_TIMES_KEY: {},
-            BenchmarkKeys.RAW_TIMES_KEY: result[BenchmarkKeys.RAW_TIMES_KEY],
-            BenchmarkKeys.FAILED_QUERIES_KEY: result[BenchmarkKeys.FAILED_QUERIES_KEY],
-        }
-        json_agg_timings = json_result[benchmark_type][BenchmarkKeys.AGGREGATE_TIMES_KEY]
-        for agg_key in AGG_KEYS:
-            json_agg_timings[agg_key] = {}
-
-        for query_id, agg_timings in result[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
-            if agg_timings:
-                assert len(AGG_KEYS) == len(agg_timings)
-                for i, agg_key in enumerate(AGG_KEYS):
-                    json_agg_timings[agg_key][query_id] = agg_timings[i]
-
-    with open(f"{bench_output_dir}/benchmark_result.json", "w") as file:
-        json.dump(json_result, file, indent=2)
-        file.write("\n")
+    build_and_write_benchmark_result(session, json_result)
 
 
 def pytest_configure(config):
