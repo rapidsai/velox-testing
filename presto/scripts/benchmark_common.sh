@@ -369,6 +369,150 @@ check_fallbacks() {
 }
 
 # ============================================================================
+# Filter pushdown analysis via EXPLAIN ANALYZE
+# ============================================================================
+
+# Run EXPLAIN ANALYZE for each query, parse ScanFilterProject stats, and
+# display a pushdown effectiveness table.
+# Args: $1=out_dir, $2=total_table_rows
+collect_pushdown_stats() {
+  local out_dir="$1"
+  local total_rows="$2"
+
+  echo ""
+  echo "=== Filter Pushdown Analysis ==="
+  echo ""
+  echo "Collecting EXPLAIN ANALYZE for each query (1 run each)..."
+
+  for qname in "${QUERY_ORDER[@]}"; do
+    local sql="${QUERIES[${qname}]}"
+    echo -n "  [${qname}] ... "
+    local ea_output
+    ea_output=$(cli --execute "EXPLAIN ANALYZE ${sql}" 2>&1) || true
+    echo "${ea_output}" > "${out_dir}/explain_${qname}.txt"
+    if echo "${ea_output}" | grep -qi "failed\|error"; then
+      echo "FAILED"
+    else
+      echo "ok"
+    fi
+  done
+
+  echo ""
+
+  python3 - "${out_dir}" "${total_rows}" <<'PYEOF'
+import os
+import re
+import sys
+
+out_dir = sys.argv[1]
+total_rows = int(sys.argv[2])
+
+def parse_scan_stats(text):
+    """Extract ScanFilterProject/ScanProject/TableScan stats from EXPLAIN ANALYZE text."""
+    results = []
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if re.search(r'Scan(Filter)?Project|TableScan', line):
+            block = line
+            j = i + 1
+            while j < len(lines) and (lines[j].startswith("        ") or lines[j].strip() == ""):
+                block += "\n" + lines[j]
+                j += 1
+
+            filter_pred = ""
+            m = re.search(r'filterPredicate\s*=\s*([^,\]]+)', block)
+            if m:
+                filter_pred = m.group(1).strip()
+
+            scan_input = 0
+            scan_output = 0
+            filtered_pct = 0.0
+
+            m_input = re.search(r'Input:\s+([\d,]+)\s+rows', block)
+            if m_input:
+                scan_input = int(m_input.group(1).replace(",", ""))
+
+            m_output = re.search(r'Output:\s+([\d,]+)\s+rows', block)
+            if m_output:
+                scan_output = int(m_output.group(1).replace(",", ""))
+
+            m_filt = re.search(r'Filtered:\s+([\d.]+)%', block)
+            if m_filt:
+                filtered_pct = float(m_filt.group(1))
+
+            results.append({
+                "input": scan_input,
+                "output": scan_output,
+                "filtered_pct": filtered_pct,
+                "filter": filter_pred,
+            })
+            i = j
+        else:
+            i += 1
+    return results
+
+def fmt_rows(n):
+    if n >= 1e9: return f"{n/1e9:.1f}B"
+    if n >= 1e6: return f"{n/1e6:.1f}M"
+    if n >= 1e3: return f"{n/1e3:.1f}K"
+    return str(n)
+
+files = sorted(f for f in os.listdir(out_dir) if f.startswith("explain_") and f.endswith(".txt"))
+
+if not files:
+    print("  No EXPLAIN ANALYZE data collected.")
+    sys.exit(0)
+
+hdr = "{:<25s} {:>12s} {:>12s} {:>12s} {:>10s} {:>10s}"
+print(hdr.format("Query", "Table Rows", "Scan Input", "Scan Output", "Filtered%", "RG Pruned%"))
+print(hdr.format("-" * 25, "-" * 12, "-" * 12, "-" * 12, "-" * 10, "-" * 10))
+
+for f in files:
+    qname = f.replace("explain_", "").replace(".txt", "")
+    path = os.path.join(out_dir, f)
+    with open(path) as fh:
+        text = fh.read()
+
+    if "failed" in text.lower() and "ScanFilterProject" not in text:
+        print(hdr.format(qname, fmt_rows(total_rows), "ERROR", "", "", ""))
+        continue
+
+    scans = parse_scan_stats(text)
+    if not scans:
+        print(hdr.format(qname, fmt_rows(total_rows), "N/A", "N/A", "N/A", "N/A"))
+        continue
+
+    agg_input = sum(s["input"] for s in scans)
+    agg_output = sum(s["output"] for s in scans)
+    agg_filtered = (1 - agg_output / agg_input) * 100 if agg_input > 0 else 0
+
+    if total_rows > 0 and agg_input < total_rows:
+        rg_pruned = (1 - agg_input / total_rows) * 100
+    else:
+        rg_pruned = 0.0
+
+    print(hdr.format(
+        qname,
+        fmt_rows(total_rows),
+        fmt_rows(agg_input),
+        fmt_rows(agg_output),
+        f"{agg_filtered:.1f}%",
+        f"{rg_pruned:.1f}%" if rg_pruned > 0 else "0%",
+    ))
+
+print()
+print("  Table Rows  = total rows in the table")
+print("  Scan Input  = rows read from Parquet (after row-group pruning)")
+print("  Scan Output = rows surviving the filter predicate")
+print("  Filtered%   = % of scanned rows eliminated by the filter")
+print("  RG Pruned%  = % of table rows skipped via row-group statistics pushdown")
+print("                (>0% means pushdown is effectively reducing I/O)")
+PYEOF
+}
+
+# ============================================================================
 # Standard benchmark runner (call from benchmark scripts)
 # ============================================================================
 
@@ -429,6 +573,8 @@ run_standard_benchmark() {
 
   print_summary "${results_csv}" "${out_dir}"
 
+  collect_pushdown_stats "${out_dir}" "${count_result}"
+
   echo ""
   echo "To compare GPU vs CPU, run benchmark twice with different server configs:"
   echo "  1. Start workers with cudf.enabled=true, then run bench"
@@ -440,6 +586,7 @@ run_standard_benchmark() {
   echo "=== Full report saved to ${out_dir}/ ==="
   echo "  report.txt    - complete benchmark output"
   echo "  timings.csv   - per-run wall clock times"
+  echo "  explain_*.txt - EXPLAIN ANALYZE output per query"
   echo "  fallbacks.txt - GPU fallback details"
   echo "  config_*.txt  - worker/coordinator configs"
 }
