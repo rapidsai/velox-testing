@@ -57,7 +57,7 @@ generate_bfd_dataset() {
   local metadata_dir=$3
   local num_workers=${GENERATE_WORKERS:-$(nproc)}
 
-  echo "Generating ${num_rows} BFD rows into ${out_dir} (${num_workers} workers, partitioned by year/month)..."
+  echo "Generating ${num_rows} BFD rows into ${out_dir} (${num_workers} workers)..."
   python3 - "${num_rows}" "${out_dir}" "${metadata_dir}" "${num_workers}" <<'PYEOF'
 import json
 import os
@@ -155,10 +155,6 @@ def generate_chunk(args):
 
     jitter = rng.uniform(-0.05, 0.05, size=n)
 
-    ts_dt = ts_us.astype("datetime64[us]")
-    years = (ts_dt.astype("datetime64[Y]").astype(int) + 1970).astype(np.int32)
-    months = (ts_dt.astype("datetime64[M]").astype(int) % 12 + 1).astype(np.int32)
-
     table = pa.table({
         "ts": pa.array(ts_us, type=pa.timestamp("us")),
         "timestamp": pa.array(ts_us, type=pa.int64()),
@@ -169,19 +165,10 @@ def generate_chunk(args):
         "volume": pa.array(rng.uniform(100, 50000, size=n), type=pa.float64()),
         "symbol_id": pa.array(sym_ids, type=pa.int32()),
         "asset_class_id": pa.array(asset_ids, type=pa.int8()),
-        "year": years,
-        "month": months,
     })
 
-    pq.write_to_dataset(
-        table,
-        root_path=out_dir,
-        partition_cols=["year", "month"],
-        compression="zstd",
-        row_group_size=250_000,
-        basename_template=f"part-{idx:05d}-{{i}}.parquet",
-        existing_data_behavior="overwrite_or_ignore",
-    )
+    out_path = os.path.join(out_dir, f"part-{idx:05d}.parquet")
+    pq.write_table(table, out_path, compression="zstd", row_group_size=250_000)
     return idx, n
 
 completed = 0
@@ -229,22 +216,17 @@ setup_data() {
 
   echo "Dropping old table (if any)..."
   cli --execute "DROP TABLE IF EXISTS ${TABLE}" || true
-  echo "Creating partitioned Hive table ${TABLE}..."
+  echo "Creating external Hive table ${TABLE}..."
   cli --execute "
     CREATE TABLE IF NOT EXISTS ${TABLE} (
       ts TIMESTAMP, timestamp BIGINT,
       open REAL, high REAL, low REAL, close REAL,
-      volume DOUBLE, symbol_id INTEGER, asset_class_id TINYINT,
-      year INTEGER, month INTEGER
+      volume DOUBLE, symbol_id INTEGER, asset_class_id TINYINT
     ) WITH (
       format = 'PARQUET',
-      external_location = 'file:${CONTAINER_DATA_DIR}',
-      partitioned_by = ARRAY['year', 'month']
+      external_location = 'file:${CONTAINER_DATA_DIR}'
     )
   "
-
-  echo "Syncing partition metadata..."
-  cli --execute "CALL system.sync_partition_metadata('${SCHEMA}', 'bfd_prices_sf${SF}', 'FULL')"
 
   echo "Running ANALYZE..."
   cli --execute "ANALYZE ${TABLE}"
