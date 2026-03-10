@@ -77,6 +77,7 @@ if [[ -z "${HOST_DATA_DIR}" && -n "${PRESTO_DATA_DIR:-}" ]]; then
   HOST_DATA_DIR="${PRESTO_DATA_DIR}/bfd_bench/sf${SF}"
 fi
 CONTAINER_DATA_DIR="${BFD_CONTAINER_DATA_DIR:-/var/lib/presto/data/hive/data/user_data/bfd_bench/sf${SF}}"
+TABLE_LOCATION="${CONTAINER_DATA_DIR}/prices"
 MARKET_DATA_DIR="${MARKET_DATA_DIR:-${HOST_DATA_DIR:-}}"
 
 cli() {
@@ -490,7 +491,7 @@ setup_data() {
       volume DOUBLE,
       symbol_id INTEGER,
       asset_class_id TINYINT
-    ) WITH (format = 'PARQUET', external_location = 'file://${CONTAINER_DATA_DIR}')
+    ) WITH (format = 'PARQUET', external_location = 'file://${TABLE_LOCATION}')
   "
 
   echo "Running ANALYZE..."
