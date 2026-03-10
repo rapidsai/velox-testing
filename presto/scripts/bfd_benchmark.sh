@@ -20,7 +20,6 @@
 #   START_DATE           - ISO date string (optional)
 #   END_DATE             - ISO date string (optional)
 #   BENCHMARK_RUNS       - runs per engine (default: 3)
-#   BENCH_ENGINE         - gpu|cpu|both (default: both)
 #   POST_PROCESS         - true|false (default: true)
 #   SYMBOL_MAP_PATH      - path to symbol_map.json (optional)
 #   MARKET_DATA_DIR      - dataset root (used to find metadata/symbol_map.json)
@@ -62,7 +61,6 @@ fi
 SYMBOL_IDS="${SYMBOL_IDS:-}"
 START_DATE="${START_DATE:-}"
 END_DATE="${END_DATE:-}"
-BENCH_ENGINE="${BENCH_ENGINE:-both}"
 POST_PROCESS="${POST_PROCESS:-true}"
 BASE_ROWS="${BFD_BASE_ROWS:-5000000}"
 HOST_DATA_DIR="${BFD_DATA_DIR:-}"
@@ -426,42 +424,25 @@ run_benchmark() {
   echo "Output: ${out_dir}/"
   echo ""
 
-  local engines=()
-  case "${BENCH_ENGINE}" in
-    gpu) engines=("gpu") ;;
-    cpu) engines=("cpu") ;;
-    both) engines=("gpu" "cpu") ;;
-    *) echo "ERROR: BENCH_ENGINE must be gpu|cpu|both" >&2; exit 1 ;;
-  esac
-
-  for engine in "${engines[@]}"; do
-    local session_prop=""
-    if [[ "${engine}" == "gpu" ]]; then
-      session_prop="cudf.enabled=true"
-    else
-      session_prop="cudf.enabled=false"
+  echo "--- ${mode} ---"
+  for run in $(seq 1 "${RUNS}"); do
+    local tmp_csv presto_ms duckdb_ms total_ms
+    tmp_csv="$(mktemp "${out_dir}/${mode}_run${run}.XXXX.csv")"
+    presto_ms=$(run_presto_to_csv "${sql}" "${tmp_csv}" "")
+    if [[ "${presto_ms}" == "-1" ]]; then
+      echo "${mode},${run},-1,-1,-1" >> "${results_csv}"
+      continue
     fi
 
-    echo "--- ${engine} ---"
-    for run in $(seq 1 "${RUNS}"); do
-      local tmp_csv presto_ms duckdb_ms total_ms
-      tmp_csv="$(mktemp "${out_dir}/${engine}_run${run}.XXXX.csv")"
-      presto_ms=$(run_presto_to_csv "${sql}" "${tmp_csv}" "${session_prop}")
-      if [[ "${presto_ms}" == "-1" ]]; then
-        echo "${engine},${run},-1,-1,-1" >> "${results_csv}"
-        continue
-      fi
-
-      duckdb_ms=0
-      if [[ "${POST_PROCESS}" == "true" ]]; then
-        duckdb_ms=$(run_duckdb_postprocess "${tmp_csv}")
-      fi
-      total_ms=$(( presto_ms + duckdb_ms ))
-      echo "  Run ${run}/${RUNS}: presto=${presto_ms} ms, post=${duckdb_ms} ms, total=${total_ms} ms"
-      echo "${engine},${run},${presto_ms},${duckdb_ms},${total_ms}" >> "${results_csv}"
-    done
-    echo ""
+    duckdb_ms=0
+    if [[ "${POST_PROCESS}" == "true" ]]; then
+      duckdb_ms=$(run_duckdb_postprocess "${tmp_csv}")
+    fi
+    total_ms=$(( presto_ms + duckdb_ms ))
+    echo "  Run ${run}/${RUNS}: presto=${presto_ms} ms, post=${duckdb_ms} ms, total=${total_ms} ms"
+    echo "${mode},${run},${presto_ms},${duckdb_ms},${total_ms}" >> "${results_csv}"
   done
+  echo ""
 
   python3 - "${results_csv}" <<'PYEOF'
 import csv
