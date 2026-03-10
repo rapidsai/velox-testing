@@ -164,11 +164,10 @@ build_time_filters() {
 run_presto_to_csv() {
   local sql="$1"
   local out_csv="$2"
-  local session_prop="$3"
   local start end elapsed
 
   start=$(date +%s%N)
-  if ! cli "${session_prop}" --output-format CSV_HEADER --execute "${sql}" > "${out_csv}" 2> "${out_csv}.err"; then
+  if ! cli --output-format CSV_HEADER --execute "${sql}" > "${out_csv}" 2> "${out_csv}.err"; then
     end=$(date +%s%N)
     elapsed=$(( (end - start) / 1000000 ))
     echo "FAILED (${elapsed} ms)" >&2
@@ -428,7 +427,7 @@ run_benchmark() {
   for run in $(seq 1 "${RUNS}"); do
     local tmp_csv presto_ms duckdb_ms total_ms
     tmp_csv="$(mktemp "${out_dir}/${mode}_run${run}.XXXX.csv")"
-    presto_ms=$(run_presto_to_csv "${sql}" "${tmp_csv}" "")
+    presto_ms=$(run_presto_to_csv "${sql}" "${tmp_csv}")
     if [[ "${presto_ms}" == "-1" ]]; then
       echo "${mode},${run},-1,-1,-1" >> "${results_csv}"
       continue
