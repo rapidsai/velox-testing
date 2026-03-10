@@ -55,7 +55,6 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 --profile
     $0 -b tpch -s bench_sf100 --metrics
     $0 -b tpch -s bench_sf100 --verbose
-    $0 -h
 
 EOF
 }

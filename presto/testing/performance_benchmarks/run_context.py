@@ -10,6 +10,7 @@ schema and Presto /v1/node respectively.
 
 import json
 import os
+import re
 from pathlib import Path
 
 import prestodb
@@ -18,7 +19,7 @@ from ..common import test_utils
 from .presto_api import get_cluster_tag, get_nodes
 
 # Enabled by run_benchmark.sh --verbose (sets PRESTO_BENCHMARK_DEBUG=1)
-_DEBUG = os.environ.get("PRESTO_BENCHMARK_DEBUG") or os.environ.get("DEBUG")
+_DEBUG = os.environ.get("PRESTO_BENCHMARK_DEBUG", "") == "1" or os.environ.get("DEBUG", "") == "1"
 
 
 def _debug(msg: str) -> None:
@@ -36,11 +37,17 @@ def _get_node_count(hostname: str, port: int) -> int | None:
     return n
 
 
+_SAFE_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_]+$")
+
+
 def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_name: str) -> int | float | None:
     """
     Resolve scale factor from the schema's data source (metadata.json next to table data).
     Uses same logic as test_utils.get_scale_factor but without pytest request.
     """
+    if not _SAFE_IDENTIFIER_RE.match(schema_name):
+        _debug(f"schema_name {schema_name!r} contains unsafe characters, skipping scale factor lookup")
+        return None
     conn = None
     try:
         conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema_name)
@@ -86,8 +93,8 @@ def _get_gpu_name_from_worker_logs() -> str | None:
             for line in f:
                 if line.startswith("GPU Name:"):
                     return line.split(":", 1)[1].strip()
-    except Exception:
-        pass
+    except Exception as e:
+        _debug(f"failed to read GPU name from worker logs: {e}")
     return None
 
 
@@ -159,8 +166,8 @@ def _get_num_drivers() -> int | None:
                             return int(value)
                         except ValueError:
                             pass
-    except Exception:
-        pass
+    except Exception as e:
+        _debug(f"failed to parse num_drivers from worker logs: {e}")
     _debug(f"num_drivers: task.max-drivers-per-task not found in {log_file}")
     return None
 
@@ -205,6 +212,7 @@ def gather_run_context(
     if num_drivers is not None:
         ctx["num_drivers"] = num_drivers
 
+    # Always 1 for single-run invocations; reserved for future multi-execution support.
     ctx["execution_number"] = 1
 
     return ctx

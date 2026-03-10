@@ -51,6 +51,7 @@ import asyncio
 import dataclasses
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -86,23 +87,21 @@ def _default_logs_dir() -> Path | None:
 
 @dataclasses.dataclass(kw_only=True)
 class BenchmarkMetadata:
-    kind: str
     benchmark: str
     timestamp: datetime
-    execution_number: int
-    worker_count: int
-    scale_factor: int
-    gpu_count: int
-    num_drivers: int
-    worker_image: str | None = None
-    gpu_name: str
     engine: str
+    kind: str | None = None
+    execution_number: int = 1
+    worker_count: int | None = None
+    scale_factor: int | None = None
+    gpu_count: int | None = None
+    num_drivers: int | None = None
+    gpu_name: str | None = None
 
     @classmethod
-    def from_result_file(cls, file_path: Path) -> "BenchmarkMetadata":
-        """Extract metadata from the 'context' section of benchmark_result.json."""
-        raw = json.loads(file_path.read_text())
-        data = raw["context"]
+    def from_parsed(cls, raw: dict) -> "BenchmarkMetadata":
+        """Extract metadata from the 'context' section of a parsed benchmark_result.json."""
+        data = dict(raw["context"])
         data["timestamp"] = datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00"))
 
         known_fields = {f.name for f in dataclasses.fields(cls)}
@@ -123,11 +122,9 @@ class BenchmarkResults:
     failed_queries: dict[str, str]
 
     @classmethod
-    def from_file(cls, file_path: Path, benchmark_name: str) -> "BenchmarkResults":
-        data = json.loads(file_path.read_text())
-
-        if benchmark_name not in data.keys():
-            raise KeyError(f"Expected '{benchmark_name}' key in {file_path}, got: {sorted(data.keys())}")
+    def from_parsed(cls, data: dict, benchmark_name: str) -> "BenchmarkResults":
+        if benchmark_name not in data:
+            raise KeyError(f"Expected '{benchmark_name}' key, got: {sorted(data.keys())}")
 
         raw_times_ms = data[benchmark_name]["raw_times_ms"]
         failed_queries = data[benchmark_name]["failed_queries"]
@@ -394,8 +391,14 @@ def _build_submission_payload(
     raw_times = benchmark_results.raw_times_ms
     failed_queries = benchmark_results.failed_queries
 
-    # Sort query names for consistent ordering (Q1, Q2, ..., Q22)
-    query_names = sorted(raw_times.keys(), key=lambda x: int(x[1:]))
+    def _query_sort_key(name: str):
+        stripped = name.lstrip("Qq")
+        match = re.match(r"(\d+)(.*)", stripped)
+        if match:
+            return (int(match.group(1)), match.group(2))
+        return (float("inf"), name)
+
+    query_names = sorted(raw_times.keys(), key=_query_sort_key)
 
     for query_name in query_names:
         times = raw_times[query_name]
@@ -437,14 +440,17 @@ def _build_submission_payload(
             )
             execution_order += 1
 
-    # Build extra info from metadata
+    # Build extra info from metadata, omitting None values
     extra_info = {
-        "kind": benchmark_metadata.kind,
-        "gpu_count": benchmark_metadata.gpu_count,
-        "gpu_name": benchmark_metadata.gpu_name,
-        "num_drivers": benchmark_metadata.num_drivers,
-        "worker_image": benchmark_metadata.worker_image,
-        "execution_number": benchmark_metadata.execution_number,
+        k: v
+        for k, v in {
+            "kind": benchmark_metadata.kind,
+            "gpu_count": benchmark_metadata.gpu_count,
+            "gpu_name": benchmark_metadata.gpu_name,
+            "num_drivers": benchmark_metadata.num_drivers,
+            "execution_number": benchmark_metadata.execution_number,
+        }.items()
+        if v is not None
     }
 
     return {
@@ -575,14 +581,20 @@ async def _process_benchmark_dir(
     result_file = benchmark_dir / "benchmark_result.json"
 
     try:
-        benchmark_metadata = BenchmarkMetadata.from_result_file(result_file)
-    except (ValueError, KeyError, json.JSONDecodeError, FileNotFoundError) as e:
+        raw = json.loads(result_file.read_text())
+    except (json.JSONDecodeError, FileNotFoundError) as e:
+        print(f"  Error reading {result_file}: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        benchmark_metadata = BenchmarkMetadata.from_parsed(raw)
+    except (ValueError, KeyError) as e:
         print(f"  Error loading metadata: {e}", file=sys.stderr)
         return 1
 
     try:
-        results = BenchmarkResults.from_file(result_file, benchmark_name=benchmark_metadata.benchmark)
-    except (ValueError, KeyError, json.JSONDecodeError, FileNotFoundError) as e:
+        results = BenchmarkResults.from_parsed(raw, benchmark_name=benchmark_metadata.benchmark)
+    except (ValueError, KeyError) as e:
         print(f"  Error loading results: {e}", file=sys.stderr)
         return 1
 
