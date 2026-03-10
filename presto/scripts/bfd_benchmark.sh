@@ -230,10 +230,11 @@ setup_data() {
   fi
   generate_bfd_dataset "${num_rows}" "${HOST_DATA_DIR}" "${HOST_DATA_DIR}_meta"
 
-  cli --execute "DROP TABLE IF EXISTS ${TABLE}" 2>/dev/null || true
+  echo "Dropping old table (if any)..."
+  cli --execute "DROP TABLE IF EXISTS ${TABLE}" || true
   echo "Creating partitioned Hive table ${TABLE}..."
   cli --execute "
-    CREATE TABLE ${TABLE} (
+    CREATE TABLE IF NOT EXISTS ${TABLE} (
       ts TIMESTAMP, timestamp BIGINT,
       open REAL, high REAL, low REAL, close REAL,
       volume DOUBLE, symbol_id INTEGER, asset_class_id TINYINT,
