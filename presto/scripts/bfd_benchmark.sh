@@ -95,13 +95,18 @@ cli() {
 }
 
 list_catalogs() {
-  docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/catalog" 2>/dev/null | \
-    python3 - <<'PYEOF'
+  local json
+  json="$(docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/catalog" 2>/dev/null || true)"
+  if [[ -z "${json}" ]]; then
+    return 0
+  fi
+  python3 - "${json}" <<'PYEOF'
 import json
 import sys
 
+raw = sys.argv[1]
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(raw)
 except Exception:
     sys.exit(0)
 
