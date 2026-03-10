@@ -494,7 +494,7 @@ setup_data() {
   "
 
   echo "Running ANALYZE..."
-  cli --execute "ANALYZE ${TABLE}" 2>/dev/null || echo "WARNING: ANALYZE failed."
+  cli --execute "ANALYZE ${TABLE}"
   echo "Setup complete."
 }
 
