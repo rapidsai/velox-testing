@@ -52,6 +52,13 @@ function activate_python_virtual_env() {
 
 function init_python_virtual_env() {
   local venv_dir=${1:-".venv"}
+
+  if [[ -f "$venv_dir/pyvenv.cfg" || -d "$venv_dir/conda-meta" ]]; then
+    echo "Reusing existing virtual environment at $venv_dir"
+    activate_python_virtual_env $venv_dir
+    return
+  fi
+
   rm -rf $venv_dir
 
   if python3.12 -m venv $venv_dir &>/dev/null; then

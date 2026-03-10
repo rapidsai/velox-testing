@@ -4,7 +4,7 @@
 """
 Gather run configuration from execution context. Engine (presto-java / presto-velox-cpu / presto-velox-gpu)
 is determined from the coordinator's cluster-tag (via /v1/cluster). GPU name is
-read from worker log files (LOGS env var). Scale factor and n_workers come from
+read from worker log files (LOGS_DIR env var). Scale factor and n_workers come from
 schema and Presto /v1/node respectively.
 """
 
@@ -74,19 +74,45 @@ def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_na
                 pass
 
 
+def _find_worker_log(worker_id: int = 0) -> Path | None:
+    """Locate the worker log file for *worker_id*.
+
+    Tries, in order:
+    1. ``LOGS_DIR/worker_<id>_<RUN_TIMESTAMP>.log`` (exact match when RUN_TIMESTAMP is set)
+    2. The newest ``LOGS_DIR/worker_<id>_*.log`` by mtime (glob fallback)
+    3. ``LOGS_DIR/worker_<id>.log`` (legacy non-timestamped name)
+    """
+    logs_dir = os.environ.get("LOGS_DIR")
+    if not logs_dir:
+        return None
+    logs_path = Path(logs_dir)
+
+    ts = os.environ.get("RUN_TIMESTAMP")
+    if ts:
+        exact = logs_path / f"worker_{worker_id}_{ts}.log"
+        if exact.is_file():
+            return exact
+
+    candidates = sorted(logs_path.glob(f"worker_{worker_id}_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if candidates:
+        return candidates[0]
+
+    legacy = logs_path / f"worker_{worker_id}.log"
+    if legacy.is_file():
+        return legacy
+    return None
+
+
 def _get_gpu_name_from_worker_logs() -> str | None:
     """Read GPU model name from worker log files.
 
     Both Docker and SLURM workers write a 'GPU Name: <model>' line
-    to LOGS/worker_<id>.log before starting the server.  All workers
-    are assumed to have the same GPU; only worker_0.log is read.
-    Returns None when LOGS is unset or no matching line is found.
+    to LOGS_DIR/worker_<id>_<timestamp>.log before starting the server.
+    All workers are assumed to have the same GPU; only worker_0 is read.
+    Returns None when LOGS_DIR is unset or no matching line is found.
     """
-    logs_dir = os.environ.get("LOGS")
-    if not logs_dir:
-        return None
-    log_file = Path(logs_dir) / "worker_0.log"
-    if not log_file.is_file():
+    log_file = _find_worker_log(0)
+    if log_file is None:
         return None
     try:
         with open(log_file) as f:
@@ -132,9 +158,9 @@ def _get_engine(hostname: str, port: int) -> str:
 def _get_gpu_name() -> str | None:
     """Return GPU model name from worker log files.
 
-    Worker containers (Docker and SLURM) run nvidia-smi -L and write the
-    output to LOGS/worker_<id>.log.  Returns None when LOGS is unset or
-    no GPU info is found in the logs.
+    Worker containers (Docker and SLURM) run nvidia-smi and write the
+    output to LOGS_DIR/worker_<id>_<timestamp>.log.  Returns None when
+    LOGS_DIR is unset or no GPU info is found in the logs.
     """
     gpu_name = _get_gpu_name_from_worker_logs()
     _debug(f"gpu_name: {gpu_name!r}")
@@ -145,14 +171,11 @@ def _get_num_drivers() -> int | None:
     """Parse task.max-drivers-per-task from worker log files.
 
     The Presto native server logs its configuration at startup.
-    Returns None when LOGS is unset or the property is not found.
+    Returns None when LOGS_DIR is unset or the property is not found.
     """
-    logs_dir = os.environ.get("LOGS")
-    if not logs_dir:
-        return None
-    log_file = Path(logs_dir) / "worker_0.log"
-    if not log_file.is_file():
-        _debug(f"num_drivers: log not found at {log_file}")
+    log_file = _find_worker_log(0)
+    if log_file is None:
+        _debug("num_drivers: worker_0 log not found")
         return None
     try:
         with open(log_file) as f:

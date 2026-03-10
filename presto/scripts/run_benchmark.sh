@@ -8,10 +8,9 @@ set -e
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# LOGS points to the directory where server log files (including nvidia-smi
-# output) are written so that run_context.py can parse GPU info.  SLURM
-# environments set LOGS themselves; this default covers Docker.
-export LOGS="${LOGS:-${SCRIPT_DIR}/presto_logs}"
+# LOGS_DIR points to the directory where server log files (including nvidia-smi
+# output) are written so that run_context.py can parse GPU info.
+export LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
 
 source "${SCRIPT_DIR}/presto_connection_defaults.sh"
 

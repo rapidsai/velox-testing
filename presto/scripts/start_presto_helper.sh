@@ -140,6 +140,18 @@ else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
 
+# Set up LOGS_DIR before any docker compose commands (stop, build, or up)
+# since docker-compose.common.yml requires it via ${LOGS_DIR:?...}.
+LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
+[ -L "${LOGS_DIR}" ] && rm -f "${LOGS_DIR}"
+mkdir -p "${LOGS_DIR}"
+if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
+  mkdir -p "${LOGS_DIR}/archive"
+  mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
+fi
+export RUN_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
+export LOGS_DIR
+
 "${SCRIPT_DIR}/stop_presto.sh"
 
 "${SCRIPT_DIR}/generate_presto_config.sh"
@@ -219,19 +231,6 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   "${SCCACHE_BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}
 fi
-
-# Create a timestamped directory for this run's logs and point the
-# logs symlink at it.  Old runs are preserved in their own directories.
-# If the target is a real directory (pre-symlink migration), rename it first.
-LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
-if [ -d "${LOGS_DIR}" ] && [ ! -L "${LOGS_DIR}" ]; then
-  mv "${LOGS_DIR}" "${LOGS_DIR}_$(date -r "${LOGS_DIR}" +"%Y%m%dT%H%M%S" 2>/dev/null || date +"%Y%m%dT%H%M%S")_migrated"
-fi
-TIMESTAMPED_LOGS_DIR="${LOGS_DIR}_$(date +"%Y%m%dT%H%M%S")"
-mkdir -p "${TIMESTAMPED_LOGS_DIR}"
-rm -f "${LOGS_DIR}"
-ln -sfn "${TIMESTAMPED_LOGS_DIR}" "${LOGS_DIR}"
-export LOGS_DIR
 
 # Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d

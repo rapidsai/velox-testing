@@ -56,7 +56,7 @@ Key variables:
 - NUM_ITERATIONS: required by the job; launcher defaults to 1 (`-i/--iterations` to override)
 - NUM_NODES: derived from Slurm allocation; provided via `-n/--nodes` to launcher
 - REPO_ROOT: auto-detected from script location
-- LOGS: `${SCRIPT_DIR}/logs` by default
+- LOGS_DIR: `${SCRIPT_DIR}/logs` by default (log files are timestamped; old logs archived to `logs/archive/`)
 - IMAGE_DIR, DATA, CONFIGS: see below or override via environment if needed
 
 Other defaults:
@@ -82,10 +82,10 @@ squeue -u $USER
 # Monitor job output
 tail -f presto-tpch-run_n<NODES>_sf<SCALE_FACTOR>_i<ITER>_<JOB_ID>.out
 
-# Check logs during execution
-tail -f logs/coord.log
-tail -f logs/cli.log
-tail -f logs/worker_0.log
+# Check logs during execution (filenames include a run timestamp)
+tail -f logs/coord_*.log
+tail -f logs/cli_*.log
+tail -f logs/worker_0_*.log
 ```
 
 ## Coordinator IP and Web UI
@@ -124,7 +124,7 @@ Results are saved to:
 ### Coordinator fails to start
 Check coordinator logs:
 ```bash
-cat logs/coord.log
+cat logs/coord_*.log
 ```
 
 ### Workers not registering
