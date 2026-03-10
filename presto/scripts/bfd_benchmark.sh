@@ -81,8 +81,9 @@ MARKET_DATA_DIR="${MARKET_DATA_DIR:-${HOST_DATA_DIR:-}}"
 
 cli() {
   local session_arg=()
-  if [[ -n "${1:-}" ]]; then
+  if [[ -n "${1:-}" && "${1}" != -* ]]; then
     session_arg=(--session "$1")
+    shift
   fi
   docker exec -i "${COORDINATOR}" presto-cli \
     --server "localhost:${PORT}" \
