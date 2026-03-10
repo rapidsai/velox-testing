@@ -167,6 +167,7 @@ def generate_chunk(args):
         "asset_class_id": pa.array(asset_ids, type=pa.int8()),
     })
 
+    table = table.sort_by([("symbol_id", "ascending"), ("ts", "ascending")])
     out_path = os.path.join(out_dir, f"part-{idx:05d}.parquet")
     pq.write_table(table, out_path, compression="zstd", row_group_size=250_000)
     return idx, n

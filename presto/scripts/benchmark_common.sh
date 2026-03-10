@@ -415,11 +415,20 @@ def parse_scan_stats(text):
     while i < len(lines):
         line = lines[i]
         if re.search(r'Scan(Filter)?Project|TableScan', line):
+            indent = len(line) - len(line.lstrip())
             block = line
             j = i + 1
-            while j < len(lines) and (lines[j].startswith("        ") or lines[j].strip() == ""):
-                block += "\n" + lines[j]
-                j += 1
+            while j < len(lines):
+                next_line = lines[j]
+                if next_line.strip() == "":
+                    j += 1
+                    continue
+                next_indent = len(next_line) - len(next_line.lstrip())
+                if next_indent > indent:
+                    block += "\n" + next_line
+                    j += 1
+                else:
+                    break
 
             filter_pred = ""
             m = re.search(r'filterPredicate\s*=\s*([^,\]]+)', block)
@@ -493,13 +502,19 @@ for f in files:
     else:
         rg_pruned = 0.0
 
+    def fmt_pct(v):
+        if v == 0: return "0%"
+        if v >= 99.95 and v < 100.0: return f"{v:.2f}%"
+        if v == 100.0: return "100%"
+        return f"{v:.1f}%"
+
     print(hdr.format(
         qname,
         fmt_rows(total_rows),
         fmt_rows(agg_input),
         fmt_rows(agg_output),
-        f"{agg_filtered:.1f}%",
-        f"{rg_pruned:.1f}%" if rg_pruned > 0 else "0%",
+        fmt_pct(agg_filtered),
+        fmt_pct(rg_pruned),
     ))
 
 print()
