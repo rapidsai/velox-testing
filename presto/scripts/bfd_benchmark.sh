@@ -11,7 +11,7 @@
 # Environment:
 #   PRESTO_COORDINATOR   - coordinator container name (default: presto-coordinator)
 #   PRESTO_PORT          - coordinator port (default: 8080)
-#   PRESTO_CATALOG       - catalog (default: hive)
+#   BFD_CATALOG          - catalog (default: hive)
 #   PRESTO_SCHEMA        - schema (default: default)
 #   PRESTO_USER          - Presto user (default: bfd)
 #   PRESTO_DATA_DIR      - host data root (required for setup unless BFD_DATA_DIR set)
@@ -50,7 +50,7 @@ trap 'LOCAL_CONDA_INIT="${LOCAL_CONDA_INIT:-}"; delete_python_virtual_env .bfd_b
 
 COORDINATOR="${PRESTO_COORDINATOR:-presto-coordinator}"
 PORT="${PRESTO_PORT:-8080}"
-CATALOG="${PRESTO_CATALOG:-hive}"
+CATALOG="${BFD_CATALOG:-hive}"
 SCHEMA="${PRESTO_SCHEMA:-default}"
 PRESTO_USER="${PRESTO_USER:-bfd}"
 MODE="${1:-bench}"
