@@ -11,8 +11,8 @@ import pytest
 
 from common.testing.integration_tests.test_utils import (
     assert_rows_equal,
-    normalize_rows,
     none_safe_sort_key,
+    normalize_rows,
 )
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 
