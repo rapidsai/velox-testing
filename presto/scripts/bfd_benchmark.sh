@@ -29,13 +29,6 @@
 #   BFD_DATA_DIR            - host output root for setup (optional)
 #   BFD_CONTAINER_DATA_DIR  - container path for Hive table (optional)
 #   BFD_BASE_ROWS           - base row count per SF (default: 5000000)
-#   BFD_ASSET_CLASSES       - comma list (default: stock,fx,crypto,futures)
-#   BFD_SYMBOLS_PER_CLASS   - limit symbols per class (0=all, default: 0)
-#   BFD_START_DATE          - start timestamp (default: 2025-01-02 09:30:00)
-#   BFD_ROW_GROUP_SIZE      - parquet row group size (default: 250000)
-#   BFD_MAX_ROWS_PER_FILE   - parquet rows per file (default: 1000000)
-#   BFD_COMPRESSION         - parquet compression (default: zstd)
-#   BFD_SEED                - RNG seed (default: 42)
 #
 
 set -euo pipefail
@@ -77,8 +70,8 @@ if [[ -z "${HOST_DATA_DIR}" && -n "${PRESTO_DATA_DIR:-}" ]]; then
   HOST_DATA_DIR="${PRESTO_DATA_DIR}/bfd_bench/sf${SF}"
 fi
 CONTAINER_DATA_DIR="${BFD_CONTAINER_DATA_DIR:-/var/lib/presto/data/hive/data/user_data/bfd_bench/sf${SF}}"
-TABLE_LOCATION="${CONTAINER_DATA_DIR}/prices"
-MARKET_DATA_DIR="${MARKET_DATA_DIR:-${HOST_DATA_DIR:-}}"
+METADATA_DIR="${HOST_DATA_DIR:+${HOST_DATA_DIR}_meta}"
+MARKET_DATA_DIR="${MARKET_DATA_DIR:-${METADATA_DIR:-}}"
 
 cli() {
   local session_arg=()
@@ -169,6 +162,7 @@ build_time_filters() {
   echo "${filters}"
 }
 
+
 run_presto_to_csv() {
   local sql="$1"
   local out_csv="$2"
@@ -224,234 +218,130 @@ PYEOF
 }
 
 generate_bfd_dataset() {
-  local total_rows=$1
+  local num_rows=$1
   local out_dir=$2
-  local asset_classes="${BFD_ASSET_CLASSES:-stock,fx,crypto,futures}"
-  local symbols_per_class="${BFD_SYMBOLS_PER_CLASS:-0}"
-  local start_date="${BFD_START_DATE:-2025-01-02 09:30:00}"
-  local row_group_size="${BFD_ROW_GROUP_SIZE:-250000}"
-  local max_rows_per_file="${BFD_MAX_ROWS_PER_FILE:-1000000}"
-  local compression="${BFD_COMPRESSION:-zstd}"
-  local seed="${BFD_SEED:-42}"
+  local metadata_dir=$3
 
-  echo "Generating ${total_rows} rows into ${out_dir}..."
-  python3 - "${total_rows}" "${out_dir}" "${asset_classes}" "${symbols_per_class}" \
-    "${start_date}" "${row_group_size}" "${max_rows_per_file}" "${compression}" "${seed}" <<'PYEOF'
+  echo "Generating ${num_rows} BFD rows into ${out_dir} (partitioned by year/month)..."
+  python3 - "${num_rows}" "${out_dir}" "${metadata_dir}" <<'PYEOF'
 import json
 import os
 import sys
-import zlib
-from datetime import datetime, timezone
+from datetime import datetime
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-total_rows = int(sys.argv[1])
+num_rows = int(sys.argv[1])
 out_dir = sys.argv[2]
-asset_classes = [a.strip() for a in sys.argv[3].split(",") if a.strip()]
-symbols_per_class = int(sys.argv[4])
-start_date = sys.argv[5]
-row_group_size = int(sys.argv[6])
-max_rows_per_file = int(sys.argv[7])
-compression = sys.argv[8]
-seed = int(sys.argv[9])
+metadata_dir = sys.argv[3]
+os.makedirs(out_dir, exist_ok=True)
+os.makedirs(metadata_dir, exist_ok=True)
 
-ASSET_CLASSES = {
+SYMBOLS = {
     "stock": [
-        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK.B",
+        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
         "JPM", "V", "UNH", "XOM", "JNJ", "WMT", "PG", "MA", "HD", "CVX",
         "MRK", "ABBV", "PEP", "KO", "COST", "AVGO", "LLY", "TMO", "MCD",
-        "CSCO", "ACN", "ABT", "DHR", "NEE", "TXN", "PM", "UPS", "MS",
-        "BMY", "RTX", "HON", "QCOM", "LOW", "UNP", "INTC", "SBUX", "GS",
-        "AMAT", "AMD", "CAT", "BLK", "ADP",
+        "CSCO", "ACN", "ABT", "AMD", "INTC", "QCOM", "GS", "CAT",
     ],
     "fx": [
         "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD",
-        "NZDUSD", "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "CADJPY",
-        "CHFJPY", "EURAUD", "EURCHF", "EURCAD", "EURNZD", "GBPAUD",
-        "GBPCAD", "GBPCHF",
+        "NZDUSD", "EURGBP", "EURJPY", "GBPJPY",
     ],
     "crypto": [
         "BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT",
-        "MATIC", "LINK", "UNI", "ATOM", "LTC", "BCH", "NEAR",
     ],
     "futures": [
         "ES", "NQ", "YM", "RTY", "CL", "GC", "SI", "HG",
-        "ZB", "ZN", "ZC", "ZS", "ZW", "NG", "KC",
     ],
-}
-
-PRICE_RANGES = {
-    "stock": (5.0, 500.0),
-    "fx": (0.5, 2.0),
-    "crypto": (0.01, 60000.0),
-    "futures": (10.0, 5000.0),
 }
 
 REALISTIC_PRICES = {
     "AAPL": 243.0, "MSFT": 418.0, "NVDA": 138.0, "GOOGL": 192.0,
-    "AMZN": 220.0, "META": 602.0, "TSLA": 380.0, "BRK.B": 457.0,
+    "AMZN": 220.0, "META": 602.0, "TSLA": 380.0,
     "JPM": 243.0, "V": 316.0, "UNH": 540.0, "XOM": 106.0,
-    "JNJ": 145.0, "WMT": 92.0, "PG": 168.0, "MA": 523.0,
-    "HD": 397.0, "CVX": 148.0, "MRK": 100.0, "ABBV": 182.0,
-    "PEP": 151.0, "KO": 62.0, "COST": 920.0, "AVGO": 238.0,
-    "LLY": 770.0, "TMO": 530.0, "MCD": 290.0, "CSCO": 59.0,
-    "ACN": 356.0, "ABT": 114.0, "AMD": 120.0, "INTC": 20.0,
-    "QCOM": 158.0, "GS": 580.0, "CAT": 376.0, "BLK": 1010.0,
+    "JNJ": 145.0, "WMT": 92.0, "PG": 168.0, "MA": 523.0, "HD": 397.0, "CVX": 148.0,
+    "MRK": 100.0, "ABBV": 182.0, "PEP": 151.0, "KO": 62.0, "COST": 920.0, "AVGO": 238.0,
+    "LLY": 770.0, "TMO": 530.0, "MCD": 290.0, "CSCO": 59.0, "ACN": 356.0, "ABT": 114.0,
+    "AMD": 120.0, "INTC": 20.0, "QCOM": 158.0, "GS": 580.0, "CAT": 376.0,
     "EURUSD": 1.035, "GBPUSD": 1.252, "USDJPY": 157.3,
     "USDCHF": 0.908, "AUDUSD": 0.622, "USDCAD": 1.440,
+    "NZDUSD": 0.565, "EURGBP": 0.828, "EURJPY": 162.8, "GBPJPY": 196.7,
     "BTC": 94200.0, "ETH": 3350.0, "SOL": 190.0, "XRP": 2.35,
     "ADA": 0.98, "DOGE": 0.33, "AVAX": 37.0, "DOT": 7.0,
-    "LINK": 21.0, "LTC": 105.0,
-    "ES": 5950.0, "NQ": 21300.0, "YM": 42800.0, "CL": 73.5,
-    "GC": 2660.0, "SI": 30.5, "NG": 3.35, "ZB": 115.0,
+    "ES": 5950.0, "NQ": 21300.0, "YM": 42800.0, "RTY": 2050.0,
+    "CL": 73.5, "GC": 2660.0, "SI": 30.5, "HG": 4.2,
 }
 
-VOLUME_RANGES = {
-    "stock": (100, 50000),
-    "fx": (1, 500),
-    "crypto": (0.001, 100.0),
-    "futures": (10, 10000),
-}
+ASSET_CLASS_TO_ID = {"stock": 0, "fx": 1, "crypto": 2, "futures": 3}
 
-asset_classes = [a for a in asset_classes if a in ASSET_CLASSES]
-if not asset_classes:
-    raise SystemExit("No valid asset classes selected.")
+all_symbols = []
+for asset, syms in SYMBOLS.items():
+    for sym in syms:
+        all_symbols.append((asset, sym))
 
-symbol_lists = {}
-for asset in asset_classes:
-    syms = ASSET_CLASSES[asset]
-    if symbols_per_class > 0:
-        syms = syms[:symbols_per_class]
-    symbol_lists[asset] = syms
-
-all_symbols = [(asset, sym) for asset, syms in symbol_lists.items() for sym in syms]
-if not all_symbols:
-    raise SystemExit("No symbols selected.")
-
-asset_class_to_id = {"stock": 0, "fx": 1, "crypto": 2, "futures": 3, "index": 4}
 symbol_to_id = {sym: idx for idx, (_, sym) in enumerate(all_symbols)}
-id_to_symbol = {str(idx): sym for sym, idx in symbol_to_id.items()}
+sym_list = [sym for _, sym in all_symbols]
+asset_list = [asset for asset, _ in all_symbols]
 
-os.makedirs(out_dir, exist_ok=True)
-metadata_dir = os.path.join(out_dir, "metadata")
-os.makedirs(metadata_dir, exist_ok=True)
+rng = np.random.default_rng(42)
 
+base_us = int(datetime(2020, 1, 1).timestamp() * 1_000_000)
+day_offsets = rng.integers(0, 2191, size=num_rows, dtype=np.int64)
+minute_offsets = rng.integers(0, 1440, size=num_rows, dtype=np.int64)
+ts_us = base_us + day_offsets * 86400_000_000 + minute_offsets * 60_000_000
+
+sym_indices = rng.integers(0, len(sym_list), size=num_rows)
+sym_ids = np.array([symbol_to_id[sym_list[i]] for i in sym_indices], dtype=np.int32)
+asset_ids = np.array([ASSET_CLASS_TO_ID[asset_list[i]] for i in sym_indices], dtype=np.int8)
+
+base_prices = np.array([REALISTIC_PRICES.get(sym_list[i], 100.0) for i in sym_indices])
+jitter = rng.uniform(-0.05, 0.05, size=num_rows)
+
+ts_dt = ts_us.astype("datetime64[us]")
+years = (ts_dt.astype("datetime64[Y]").astype(int) + 1970).astype(np.int32)
+months = (ts_dt.astype("datetime64[M]").astype(int) % 12 + 1).astype(np.int32)
+
+table = pa.table({
+    "ts": pa.array(ts_us, type=pa.timestamp("us")),
+    "timestamp": pa.array(ts_us, type=pa.int64()),
+    "open": pa.array((base_prices * (1 + jitter)).astype(np.float32), type=pa.float32()),
+    "high": pa.array((base_prices * (1 + np.abs(jitter) + rng.uniform(0, 0.03, size=num_rows))).astype(np.float32), type=pa.float32()),
+    "low": pa.array((base_prices * (1 - np.abs(jitter) - rng.uniform(0, 0.03, size=num_rows))).astype(np.float32), type=pa.float32()),
+    "close": pa.array((base_prices * (1 + rng.uniform(-0.03, 0.03, size=num_rows))).astype(np.float32), type=pa.float32()),
+    "volume": pa.array(rng.uniform(100, 50000, size=num_rows), type=pa.float64()),
+    "symbol_id": pa.array(sym_ids, type=pa.int32()),
+    "asset_class_id": pa.array(asset_ids, type=pa.int8()),
+    "year": pa.array(years, type=pa.int32()),
+    "month": pa.array(months, type=pa.int32()),
+})
+
+print(f"  Writing partitioned dataset to {out_dir}...")
+pq.write_to_dataset(
+    table,
+    root_path=out_dir,
+    partition_cols=["year", "month"],
+    compression="zstd",
+    max_rows_per_file=1_000_000,
+    row_group_size=250_000,
+    existing_data_behavior="overwrite_or_ignore",
+)
+
+parquet_count = sum(1 for _, _, files in os.walk(out_dir) for f in files if f.endswith(".parquet"))
+print(f"  Done. {num_rows:,} rows, {parquet_count} parquet file(s) in {out_dir}")
+
+id_to_symbol = {str(v): k for k, v in symbol_to_id.items()}
 with open(os.path.join(metadata_dir, "symbol_map.json"), "w") as f:
     json.dump({"symbol_to_id": symbol_to_id, "id_to_symbol": id_to_symbol}, f, indent=2)
-
-with open(os.path.join(metadata_dir, "asset_map.json"), "w") as f:
-    json.dump(
-        {
-            "asset_class_to_id": asset_class_to_id,
-            "id_to_asset_class": ["stock", "fx", "crypto", "futures", "index"],
-        },
-        f,
-        indent=2,
-    )
-
-base_ts = datetime.fromisoformat(start_date)
-if base_ts.tzinfo is None:
-    base_ts = base_ts.replace(tzinfo=timezone.utc)
-else:
-    base_ts = base_ts.astimezone(timezone.utc)
-base_us = int(base_ts.timestamp() * 1_000_000)
-
-rows_per_symbol = max(1, total_rows // len(all_symbols))
-rows_written = {asset: 0 for asset in asset_classes}
-
-file_index = {asset: 0 for asset in asset_classes}
-
-for asset, symbol in all_symbols:
-    stable_hash = zlib.crc32(symbol.encode()) % 10000
-    rng = np.random.default_rng(seed + stable_hash)
-    base_price = REALISTIC_PRICES.get(symbol)
-    if base_price is None:
-        lo, hi = PRICE_RANGES[asset]
-        base_price = rng.uniform(lo, hi)
-
-    returns = rng.normal(0, 0.0005, rows_per_symbol)
-    prices = base_price * np.cumprod(1 + returns)
-    noise = rng.uniform(0.998, 1.002, (rows_per_symbol, 3))
-    opens = prices * noise[:, 0]
-    highs = np.maximum(prices, opens) * rng.uniform(1.0, 1.003, rows_per_symbol)
-    lows = np.minimum(prices, opens) * rng.uniform(0.997, 1.0, rows_per_symbol)
-    closes = prices * rng.uniform(0.997, 1.003, rows_per_symbol)
-
-    vol_lo, vol_hi = VOLUME_RANGES[asset]
-    if asset == "crypto":
-        volumes = rng.uniform(vol_lo, vol_hi, rows_per_symbol).astype(np.float64)
-    else:
-        volumes = rng.integers(int(vol_lo), int(vol_hi), rows_per_symbol).astype(np.float64)
-
-    offsets = np.arange(rows_per_symbol, dtype=np.int64) * 60_000_000
-    ts_us = base_us + offsets
-    ts_dt = ts_us.astype("datetime64[us]")
-    years = ts_dt.astype("datetime64[Y]").astype(int) + 1970
-    months = ts_dt.astype("datetime64[M]").astype(int) % 12 + 1
-
-    table = pa.table(
-        {
-            "timestamp": pa.array(ts_us, type=pa.int64()),
-            "ts": pa.array(ts_us, type=pa.timestamp("us")),
-            "open": pa.array(opens, type=pa.float32()),
-            "high": pa.array(highs, type=pa.float32()),
-            "low": pa.array(lows, type=pa.float32()),
-            "close": pa.array(closes, type=pa.float32()),
-            "volume": pa.array(volumes, type=pa.float64()),
-            "symbol_id": pa.array(
-                np.full(rows_per_symbol, symbol_to_id[symbol], dtype=np.int32),
-                type=pa.int32(),
-            ),
-            "asset_class_id": pa.array(
-                np.full(rows_per_symbol, asset_class_to_id[asset], dtype=np.int8),
-                type=pa.int8(),
-            ),
-            "year": pa.array(years.astype(np.int16), type=pa.int16()),
-            "month": pa.array(months.astype(np.int8), type=pa.int8()),
-        }
-    )
-
-    asset_root = os.path.join(out_dir, "prices", asset)
-    os.makedirs(asset_root, exist_ok=True)
-    pq.write_to_dataset(
-        table,
-        root_path=asset_root,
-        partition_cols=["year", "month"],
-        compression=compression,
-        basename_template=f"part-{file_index[asset]:05d}-{{i}}.parquet",
-        existing_data_behavior="overwrite_or_ignore",
-        row_group_size=row_group_size,
-        max_rows_per_file=max_rows_per_file,
-    )
-    file_index[asset] += 1
-    rows_written[asset] += rows_per_symbol
-
-manifest = {
-    "created_at_utc": datetime.now(timezone.utc).isoformat(),
-    "output_root": out_dir,
-    "asset_classes": asset_classes,
-    "symbols_per_class": symbols_per_class,
-    "rows_requested": total_rows,
-    "rows_per_symbol": rows_per_symbol,
-    "rows_written": rows_written,
-    "row_group_size": row_group_size,
-    "max_rows_per_file": max_rows_per_file,
-    "compression": compression,
-    "start_timestamp": base_ts.isoformat(),
-    "seed": seed,
-}
-
-with open(os.path.join(out_dir, "manifest.json"), "w") as f:
-    json.dump(manifest, f, indent=2)
-
-print(f"Wrote dataset to {out_dir} ({sum(rows_written.values()):,} rows).")
 PYEOF
 }
 
 setup_data() {
   preflight_check
+  local num_rows=$(( BASE_ROWS * SF ))
+  echo "=== Setting up BFD table: ${TABLE} (sf${SF}, ~${num_rows} rows) ==="
 
   local mode
   mode=$(detect_cudf_mode)
@@ -465,34 +355,30 @@ setup_data() {
     exit 1
   fi
 
-  local num_rows=$(( BASE_ROWS * SF ))
-  echo "=== Setting up BFD dataset (sf${SF}, ~${num_rows} rows) ==="
+  ensure_schema
 
   if [ -d "${HOST_DATA_DIR}" ]; then
     echo "Cleaning old data..."; rm -rf "${HOST_DATA_DIR}"
   fi
-  mkdir -p "${HOST_DATA_DIR}"
-
-  generate_bfd_dataset "${num_rows}" "${HOST_DATA_DIR}"
-
-  echo "Creating schema ${CATALOG}.${SCHEMA}..."
-  cli --execute "CREATE SCHEMA IF NOT EXISTS ${CATALOG}.${SCHEMA} WITH (location = 'file://${CONTAINER_DATA_DIR}')" 2>/dev/null || true
+  generate_bfd_dataset "${num_rows}" "${HOST_DATA_DIR}" "${HOST_DATA_DIR}_meta"
 
   cli --execute "DROP TABLE IF EXISTS ${TABLE}" 2>/dev/null || true
-  echo "Creating external Hive table ${TABLE}..."
+  echo "Creating partitioned Hive table ${TABLE}..."
   cli --execute "
     CREATE TABLE ${TABLE} (
-      ts TIMESTAMP,
-      timestamp BIGINT,
-      open REAL,
-      high REAL,
-      low REAL,
-      close REAL,
-      volume DOUBLE,
-      symbol_id INTEGER,
-      asset_class_id TINYINT
-    ) WITH (format = 'PARQUET', external_location = 'file://${TABLE_LOCATION}')
+      ts TIMESTAMP, timestamp BIGINT,
+      open REAL, high REAL, low REAL, close REAL,
+      volume DOUBLE, symbol_id INTEGER, asset_class_id TINYINT,
+      year INTEGER, month INTEGER
+    ) WITH (
+      format = 'PARQUET',
+      external_location = 'file:${CONTAINER_DATA_DIR}',
+      partitioned_by = ARRAY['year', 'month']
+    )
   "
+
+  echo "Syncing partition metadata..."
+  cli --execute "CALL system.sync_partition_metadata('${SCHEMA}', 'prices', 'FULL')"
 
   echo "Running ANALYZE..."
   cli --execute "ANALYZE ${TABLE}"
