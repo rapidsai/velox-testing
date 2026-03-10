@@ -19,7 +19,7 @@ benchmark results context.  Paths can be overridden with
 
 Default locations (derived from the repo root and detected variant):
     configs: presto/docker/config/generated/{variant}/
-    logs:    presto/scripts/presto_logs/  (symlink to latest run)
+    logs:    presto/scripts/presto_logs/
 
 Usage:
     # Auto-detect configs/logs from the repo (default):
@@ -78,7 +78,7 @@ def _default_config_dir(variant: str) -> Path | None:
 
 
 def _default_logs_dir() -> Path | None:
-    """Return the presto_logs directory, resolving the symlink to the latest run."""
+    """Return the presto_logs directory."""
     link = _repo_root() / "presto" / "scripts" / "presto_logs"
     if link.exists():
         return link.resolve()
@@ -319,8 +319,7 @@ def _parse_args() -> argparse.Namespace:
         "--logs-dir",
         type=str,
         default=None,
-        help="Override server logs directory. Default: presto/scripts/presto_logs/ "
-        "(symlink to the latest timestamped run).",
+        help="Override server logs directory. Default: presto/scripts/presto_logs/.",
     )
 
     return parser.parse_args()

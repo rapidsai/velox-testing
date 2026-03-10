@@ -34,7 +34,7 @@ OPTIONS:
                          This will override the default arguments.
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
     --logs-dir           Directory for server log files (default: <script_dir>/presto_logs).
-                         Each startup creates a timestamped subdirectory and symlinks this path to it.
+                         Old log files are archived to an archive/ subdirectory on each startup.
     --sccache            Enable sccache distributed compilation caching (requires auth files
                          in ~/.sccache-auth/). Run scripts/sccache/setup_sccache_auth.sh first.
     --sccache-version    Install a specific version of rapidsai/sccache, e.g. "0.12.0-rapids.1"
