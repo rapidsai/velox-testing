@@ -378,22 +378,37 @@ check_fallbacks() {
 collect_pushdown_stats() {
   local out_dir="$1"
   local total_rows="$2"
+  local ea_timeout="${EXPLAIN_ANALYZE_TIMEOUT:-60}"
+
+  if [[ "${SKIP_EXPLAIN_ANALYZE:-}" == "1" ]]; then
+    echo ""
+    echo "=== Filter Pushdown Analysis (SKIPPED: SKIP_EXPLAIN_ANALYZE=1) ==="
+    return
+  fi
 
   echo ""
   echo "=== Filter Pushdown Analysis ==="
   echo ""
-  echo "Collecting EXPLAIN ANALYZE for each query (1 run each)..."
+  echo "Collecting EXPLAIN ANALYZE for each query (${ea_timeout}s timeout each)..."
+  echo "  (Set SKIP_EXPLAIN_ANALYZE=1 to skip, EXPLAIN_ANALYZE_TIMEOUT=N to adjust)"
 
   for qname in "${QUERY_ORDER[@]}"; do
     local sql="${QUERIES[${qname}]}"
     echo -n "  [${qname}] ... "
     local ea_output
-    ea_output=$(cli --execute "EXPLAIN ANALYZE ${sql}" 2>&1) || true
-    echo "${ea_output}" > "${out_dir}/explain_${qname}.txt"
-    if echo "${ea_output}" | grep -qi "failed\|error"; then
-      echo "FAILED"
+    ea_output=$(timeout "${ea_timeout}" docker exec -i "${COORDINATOR}" presto-cli \
+      --server "localhost:${PORT}" --catalog hive --schema "${SCHEMA}" \
+      --execute "EXPLAIN ANALYZE ${sql}" 2>&1) || true
+    if [[ -z "${ea_output}" ]]; then
+      echo "TIMEOUT (${ea_timeout}s)"
+      echo "TIMEOUT after ${ea_timeout}s" > "${out_dir}/explain_${qname}.txt"
     else
-      echo "ok"
+      echo "${ea_output}" > "${out_dir}/explain_${qname}.txt"
+      if echo "${ea_output}" | grep -qi "failed\|error"; then
+        echo "FAILED"
+      else
+        echo "ok"
+      fi
     fi
   done
 

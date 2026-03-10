@@ -354,6 +354,48 @@ QUERY_ORDER=(
   monthly_rollup_all
 )
 
+inspect_parquet_stats() {
+  if [[ -z "${HOST_DATA_DIR}" || ! -d "${HOST_DATA_DIR}" ]]; then
+    echo "ERROR: Data directory not found: ${HOST_DATA_DIR}"
+    echo "Set PRESTO_DATA_DIR or BFD_DATA_DIR, or run setup first."
+    exit 1
+  fi
+  echo "=== Parquet Row-Group Statistics (${HOST_DATA_DIR}) ==="
+  python3 - "${HOST_DATA_DIR}" <<'PYEOF'
+import pyarrow.parquet as pq
+import sys, glob, os
+
+data_dir = sys.argv[1]
+files = sorted(glob.glob(os.path.join(data_dir, "part-*.parquet")))
+if not files:
+    print("No parquet files found."); sys.exit(1)
+
+print(f"Found {len(files)} parquet file(s)\n")
+
+for fpath in files[:3]:
+    f = pq.ParquetFile(fpath)
+    print(f"--- {os.path.basename(fpath)} ({f.metadata.num_row_groups} row groups, {f.metadata.num_rows:,} rows) ---")
+
+    col_names = ["symbol_id", "ts"]
+    for i in range(f.metadata.num_row_groups):
+        rg = f.metadata.row_group(i)
+        parts = []
+        for j in range(rg.num_columns):
+            col = rg.column(j)
+            if col.path_in_schema in col_names:
+                s = col.statistics
+                if s and s.has_min_max:
+                    parts.append(f"{col.path_in_schema}=[{s.min}, {s.max}]")
+                else:
+                    parts.append(f"{col.path_in_schema}=NO STATS")
+        print(f"  RG {i:3d} ({rg.num_rows:>10,} rows): {', '.join(parts)}")
+    print()
+
+if len(files) > 3:
+    print(f"  ... and {len(files) - 3} more file(s)")
+PYEOF
+}
+
 case "${MODE}" in
   setup)
     setup_data
@@ -361,12 +403,15 @@ case "${MODE}" in
   bench)
     run_standard_benchmark "bfd"
     ;;
+  inspect)
+    inspect_parquet_stats
+    ;;
   all)
     setup_data
     run_standard_benchmark "bfd"
     ;;
   *)
-    echo "Usage: $0 [setup|bench|all] [sf|symbol]"
+    echo "Usage: $0 [setup|bench|inspect|all] [sf]"
     exit 1
     ;;
 esac
