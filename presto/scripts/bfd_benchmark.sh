@@ -11,7 +11,7 @@
 # Environment:
 #   PRESTO_COORDINATOR   - coordinator container name (default: presto-coordinator)
 #   PRESTO_PORT          - coordinator port (default: 8080)
-#   PRESTO_CATALOG       - catalog (default: ohlcv)
+#   PRESTO_CATALOG       - catalog (default: hive)
 #   PRESTO_SCHEMA        - schema (default: default)
 #   PRESTO_USER          - Presto user (default: bfd)
 #   PRESTO_DATA_DIR      - host data root (required for setup unless BFD_DATA_DIR set)
@@ -50,7 +50,7 @@ trap 'LOCAL_CONDA_INIT="${LOCAL_CONDA_INIT:-}"; delete_python_virtual_env .bfd_b
 
 COORDINATOR="${PRESTO_COORDINATOR:-presto-coordinator}"
 PORT="${PRESTO_PORT:-8080}"
-CATALOG="${PRESTO_CATALOG:-ohlcv}"
+CATALOG="${PRESTO_CATALOG:-hive}"
 SCHEMA="${PRESTO_SCHEMA:-default}"
 PRESTO_USER="${PRESTO_USER:-bfd}"
 MODE="${1:-bench}"
@@ -92,61 +92,6 @@ cli() {
     --user "${PRESTO_USER}" \
     "${session_arg[@]}" \
     "$@"
-}
-
-list_catalogs() {
-  local json
-  json="$(docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/catalog" 2>/dev/null || true)"
-  if [[ -z "${json}" ]]; then
-    return 0
-  fi
-  python3 - "${json}" <<'PYEOF'
-import json
-import sys
-
-raw = sys.argv[1]
-try:
-    data = json.loads(raw)
-except Exception:
-    sys.exit(0)
-
-for entry in data:
-    name = entry.get("catalogName")
-    if name:
-        print(name)
-PYEOF
-}
-
-ensure_catalog() {
-  local catalogs
-  catalogs="$(list_catalogs)"
-  if [[ -z "${catalogs}" ]]; then
-    echo "WARNING: Could not list catalogs; using '${CATALOG}'." >&2
-    return
-  fi
-  if echo "${catalogs}" | grep -qx "${CATALOG}"; then
-    return
-  fi
-  if echo "${catalogs}" | grep -qx "hive"; then
-    echo "WARNING: Catalog '${CATALOG}' not found; falling back to 'hive'." >&2
-    CATALOG="hive"
-  else
-    local first
-    first="$(printf "%s\n" "${catalogs}" | python3 - <<'PYEOF'
-import sys
-for line in sys.stdin:
-    line = line.strip()
-    if line:
-        print(line)
-        break
-PYEOF
-)"
-    if [[ -n "${first}" ]]; then
-      echo "WARNING: Catalog '${CATALOG}' not found; using '${first}'." >&2
-      CATALOG="${first}"
-    fi
-  fi
-  TABLE="${CATALOG}.${SCHEMA}.prices"
 }
 
 resolve_symbol_map_path() {
@@ -506,7 +451,6 @@ PYEOF
 
 setup_data() {
   preflight_check
-  ensure_catalog
 
   local mode
   mode=$(detect_cudf_mode)
@@ -556,7 +500,6 @@ setup_data() {
 
 run_benchmark() {
   preflight_check
-  ensure_catalog
 
   local ids
   ids="$(resolve_symbol_ids)"
