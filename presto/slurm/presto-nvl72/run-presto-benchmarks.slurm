@@ -38,8 +38,8 @@ export COORD_IMAGE
 
 # Assumes the repo root is four steps up from the script directory.  This should refer to velox-testing.
 export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
-export DATA=/mnt/data/tpch-rs
-export IMAGE_DIR=/mnt/data/images/presto
+export DATA=/scratch/prestouser/tpch-rs-float
+export IMAGE_DIR=/scratch/prestouser/images/presto
 export LOGS=$SCRIPT_DIR/logs
 export VARIANT_TYPE=gpu
 export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE
@@ -54,11 +54,19 @@ export PORT=9200
 export CUDF_LIB=/usr/lib64/presto-native-libs
 
 # UCX Configuration
+#export UCX_TLS=^ib,ud:aux,sm
+#export UCX_LOG_LEVEL=DEBUG
+#export CX_PROTO_INFO=y
 export UCX_TLS=^ib,ud:aux,sm
-export UCX_MAX_RNDV_RAILS=1
+#export UCX_TLS=cuda_ipc,cuda_copy,sysv,tcp,self  # cuda_copy needed for cross-type (CPU<->GPU) memcpy; sysv for intra-node control; tcp for inter-node
+#export UCX_SOCKADDR_TLS_PRIORITY=tcp   # prefer TCP over rdmacm for CM
+export UCX_NET_DEVICES=bond0
+#export UCX_RNDV_THRESH=0               # force rendezvous; avoids TCP am_short/am_bcopy for GPU buffers
+#export UCX_MAX_RNDV_RAILS=1
 export UCX_RNDV_PIPELINE_ERROR_HANDLING=y
 export UCX_TCP_KEEPINTVL=1ms
 export UCX_KEEPALIVE_INTERVAL=1ms
+
 
 # ==============================================================================
 # Computed Values

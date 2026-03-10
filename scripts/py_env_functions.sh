@@ -70,9 +70,10 @@ function init_python_virtual_env() {
     init_conda
 
     echo "Creating virtual environment using conda"
-    # Downgrade the version of python in conda because there is an issue with conda's python 3.12 on ARM.
-    # Installing python3.12 here leads to: "ModuleNotFoundError: No module named '_posixsubprocess'"
-    conda create -q -y --prefix "$venv_dir" python=3.11 > /dev/null
+    # Pin ncurses<6.5 on ARM (aarch64): ncurses-6.5 has a symlink conflict bug
+    # that causes conda create to fail with EEXIST on terminfo files.
+    # python=3.12 leads to "ModuleNotFoundError: No module named '_posixsubprocess'".
+    conda create -q -y --prefix "$venv_dir" python=3.11 "ncurses<6.5" > /dev/null
   fi
 
   activate_python_virtual_env $venv_dir
