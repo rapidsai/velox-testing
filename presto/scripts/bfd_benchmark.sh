@@ -38,12 +38,9 @@ CATALOG="${BFD_CATALOG:-hive}"
 SCHEMA="${PRESTO_SCHEMA:-default}"
 PRESTO_USER="${PRESTO_USER:-bfd}"
 MODE="${1:-bench}"
-SF="${BFD_SF:-1}"
-if [[ "${MODE}" == "setup" || "${MODE}" == "all" ]]; then
-  SF="${2:-${BFD_SF:-1}}"
-fi
+SF="${2:-${BFD_SF:-1}}"
 
-TABLE="${CATALOG}.${SCHEMA}.prices"
+TABLE="${CATALOG}.${SCHEMA}.bfd_prices_sf${SF}"
 RUNS="${BENCHMARK_RUNS:-3}"
 BASE_ROWS="${BFD_BASE_ROWS:-5000000}"
 HOST_DATA_DIR="${BFD_DATA_DIR:-}"
@@ -247,7 +244,7 @@ setup_data() {
   "
 
   echo "Syncing partition metadata..."
-  cli --execute "CALL system.sync_partition_metadata('${SCHEMA}', 'prices', 'FULL')"
+  cli --execute "CALL system.sync_partition_metadata('${SCHEMA}', 'bfd_prices_sf${SF}', 'FULL')"
 
   echo "Running ANALYZE..."
   cli --execute "ANALYZE ${TABLE}"
