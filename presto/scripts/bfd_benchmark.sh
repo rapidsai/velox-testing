@@ -58,13 +58,15 @@ generate_bfd_dataset() {
   local num_rows=$1
   local out_dir=$2
   local metadata_dir=$3
+  local num_workers=${GENERATE_WORKERS:-$(nproc)}
 
-  echo "Generating ${num_rows} BFD rows into ${out_dir} (partitioned by year/month)..."
-  python3 - "${num_rows}" "${out_dir}" "${metadata_dir}" <<'PYEOF'
+  echo "Generating ${num_rows} BFD rows into ${out_dir} (${num_workers} workers, partitioned by year/month)..."
+  python3 - "${num_rows}" "${out_dir}" "${metadata_dir}" "${num_workers}" <<'PYEOF'
 import json
 import os
 import sys
 from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
 import pyarrow as pa
@@ -73,6 +75,7 @@ import pyarrow.parquet as pq
 num_rows = int(sys.argv[1])
 out_dir = sys.argv[2]
 metadata_dir = sys.argv[3]
+num_workers = int(sys.argv[4])
 os.makedirs(out_dir, exist_ok=True)
 os.makedirs(metadata_dir, exist_ok=True)
 
@@ -122,52 +125,80 @@ for asset, syms in SYMBOLS.items():
 symbol_to_id = {sym: idx for idx, (_, sym) in enumerate(all_symbols)}
 sym_list = [sym for _, sym in all_symbols]
 asset_list = [asset for asset, _ in all_symbols]
+num_symbols = len(sym_list)
 
-rng = np.random.default_rng(42)
+sym_id_arr = np.array([symbol_to_id[s] for s in sym_list], dtype=np.int32)
+asset_id_arr = np.array([ASSET_CLASS_TO_ID[a] for a in asset_list], dtype=np.int8)
+price_arr = np.array([REALISTIC_PRICES.get(s, 100.0) for s in sym_list], dtype=np.float64)
 
-base_us = int(datetime(2020, 1, 1).timestamp() * 1_000_000)
-day_offsets = rng.integers(0, 2191, size=num_rows, dtype=np.int64)
-minute_offsets = rng.integers(0, 1440, size=num_rows, dtype=np.int64)
-ts_us = base_us + day_offsets * 86400_000_000 + minute_offsets * 60_000_000
+chunk_size = min(num_rows, 5_000_000)
+chunks = []
+rows_remaining = num_rows
+file_idx = 0
+while rows_remaining > 0:
+    n = min(chunk_size, rows_remaining)
+    chunks.append((file_idx, n))
+    rows_remaining -= n
+    file_idx += 1
+total_chunks = len(chunks)
 
-sym_indices = rng.integers(0, len(sym_list), size=num_rows)
-sym_ids = np.array([symbol_to_id[sym_list[i]] for i in sym_indices], dtype=np.int32)
-asset_ids = np.array([ASSET_CLASS_TO_ID[asset_list[i]] for i in sym_indices], dtype=np.int8)
+def generate_chunk(args):
+    idx, n = args
+    rng = np.random.default_rng(42 + idx)
 
-base_prices = np.array([REALISTIC_PRICES.get(sym_list[i], 100.0) for i in sym_indices])
-jitter = rng.uniform(-0.05, 0.05, size=num_rows)
+    base_us = int(datetime(2020, 1, 1).timestamp() * 1_000_000)
+    day_offsets = rng.integers(0, 2191, size=n, dtype=np.int64)
+    minute_offsets = rng.integers(0, 1440, size=n, dtype=np.int64)
+    ts_us = base_us + day_offsets * 86400_000_000 + minute_offsets * 60_000_000
 
-ts_dt = ts_us.astype("datetime64[us]")
-years = (ts_dt.astype("datetime64[Y]").astype(int) + 1970).astype(np.int32)
-months = (ts_dt.astype("datetime64[M]").astype(int) % 12 + 1).astype(np.int32)
+    si = rng.integers(0, num_symbols, size=n)
+    sym_ids = sym_id_arr[si]
+    asset_ids = asset_id_arr[si]
+    base_prices = price_arr[si]
 
-table = pa.table({
-    "ts": pa.array(ts_us, type=pa.timestamp("us")),
-    "timestamp": pa.array(ts_us, type=pa.int64()),
-    "open": pa.array((base_prices * (1 + jitter)).astype(np.float32), type=pa.float32()),
-    "high": pa.array((base_prices * (1 + np.abs(jitter) + rng.uniform(0, 0.03, size=num_rows))).astype(np.float32), type=pa.float32()),
-    "low": pa.array((base_prices * (1 - np.abs(jitter) - rng.uniform(0, 0.03, size=num_rows))).astype(np.float32), type=pa.float32()),
-    "close": pa.array((base_prices * (1 + rng.uniform(-0.03, 0.03, size=num_rows))).astype(np.float32), type=pa.float32()),
-    "volume": pa.array(rng.uniform(100, 50000, size=num_rows), type=pa.float64()),
-    "symbol_id": pa.array(sym_ids, type=pa.int32()),
-    "asset_class_id": pa.array(asset_ids, type=pa.int8()),
-    "year": pa.array(years, type=pa.int32()),
-    "month": pa.array(months, type=pa.int32()),
-})
+    jitter = rng.uniform(-0.05, 0.05, size=n)
 
-print(f"  Writing partitioned dataset to {out_dir}...")
-pq.write_to_dataset(
-    table,
-    root_path=out_dir,
-    partition_cols=["year", "month"],
-    compression="zstd",
-    max_rows_per_file=1_000_000,
-    row_group_size=250_000,
-    existing_data_behavior="overwrite_or_ignore",
-)
+    ts_dt = ts_us.astype("datetime64[us]")
+    years = (ts_dt.astype("datetime64[Y]").astype(int) + 1970).astype(np.int32)
+    months = (ts_dt.astype("datetime64[M]").astype(int) % 12 + 1).astype(np.int32)
+
+    table = pa.table({
+        "ts": pa.array(ts_us, type=pa.timestamp("us")),
+        "timestamp": pa.array(ts_us, type=pa.int64()),
+        "open": pa.array((base_prices * (1 + jitter)).astype(np.float32), type=pa.float32()),
+        "high": pa.array((base_prices * (1 + np.abs(jitter) + rng.uniform(0, 0.03, size=n))).astype(np.float32), type=pa.float32()),
+        "low": pa.array((base_prices * (1 - np.abs(jitter) - rng.uniform(0, 0.03, size=n))).astype(np.float32), type=pa.float32()),
+        "close": pa.array((base_prices * (1 + rng.uniform(-0.03, 0.03, size=n))).astype(np.float32), type=pa.float32()),
+        "volume": pa.array(rng.uniform(100, 50000, size=n), type=pa.float64()),
+        "symbol_id": pa.array(sym_ids, type=pa.int32()),
+        "asset_class_id": pa.array(asset_ids, type=pa.int8()),
+        "year": years,
+        "month": months,
+    })
+
+    pq.write_to_dataset(
+        table,
+        root_path=out_dir,
+        partition_cols=["year", "month"],
+        compression="zstd",
+        row_group_size=250_000,
+        basename_template=f"part-{idx:05d}-{{i}}.parquet",
+        existing_data_behavior="overwrite_or_ignore",
+    )
+    return idx, n
+
+completed = 0
+with ProcessPoolExecutor(max_workers=min(num_workers, total_chunks)) as pool:
+    futures = {pool.submit(generate_chunk, c): c for c in chunks}
+    for future in as_completed(futures):
+        idx, n = future.result()
+        completed += 1
+        pct = completed * 100 // total_chunks
+        bar = '=' * (pct // 2) + '>' + ' ' * (50 - pct // 2)
+        print(f'\r  [{bar}] {pct}% ({completed}/{total_chunks} chunks, {n:,} rows each)', end='', flush=True)
 
 parquet_count = sum(1 for _, _, files in os.walk(out_dir) for f in files if f.endswith(".parquet"))
-print(f"  Done. {num_rows:,} rows, {parquet_count} parquet file(s) in {out_dir}")
+print(f"\n  Done. {num_rows:,} rows, {parquet_count} parquet file(s) in {out_dir}")
 
 id_to_symbol = {str(v): k for k, v in symbol_to_id.items()}
 with open(os.path.join(metadata_dir, "symbol_map.json"), "w") as f:
