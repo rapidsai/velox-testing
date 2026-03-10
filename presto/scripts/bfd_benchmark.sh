@@ -94,6 +94,56 @@ cli() {
     "$@"
 }
 
+list_catalogs() {
+  docker exec "${COORDINATOR}" curl -sf "http://localhost:${PORT}/v1/catalog" 2>/dev/null | \
+    python3 - <<'PYEOF'
+import json
+import sys
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+
+for entry in data:
+    name = entry.get("catalogName")
+    if name:
+        print(name)
+PYEOF
+}
+
+ensure_catalog() {
+  local catalogs
+  catalogs="$(list_catalogs)"
+  if [[ -z "${catalogs}" ]]; then
+    echo "WARNING: Could not list catalogs; using '${CATALOG}'." >&2
+    return
+  fi
+  if echo "${catalogs}" | grep -qx "${CATALOG}"; then
+    return
+  fi
+  if echo "${catalogs}" | grep -qx "hive"; then
+    echo "WARNING: Catalog '${CATALOG}' not found; falling back to 'hive'." >&2
+    CATALOG="hive"
+  else
+    local first
+    first="$(printf "%s\n" "${catalogs}" | python3 - <<'PYEOF'
+import sys
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        print(line)
+        break
+PYEOF
+)"
+    if [[ -n "${first}" ]]; then
+      echo "WARNING: Catalog '${CATALOG}' not found; using '${first}'." >&2
+      CATALOG="${first}"
+    fi
+  fi
+  TABLE="${CATALOG}.${SCHEMA}.prices"
+}
+
 resolve_symbol_map_path() {
   if [[ -n "${SYMBOL_MAP_PATH:-}" && -f "${SYMBOL_MAP_PATH}" ]]; then
     echo "${SYMBOL_MAP_PATH}"
@@ -451,6 +501,7 @@ PYEOF
 
 setup_data() {
   preflight_check
+  ensure_catalog
 
   local mode
   mode=$(detect_cudf_mode)
@@ -500,6 +551,7 @@ setup_data() {
 
 run_benchmark() {
   preflight_check
+  ensure_catalog
 
   local ids
   ids="$(resolve_symbol_ids)"
