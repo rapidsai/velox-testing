@@ -158,30 +158,25 @@ def _parse_config_file(file_path: Path) -> dict[str, str]:
     return config
 
 
-def _find_config_file(configs_dir: Path, subdir: str, legacy_name: str, variant: str | None = None) -> Path | None:
-    """Locate a config file in either the generated repo layout or legacy flat layout.
-
-    Repo layout:  {configs_dir}/{subdir}/config_native.properties (or config_java.properties)
-    Legacy layout: {configs_dir}/{legacy_name}
+def _find_config_file(configs_dir: Path, subdir: str, variant: str | None = None) -> Path | None:
+    """Locate a config file under {configs_dir}/{subdir}/.
 
     When variant is known, the correct properties file is selected directly
     (config_java for 'java', config_native for 'gpu'/'cpu').
     """
     sub = configs_dir / subdir
-    if sub.is_dir():
-        if variant == "java":
-            candidate = sub / "config_java.properties"
-        elif variant in ("gpu", "cpu"):
-            candidate = sub / "config_native.properties"
-        else:
-            candidate = None
-        if candidate and candidate.is_file():
-            return candidate
-        for fallback in sorted(sub.glob("config_*.properties")):
-            return fallback
-    legacy = configs_dir / legacy_name
-    if legacy.is_file():
-        return legacy
+    if not sub.is_dir():
+        return None
+    if variant == "java":
+        candidate = sub / "config_java.properties"
+    elif variant in ("gpu", "cpu"):
+        candidate = sub / "config_native.properties"
+    else:
+        candidate = None
+    if candidate and candidate.is_file():
+        return candidate
+    for fallback in sorted(sub.glob("config_*.properties")):
+        return fallback
     return None
 
 
@@ -194,21 +189,19 @@ class EngineConfig:
     def from_dir(cls, configs_dir: Path, variant: str | None = None) -> "EngineConfig":
         """Load engine configuration from a configs directory.
 
-        Supports two layouts:
-          1. Generated repo layout: etc_coordinator/config_*.properties,
-             etc_worker/config_*.properties
-          2. Legacy flat layout: coordinator.config, worker.config
+        Expects the generated layout:
+          etc_coordinator/config_*.properties
+          etc_worker/config_*.properties
 
         When variant is provided ('gpu', 'cpu', or 'java'), selects the
         matching properties file (config_native vs config_java).
         """
-        coord_file = _find_config_file(configs_dir, "etc_coordinator", "coordinator.config", variant)
-        worker_file = _find_config_file(configs_dir, "etc_worker", "worker.config", variant)
+        coord_file = _find_config_file(configs_dir, "etc_coordinator", variant)
+        worker_file = _find_config_file(configs_dir, "etc_worker", variant)
         if coord_file is None or worker_file is None:
             raise FileNotFoundError(
                 f"Could not find coordinator/worker config files in {configs_dir}. "
-                "Expected either etc_coordinator/config_*.properties + etc_worker/config_*.properties, "
-                "or coordinator.config + worker.config."
+                "Expected etc_coordinator/config_*.properties + etc_worker/config_*.properties."
             )
         coordinator_config = _parse_config_file(coord_file)
         worker_config = _parse_config_file(worker_file)
