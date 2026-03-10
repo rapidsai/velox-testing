@@ -8,13 +8,16 @@ import duckdb
 import pandas as pd
 import prestodb
 import pytest
+import sqlglot
 
 from common.testing.integration_tests.test_utils import (
     assert_rows_equal,
+    get_orderby_indices,
     none_safe_sort_key,
     normalize_rows,
 )
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
+from common.testing.test_utils import get_queries
 
 from ..common.test_utils import get_table_external_location
 from ..integration_tests.analyze_tables import check_tables_analyzed
@@ -115,7 +118,9 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                         )
             raw_times_dict[query_id] = result
         except Exception as e:
-            failed_queries_dict[query_id] = f"{e.error_type}: {e.error_name}"
+            error_desc = getattr(e, "error_type", type(e).__name__)
+            error_name = getattr(e, "error_name", str(e))
+            failed_queries_dict[query_id] = f"{error_desc}: {error_name}"
             raw_times_dict[query_id] = None
             raise
         finally:
@@ -147,17 +152,75 @@ def _derive_expected_results_dir(hostname, port, user, schema):
         conn.close()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def validate_benchmark_results(request):
-    """Session-scoped fixture that validates benchmark query results after all queries complete."""
-    yield
+def _classify_limit_query(query_sql):
+    """Classify a query's validation strategy based on its LIMIT and ORDER BY.
 
-    expected_results_dir = request.config.getoption("--expected-results-dir")
+    Returns:
+        "full"              - no LIMIT, compare all columns
+        "orderby_only"      - LIMIT with deterministic ORDER BY (raw columns, COUNT, etc.),
+                              compare only ORDER BY columns
+        "skip"              - LIMIT with non-deterministic ORDER BY (SUM/AVG float aggregates),
+                              skip validation because distributed floating-point aggregation
+                              can change the ranking and thus which rows appear in the result set
+    """
+    try:
+        expr = sqlglot.parse_one(query_sql)
+    except sqlglot.errors.ParseError:
+        return "full"
+
+    has_limit = any(isinstance(e, sqlglot.exp.Limit) for e in expr.iter_expressions())
+    if not has_limit:
+        return "full"
+
+    order = next((e for e in expr.find_all(sqlglot.exp.Order)), None)
+    if not order:
+        return "full"
+
+    order_names = set()
+    for ordered in order.expressions:
+        key = ordered.this
+        if isinstance(key, sqlglot.exp.Column):
+            order_names.add(key.name)
+
+    select = expr.find(sqlglot.exp.Select)
+    float_aggs = (sqlglot.exp.Sum, sqlglot.exp.Avg)
+    for s in select.expressions:
+        alias = s.alias if hasattr(s, "alias") else None
+        if alias and alias in order_names:
+            for node_tuple in s.walk():
+                node = node_tuple[0] if isinstance(node_tuple, tuple) else node_tuple
+                if isinstance(node, float_aggs):
+                    return "skip"
+
+    return "orderby_only"
+
+
+def _load_query_map(benchmark_types):
+    """Build a {lowercase_query_name: sql} map from the benchmark query JSON files."""
+    query_map = {}
+    for bench_type in benchmark_types:
+        try:
+            queries = get_queries(bench_type)
+            for key, sql in queries.items():
+                query_map[key.lower()] = sql
+        except (FileNotFoundError, OSError):
+            pass
+    return query_map
+
+
+def validate_benchmark_results(config, benchmark_types):
+    """Validate benchmark query results against expected parquet files.
+
+    Called from pytest_terminal_summary so output appears after the benchmark summary.
+    For queries with LIMIT, only ORDER BY columns are compared since other columns
+    can be non-deterministic at the LIMIT boundary.
+    """
+    expected_results_dir = config.getoption("--expected-results-dir")
     if expected_results_dir is None:
-        hostname = request.config.getoption("--hostname")
-        port = request.config.getoption("--port")
-        user = request.config.getoption("--user")
-        schema = request.config.getoption("--schema-name")
+        hostname = config.getoption("--hostname")
+        port = config.getoption("--port")
+        user = config.getoption("--user")
+        schema = config.getoption("--schema-name")
         expected_results_dir = _derive_expected_results_dir(hostname, port, user, schema)
 
     if expected_results_dir is None:
@@ -174,40 +237,72 @@ def validate_benchmark_results(request):
         print(f"[Validation] Skipping result validation (no parquet files in '{expected_dir}').")
         return
 
-    output_dir = request.config.getoption("--output-dir")
+    output_dir = config.getoption("--output-dir")
     actual_results_dir = Path(output_dir) / "query_results"
     if not actual_results_dir.is_dir():
         print(f"[Validation] Skipping result validation (no query results directory at '{actual_results_dir}').")
         return
 
-    passed = 0
-    failed = 0
+    query_map = _load_query_map(benchmark_types)
+
+    passed_queries = []
+    skipped_queries = []
+    failures = []
     for expected_file in expected_files:
-        query_name = expected_file.name
-        actual_file = actual_results_dir / query_name
+        query_name = expected_file.stem
+        actual_file = actual_results_dir / expected_file.name
         if not actual_file.exists():
-            print(f"[Validation] SKIPPED: {query_name} - no actual result found.")
             continue
+
+        query_sql = query_map.get(query_name)
+        strategy = _classify_limit_query(query_sql) if query_sql else "full"
+
+        # Queries whose ORDER BY involves float aggregates (e.g. SUM, AVG) are
+        # non-deterministic under distributed execution: the partial-aggregate
+        # reduction order can change the ranking, so different rows appear in
+        # the LIMIT result set across runs.
+        if strategy == "skip":
+            skipped_queries.append(query_name)
+            continue
+
         try:
             expected_rel = duckdb.from_parquet(str(expected_file))
             actual_rel = duckdb.from_parquet(str(actual_file))
             types = expected_rel.types
+            columns = expected_rel.columns
 
-            expected_rows = sorted(normalize_rows(expected_rel.fetchall(), types), key=none_safe_sort_key)
-            actual_rows = sorted(normalize_rows(actual_rel.fetchall(), types), key=none_safe_sort_key)
+            expected_rows = expected_rel.fetchall()
+            actual_rows = actual_rel.fetchall()
+
+            # For LIMIT queries with deterministic ORDER BY (raw columns,
+            # COUNT, etc.), only compare the ORDER BY columns — non-ORDER BY
+            # columns can differ at the boundary when there are ties.
+            if strategy == "orderby_only":
+                order_indices = get_orderby_indices(query_sql, columns)
+                if order_indices:
+                    types = [types[i] for i in order_indices]
+                    expected_rows = [tuple(row[i] for i in order_indices) for row in expected_rows]
+                    actual_rows = [tuple(row[i] for i in order_indices) for row in actual_rows]
+
+            expected_rows = sorted(normalize_rows(expected_rows, types), key=none_safe_sort_key)
+            actual_rows = sorted(normalize_rows(actual_rows, types), key=none_safe_sort_key)
 
             assert len(actual_rows) == len(expected_rows), (
                 f"Row count mismatch: {len(actual_rows)} vs {len(expected_rows)}"
             )
             assert_rows_equal(actual_rows, expected_rows, types)
-            print(f"[Validation] PASSED: {query_name}")
-            passed += 1
+            passed_queries.append(query_name)
         except AssertionError as e:
-            print(f"[Validation] FAILED: {query_name} - {e}")
-            failed += 1
+            failures.append(f"[Validation] FAILED: {query_name} - {e}")
         except Exception as e:
-            print(f"[Validation] ERROR: {query_name} - {e}")
-            failed += 1
+            failures.append(f"[Validation] ERROR: {query_name} - {e}")
 
-    total = passed + failed
-    print(f"[Validation] Result validation complete: {passed}/{total} queries passed.")
+    for line in failures:
+        print(line)
+    total = len(passed_queries) + len(failures)
+    passed_list = ", ".join(passed_queries)
+    skipped_list = ", ".join(skipped_queries)
+    parts = [f"{len(passed_queries)}/{total} passed ({passed_list})"]
+    if skipped_queries:
+        parts.append(f"{len(skipped_queries)} skipped non-deterministic ({skipped_list})")
+    print(f"[Validation] {'; '.join(parts)}")

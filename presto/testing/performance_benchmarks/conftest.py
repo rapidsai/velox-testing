@@ -15,7 +15,7 @@ from common.testing.performance_benchmarks.common_fixtures import (
 from common.testing.performance_benchmarks.conftest import (
     DataLocation,
     pytest_sessionfinish,  # noqa: F401
-    pytest_terminal_summary,  # noqa: F401
+    pytest_terminal_summary as _common_pytest_terminal_summary,
 )
 
 from ..common.fixtures import (
@@ -25,7 +25,7 @@ from ..common.fixtures import (
 from .common_fixtures import (
     benchmark_query,  # noqa: F401
     presto_cursor,  # noqa: F401
-    validate_benchmark_results,  # noqa: F401
+    validate_benchmark_results,
 )
 
 
@@ -44,6 +44,14 @@ def pytest_addoption(parser):
     parser.addoption("--metrics", action="store_true", default=False)
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
     parser.addoption("--expected-results-dir", default=None)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    _common_pytest_terminal_summary(terminalreporter, exitstatus, config)
+    benchmark_types = []
+    if hasattr(terminalreporter._session, "benchmark_results"):
+        benchmark_types = list(terminalreporter._session.benchmark_results.keys())
+    validate_benchmark_results(config, benchmark_types)
 
 
 def pytest_configure(config):
