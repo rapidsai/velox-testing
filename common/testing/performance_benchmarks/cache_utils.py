@@ -16,9 +16,6 @@ def _libc():
     return ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
 
-POSIX_FADV_DONTNEED = 4
-
-
 def _drop_file_cache(
     file: Union[os.PathLike, str, int, io.IOBase],
     offset: int = 0,
@@ -88,7 +85,7 @@ def _drop_file_cache(
             ctypes.c_int(fd),
             ctypes.c_longlong(offset),
             ctypes.c_longlong(length),
-            ctypes.c_int(POSIX_FADV_DONTNEED),
+            ctypes.c_int(os.POSIX_FADV_DONTNEED),
         )
         if ret != 0:
             raise OSError(ret, f"posix_fadvise failed: {os.strerror(ret)}")
@@ -122,7 +119,7 @@ def _drop_system_cache():
         )
 
 
-def drop_cache(path: Union[os.PathLike, str, int, io.IOBase, None]) -> None:
+def drop_cache(path: Union[os.PathLike, str, int, io.IOBase, None] = None) -> None:
     """Drop page cache for a file, directory, or the entire system.
 
     This function dispatches to `_drop_file_cache` for per-file dropping

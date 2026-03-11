@@ -35,7 +35,13 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
-    --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
+    -c, --cache-mode        Cache mode for benchmark queries. Controls page cache state between query iterations.
+                            Supported modes:
+                            lukewarm - Drop cache once at benchmark start, then let cache warm naturally across
+                                       iterations and queries (default).
+                            cold     - Drop cache before each query iteration.
+                            hot      - Run an untimed warmup execution before timing each query.
+                            none     - Do not manage page cache at all.
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
 
@@ -152,8 +158,8 @@ parse_args() {
         PROFILE=true
         shift
         ;;
-      --skip-drop-cache)
-        SKIP_DROP_CACHE=true
+      --cache-mode)
+        CACHE_MODE="lukewarm"
         shift
         ;;
       -m|--metrics)
@@ -232,8 +238,8 @@ if [[ "${METRICS}" == "true" ]]; then
   PYTEST_ARGS+=("--metrics")
 fi
 
-if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
-  PYTEST_ARGS+=("--skip-drop-cache")
+if [[ -n ${CACHE_MODE} ]]; then
+  PYTEST_ARGS+=("--cache-mode ${CACHE_MODE}")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"

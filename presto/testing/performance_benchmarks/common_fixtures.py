@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -115,3 +116,8 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 stop_profiler(profile_script_path, profile_output_file_path)
 
     return benchmark_query_function
+
+
+@pytest.fixture(scope="session")
+def benchmark_data_dir(request):
+    return os.environ["PRESTO_DATA_DIR"]
