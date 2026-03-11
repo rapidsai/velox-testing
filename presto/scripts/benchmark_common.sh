@@ -741,12 +741,12 @@ run_standard_verify() {
     echo "${QUERIES[${qname}]}"
   done > "${query_file}"
 
-  # Build Python replacement list
-  local py_replacements="replacements = [('${main_table}', '${main_data_dir}/*.parquet')]"
+  # Build Python replacement list (recursive glob supports both flat and partitioned layouts)
+  local py_replacements="replacements = [('${main_table}', '${main_data_dir}/**/*.parquet')]"
   local i=0
   while [ $i -lt ${#extra_tables[@]} ]; do
     py_replacements="${py_replacements}
-replacements.append(('${extra_tables[$i]}', '${extra_tables[$((i+1))]}/*.parquet'))"
+replacements.append(('${extra_tables[$i]}', '${extra_tables[$((i+1))]}/**/*.parquet'))"
     i=$((i+2))
   done
 
@@ -816,7 +816,9 @@ def run_presto(sql):
 def run_duckdb(sql):
     duck_sql = sql
     for table_name, parquet_path in replacements:
-        duck_sql = duck_sql.replace(table_name, f"read_parquet('{parquet_path}')")
+        duck_sql = duck_sql.replace(
+            table_name,
+            f"read_parquet('{parquet_path}', hive_partitioning=true)")
     con = duckdb.connect()
     result = con.execute(duck_sql).fetchall()
     rows = [tuple(normalize_value(str(v)) for v in row) for row in result]

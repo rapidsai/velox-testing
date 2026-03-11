@@ -29,7 +29,7 @@ source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 source "${SCRIPT_DIR}/benchmark_common.sh"
 
 init_python_virtual_env ".bfd_bench_venv"
-pip install -q pyarrow numpy
+pip install -q pyarrow numpy duckdb
 trap 'LOCAL_CONDA_INIT="${LOCAL_CONDA_INIT:-}"; delete_python_virtual_env .bfd_bench_venv' EXIT
 
 COORDINATOR="${PRESTO_COORDINATOR:-presto-coordinator}"
@@ -420,6 +420,9 @@ case "${MODE}" in
   bench)
     run_standard_benchmark "bfd"
     ;;
+  verify)
+    run_standard_verify "${TABLE}" "${HOST_DATA_DIR}"
+    ;;
   inspect)
     inspect_parquet_stats
     ;;
@@ -428,7 +431,7 @@ case "${MODE}" in
     run_standard_benchmark "bfd"
     ;;
   *)
-    echo "Usage: $0 [setup|bench|inspect|all] [sf]"
+    echo "Usage: $0 [setup|bench|verify|inspect|all] [sf]"
     exit 1
     ;;
 esac
