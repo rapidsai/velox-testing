@@ -49,8 +49,8 @@ function duplicate_worker_configs() {
     # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_native_config}
     # make join-distribution-type=PARTITIONED if we are running multiple workers
-    # (ucx exchange does not currently support BROADCAST partition type)
-    sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_native_config}
+    # (ucx exchange supports PARTITIONED and BROADCAST partition types)
+    # sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_native_config}
   fi
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
