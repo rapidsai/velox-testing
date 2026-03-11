@@ -539,7 +539,98 @@ print("  Scan Output = rows surviving the filter predicate")
 print("  Filtered%   = % of scanned rows eliminated by the filter")
 print("  RG Pruned%  = % of table rows skipped via row-group statistics pushdown")
 print("                (>0% means pushdown is effectively reducing I/O)")
+print()
+print("  Note: RG Pruned% is from EXPLAIN ANALYZE (Velox operator-level reporting).")
+print("  For cuDF-level row-group pruning stats, check the worker logs section below")
+print("  or enable VLOG(1) with --v=1 on workers.")
 PYEOF
+
+  # Collect cuDF-level row-group pruning logs from worker containers
+  echo ""
+  echo "=== cuDF Row-Group Pruning Logs ==="
+  local all_containers
+  all_containers=$(docker ps --format '{{.Names}}' 2>/dev/null || true)
+  local pushdown_log="${out_dir}/pushdown_logs.txt"
+  : > "${pushdown_log}"
+  local found_logs=0
+
+  for c in ${all_containers}; do
+    local rg_logs
+    rg_logs=$(docker logs "${c}" 2>&1 | grep "CudfHiveDataSource.*row-group pruning\|CudfHiveDataSource.*split complete\|CudfHiveDataSource.*filter pushdown active" || true)
+    if [ -n "${rg_logs}" ]; then
+      echo "=== ${c} ===" >> "${pushdown_log}"
+      echo "${rg_logs}" >> "${pushdown_log}"
+      echo "" >> "${pushdown_log}"
+      found_logs=1
+    fi
+  done
+
+  if [ "${found_logs}" -eq 1 ]; then
+    python3 - "${pushdown_log}" <<'PYEOF'
+import re
+import sys
+
+log_file = sys.argv[1]
+with open(log_file) as f:
+    text = f.read()
+
+rg_pattern = re.compile(
+    r'row-group pruning:\s*(\d+)\s*total.*?(\d+)\s*after stats filter\s*\((\d+)%\s*pruned\)\s*file=(\S+)'
+)
+split_pattern = re.compile(
+    r'split complete(?:\s*\(hybrid\))?:\s*(\d+)\s*rows read.*?file=(\S+)'
+)
+
+pruning_stats = []
+for m in rg_pattern.finditer(text):
+    pruning_stats.append({
+        "total_rg": int(m.group(1)),
+        "after_stats": int(m.group(2)),
+        "pruned_pct": int(m.group(3)),
+        "file": m.group(4).split("/")[-1],
+    })
+
+split_stats = []
+for m in split_pattern.finditer(text):
+    split_stats.append({
+        "rows": int(m.group(1)),
+        "file": m.group(2).split("/")[-1],
+    })
+
+if pruning_stats:
+    total_rg = sum(s["total_rg"] for s in pruning_stats)
+    surviving_rg = sum(s["after_stats"] for s in pruning_stats)
+    overall_pruned = (1 - surviving_rg / total_rg) * 100 if total_rg > 0 else 0
+
+    print(f"  cuDF row-group pruning across {len(pruning_stats)} split(s):")
+    print(f"    Total row groups:     {total_rg}")
+    print(f"    After stats filter:   {surviving_rg}")
+    print(f"    Pruned:               {total_rg - surviving_rg} ({overall_pruned:.1f}%)")
+    print()
+
+    hdr = "    {:<30s} {:>8s} {:>8s} {:>8s}"
+    print(hdr.format("File", "Total RG", "Kept RG", "Pruned%"))
+    print(hdr.format("-" * 30, "-" * 8, "-" * 8, "-" * 8))
+    for s in pruning_stats[:20]:
+        print(hdr.format(s["file"][:30], str(s["total_rg"]), str(s["after_stats"]), f"{s['pruned_pct']}%"))
+    if len(pruning_stats) > 20:
+        print(f"    ... and {len(pruning_stats) - 20} more splits")
+else:
+    print("  No cuDF row-group pruning logs found.")
+    print("  This may mean: (a) non-hybrid reader path, (b) no filter pushdown,")
+    print("  or (c) VLOG level not enabled (start workers with --v=1).")
+
+if split_stats:
+    total_rows_read = sum(s["rows"] for s in split_stats)
+    print()
+    print(f"  cuDF split completion: {len(split_stats)} split(s), {total_rows_read:,} total rows read")
+print()
+print(f"  Full pushdown logs saved to {log_file}")
+PYEOF
+  else
+    echo "  No cuDF pushdown logs found in worker containers."
+    echo "  Enable verbose logging: start workers with --v=1 or set glog verbosity."
+  fi
 }
 
 # ============================================================================

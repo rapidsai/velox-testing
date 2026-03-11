@@ -259,46 +259,52 @@ QUERIES["raw_ohlcv_multi"]="
     AND ts >= TIMESTAMP '2024-01-01 00:00:00'
     AND ts < TIMESTAMP '2024-04-01 00:00:00'
   ORDER BY symbol_id, ts
-  LIMIT 5000
+  LIMIT 1000
 "
 
-# Shape 2: Period aggregation - daily (GET /api/aggregate)
+# Shape 2: Period aggregation - daily OHLCV rollup (GET /api/aggregate)
 QUERIES["agg_daily"]="
   SELECT symbol_id,
          DATE_TRUNC('day', ts) AS period,
-         timestamp, open, high, low, close, volume
+         MIN(open) AS open, MAX(high) AS high, MIN(low) AS low, MAX(close) AS close,
+         SUM(volume) AS volume
   FROM ${TABLE}
   WHERE symbol_id IN (2)
     AND ts >= TIMESTAMP '2024-01-01 00:00:00'
     AND ts < TIMESTAMP '2024-02-01 00:00:00'
-  ORDER BY symbol_id, ts
-  LIMIT 5000
+  GROUP BY symbol_id, DATE_TRUNC('day', ts)
+  ORDER BY symbol_id, period
+  LIMIT 1000
 "
 
 # Shape 2 variant: weekly aggregation
 QUERIES["agg_weekly"]="
   SELECT symbol_id,
          DATE_TRUNC('week', ts) AS period,
-         timestamp, open, high, low, close, volume
+         MIN(open) AS open, MAX(high) AS high, MIN(low) AS low, MAX(close) AS close,
+         SUM(volume) AS volume
   FROM ${TABLE}
   WHERE symbol_id IN (2)
     AND ts >= TIMESTAMP '2024-01-01 00:00:00'
     AND ts < TIMESTAMP '2024-07-01 00:00:00'
-  ORDER BY symbol_id, ts
-  LIMIT 5000
+  GROUP BY symbol_id, DATE_TRUNC('week', ts)
+  ORDER BY symbol_id, period
+  LIMIT 1000
 "
 
 # Shape 2 variant: monthly aggregation, multi-symbol
 QUERIES["agg_monthly_multi"]="
   SELECT symbol_id,
          DATE_TRUNC('month', ts) AS period,
-         timestamp, open, high, low, close, volume
+         MIN(open) AS open, MAX(high) AS high, MIN(low) AS low, MAX(close) AS close,
+         SUM(volume) AS volume
   FROM ${TABLE}
   WHERE symbol_id IN (0, 1, 2, 3, 4, 5, 6)
     AND ts >= TIMESTAMP '2023-01-01 00:00:00'
     AND ts < TIMESTAMP '2025-01-01 00:00:00'
-  ORDER BY symbol_id, ts
-  LIMIT 10000
+  GROUP BY symbol_id, DATE_TRUNC('month', ts)
+  ORDER BY symbol_id, period
+  LIMIT 1000
 "
 
 # Shape 3: Daily max-high (GET /api/correlation_2)
@@ -311,7 +317,7 @@ QUERIES["daily_max_high"]="
     AND ts >= TIMESTAMP '2024-01-01 00:00:00'
     AND ts < TIMESTAMP '2024-07-01 00:00:00'
   GROUP BY symbol_id, DATE_TRUNC('day', ts)
-  ORDER BY symbol_id, DATE_TRUNC('day', ts)
+  ORDER BY symbol_id, day
   LIMIT 1000
 "
 
@@ -325,11 +331,11 @@ QUERIES["daily_max_high_multi"]="
     AND ts >= TIMESTAMP '2024-01-01 00:00:00'
     AND ts < TIMESTAMP '2024-07-01 00:00:00'
   GROUP BY symbol_id, DATE_TRUNC('day', ts)
-  ORDER BY symbol_id, DATE_TRUNC('day', ts)
-  LIMIT 5000
+  ORDER BY symbol_id, day
+  LIMIT 1000
 "
 
-# Full table monthly rollup
+# Full table monthly rollup (heavy aggregation, GPU-friendly)
 QUERIES["monthly_rollup_all"]="
   SELECT symbol_id,
          DATE_TRUNC('month', ts) AS month,
@@ -340,7 +346,7 @@ QUERIES["monthly_rollup_all"]="
     AND ts < TIMESTAMP '2025-01-01 00:00:00'
   GROUP BY symbol_id, DATE_TRUNC('month', ts)
   ORDER BY symbol_id, month
-  LIMIT 5000
+  LIMIT 1000
 "
 
 QUERY_ORDER=(
