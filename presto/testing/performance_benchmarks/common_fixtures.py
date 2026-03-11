@@ -9,6 +9,7 @@ import prestodb
 import pytest
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
+from common.testing.performance_benchmarks.cache_utils import cache_setup_per_iteration
 
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
@@ -41,8 +42,13 @@ def presto_cursor(request):
     return conn.cursor()
 
 
+@pytest.fixture(scope="session")
+def benchmark_data_dir(request):
+    return os.environ["PRESTO_DATA_DIR"]
+
+
 @pytest.fixture(scope="module")
-def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_collector):
+def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_collector, benchmark_data_dir):
     iterations = request.config.getoption("--iterations")
     profile = request.config.getoption("--profile")
     profile_script_path = request.config.getoption("--profile-script-path")
@@ -51,6 +57,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     bench_output_dir = request.config.getoption("--output-dir")
     hostname = request.config.getoption("--hostname")
     port = request.config.getoption("--port")
+    cache_mode = request.config.getoption("--cache-mode")
 
     if profile:
         assert profile_script_path is not None
@@ -78,6 +85,8 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
             for iteration_num in range(iterations):
+                cache_setup_per_iteration(cache_mode, benchmark_data_dir)
+
                 cursor = presto_cursor.execute(
                     "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
                 )
@@ -116,8 +125,3 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 stop_profiler(profile_script_path, profile_output_file_path)
 
     return benchmark_query_function
-
-
-@pytest.fixture(scope="session")
-def benchmark_data_dir(request):
-    return os.environ["PRESTO_DATA_DIR"]

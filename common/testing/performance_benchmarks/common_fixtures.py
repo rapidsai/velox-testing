@@ -29,8 +29,14 @@ def cache_setup_per_session(request, benchmark_data_dir):
     if cache_mode == "lukewarm":
         drop_cache(benchmark_data_dir)
         print(f"[Cache] Cache mode: {cache_mode}. Dropped cache for: {benchmark_data_dir}")
-    elif cache_mode == "none":
-        print(f"[Cache] Cache mode: {cache_mode}. Skipping cache drop.")
+        return
+
+    msg = None
+    if cache_mode == "none":
+        msg = "Skipping cache drop."
+    elif cache_mode == "cold":
+        msg = "Dropping cache per iteration."
+    print(f"[Cache] Cache mode: {cache_mode}. {msg}")
 
 
 @pytest.fixture(scope="module")

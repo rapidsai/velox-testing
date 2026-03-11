@@ -167,3 +167,8 @@ def drop_cache(path: Union[os.PathLike, str, int, io.IOBase, None] = None) -> No
         return
 
     raise ValueError(f"Path is neither a regular file nor a directory: {expanded_path}")
+
+
+def cache_setup_per_iteration(cache_mode, data_dir):
+    if cache_mode == "cold":
+        drop_cache(data_dir)
