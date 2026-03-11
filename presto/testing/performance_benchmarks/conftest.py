@@ -42,7 +42,8 @@ def pytest_addoption(parser):
     parser.addoption("--profile", action="store_true", default=False)
     parser.addoption("--profile-script-path")
     parser.addoption("--metrics", action="store_true", default=False)
-    parser.addoption("--cache-mode", choices=["hot", "lukewarm", "cold", "none"], default="lukewarm")
+    parser.addoption("--skip-drop-cache", action="store_true", default=False)
+    parser.addoption("--cache-mode", choices=["hot", "lukewarm", "cold", "none"], default=None)
 
 
 def pytest_configure(config):

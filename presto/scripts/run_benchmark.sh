@@ -35,10 +35,12 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
+    --skip-drop-cache       Skip dropping system caches before each benchmark query. This option is only effective
+                            when --cache-mode is not specified.
     -c, --cache-mode        Cache mode for benchmark queries. Controls page cache state between query iterations.
                             Supported modes:
                             lukewarm - Drop cache once at benchmark start, then let cache warm naturally across
-                                       iterations and queries (default).
+                                       iterations and queries.
                             cold     - Drop cache before each query iteration.
                             hot      - Run an untimed warmup execution before timing each query.
                             none     - Do not manage page cache at all.
@@ -158,6 +160,10 @@ parse_args() {
         PROFILE=true
         shift
         ;;
+      --skip-drop-cache)
+        SKIP_DROP_CACHE=true
+        shift
+        ;;
       -c|--cache-mode)
         if [[ -n $2 ]]; then
             CACHE_MODE=$2
@@ -247,6 +253,10 @@ fi
 
 if [[ "${METRICS}" == "true" ]]; then
   PYTEST_ARGS+=("--metrics")
+fi
+
+if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
+  PYTEST_ARGS+=("--skip-drop-cache")
 fi
 
 if [[ -n ${CACHE_MODE} ]]; then

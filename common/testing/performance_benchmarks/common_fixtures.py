@@ -26,17 +26,21 @@ def cache_setup_per_session(request, benchmark_data_dir):
     """Session-scoped fixture that drops the cache once at the start of the benchmark
     run for the lukewarm cache mode."""
     cache_mode = request.config.getoption("--cache-mode")
+
+    # Legacy support: if no cache mode specified, fall back to --skip-drop-cache behavior
+    if cache_mode is None:
+        skip = request.config.getoption("--skip-drop-cache")
+        cache_mode = "none" if skip else "lukewarm"
+
     if cache_mode == "lukewarm":
         drop_cache(benchmark_data_dir)
         print(f"[Cache] Cache mode: {cache_mode}. Dropped cache for: {benchmark_data_dir}")
-        return
-
-    msg = None
-    if cache_mode == "none":
-        msg = "Skipping cache drop."
     elif cache_mode == "cold":
-        msg = "Dropping cache per iteration."
-    print(f"[Cache] Cache mode: {cache_mode}. {msg}")
+        print(f"[Cache] Cache mode: {cache_mode}. Cache will be dropped before each iteration.")
+    elif cache_mode == "hot":
+        print(f"[Cache] Cache mode: {cache_mode}. Warmup query will run before timed iterations.")
+    elif cache_mode == "none":
+        print(f"[Cache] Cache mode: {cache_mode}. No cache management.")
 
 
 @pytest.fixture(scope="module")
