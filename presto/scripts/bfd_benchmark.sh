@@ -169,7 +169,7 @@ def generate_chunk(args):
 
     table = table.sort_by([("symbol_id", "ascending"), ("ts", "ascending")])
     out_path = os.path.join(out_dir, f"part-{idx:05d}.parquet")
-    pq.write_table(table, out_path, compression="snappy", row_group_size=1_000_000)
+    pq.write_table(table, out_path, compression="none", row_group_size=1_000_000)
     return idx, n
 
 completed = 0
