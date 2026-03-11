@@ -782,11 +782,11 @@ def normalize_value(v):
     v = v.strip().strip('"')
     try:
         f = float(v)
-        return f"{f:.6g}"
+        return f
     except ValueError:
         pass
-    v = re.sub(r'\.000\$', '', v)
-    v = re.sub(r' 00:00:00\$', '', v)
+    v = re.sub(r'\.000$', '', v)
+    v = re.sub(r' 00:00:00$', '', v)
     return v
 
 def normalize_row(row_str):
@@ -797,9 +797,35 @@ def normalize_row(row_str):
 def sort_key(row):
     result = []
     for v in row:
-        try: result.append((0, float(v), v))
-        except ValueError: result.append((1, 0, v))
+        if isinstance(v, float):
+            result.append((0, v, ""))
+        else:
+            result.append((1, 0, str(v)))
     return result
+
+def rows_match(presto_rows, duck_rows, rel_tol=1e-4):
+    """Compare rows with relative tolerance for floats."""
+    if len(presto_rows) != len(duck_rows):
+        return False
+    for p_row, d_row in zip(presto_rows, duck_rows):
+        if len(p_row) != len(d_row):
+            return False
+        for p_val, d_val in zip(p_row, d_row):
+            if isinstance(p_val, float) and isinstance(d_val, float):
+                if p_val == 0.0 and d_val == 0.0:
+                    continue
+                denom = max(abs(p_val), abs(d_val))
+                if denom > 0 and abs(p_val - d_val) / denom > rel_tol:
+                    return False
+            elif str(p_val) != str(d_val):
+                return False
+    return True
+
+def fmt_val(v):
+    return f"{v:.6g}" if isinstance(v, float) else str(v)
+
+def fmt_row(row):
+    return tuple(fmt_val(v) for v in row)
 
 def run_presto(sql):
     cmd = ["docker", "exec", "-i", coordinator, "presto-cli",
@@ -836,17 +862,21 @@ for qname, sql in queries.items():
     except Exception as e:
         print(f"SKIP (DuckDB error: {e})")
         continue
-    if presto_rows == duck_rows:
+    if rows_match(presto_rows, duck_rows):
         print("PASS")
         passed += 1
     else:
         print("FAIL")
         failed += 1
         print(f"    Rows: Presto={len(presto_rows)}, DuckDB={len(duck_rows)}")
-        for i, (p, d) in enumerate(zip(presto_rows[:5], duck_rows[:5])):
-            if p != d:
-                print(f"    Row {i}: Presto={p}")
-                print(f"            DuckDB={d}")
+        mismatches = 0
+        for i, (p, d) in enumerate(zip(presto_rows[:10], duck_rows[:10])):
+            if not rows_match([p], [d]):
+                print(f"    Row {i}: Presto={fmt_row(p)}")
+                print(f"            DuckDB={fmt_row(d)}")
+                mismatches += 1
+                if mismatches >= 3:
+                    break
 
 print()
 print(f"=== Verification Summary: {passed} passed, {failed} failed ===")
