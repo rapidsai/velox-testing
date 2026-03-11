@@ -76,9 +76,20 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     failed_queries_dict = benchmark_dict[BenchmarkKeys.FAILED_QUERIES_KEY]
     assert failed_queries_dict == {}
 
+    def cache_setup_per_query(cache_mode, query_id):
+        # Warmup for hot cache mode: execute the query once (untimed) to populate page cache
+        # before the timed iterations begin.
+        if cache_mode == "hot":
+            warmup_cursor = presto_cursor.execute(
+                "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
+            )
+            warmup_cursor.fetchall()  # Drain results to complete the query
+
     def benchmark_query_function(query_id):
         profile_output_file_path = None
         try:
+            cache_setup_per_query(cache_mode, query_id)
+
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
