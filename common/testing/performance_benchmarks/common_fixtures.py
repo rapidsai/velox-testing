@@ -22,7 +22,7 @@ def benchmark_data_dir(request):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def drop_cache_once(request, benchmark_data_dir):
+def cache_setup_per_session(request, benchmark_data_dir):
     """Session-scoped fixture that drops the cache once at the start of the benchmark
     run for the lukewarm cache mode."""
     cache_mode = request.config.getoption("--cache-mode")

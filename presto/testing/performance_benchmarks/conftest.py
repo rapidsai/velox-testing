@@ -10,7 +10,7 @@ from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.common_fixtures import (
     benchmark_queries,  # noqa: F401
     benchmark_result_collector,  # noqa: F401
-    drop_cache_once,  # noqa: F401
+    cache_setup_per_session,  # noqa: F401
 )
 from common.testing.performance_benchmarks.conftest import (
     DataLocation,

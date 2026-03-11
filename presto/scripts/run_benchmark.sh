@@ -158,9 +158,14 @@ parse_args() {
         PROFILE=true
         shift
         ;;
-      --cache-mode)
-        CACHE_MODE="lukewarm"
-        shift
+      -c|--cache-mode)
+        if [[ -n $2 ]]; then
+            CACHE_MODE=$2
+            shift 2
+        else
+            echo "Error: --cache-mode requires a value"
+            exit 1
+        fi
         ;;
       -m|--metrics)
         METRICS=true
@@ -185,6 +190,12 @@ fi
 
 if [[ -z ${SCHEMA_NAME} ]]; then
   echo "Error: A schema name must be set. Use the -s or --schema-name argument."
+  print_help
+  exit 1
+fi
+
+if [[ -n ${CACHE_MODE} && ! ${CACHE_MODE} =~ ^(hot|cold|lukewarm|none)$ ]]; then
+  echo "Error: Invalid --cache-mode value '${CACHE_MODE}'. Must be one of: hot, cold, lukewarm, none."
   print_help
   exit 1
 fi
