@@ -58,10 +58,12 @@ services:
   {% if workers|length > 1 and not single_container %}
   # Separate GPU workers - runs each worker in a separate container, pinned to a specific GPU
   {% for gpu_id in workers %}
+    {% set numa_node = gpu_id // 4 %}
   presto-native-worker-gpu-{{ gpu_id }}:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu-{{ gpu_id }}
     environment:
+      LAUNCHER: "numactl --cpunodebind={{ numa_node }} --membind={{ numa_node }}"
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE}
       PROFILE_ARGS: ${PROFILE_ARGS}
@@ -87,7 +89,9 @@ services:
     container_name: presto-native-worker-gpu
 {%- if workers %}
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
+    privileged: true
     environment:
+      LAUNCHER: 'numactl --cpunodebind=$$(( $$gpu_id / 4 )) --membind=$$(( $$gpu_id / 4 ))'
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE}
       PROFILE_ARGS: ${PROFILE_ARGS}
@@ -118,6 +122,7 @@ services:
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
     volumes:
+      - /sys/devices/system/node:/sys/devices/system/node
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}
