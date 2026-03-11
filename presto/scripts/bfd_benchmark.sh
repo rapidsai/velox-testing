@@ -166,7 +166,6 @@ def generate_partition_chunk(args):
         "close": pa.array((base_price * (1 + rng.uniform(-0.03, 0.03, size=n))).astype(np.float32), type=pa.float32()),
         "volume": pa.array(rng.uniform(100, 50000, size=n), type=pa.float64()),
         "asset_class_id": pa.array(np.full(n, asset_id, dtype=np.int8), type=pa.int8()),
-        "symbol_id": pa.array(np.full(n, sid, dtype=np.int32), type=pa.int32()),
     })
 
     table = table.sort_by([("ts", "ascending")])
