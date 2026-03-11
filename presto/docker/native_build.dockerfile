@@ -45,7 +45,10 @@ ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     SCCACHE_DIST_REQUEST_TIMEOUT=7140 \
     SCCACHE_DIST_SCHEDULER_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com" \
     SCCACHE_DIST_MAX_RETRIES=10 \
-    SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true
+    SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true \
+    SCCACHE_S3_USE_PREPROCESSOR_CACHE_MODE=true \
+    SCCACHE_S3_KEY_PREFIX=velox-testing/object-cache \
+    SCCACHE_S3_PREPROCESSOR_CACHE_KEY_PREFIX=velox-testing/preprocessor-cache
 
 RUN mkdir /runtime-libraries
 

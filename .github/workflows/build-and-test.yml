@@ -119,32 +119,38 @@ jobs:
           - arch: arm64
             cuda_version: *cuda13
     steps:
-      - name: Checkout Velox
+      - &checkout_velox
+        name: Checkout Velox
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: ${{ inputs.velox_repository }}
           ref: ${{ needs.resolve-commits.outputs.velox_sha }}
           path: velox
 
-      - name: Setup proxy cache
+      - &setup_proxy_cache
+        name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
         continue-on-error: true
         with:
           enable-apt: true
 
-      - name: Set up Docker Buildx
+      - &setup_buildx
+        name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
         with:
           buildkitd-config: /etc/buildkit/buildkitd.toml
+          driver-opts: network=host
 
-      - name: Log in to the Container registry
+      - &login_ghcr
+        name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
 
-      - name: Login to DockerHub
+      - &login_dockerhub
+        name: Login to DockerHub
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
           username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
@@ -217,44 +223,20 @@ jobs:
             build_type: cpu
             cudf: 'OFF'
     steps:
-      - name: Checkout velox-testing
+      - &checkout_velox_testing
+        name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           path: velox-testing
 
-      - name: Checkout Velox
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          repository: ${{ inputs.velox_repository }}
-          ref: ${{ needs.resolve-commits.outputs.velox_sha }}
-          path: velox
+      - *checkout_velox
+      - *setup_proxy_cache
+      - *setup_buildx
+      - *login_ghcr
+      - *login_dockerhub
 
-      - name: Setup proxy cache
-        uses: nv-gha-runners/setup-proxy-cache@main
-        continue-on-error: true
-        with:
-          enable-apt: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
-        with:
-          buildkitd-config: /etc/buildkit/buildkitd.toml
-          driver-opts: network=host
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
-
-      - name: Login to DockerHub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
-          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
-
-      - name: Setup sccache
+      - &setup_sccache
+        name: Setup sccache
         id: sccache
         uses: ./velox-testing/.github/actions/sccache-setup
         with:
@@ -262,7 +244,8 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           enable-dist: 'true'
 
-      - name: Ensure sccache auth dir exists
+      - &ensure_sccache
+        name: Ensure sccache auth dir exists
         env:
           SCCACHE_ENABLED: ${{ steps.sccache.outputs.enabled }}
         run: |
@@ -271,7 +254,8 @@ jobs:
             exit 1
           fi
 
-      - name: Copy .dockerignore
+      - &copy_dockerignore
+        name: Copy .dockerignore
         run: cp velox-testing/.dockerignore .dockerignore
 
       - name: Determine deps image tag
@@ -354,48 +338,21 @@ jobs:
           - arch: arm64
             cuda_version: *cuda13
     steps:
-      - name: Checkout velox-testing
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          path: velox-testing
+      - *checkout_velox_testing
+      - *checkout_velox
 
-      - name: Checkout Velox
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          repository: ${{ inputs.velox_repository }}
-          ref: ${{ needs.resolve-commits.outputs.velox_sha }}
-          path: velox
-
-      - name: Checkout Presto
+      - &checkout_presto
+        name: Checkout Presto
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: ${{ inputs.presto_repository }}
           ref: ${{ needs.resolve-commits.outputs.presto_sha }}
           path: presto
 
-      - name: Setup proxy cache
-        uses: nv-gha-runners/setup-proxy-cache@main
-        continue-on-error: true
-        with:
-          enable-apt: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
-        with:
-          buildkitd-config: /etc/buildkit/buildkitd.toml
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
-
-      - name: Login to DockerHub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
-          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
+      - *setup_proxy_cache
+      - *setup_buildx
+      - *login_ghcr
+      - *login_dockerhub
 
       - name: Stage presto-deps build context
         run: |
@@ -469,69 +426,16 @@ jobs:
             build_type: cpu
             gpu_flag: 'OFF'
     steps:
-      - name: Checkout velox-testing
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          path: velox-testing
-
-      - name: Checkout Velox
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          repository: ${{ inputs.velox_repository }}
-          ref: ${{ needs.resolve-commits.outputs.velox_sha }}
-          path: velox
-
-      - name: Checkout Presto
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          repository: ${{ inputs.presto_repository }}
-          ref: ${{ needs.resolve-commits.outputs.presto_sha }}
-          path: presto
-
-      - name: Setup proxy cache
-        uses: nv-gha-runners/setup-proxy-cache@main
-        continue-on-error: true
-        with:
-          enable-apt: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
-        with:
-          buildkitd-config: /etc/buildkit/buildkitd.toml
-          driver-opts: network=host
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
-
-      - name: Login to DockerHub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
-          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
-
-      - name: Setup sccache
-        id: sccache
-        uses: ./velox-testing/.github/actions/sccache-setup
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          enable-dist: 'true'
-
-      - name: Ensure sccache auth dir exists
-        env:
-          SCCACHE_ENABLED: ${{ steps.sccache.outputs.enabled }}
-        run: |
-          if [[ "${SCCACHE_ENABLED}" != "true" ]]; then
-            echo "::error::sccache setup failed. sccache is required for ci-images builds."
-            exit 1
-          fi
-
-      - name: Copy .dockerignore
-        run: cp velox-testing/.dockerignore .dockerignore
+      - *checkout_velox_testing
+      - *checkout_velox
+      - *checkout_presto
+      - *setup_proxy_cache
+      - *setup_buildx
+      - *login_ghcr
+      - *login_dockerhub
+      - *setup_sccache
+      - *ensure_sccache
+      - *copy_dockerignore
 
       - name: Determine deps image tag
         id: deps
