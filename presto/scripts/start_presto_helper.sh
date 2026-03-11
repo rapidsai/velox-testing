@@ -128,6 +128,13 @@ elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
+  FIRST_GPU_ID=0
+  if [[ -n $GPU_IDS ]]; then
+    FIRST_GPU_ID=$(echo $GPU_IDS | cut -d',' -f1)
+  fi
+  if [[ -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 ]]; then
+    GPU_WORKER_SERVICE="presto-native-worker-gpu-${FIRST_GPU_ID}"
+  fi
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
 else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"

@@ -44,6 +44,8 @@ OPTIONS:
     --preview-rows-count             Number of rows to include in the preview i.e. when --show-presto-result-preview or
                                      --show-reference-result-preview is specified.
     --skip-reference-comparison      Skip Presto rows comparison against a reference set of rows.
+    -e, --explain                    Run queries with EXPLAIN prefix. Requires --skip-reference-comparison.
+    --explain-analyze                Run queries with EXPLAIN ANALYZE prefix. Requires --skip-reference-comparison.
     --reuse-venv                     If this argument is specified, reuse the existing Python virtual environment if one exists
                                      and skip dependency installation.
 
@@ -59,6 +61,8 @@ EXAMPLES:
     $0 -b tpch -q "1,2" -s my_sf1_schema --store-reference-results
     $0 -b tpch -q "1,2" -s my_sf1_schema --show-presto-result-preview --show-reference-result-preview --preview-rows-count 5
     $0 -b tpch -q "1,2" -s my_sf1_schema --store-presto-results --skip-reference-comparison
+    $0 -b tpch -q "1,2" -s my_sf1_schema --skip-reference-comparison --explain
+    $0 -b tpch -q "1,2" -s my_sf1_schema --skip-reference-comparison --explain-analyze
     $0 -h
 
 EOF
@@ -178,6 +182,14 @@ parse_args() {
         SKIP_REFERENCE_COMPARISON=true
         shift
         ;;
+      -e|--explain)
+        EXPLAIN=true
+        shift
+        ;;
+      --explain-analyze)
+        EXPLAIN_ANALYZE=true
+        shift
+        ;;
       --reuse-venv)
         REUSE_VENV=true
         shift
@@ -195,6 +207,12 @@ parse_args "$@"
 
 if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   echo "Error: A valid benchmark type (tpch or tpcds) is required. Use the -b or --benchmark-type argument."
+  print_help
+  exit 1
+fi
+
+if [[ "${EXPLAIN}" == "true" || "${EXPLAIN_ANALYZE}" == "true" ]] && [[ "${SKIP_REFERENCE_COMPARISON}" != "true" ]]; then
+  echo "Error: --explain and --explain-analyze require --skip-reference-comparison to also be specified."
   print_help
   exit 1
 fi
@@ -257,6 +275,16 @@ fi
 
 if [[ -n ${SKIP_REFERENCE_COMPARISON} ]]; then
   PYTEST_ARGS+=("--skip-reference-comparison")
+fi
+
+if [[ "${EXPLAIN}" == "true" ]]; then
+  PYTEST_ARGS+=("--explain")
+  PYTEST_ARGS+=("--store-presto-results")
+fi
+
+if [[ "${EXPLAIN_ANALYZE}" == "true" ]]; then
+  PYTEST_ARGS+=("--explain-analyze")
+  PYTEST_ARGS+=("--store-presto-results")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
