@@ -165,8 +165,8 @@ def generate_partition_chunk(args):
         "low": pa.array((base_price * (1 - np.abs(jitter) - rng.uniform(0, 0.03, size=n))).astype(np.float32), type=pa.float32()),
         "close": pa.array((base_price * (1 + rng.uniform(-0.03, 0.03, size=n))).astype(np.float32), type=pa.float32()),
         "volume": pa.array(rng.uniform(100, 50000, size=n), type=pa.float64()),
-        "symbol_id": pa.array(np.full(n, sid, dtype=np.int64), type=pa.int64()),
         "asset_class_id": pa.array(np.full(n, asset_id, dtype=np.int8), type=pa.int8()),
+        "symbol_id": pa.array(np.full(n, sid, dtype=np.int32), type=pa.int32()),
     })
 
     table = table.sort_by([("ts", "ascending")])
@@ -228,7 +228,7 @@ setup_data() {
       ts TIMESTAMP, timestamp BIGINT,
       open REAL, high REAL, low REAL, close REAL,
       volume DOUBLE, asset_class_id TINYINT,
-      symbol_id BIGINT
+      symbol_id INTEGER
     ) WITH (
       format = 'PARQUET',
       external_location = 'file:${CONTAINER_DATA_DIR}',
