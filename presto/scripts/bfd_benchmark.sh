@@ -40,7 +40,8 @@ PRESTO_USER="${PRESTO_USER:-bfd}"
 MODE="${1:-bench}"
 SF="${2:-${BFD_SF:-1}}"
 
-TABLE="${CATALOG}.${SCHEMA}.bfd_prices_sf${SF}"
+TABLE_NAME="bfd_prices_sf${SF}"
+TABLE="${CATALOG}.${SCHEMA}.${TABLE_NAME}"
 RUNS="${BENCHMARK_RUNS:-3}"
 BASE_ROWS="${BFD_BASE_ROWS:-5000000}"
 HOST_DATA_DIR="${BFD_DATA_DIR:-}"
@@ -57,7 +58,7 @@ generate_bfd_dataset() {
   local metadata_dir=$3
   local num_workers=${GENERATE_WORKERS:-$(nproc)}
 
-  echo "Generating ${num_rows} BFD rows into ${out_dir} (${num_workers} workers)..."
+  echo "Generating ${num_rows} BFD rows into ${out_dir} (partitioned by symbol_id, sorted by ts, ${num_workers} workers)..."
   python3 - "${num_rows}" "${out_dir}" "${metadata_dir}" "${num_workers}" <<'PYEOF'
 import json
 import os
@@ -124,66 +125,69 @@ sym_list = [sym for _, sym in all_symbols]
 asset_list = [asset for asset, _ in all_symbols]
 num_symbols = len(sym_list)
 
-sym_id_arr = np.array([symbol_to_id[s] for s in sym_list], dtype=np.int32)
-asset_id_arr = np.array([ASSET_CLASS_TO_ID[a] for a in asset_list], dtype=np.int8)
-price_arr = np.array([REALISTIC_PRICES.get(s, 100.0) for s in sym_list], dtype=np.float64)
+CHUNK_SIZE = 5_000_000
+rows_per_symbol = num_rows // num_symbols
+leftover = num_rows - rows_per_symbol * num_symbols
 
-chunk_size = min(num_rows, 5_000_000)
-chunks = []
-rows_remaining = num_rows
-file_idx = 0
-while rows_remaining > 0:
-    n = min(chunk_size, rows_remaining)
-    chunks.append((file_idx, n))
-    rows_remaining -= n
-    file_idx += 1
-total_chunks = len(chunks)
+work_units = []
+for sid in range(num_symbols):
+    sym_rows = rows_per_symbol + (1 if sid < leftover else 0)
+    ci = 0
+    remaining = sym_rows
+    while remaining > 0:
+        n = min(CHUNK_SIZE, remaining)
+        work_units.append((sid, ci, n))
+        remaining -= n
+        ci += 1
 
-def generate_chunk(args):
-    idx, n = args
-    rng = np.random.default_rng(42 + idx)
+total_units = len(work_units)
+
+def generate_partition_chunk(args):
+    sid, ci, n = args
+    rng = np.random.default_rng(42 + sid * 10000 + ci)
+
+    asset_class = asset_list[sid]
+    base_price = REALISTIC_PRICES.get(sym_list[sid], 100.0)
+    asset_id = ASSET_CLASS_TO_ID[asset_class]
 
     base_us = int(datetime(2020, 1, 1).timestamp() * 1_000_000)
     day_offsets = rng.integers(0, 2191, size=n, dtype=np.int64)
     minute_offsets = rng.integers(0, 1440, size=n, dtype=np.int64)
     ts_us = base_us + day_offsets * 86400_000_000 + minute_offsets * 60_000_000
 
-    si = rng.integers(0, num_symbols, size=n)
-    sym_ids = sym_id_arr[si]
-    asset_ids = asset_id_arr[si]
-    base_prices = price_arr[si]
-
     jitter = rng.uniform(-0.05, 0.05, size=n)
 
     table = pa.table({
         "ts": pa.array(ts_us, type=pa.timestamp("us")),
         "timestamp": pa.array(ts_us, type=pa.int64()),
-        "open": pa.array((base_prices * (1 + jitter)).astype(np.float32), type=pa.float32()),
-        "high": pa.array((base_prices * (1 + np.abs(jitter) + rng.uniform(0, 0.03, size=n))).astype(np.float32), type=pa.float32()),
-        "low": pa.array((base_prices * (1 - np.abs(jitter) - rng.uniform(0, 0.03, size=n))).astype(np.float32), type=pa.float32()),
-        "close": pa.array((base_prices * (1 + rng.uniform(-0.03, 0.03, size=n))).astype(np.float32), type=pa.float32()),
+        "open": pa.array((base_price * (1 + jitter)).astype(np.float32), type=pa.float32()),
+        "high": pa.array((base_price * (1 + np.abs(jitter) + rng.uniform(0, 0.03, size=n))).astype(np.float32), type=pa.float32()),
+        "low": pa.array((base_price * (1 - np.abs(jitter) - rng.uniform(0, 0.03, size=n))).astype(np.float32), type=pa.float32()),
+        "close": pa.array((base_price * (1 + rng.uniform(-0.03, 0.03, size=n))).astype(np.float32), type=pa.float32()),
         "volume": pa.array(rng.uniform(100, 50000, size=n), type=pa.float64()),
-        "symbol_id": pa.array(sym_ids, type=pa.int32()),
-        "asset_class_id": pa.array(asset_ids, type=pa.int8()),
+        "asset_class_id": pa.array(np.full(n, asset_id, dtype=np.int8), type=pa.int8()),
     })
 
-    table = table.sort_by([("ts", "ascending"), ("symbol_id", "ascending")])
-    out_path = os.path.join(out_dir, f"part-{idx:05d}.parquet")
+    table = table.sort_by([("ts", "ascending")])
+    partition_dir = os.path.join(out_dir, f"symbol_id={sid}")
+    os.makedirs(partition_dir, exist_ok=True)
+    out_path = os.path.join(partition_dir, f"part-{ci:05d}.parquet")
     pq.write_table(table, out_path, compression="snappy", row_group_size=1_000_000)
-    return idx, n
+    return sid, ci, n
 
 completed = 0
-with ProcessPoolExecutor(max_workers=min(num_workers, total_chunks)) as pool:
-    futures = {pool.submit(generate_chunk, c): c for c in chunks}
+with ProcessPoolExecutor(max_workers=min(num_workers, total_units)) as pool:
+    futures = {pool.submit(generate_partition_chunk, u): u for u in work_units}
     for future in as_completed(futures):
-        idx, n = future.result()
+        sid, ci, n = future.result()
         completed += 1
-        pct = completed * 100 // total_chunks
+        pct = completed * 100 // total_units
         bar = '=' * (pct // 2) + '>' + ' ' * (50 - pct // 2)
-        print(f'\r  [{bar}] {pct}% ({completed}/{total_chunks} chunks, {n:,} rows each)', end='', flush=True)
+        print(f'\r  [{bar}] {pct}% ({completed}/{total_units} chunks)', end='', flush=True)
 
 parquet_count = sum(1 for _, _, files in os.walk(out_dir) for f in files if f.endswith(".parquet"))
-print(f"\n  Done. {num_rows:,} rows, {parquet_count} parquet file(s) in {out_dir}")
+partition_count = sum(1 for d in os.listdir(out_dir) if d.startswith("symbol_id="))
+print(f"\n  Done. {num_rows:,} rows, {partition_count} partitions, {parquet_count} parquet file(s) in {out_dir}")
 
 id_to_symbol = {str(v): k for k, v in symbol_to_id.items()}
 with open(os.path.join(metadata_dir, "symbol_map.json"), "w") as f:
@@ -217,17 +221,22 @@ setup_data() {
 
   echo "Dropping old table (if any)..."
   cli --execute "DROP TABLE IF EXISTS ${TABLE}" || true
-  echo "Creating external Hive table ${TABLE}..."
+  echo "Creating partitioned Hive table ${TABLE}..."
   cli --execute "
     CREATE TABLE IF NOT EXISTS ${TABLE} (
       ts TIMESTAMP, timestamp BIGINT,
       open REAL, high REAL, low REAL, close REAL,
-      volume DOUBLE, symbol_id INTEGER, asset_class_id TINYINT
+      volume DOUBLE, asset_class_id TINYINT,
+      symbol_id INTEGER
     ) WITH (
       format = 'PARQUET',
-      external_location = 'file:${CONTAINER_DATA_DIR}'
+      external_location = 'file:${CONTAINER_DATA_DIR}',
+      partitioned_by = ARRAY['symbol_id']
     )
   "
+
+  echo "Syncing partition metadata..."
+  cli --execute "CALL system.sync_partition_metadata('${SCHEMA}', '${TABLE_NAME}', 'FULL')"
 
   echo "Running ANALYZE..."
   cli --execute "ANALYZE ${TABLE}"
@@ -372,17 +381,19 @@ import pyarrow.parquet as pq
 import sys, glob, os
 
 data_dir = sys.argv[1]
-files = sorted(glob.glob(os.path.join(data_dir, "part-*.parquet")))
+files = sorted(glob.glob(os.path.join(data_dir, "**", "part-*.parquet"), recursive=True))
 if not files:
     print("No parquet files found."); sys.exit(1)
 
-print(f"Found {len(files)} parquet file(s)\n")
+partitions = sorted(set(os.path.basename(os.path.dirname(f)) for f in files))
+print(f"Found {len(files)} parquet file(s) in {len(partitions)} partition(s)\n")
 
 for fpath in files[:3]:
     f = pq.ParquetFile(fpath)
-    print(f"--- {os.path.basename(fpath)} ({f.metadata.num_row_groups} row groups, {f.metadata.num_rows:,} rows) ---")
+    rel = os.path.relpath(fpath, data_dir)
+    print(f"--- {rel} ({f.metadata.num_row_groups} row groups, {f.metadata.num_rows:,} rows) ---")
 
-    col_names = ["symbol_id", "ts"]
+    col_names = ["ts"]
     for i in range(f.metadata.num_row_groups):
         rg = f.metadata.row_group(i)
         parts = []
