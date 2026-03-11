@@ -150,16 +150,16 @@ def generate_partition_chunk(args):
     base_price = REALISTIC_PRICES.get(sym_list[sid], 100.0)
     asset_id = ASSET_CLASS_TO_ID[asset_class]
 
-    base_us = int(datetime(2020, 1, 1).timestamp() * 1_000_000)
+    base_ms = int(datetime(2020, 1, 1).timestamp() * 1_000)
     day_offsets = rng.integers(0, 2191, size=n, dtype=np.int64)
     minute_offsets = rng.integers(0, 1440, size=n, dtype=np.int64)
-    ts_us = base_us + day_offsets * 86400_000_000 + minute_offsets * 60_000_000
+    ts_ms = base_ms + day_offsets * 86_400_000 + minute_offsets * 60_000
 
     jitter = rng.uniform(-0.05, 0.05, size=n)
 
     table = pa.table({
-        "ts": pa.array(ts_us, type=pa.timestamp("us")),
-        "timestamp": pa.array(ts_us, type=pa.int64()),
+        "ts": pa.array(ts_ms, type=pa.timestamp("ms")),
+        "timestamp": pa.array(ts_ms, type=pa.int64()),
         "open": pa.array((base_price * (1 + jitter)).astype(np.float32), type=pa.float32()),
         "high": pa.array((base_price * (1 + np.abs(jitter) + rng.uniform(0, 0.03, size=n))).astype(np.float32), type=pa.float32()),
         "low": pa.array((base_price * (1 - np.abs(jitter) - rng.uniform(0, 0.03, size=n))).astype(np.float32), type=pa.float32()),
