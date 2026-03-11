@@ -368,6 +368,86 @@ function tpch_summary_to_csv() {
   ' "$in"
 }
 
+function collect_results {
+    local result_dir="${SCRIPT_DIR}/result_dir"
+
+    echo "Copying configs to ${result_dir}/configs/..."
+    mkdir -p "${result_dir}/configs"
+    cp "${CONFIGS}/etc_coordinator/config_native.properties" "${result_dir}/configs/coordinator.config"
+    cp "${CONFIGS}/etc_worker_0/config_native.properties"    "${result_dir}/configs/worker.config"
+
+    echo "Copying logs to ${result_dir}/..."
+    cp "${LOGS}"/*.log "${result_dir}/"
+}
+
+function inject_benchmark_metadata {
+    local result_file="${SCRIPT_DIR}/result_dir/benchmark_result.json"
+    if [ ! -f "${result_file}" ]; then
+        echo "Warning: ${result_file} not found, skipping metadata injection"
+        return
+    fi
+
+    local kind="multi-node"
+    if (( NUM_WORKERS == 1 )); then
+        kind="single-node"
+    fi
+
+    local timestamp
+    timestamp=$(date +"%Y-%m-%dT%H:%M:%SZ")
+
+    local gpu_name
+    gpu_name=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader -i 0 2>/dev/null | head -1) || true
+    gpu_name="${gpu_name:-unknown}"
+
+    local num_drivers
+    num_drivers=$(grep "^task\.max-drivers-per-task=" "${CONFIGS}/etc_worker/config_native.properties" 2>/dev/null \
+                  | cut -d= -f2) || true
+    num_drivers="${num_drivers:-2}"
+
+    local cudf_enabled
+    cudf_enabled=$(grep "^cudf\.enabled=" "${CONFIGS}/etc_worker/config_native.properties" 2>/dev/null \
+                   | cut -d= -f2) || true
+    local engine
+    if [[ "${cudf_enabled}" == "true" ]]; then
+        engine="presto-velox-gpu"
+    else
+        engine="presto-velox-cpu"
+    fi
+
+    local worker_image_path="${IMAGE_DIR}/${WORKER_IMAGE}.sqsh"
+    local image_digest
+    echo "Computing SHA256 of ${worker_image_path}..."
+    image_digest=$(sha256sum "${worker_image_path}" | awk '{print $1}') || true
+    image_digest="${image_digest:-unknown}"
+    echo "Image digest: ${image_digest}"
+
+    local tmp_file
+    tmp_file=$(mktemp)
+    jq --arg kind "$kind" \
+       --arg timestamp "$timestamp" \
+       --argjson n_workers "$NUM_WORKERS" \
+       --argjson scale_factor "$SCALE_FACTOR" \
+       --argjson gpu_count "$NUM_WORKERS" \
+       --arg gpu_name "$gpu_name" \
+       --argjson num_drivers "$num_drivers" \
+       --arg worker_image "$WORKER_IMAGE" \
+       --arg image_digest "$image_digest" \
+       --arg engine "$engine" \
+       '.context += {
+           kind: $kind,
+           timestamp: $timestamp,
+           n_workers: $n_workers,
+           scale_factor: $scale_factor,
+           gpu_count: $gpu_count,
+           gpu_name: $gpu_name,
+           num_drivers: $num_drivers,
+           worker_image: $worker_image,
+           image_digest: $image_digest,
+           engine: $engine
+       }' "${result_file}" > "${tmp_file}" && mv "${tmp_file}" "${result_file}"
+    echo "Injected benchmark metadata into ${result_file}"
+}
+
 function generate_json() {
     local kind="single-node"
     if (( $NUM_WORKERS > 1 )); then

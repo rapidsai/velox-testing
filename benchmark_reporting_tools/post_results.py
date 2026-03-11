@@ -16,13 +16,12 @@ expected directory structure is:
 
     ../benchmark-root/
     ├── benchmark.json           # optional
+    ├── benchmark_result.json
     ├── configs                  # optional
     │   ├── coordinator.config
     │   └── worker.config
-    ├── logs                     # optional
-    │   └── slurm-4575179.out
-    └── result_dir
-        └── benchmark_result.json
+    └── logs                     # optional
+        └── slurm-4575179.out
 
 Usage:
     python benchmark_reporting_tools/post_results.py /path/to/benchmark/dir \
@@ -69,6 +68,7 @@ class BenchmarkMetadata:
     gpu_count: int
     num_drivers: int
     worker_image: str | None = None
+    image_digest: str | None = None
     gpu_name: str
     engine: str
 
@@ -80,6 +80,26 @@ class BenchmarkMetadata:
         data["timestamp"] = datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00"))
 
         return cls(**data)
+
+    @classmethod
+    def from_results_context(cls, context: dict) -> "BenchmarkMetadata":
+        """Construct from the context dict embedded in benchmark_result.json."""
+        timestamp_str = context["timestamp"]
+        timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        return cls(
+            kind=context["kind"],
+            benchmark=context.get("benchmark", "tpch"),
+            timestamp=timestamp,
+            execution_number=context.get("execution_number", 1),
+            n_workers=int(context["n_workers"]),
+            scale_factor=int(context["scale_factor"]),
+            gpu_count=int(context["gpu_count"]),
+            gpu_name=context["gpu_name"],
+            num_drivers=int(context["num_drivers"]),
+            worker_image=context.get("worker_image"),
+            image_digest=context.get("image_digest"),
+            engine=context["engine"],
+        )
 
     def serialize(self) -> dict:
         out = dataclasses.asdict(self)
@@ -195,8 +215,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--identifier-hash",
-        help="Unique identifier hash for software environment (e.g. a container image digest).",
-        required=True,
+        help="Unique identifier hash for software environment (e.g. a container image digest). "
+             "If omitted, the image_digest from benchmark_result.json context is used.",
+        default=None,
     )
     parser.add_argument(
         "--version",
@@ -234,6 +255,26 @@ def parse_args() -> argparse.Namespace:
         "--benchmark-name",
         help="Benchmark definition name",
         required=True,
+    )
+    parser.add_argument(
+        "--velox-branch",
+        default=None,
+        help="Velox branch used to build the worker image",
+    )
+    parser.add_argument(
+        "--velox-repo",
+        default=None,
+        help="Velox repository used to build the worker image",
+    )
+    parser.add_argument(
+        "--presto-branch",
+        default=None,
+        help="Presto branch used to build the worker image",
+    )
+    parser.add_argument(
+        "--presto-repo",
+        default=None,
+        help="Presto repository used to build the worker image",
     )
     parser.add_argument(
         "--concurrency-streams",
@@ -329,6 +370,11 @@ def build_submission_payload(
     is_official: bool,
     asset_ids: list[int] | None = None,
     concurrency_streams: int = 1,
+    velox_branch: str | None = None,
+    velox_repo: str | None = None,
+    presto_branch: str | None = None,
+    presto_repo: str | None = None,
+    validation_results: dict | None = None,
 ) -> dict:
     """Build a BenchmarkSubmission payload from parsed dataclasses.
 
@@ -364,9 +410,23 @@ def build_submission_payload(
     # Sort query names for consistent ordering (Q1, Q2, ..., Q22)
     query_names = sorted(raw_times.keys(), key=lambda x: int(x[1:]))
 
+    per_query_validation = (validation_results or {}).get("queries", {})
+
     for query_name in query_names:
         times = raw_times[query_name]
         is_failed = query_name in failed_queries
+
+        # Look up validation result for this query (keys are lowercase e.g. "q1")
+        vkey = "q" + query_name.lstrip("Q").lower()
+        vdata = per_query_validation.get(vkey)
+        validation_result = (
+            {
+                "status": vdata["status"],
+                "message": vdata.get("message"),
+            }
+            if vdata
+            else {"status": "not-validated"}
+        )
 
         # Each execution becomes a separate query log entry
         for exec_idx, runtime_ms in enumerate(times):
@@ -384,6 +444,7 @@ def build_submission_payload(
                     "extra_info": {
                         "execution_number": exec_idx + 1,
                     },
+                    "validation_result": validation_result,
                 }
             )
             execution_order += 1
@@ -429,10 +490,17 @@ def build_submission_payload(
         "node_count": benchmark_metadata.n_workers,
         "query_logs": query_logs,
         "concurrency_streams": concurrency_streams,
-        "engine_config": engine_config.serialize() if engine_config else {},
+        "engine_config": {
+            **(engine_config.serialize() if engine_config else {}),
+            "velox_branch": velox_branch,
+            "velox_repo": velox_repo,
+            "presto_branch": presto_branch,
+            "presto_repo": presto_repo,
+        },
         "extra_info": extra_info,
         "is_official": is_official,
         "asset_ids": asset_ids,
+        "validation_status": (validation_results or {}).get("overall_status", "not-validated"),
     }
 
 
@@ -526,6 +594,10 @@ async def process_benchmark_dir(
     benchmark_definition_name: str,
     # all the optional arguments for when benchmark.json is not present.
     concurrency_streams: int = 1,
+    velox_branch: str | None = None,
+    velox_repo: str | None = None,
+    presto_branch: str | None = None,
+    presto_repo: str | None = None,
     kind: str | None = None,
     benchmark: str | None = None,
     timestamp: str | None = None,
@@ -544,15 +616,39 @@ async def process_benchmark_dir(
     """
     print(f"\nProcessing: {benchmark_dir}", file=sys.stderr)
 
-    # Load metadata, results, and config
+    # Load results file — also used as the primary metadata source via its context.
+    result_file = benchmark_dir / "benchmark_result.json"
+    try:
+        result_data = json.loads(result_file.read_text())
+    except (json.JSONDecodeError, FileNotFoundError) as e:
+        print(f"  Error loading results: {e}", file=sys.stderr)
+        return 1
 
-    # benchmark.json is only optionally written out.
-    # We give preference to getting this from the user CLI options,
-    # falling back to
+    context = result_data.get("context", {})
 
+    # Determine metadata source: context > benchmark.json > CLI args.
     benchmark_json_path = benchmark_dir / "benchmark.json"
 
-    if not benchmark_json_path.exists():
+    # Resolve identifier_hash: CLI arg > context image_digest > "unknown"
+    resolved_identifier_hash = identifier_hash or context.get("image_digest") or "unknown"
+    if resolved_identifier_hash == "unknown":
+        print("  Warning: image_digest not found in benchmark_result.json context and --identifier-hash not provided; using 'unknown'", file=sys.stderr)
+
+    if "kind" in context:
+        print("  Loading metadata from benchmark_result.json context...", file=sys.stderr)
+        try:
+            benchmark_metadata = BenchmarkMetadata.from_results_context(context)
+        except (KeyError, ValueError) as e:
+            print(f"  Error loading metadata from results context: {e}", file=sys.stderr)
+            return 1
+    elif benchmark_json_path.exists():
+        print("  Loading metadata from benchmark.json...", file=sys.stderr)
+        try:
+            benchmark_metadata = BenchmarkMetadata.from_file(benchmark_json_path)
+        except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"  Error loading metadata: {e}", file=sys.stderr)
+            return 1
+    else:
         missing_args = []
         if kind is None:
             missing_args.append("kind")
@@ -592,20 +688,26 @@ async def process_benchmark_dir(
             worker_image=worker_image,
             engine=engine_name,  # type: ignore[arg-type]
         )
-    else:
-        try:
-            benchmark_metadata = BenchmarkMetadata.from_file(benchmark_dir / "benchmark.json")
-        except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
-            print(f"  Error loading metadata: {e}", file=sys.stderr)
-            return 1
 
     try:
         results = BenchmarkResults.from_file(
-            benchmark_dir / "result_dir" / "benchmark_result.json", benchmark_name=benchmark_metadata.benchmark
+            benchmark_dir / "benchmark_result.json", benchmark_name=benchmark_metadata.benchmark
         )
     except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
         print(f"  Error loading results: {e}", file=sys.stderr)
         return 1
+
+    validation_results_path = benchmark_dir / "validation_results.json"
+    if validation_results_path.exists():
+        print("  Loading validation results...", file=sys.stderr)
+        try:
+            validation_results = json.loads(validation_results_path.read_text())
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"  Warning: could not load validation results: {e}", file=sys.stderr)
+            validation_results = None
+    else:
+        print("  No validation results found.", file=sys.stderr)
+        validation_results = None
 
     if (benchmark_dir / "configs").exists():
         print("  Loading engine config...", file=sys.stderr)
@@ -640,12 +742,17 @@ async def process_benchmark_dir(
             storage_configuration_name=storage_configuration_name,
             cache_state=cache_state,
             engine_name=engine_name,
-            identifier_hash=identifier_hash,
+            identifier_hash=resolved_identifier_hash,
             version=version,
             commit_hash=commit_hash,
             is_official=is_official,
             asset_ids=asset_ids,
             concurrency_streams=concurrency_streams,
+            velox_branch=velox_branch,
+            velox_repo=velox_repo,
+            presto_branch=presto_branch,
+            presto_repo=presto_repo,
+            validation_results=validation_results,
         )
     except Exception as e:
         print(f"  Error building payload: {e}", file=sys.stderr)
@@ -721,6 +828,10 @@ async def main() -> int:
         timeout=args.timeout,
         upload_logs=args.upload_logs,
         benchmark_definition_name=args.benchmark_name,
+        velox_branch=args.velox_branch,
+        velox_repo=args.velox_repo,
+        presto_branch=args.presto_branch,
+        presto_repo=args.presto_repo,
         kind=args.kind,
         benchmark=args.benchmark,
         timestamp=args.timestamp,

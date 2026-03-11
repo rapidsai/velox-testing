@@ -35,6 +35,7 @@ EXTRA_ARGS=()
 NUM_GPUS_PER_NODE="4"
 WORKER_IMAGE="presto-native-worker-gpu"
 COORD_IMAGE="presto-coordinator"
+OUTPUT_PATH=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -n|--nodes)
@@ -97,6 +98,15 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        -o|--output-path)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                OUTPUT_PATH="$2"
+                shift 2
+            else
+                echo "Error: -o|--output-path requires a value"
+                exit 1
+            fi
+            ;;
         --)
             shift
             break
@@ -123,7 +133,11 @@ fi
 OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
 ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
 SCRIPT_DIR="$PWD"
-JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE}" \
+JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
+# Node 5 has known issues; nodes above 10 are not yet functional.
+NODELIST="presto-gb200-gcn-[01-04,06-10]"
+JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" --nodelist="${NODELIST}" \
+--export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE}" \
 --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" --gres="gpu:${NUM_GPUS_PER_NODE}" \
 run-presto-benchmarks.slurm | awk '{print $NF}')
 OUT_FILE="${OUT_FMT//%j/${JOB_ID}}"
@@ -177,3 +191,11 @@ echo "========================================"
 cat "${OUT_FILE}" 2>/dev/null || echo "No output available"
 echo "Showing benchmark results:"
 cat logs/cli.log 2>/dev/null || echo "No CLI output available"
+
+if [[ -n "${OUTPUT_PATH}" ]]; then
+    echo ""
+    echo "Copying results to ${OUTPUT_PATH}..."
+    mkdir -p "${OUTPUT_PATH}"
+    cp -r result_dir/. "${OUTPUT_PATH}/"
+    echo "Results copied to ${OUTPUT_PATH}"
+fi
