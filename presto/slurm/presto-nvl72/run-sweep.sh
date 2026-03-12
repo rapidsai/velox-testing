@@ -20,8 +20,8 @@ VT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 # Sweep configuration — edit these arrays to change what gets benchmarked
 # ------------------------------------------------------------------------------
 
-NODE_COUNTS=(1)
-SCALE_FACTORS=(3000)
+NODE_COUNTS=(8 4)
+SCALE_FACTORS=(3000 10000)
 #NODE_COUNTS=(8 4 2)
 #SCALE_FACTORS=(3000 10000)
 ITERATIONS=3
@@ -29,8 +29,13 @@ ITERATIONS=3
 # post_results.py fixed arguments
 SKU_NAME="raplab-gb200-nvl72"
 CACHE_STATE="warm"
-VELOX_BRANCH="ibm-research-preview"
-PRESTO_BRANCH="ibm-research-preview"
+#VELOX_BRANCH="ibm-research-preview_2026_03_03_pr16201_pr16488"
+#PRESTO_BRANCH="ibm-research-preview_2026_03_03_and_fixes_and_PR27215"
+#VELOX_REPO="https://github.com/karthikeyann/velox"
+#PRESTO_REPO="https://github.com/karthikeyann/presto"
+
+VELOX_BRANCH="ibm-research-preview_2026_03_11"
+PRESTO_BRANCH="ibm-research-preview_2026_03_11"
 VELOX_REPO="https://github.com/IBM/velox"
 PRESTO_REPO="https://github.com/prestodb/presto"
 

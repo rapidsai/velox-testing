@@ -64,6 +64,7 @@ class BenchmarkMetadata:
     timestamp: datetime
     execution_number: int
     n_workers: int
+    node_count: int | None = None
     scale_factor: int
     gpu_count: int
     num_drivers: int
@@ -92,6 +93,7 @@ class BenchmarkMetadata:
             timestamp=timestamp,
             execution_number=context.get("execution_number", 1),
             n_workers=int(context["n_workers"]),
+            node_count=int(context["node_count"]) if "node_count" in context else None,
             scale_factor=int(context["scale_factor"]),
             gpu_count=int(context["gpu_count"]),
             gpu_name=context["gpu_name"],
@@ -301,7 +303,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--execution-number", help="Execution number of the benchmark run", type=int, default=1)
     parser.add_argument(
         "--n-workers",
-        help="Number of workers in the benchmark run",
+        help="Number of GPU workers in the benchmark run",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--node-count",
+        help="Number of cluster nodes in the benchmark run",
         type=int,
         default=None,
     )
@@ -421,7 +429,7 @@ def build_submission_payload(
         vdata = per_query_validation.get(vkey)
         validation_result = (
             {
-                "status": vdata["status"],
+                "status": "expected-failure" if vdata["status"] == "xfail" else vdata["status"],
                 "message": vdata.get("message"),
             }
             if vdata
@@ -487,7 +495,8 @@ def build_submission_payload(
             "commit_hash": commit_hash,
         },
         "run_at": benchmark_metadata.timestamp.isoformat(),
-        "node_count": benchmark_metadata.n_workers,
+        "node_count": benchmark_metadata.node_count,
+        "gpu_count": benchmark_metadata.gpu_count,
         "query_logs": query_logs,
         "concurrency_streams": concurrency_streams,
         "engine_config": {
@@ -500,7 +509,7 @@ def build_submission_payload(
         "extra_info": extra_info,
         "is_official": is_official,
         "asset_ids": asset_ids,
-        "validation_status": (validation_results or {}).get("overall_status", "not-validated"),
+        "validation_status": "expected-failure" if (validation_results or {}).get("overall_status") == "xfail" else (validation_results or {}).get("overall_status", "not-validated"),
     }
 
 
@@ -603,6 +612,7 @@ async def process_benchmark_dir(
     timestamp: str | None = None,
     execution_number: int = 1,
     n_workers: int | None = None,
+    node_count: int | None = None,
     scale_factor: int | None = None,
     gpu_count: int | None = None,
     gpu_name: str | None = None,
@@ -658,6 +668,8 @@ async def process_benchmark_dir(
             missing_args.append("timestamp")
         if n_workers is None:
             missing_args.append("n_workers")
+        if node_count is None:
+            missing_args.append("node_count")
         if scale_factor is None:
             missing_args.append("scale_factor")
         if gpu_count is None:
@@ -681,6 +693,7 @@ async def process_benchmark_dir(
             timestamp=datetime.fromisoformat(timestamp.replace("Z", "+00:00")),  # type: ignore[union-attr]
             execution_number=execution_number,
             n_workers=n_workers,  # type: ignore[arg-type]
+            node_count=node_count,  # type: ignore[arg-type]
             scale_factor=scale_factor,  # type: ignore[arg-type]
             gpu_count=gpu_count,  # type: ignore[arg-type]
             gpu_name=gpu_name,  # type: ignore[arg-type]
@@ -764,6 +777,15 @@ async def process_benchmark_dir(
     print(f"  Identifier hash: {payload['query_engine']['identifier_hash']}", file=sys.stderr)
     print(f"  Node count: {payload['node_count']}", file=sys.stderr)
     print(f"  Query logs: {len(payload['query_logs'])}", file=sys.stderr)
+    print(f"  Validation status: {payload['validation_status']}", file=sys.stderr)
+    xfail_queries = [
+        ql["query_name"]
+        for ql in payload["query_logs"]
+        if ql.get("validation_result", {}).get("status") == "xfail"
+    ]
+    if xfail_queries:
+        unique_xfail = sorted(set(xfail_queries), key=lambda x: int(x))
+        print(f"  XFailed queries: {unique_xfail}", file=sys.stderr)
 
     if dry_run:
         print("\n  [DRY RUN] Payload:", file=sys.stderr)
@@ -837,6 +859,7 @@ async def main() -> int:
         timestamp=args.timestamp,
         execution_number=args.execution_number,
         n_workers=args.n_workers,
+        node_count=args.node_count,
         scale_factor=args.scale_factor,
         gpu_count=args.gpu_count,
         gpu_name=args.gpu_name,

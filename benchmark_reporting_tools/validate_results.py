@@ -63,7 +63,7 @@ QUERY_CONFIG: dict[str, dict] = {
     "q12": {"sort_by": [("l_shipmode", False)], "limit": None},
     "q13": {"sort_by": [("custdist", True), ("c_count", True)], "limit": None},
     "q14": {"sort_by": [], "limit": None},
-    "q15": {"sort_by": [("s_suppkey", False)], "limit": None, "allow_empty_result": True},
+    "q15": {"sort_by": [("s_suppkey", False)], "limit": None, "xfail_if_empty": True},
     "q16": {"sort_by": [("supplier_cnt", True), ("p_brand", False), ("p_type", False), ("p_size", False)], "limit": None},
     "q17": {"sort_by": [], "limit": None},
     "q18": {"sort_by": [("o_totalprice", True), ("o_orderdate", False)], "limit": 100},
@@ -122,7 +122,6 @@ def assert_tpch_result_equal(
     *,
     sort_by: list[tuple[str, bool]],
     limit: int | None = None,
-    allow_empty_result: bool = False,
 ) -> None:
     """
     Validate computed result against expected answer using the same logic as
@@ -152,10 +151,6 @@ def assert_tpch_result_equal(
             f"  result columns:   {left.columns}\n"
             f"  expected columns: {right.columns}"
         )
-
-    # 1b. Allow empty result (e.g. Q15 float precision can yield 0 rows; both 0 and 1 are valid)
-    if allow_empty_result and left.is_empty():
-        return
 
     # 2. Cast Decimal → Float64 (avoids off-by-~1% from different Decimal impls)
     float_casts = [
@@ -257,11 +252,18 @@ def compare_query(
     """
     Compare actual vs expected for one TPC-H query.
 
-    Returns (status, message) where status is 'passed', 'failed', or 'not-validated'.
+    Returns (status, message) where status is 'passed', 'failed', 'xfail', or 'not-validated'.
     """
     cfg = QUERY_CONFIG.get(query_id)
     if cfg is None:
         return "not-validated", f"no config for {query_id}"
+
+    # Detect known expected failures before running the full comparison.
+    if cfg.get("xfail_if_empty", False) and actual.is_empty():
+        return "xfail", (
+            f"{query_id.upper()} returned no rows: known float calculation mismatch "
+            "in MAX(total_revenue) subquery causes empty result with float data"
+        )
 
     try:
         assert_tpch_result_equal(
@@ -269,7 +271,6 @@ def compare_query(
             expected,
             sort_by=cfg["sort_by"],
             limit=cfg["limit"],
-            allow_empty_result=cfg.get("allow_empty_result", False),
         )
         return "passed", None
     except Exception as e:
@@ -284,11 +285,11 @@ def validate(results_dir: Path, expected_dir: Path) -> dict:
     """Run validation and return a results dict.
 
     Returns a dict with keys:
-      overall_status: "passed" | "failed" | "not-validated"
+      overall_status: "passed" | "failed" | "xfail" | "not-validated"
       queries: { "q1": {"status": ..., "message": ...}, ... }
     """
     query_results: dict[str, dict] = {}
-    passed = failed = not_validated = 0
+    passed = failed = not_validated = xfailed = 0
 
     result_files = sorted(results_dir.glob("q*.parquet"))
     if not result_files:
@@ -322,16 +323,22 @@ def validate(results_dir: Path, expected_dir: Path) -> dict:
             print(f"  {query_id.upper():4s}: PASS     [{info}]")
             query_results[query_id] = {"status": "passed", "message": None}
             passed += 1
+        elif status == "xfail":
+            print(f"  {query_id.upper():4s}: XFAIL    {msg}")
+            query_results[query_id] = {"status": "xfail", "message": msg}
+            xfailed += 1
         else:
             print(f"  {query_id.upper():4s}: FAIL     {msg}")
             query_results[query_id] = {"status": "failed", "message": msg}
             failed += 1
 
     print()
-    print(f"Results: {passed} passed, {failed} failed, {not_validated} skipped")
+    print(f"Results: {passed} passed, {failed} failed, {xfailed} xfailed, {not_validated} skipped")
 
     if failed > 0:
         overall = "failed"
+    elif xfailed > 0:
+        overall = "xfail"
     elif passed > 0:
         overall = "passed"
     else:

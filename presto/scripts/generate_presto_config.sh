@@ -52,9 +52,10 @@ function duplicate_worker_configs() {
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${worker_native_config}
     # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_native_config}
-    # make join-distribution-type=PARTITIONED if we are running multiple workers
-    # (ucx exchange does not currently support BROADCAST partition type)
-    sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_native_config}
+    # UCX exchange supports both PARTITIONED and BROADCAST partition types;
+    # leave join-distribution-type=AUTOMATIC so the optimizer can choose
+    # (fixes Q21 by allowing build/probe side swap for LeftJoin → RightJoin).
+    # sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_native_config}
   fi
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but

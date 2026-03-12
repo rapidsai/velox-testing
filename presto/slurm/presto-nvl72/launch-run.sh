@@ -33,8 +33,13 @@ SCALE_FACTOR=""
 NUM_ITERATIONS="2"
 EXTRA_ARGS=()
 NUM_GPUS_PER_NODE="4"
-WORKER_IMAGE="presto-native-worker-gpu"
-COORD_IMAGE="presto-coordinator"
+USE_NUMA="1"
+#WORKER_IMAGE="presto-native-worker-gpu"
+#COORD_IMAGE="presto-coordinator-karth-Mar11"
+#WORKER_IMAGE="presto-native-worker-gpu-karth-Mar11"
+COORD_IMAGE="presto-coordinator-ibm-03-11"
+WORKER_IMAGE="velox-testing-images-presto-471cf1a-velox-1a2f63f-gpu-cuda13.1-20260312-arm64"
+#COORD_IMAGE="presto-coordinator"
 OUTPUT_PATH=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -98,6 +103,10 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        --no-numa)
+            USE_NUMA="0"
+            shift
+            ;;
         -o|--output-path)
             if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
                 OUTPUT_PATH="$2"
@@ -137,7 +146,7 @@ JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
 # Node 5 has known issues; nodes above 10 are not yet functional.
 NODELIST="presto-gb200-gcn-[01-04,06-10]"
 JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" --nodelist="${NODELIST}" \
---export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE}" \
+--export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE},USE_NUMA=${USE_NUMA}" \
 --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" --gres="gpu:${NUM_GPUS_PER_NODE}" \
 run-presto-benchmarks.slurm | awk '{print $NF}')
 OUT_FILE="${OUT_FMT//%j/${JOB_ID}}"
