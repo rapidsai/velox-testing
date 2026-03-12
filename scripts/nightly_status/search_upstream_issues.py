@@ -19,10 +19,9 @@ Usage:
 Options:
   -i, --input PATH        Path to status.txt (default: status.txt)
   -o, --output PATH       Path to write the RCA report (default: stdout)
-  --days N                Search issues/PRs created within the last N days (default: 90)
+  --days N                Search issues/PRs created within the last N days (default: 30)
   --max-results N         Max results per search query per repo (default: 5)
   --repos REPO [REPO ...] Additional repos to search
-  --self-repo REPO        The repo that owns the nightly workflows (default: rapidsai/velox-testing)
 """
 
 from __future__ import annotations
@@ -186,94 +185,84 @@ _GTEST_FAILED = re.compile(r"\[\s*FAILED\s*\]\s+(\w+\.\w+)")
 _CPP_ERROR = re.compile(r"error:\s+'(\w+)'\s+is not a member of\s+'([\w:]+)'")
 _CPP_GENERIC_ERROR = re.compile(r"error:\s+(.{10,80})")
 _PACKAGE_INSTALL = re.compile(r"(?:dnf|yum|apt-get)\s+install\s+-y\s+([\w.-]+)")
-_FAILED_TARGET = re.compile(r"^FAILED:\s+(\S+)")
-_DOCKERFILE_REF = re.compile(r"(\w+\.dockerfile):\d+")
+_FAILED_TARGET = re.compile(r"^FAILED:\s+(\S+)", re.MULTILINE)
 _FUNCTION_SIG = re.compile(r"Scalar function signature is not supported:\s+(\w+)\(([^)]+)\)")
+_TAR_ARCHIVE = re.compile(r"(?:tar\s+.*|extracting|downloading)\s+([\w.-]+\.tar(?:\.gz|\.bz2|\.xz)?)", re.IGNORECASE)
+_ARCHIVE_FILE = re.compile(r"([\w.-]{3,})\.(?:tar\.gz|tgz|tar\.bz2|tar\.xz|zip)\b")
+_UNDEFINED_REF = re.compile(r"undefined reference to\s+[`']([^`']+)[`']")
 
 
 def _classify_repos(failure: Failure) -> list[str]:
-    """Determine which upstream repos to search based on failure context."""
-    all_text = " ".join(
-        [failure.title, failure.job_name, failure.step_name]
-        + [st.text for st in failure.stacktraces]
-        + [st.cause for st in failure.stacktraces]
-    ).lower()
+    """Determine which upstream repos to search based on failure context.
 
-    repos: list[str] = []
+    - "Presto" jobs → prestodb/presto + facebookincubator/velox
+    - "Velox" jobs  → facebookincubator/velox only
+    - Fallback      → both upstream repos
+    """
+    title_lower = failure.title.lower()
 
-    if any(kw in all_text for kw in ("cudf", "experimental/cudf", "cudf_")):
-        repos.append("facebookincubator/velox")
-    if any(kw in all_text for kw in ("grpc_ep", "arrow_extra", "arrow", "abseil", "absl")):
-        repos.append("apache/arrow")
-    if any(kw in all_text for kw in ("presto", "prestissimo", "centos-dependency")):
-        repos.append("prestodb/presto")
-    if any(kw in all_text for kw in ("velox",)):
-        if "facebookincubator/velox" not in repos:
-            repos.append("facebookincubator/velox")
-    if any(kw in all_text for kw in ("cuda", "nsight", "nsys")):
-        repos.append("rapidsai/velox-testing")
+    if "presto" in title_lower:
+        return ["prestodb/presto", "facebookincubator/velox"]
+    if "velox" in title_lower:
+        return ["facebookincubator/velox"]
 
-    if not repos:
-        repos = ["facebookincubator/velox", "prestodb/presto"]
-
-    return repos
+    return ["facebookincubator/velox", "prestodb/presto"]
 
 
 def extract_search_queries(failure: Failure) -> list[str]:
-    """Extract meaningful search queries from a failure's stacktraces."""
+    """Extract meaningful search queries from a failure's stacktraces.
+
+    Priority order (highest → lowest signal):
+      1. GTest failed test names
+      2. C++ compile errors (symbol / namespace)
+      3. Undefined reference symbols
+      4. Function signature mismatches
+      5. Failed archive names (tar/gzip errors)
+      6. Failed build targets
+      7. Package install failures
+      8. Cause-text keywords (backtick-quoted identifiers)
+    """
     queries: list[str] = []
     all_stacktrace_text = "\n".join(st.text for st in failure.stacktraces)
 
-    # GTest failed test names — highest signal
+    # 1. GTest failed test names — highest signal
     for m in _GTEST_FAILED.finditer(all_stacktrace_text):
         test_name = m.group(1)
         queries.append(test_name)
-        # Also search just the method name
         if "." in test_name:
             queries.append(test_name.split(".")[-1])
 
-    # C++ compile errors: 'X' is not a member of 'Y'
+    # 2. C++ compile errors: 'X' is not a member of 'Y'
     for m in _CPP_ERROR.finditer(all_stacktrace_text):
         symbol, namespace = m.group(1), m.group(2)
         queries.append(f"{namespace} {symbol}")
 
-    # Function signature errors (Velox-specific)
+    # 3. Undefined reference errors
+    for m in _UNDEFINED_REF.finditer(all_stacktrace_text):
+        queries.append(m.group(1))
+
+    # 4. Function signature mismatches (Velox-specific)
     for m in _FUNCTION_SIG.finditer(all_stacktrace_text):
         queries.append(f"{m.group(1)} {m.group(2)}")
 
-    # Package install failures
-    for m in _PACKAGE_INSTALL.finditer(all_stacktrace_text):
-        queries.append(m.group(1))
+    # 5. Failed archive / tar / gzip errors — use specific queries, not bare names
+    for m in _ARCHIVE_FILE.finditer(all_stacktrace_text):
+        component = m.group(1)
+        if len(component) > 2:
+            queries.append(f"{component} download")
+            queries.append(f"{component} build")
 
-    # Dockerfile references
-    for m in _DOCKERFILE_REF.finditer(all_stacktrace_text):
-        queries.append(m.group(1))
-
-    # Failed build targets (e.g. grpc_ep)
+    # 6. Failed build targets (e.g. grpc_ep)
     for m in _FAILED_TARGET.finditer(all_stacktrace_text):
         target = m.group(1).split("/")[-1].split("-")[0]
         if len(target) > 3:
             queries.append(target)
 
-    # Docker volume mount errors
-    if "invalid spec:" in all_stacktrace_text:
-        queries.append("Docker volume mount")
+    # 7. Package install failures
+    for m in _PACKAGE_INSTALL.finditer(all_stacktrace_text):
+        queries.append(m.group(1))
 
-    # Benchmark data errors
-    for m in re.finditer(r"(?:data directory not found|benchmark data)", all_stacktrace_text, re.IGNORECASE):
-        queries.append("benchmark data")
-
-    # Broader fallback queries for build/dep errors
-    if any(kw in all_stacktrace_text for kw in ("grpc_ep", "grpc_ep-build")):
-        queries.append("grpc abseil")
-        queries.append("grpc_ep build failed")
-    if "nsight-systems" in all_stacktrace_text or "nsight" in all_stacktrace_text:
-        queries.append("nsight-systems install")
-        queries.append("nsight cuda repo")
-    if "cuda-rhel9" in all_stacktrace_text or "cuda repo" in all_stacktrace_text:
-        queries.append("cuda repo metadata")
-
-    # From the cause text — extract key noun phrases
+    # 8. From the cause text — extract backtick-quoted identifiers
     for st in failure.stacktraces:
         if st.cause:
             cause_keywords = _extract_cause_keywords(st.cause)
@@ -286,13 +275,30 @@ def extract_search_queries(failure: Failure) -> list[str]:
         q = q.strip()
         if not q or q.lower() in seen:
             continue
-        # Skip path-like strings, raw error prefixes, overly short terms
         if q.startswith("/") or q.startswith(":") or q.startswith("http"):
             continue
         if len(q) < 4:
             continue
-        # Skip strings that look like file paths rather than search terms
         if q.count("/") > 2:
+            continue
+        # Skip bare dockerfile names — too broad, matches any PR touching the file
+        if q.endswith(".dockerfile") or q.endswith(".Dockerfile"):
+            continue
+        # Skip common shell commands / generic terms that produce noisy results
+        if q.lower() in (
+            "tar -xz",
+            "tar -xzf",
+            "curl -l",
+            "curl -sl",
+            "make",
+            "cmake",
+            "gzip",
+            "stdin",
+            "mkdir",
+            "bash",
+            "build",
+            "error",
+        ):
             continue
         seen.add(q.lower())
         unique.append(q)
@@ -389,7 +395,7 @@ def _search_gh(
             "--repo",
             repo,
             "--search",
-            query,
+            f"{query} created:>={since_date}",
             "--limit",
             str(max_results),
             "--json",
@@ -617,14 +623,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "-o",
         "--output",
-        default=None,
+        default="rca-report.txt",
         help="Path to write the RCA report (default: stdout only)",
     )
     p.add_argument(
         "--days",
         type=int,
-        default=90,
-        help="Search issues/PRs created within the last N days (default: 90)",
+        default=30,
+        help="Search issues/PRs created within the last N days (default: 30)",
     )
     p.add_argument(
         "--max-results",
@@ -637,11 +643,6 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=[],
         help="Additional repos to search (e.g. rapidsai/cudf)",
-    )
-    p.add_argument(
-        "--self-repo",
-        default="rapidsai/velox-testing",
-        help="The repo that owns the nightly workflows (default: rapidsai/velox-testing)",
     )
     return p.parse_args()
 
@@ -664,8 +665,6 @@ def main():
 
     for fail in failures:
         repos = _classify_repos(fail)
-        if args.self_repo and args.self_repo not in repos:
-            repos.append(args.self_repo)
 
         queries = extract_search_queries(fail)
         query_preview = ", ".join(f'"{q}"' for q in queries[:3])
@@ -688,7 +687,7 @@ def main():
     report = format_rca_report(failures, results_by_failure, date_str)
 
     print(report)
-    if args.output:
+    if args.output and args.output != "-":
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(report)
         print(f"\nReport written to {args.output}", file=sys.stderr)

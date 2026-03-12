@@ -518,21 +518,21 @@ def _extract_gtest_blocks(lines: List[str]) -> str:
     return "\n".join(result_parts) if result_parts else ""
 
 
-def _extract_error_lines(lines: List[str]) -> str:
-    """Extract only error-relevant lines with 2 lines of leading context."""
+def _extract_error_lines(lines: List[str], context_before: int = 5, context_after: int = 3, tail: int = 15) -> str:
+    """Extract error-relevant lines with surrounding context."""
     n = len(lines)
     if n == 0:
         return ""
     marked = set()
     for i, line in enumerate(lines):
         if any(p.search(line) for p in _ERROR_PATTERNS):
-            for offset in range(max(0, i - 2), i + 1):
+            for offset in range(max(0, i - context_before), min(n, i + context_after + 1)):
                 marked.add(offset)
-    for i in range(max(0, n - 5), n):
+    for i in range(max(0, n - tail), n):
         marked.add(i)
 
     if not marked:
-        return "\n".join(lines[-20:])
+        return "\n".join(lines[-30:])
 
     result: List[str] = []
     prev = -2
@@ -959,16 +959,46 @@ OUT = OutputBuffer()
 
 
 def _filter_raw_log_for_job(full_log: str, job_name: str) -> str:
-    """Return only lines belonging to *job_name* from GH Actions log output."""
+    """Return only lines belonging to *job_name* from GH Actions log output.
+
+    Tries exact prefix match first, then falls back to substring matching
+    (handles matrix suffixes like ' (ubuntu-latest)' or calling-workflow
+    prefixes).  If nothing matches, returns the full log so callers always
+    have *something* to analyse.
+    """
+    lines = full_log.splitlines()
+
+    # 1. Exact prefix match: "job_name\t"
     escaped = re.escape(job_name)
-    pattern = re.compile(rf"^{escaped}\t", re.MULTILINE)
+    exact_pat = re.compile(rf"^{escaped}\t")
     selected = []
-    for line in full_log.splitlines():
-        if pattern.match(line):
+    for line in lines:
+        if exact_pat.match(line):
             selected.append(line)
             if "Post job cleanup." in line:
                 break
-    return "\n".join(selected)
+    if selected:
+        return "\n".join(selected)
+
+    # 2. Substring / fuzzy match — the job name appears anywhere before the
+    #    first tab (covers matrix suffixes and calling-workflow prefixes).
+    name_lower = job_name.lower()
+    selected = []
+    for line in lines:
+        first_field = line.split("\t", 1)[0].lower()
+        if name_lower in first_field:
+            selected.append(line)
+            if "Post job cleanup." in line:
+                break
+    if selected:
+        return "\n".join(selected)
+
+    # 3. Fallback: return the entire log so callers can still extract errors.
+    print(
+        f"WARN: could not match job '{job_name}' in log output, using full log ({len(lines)} lines)",
+        file=sys.stderr,
+    )
+    return full_log
 
 
 def _get_failed_jobs(jobs_data: dict, job_filter: str) -> List[dict]:
@@ -1170,6 +1200,21 @@ def _process_single_failure(
         if log_fut:
             log_out = log_fut.result()
         jobs_data = jobs_fut.result()
+
+    # Fallback: if --log-failed returned nothing, try --log (full log)
+    if (CFG.print_logs or CFG.analyze_cause) and not log_out:
+        print(
+            f"WARN: --log-failed returned empty for run {run_id}, falling back to --log",
+            file=sys.stderr,
+        )
+        log_out = run_gh_safe(
+            "run",
+            "view",
+            "-R",
+            CFG.repo,
+            str(run_id),
+            "--log",
+        )
 
     if not jobs_data:
         if slack:
