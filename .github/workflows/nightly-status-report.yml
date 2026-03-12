@@ -13,6 +13,7 @@ on:
         description: 'Skip upstream RCA search'
         type: boolean
         default: false
+  push:
 
 permissions:
   contents: read
