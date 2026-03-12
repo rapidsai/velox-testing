@@ -25,6 +25,10 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `presto-nightly-upstream.yml` | Nightly tests against upstream Presto and Velox | Tests latest upstream compatibility |
 | `presto-nightly-staging.yml` | Nightly tests against staging/stable versions | Validates known-good configurations |
 | `presto-nightly-pinned.yml` | Nightly tests using Presto's pinned Velox version | Tests exact Velox commit Presto depends on |
+| **CI Images** |||
+| `ci-images.yml` | Builds and publishes Velox/Presto CI images to GHCR | Nightly + manual dispatch |
+| `build-and-test.yml` | Reusable workflow implementing CI image build/test logic | Called by ci-images.yml |
+| `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
 | **Preliminary Checks** |||
 | `preliminary-checks.yml` | Runs tests when specific directories change | Triggers on `benchmark_data_tools/` or `presto/` changes |
 
@@ -118,6 +122,50 @@ Runs benchmark sanity tests nightly on the staging branch to catch infrastructur
 
 ---
 
+## CI Images
+
+### Overview
+
+The `ci-images.yml` workflow builds multi-arch (amd64/arm64) Docker images for Velox and Presto and publishes them to [GitHub Container Registry](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing) under the `velox-testing-images` package. It runs nightly at 5am UTC and can be triggered manually via `workflow_dispatch`.
+
+Manual runs do not cancel each other; only nightly runs share a concurrency group.
+
+### Image Tags
+
+Images are tagged with commit SHAs, CUDA version, and build date:
+
+- **Velox deps:** `velox-deps-${VELOX_SHA}-cuda${CUDA_VERSION}-${DATE}`
+- **Velox build (GPU):** `velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}`
+- **Velox build (CPU):** `velox-${VELOX_SHA}-cpu-${DATE}`
+- **Presto deps:** `presto-deps-${PRESTO_SHA}-velox-${VELOX_SHA}-cuda${CUDA_VERSION}-${DATE}`
+- **Presto build (GPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}`
+- **Presto build (CPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-cpu-${DATE}`
+
+Images are purged after 30 days by the `ci-image-cleanup.yml` workflow.
+
+### Pulling Images
+
+1. Log into GitHub Container Registry with Docker:
+```bash
+# Ensure the gh token has read:packages scope, required for ghcr.io
+if ! gh auth status 2>&1 | grep -q 'read:packages'; then
+  echo "Token missing read:packages scope, refreshing..."
+  gh auth refresh -s read:packages
+fi
+
+# Log into ghcr.io with the current gh credentials
+echo $(gh auth token) | docker login ghcr.io -u $(gh api user -q .login) --password-stdin
+```
+
+2. Pull and run an image. For example:
+```bash
+docker run -it ghcr.io/rapidsai/velox-testing-images:velox-deps-8853645-cuda13.1-20260305
+```
+
+Browse available tags at [ghcr.io/rapidsai/velox-testing-images](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing).
+
+---
+
 ## Presto Testing Workflows
 
 ### `presto-test.yml`
@@ -182,4 +230,10 @@ presto-create-staging.yml ──► create-staging-composite.yml ──► [stag
 presto-nightly-upstream.yml ─┬
 presto-nightly-staging.yml ──┼──► presto-test.yml ──► presto-test-composite.yml
 presto-nightly-pinned.yml ───┘
+
+
+CI IMAGES
+─────────
+ci-images.yml ──► build-and-test.yml ──► [GHCR images]
+ci-image-cleanup.yml ──► [delete old images]
 ```
