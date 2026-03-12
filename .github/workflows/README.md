@@ -26,7 +26,7 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `presto-nightly-staging.yml` | Nightly tests against staging/stable versions | Validates known-good configurations |
 | `presto-nightly-pinned.yml` | Nightly tests using Presto's pinned Velox version | Tests exact Velox commit Presto depends on |
 | **CI Images** |||
-| `ci-images.yml` | Nightly builds of CI images for upstream, pinned, and staging | Schedule only (5am UTC) |
+| `ci-images-nightly.yml` | Nightly builds of CI images for upstream, pinned, and staging | Schedule only (5am UTC) |
 | `ci-images-manual.yml` | Manual builds of CI images with user-specified inputs | `workflow_dispatch` only |
 | `build-and-test.yml` | Reusable workflow implementing CI image build/test logic | Called by ci-images workflows |
 | `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
@@ -129,7 +129,7 @@ Runs benchmark sanity tests nightly on the staging branch to catch infrastructur
 
 Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and published to [GitHub Container Registry](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing) under the `velox-testing-images` package. Two separate workflows handle image builds:
 
-- **`ci-images.yml`** — Nightly schedule (5am UTC). Builds images for three source combinations in parallel:
+- **`ci-images-nightly.yml`** — Nightly schedule (5am UTC). Builds images for three source combinations in parallel:
 
   | Job | Velox | Presto |
   |-----|-------|--------|
@@ -247,7 +247,7 @@ presto-nightly-pinned.yml ───┘
 
 CI IMAGES
 ─────────
-ci-images.yml (nightly) ─┬──► build-and-test.yml ──► [GHCR images]
-ci-images-manual.yml ────┘
+ci-images-nightly.yml ─┬──► build-and-test.yml ──► [GHCR images]
+ci-images-manual.yml ──┘
 ci-image-cleanup.yml ──► [delete old images]
 ```
