@@ -1,0 +1,59 @@
+name: ci-images
+
+on:
+  schedule:
+    - cron: "0 5 * * *"  # 5am UTC / 1am EST
+  workflow_dispatch:
+    inputs:
+      velox_repository:
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit:
+        description: 'Velox commit SHA, branch, or "presto-pinned" to use Presto submodule pin'
+        type: string
+        required: false
+        default: 'presto-pinned'
+      presto_repository:
+        description: 'Presto repository'
+        type: string
+        required: false
+        default: 'prestodb/presto'
+      presto_commit:
+        description: 'Presto commit SHA or branch'
+        type: string
+        required: false
+        default: 'master'
+      build_velox:
+        description: 'Build Velox images'
+        type: boolean
+        required: false
+        default: true
+      build_presto:
+        description: 'Build Presto images'
+        type: boolean
+        required: false
+        default: true
+      run_tests:
+        description: 'Run tests after builds'
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    uses: ./.github/workflows/build-and-test.yml
+    with:
+      velox_repository: ${{ inputs.velox_repository || 'facebookincubator/velox' }}
+      velox_commit: ${{ inputs.velox_commit || 'presto-pinned' }}
+      presto_repository: ${{ inputs.presto_repository || 'prestodb/presto' }}
+      presto_commit: ${{ inputs.presto_commit || 'master' }}
+      build_velox: ${{ github.event_name != 'workflow_dispatch' || inputs.build_velox }}
+      build_presto: ${{ github.event_name != 'workflow_dispatch' || inputs.build_presto }}
+      run_tests: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+    secrets: inherit
