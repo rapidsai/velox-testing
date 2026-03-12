@@ -1,8 +1,6 @@
 name: ci-images
 
 on:
-  # TODO: remove 'push' trigger before merging to main
-  push:
   schedule:
     - cron: "0 5 * * *"  # 5am UTC / 1am EST
   workflow_dispatch:
