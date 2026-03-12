@@ -19,7 +19,9 @@ OPTIONS:
     -q, --queries                       Set of benchmark queries to run. This should be a comma separate list of query
                                         numbers. By default, all benchmark queries are run.
     -d, --dataset-name                  Name of the dataset containing the Parquet files that will be queried (if
-                                        unspecified, the default 0.01 scale factor dataset is used).
+                                        unspecified, the default 0.01 scale factor dataset is used). When set,
+                                        this should be a directory name under the path specified by the SPARK_DATA_DIR
+                                        environment variable.
     -o, --output-dir                    Directory path that will contain any output files from the integration test run.
                                         Default path is "integ_test_output".
     -r, --reference-results-dir         If specified, use the results in the specified directory for comparison. The
@@ -266,6 +268,16 @@ VENV_DIR=".integ_test_venv"
 source "$(dirname "${BASH_SOURCE[0]}")/run_test_in_docker.sh"
 
 resolve_config_args
+
+# When using a custom dataset, SPARK_DATA_DIR has to be set.
+if [[ -n ${DATASET_NAME} ]]; then
+  if [[ -z ${SPARK_DATA_DIR} ]]; then
+    echo "Error: When using --dataset-name, the SPARK_DATA_DIR environment variable must be set to a directory containing the benchmark datasets."
+    print_help
+    exit 1
+  fi
+  EXTRA_DOCKER_ARGS+=(-v "${SPARK_DATA_DIR}:${SPARK_DATA_DIR}" -e "SPARK_DATA_DIR=${SPARK_DATA_DIR}")
+fi
 
 TEST_FILE="../testing/integration_tests/${BENCHMARK_TYPE}_test.py"
 
