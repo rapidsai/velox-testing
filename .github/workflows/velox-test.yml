@@ -89,7 +89,18 @@ jobs:
         if: ${{ inputs.use_upstream_deps_image }}
         name: Pull Velox Dependencies
         run: |
-          docker pull ghcr.io/facebookincubator/velox-dev:adapters
+          for attempt in 1 2 3; do
+            echo "=== Pull attempt $attempt of 3 ==="
+            if docker pull ghcr.io/facebookincubator/velox-dev:adapters; then
+              break
+            fi
+            if [[ $attempt -lt 3 ]]; then
+              echo "Pull failed, retrying in 30s..."
+              sleep 30
+            else
+              exit 1
+            fi
+          done
 
       - &fetch-and-load-deps
         if: ${{ ! inputs.use_upstream_deps_image }}

@@ -62,8 +62,6 @@ else
         if [[ "${SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE:-false}" == "true" ]]; then
             echo "SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true, continuing with local compilation"
             export SCCACHE_NO_DIST_COMPILE=1
-            sccache --stop-server >/dev/null 2>&1 || true
-            sccache --zero-stats
         else
             exit 1
         fi
