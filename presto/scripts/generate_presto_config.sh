@@ -52,9 +52,10 @@ function duplicate_worker_configs() {
     sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${worker_native_config}
     # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_native_config}
-    # make join-distribution-type=PARTITIONED if we are running multiple workers
-    # (ucx exchange does not currently support BROADCAST partition type)
-    sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_native_config}
+    # UCX exchange supports both PARTITIONED and BROADCAST partition types;
+    # leave join-distribution-type=AUTOMATIC so the optimizer can choose
+    # (fixes Q21 by allowing build/probe side swap for LeftJoin → RightJoin).
+    # sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_native_config}
   fi
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
@@ -144,6 +145,8 @@ EOF
   if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
     # Adds a cluster tag for cpu variant
     echo "cluster-tag=native-cpu" >> ${COORD_CONFIG}
+    # Disable cuDF for CPU mode
+    sed -i 's/^cudf\.enabled=true/cudf.enabled=false/' ${WORKER_CONFIG}
   fi
 
   # for Java variant, disable some Parquet properties which are now rejected
@@ -163,7 +166,7 @@ fi
 
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
-if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
+if [[ -n "$NUM_WORKERS" && ( "$VARIANT_TYPE" == "gpu" || "$VARIANT_TYPE" == "cpu" ) ]]; then
   if [[ -n ${GPU_IDS:-} ]]; then
       WORKER_IDS=($(echo "$GPU_IDS" | tr ',' ' '))
   else

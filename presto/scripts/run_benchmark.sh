@@ -38,6 +38,8 @@ OPTIONS:
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
+    --queries-file          Path to a custom JSON file containing query definitions.
+                            Overrides the default queries_best.json.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -160,6 +162,15 @@ parse_args() {
         METRICS=true
         shift
         ;;
+      --queries-file)
+        if [[ -n $2 ]]; then
+          QUERIES_FILE=$2
+          shift 2
+        else
+          echo "Error: --queries-file requires a value"
+          exit 1
+        fi
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -234,6 +245,10 @@ fi
 
 if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
+fi
+
+if [[ -n ${QUERIES_FILE} ]]; then
+  PYTEST_ARGS+=("--queries-file ${QUERIES_FILE}")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"

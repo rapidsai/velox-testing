@@ -1,0 +1,1 @@
+srun --nodes=1 --nodelist=presto-gb200-gcn-03 --ntasks-per-node=1 --gres=gpu:4 --exclusive --time=01:00:00 --container-image=/scratch/prestouser/images/mg-polars-tpch-nvl72-2026-03-04-arm64-cuda-13-1-ucxthrottling-nvcr.sqsh --container-mounts=${HOME}:${HOME},/scratch:/scratch --container-remap-root --container-writable --pty bash

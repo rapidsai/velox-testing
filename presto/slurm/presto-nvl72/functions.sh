@@ -4,10 +4,10 @@
 
 # Validates job preconditions and assigns default values for presto execution.
 function setup {
-    [ -z "$SLURM_JOB_NAME" ] && echo "required argument '--job-name' not specified" && exit 1
-    [ -z "$SLURM_JOB_ACCOUNT" ] && echo "required argument '--account' not specified" && exit 1
-    [ -z "$SLURM_JOB_PARTITION" ] && echo "required argument '--partition' not specified" && exit 1
-    [ -z "$SLURM_NNODES" ] && echo "required argument '--nodes' not specified" && exit 1
+    [ -z "${SLURM_JOB_NAME:-}" ] && echo "required argument '--job-name' not specified" && exit 1
+    [ -z "${SLURM_JOB_ACCOUNT:-}" ] && echo "warning: '--account' not specified"
+    [ -z "${SLURM_JOB_PARTITION:-}" ] && echo "warning: '--partition' not specified"
+    [ -z "${SLURM_NNODES:-}" ] && echo "required argument '--nodes' not specified" && exit 1
     [ -z "$IMAGE_DIR" ] && echo "IMAGE_DIR must be set" && exit 1
     [ -z "$LOGS" ] && echo "LOGS must be set" && exit 1
     [ -z "$CONFIGS" ] && echo "CONFIGS must be set" && exit 1
@@ -67,36 +67,57 @@ function run_coord_image {
     local coord_image="${IMAGE_DIR}/${COORD_IMAGE}.sqsh"
     [ ! -f "${coord_image}" ] && echo_error "coord image does not exist at ${coord_image}"
 
+    # Provide a writable base data directory for the coordinator so that the
+    # Presto launcher can create /var/lib/presto/data/var (PID file, etc.).
+    # Workers do the same via worker_data_N; without this mount the squash
+    # image filesystem is read-only and the launcher fails with EROFS.
+    local coord_data="${SCRIPT_DIR}/coord_data"
+    mkdir -p "${coord_data}"
+
+    # Miniforge is installed at ${VT_ROOT}/miniforge3. Its conda/python scripts
+    # have shebangs hardcoded to the host-absolute install path. We bind-mount
+    # miniforge at that same absolute path inside the container so shebangs
+    # resolve correctly regardless of where /workspace points.
+    local miniforge_dir="${VT_ROOT}/miniforge3"
+    local miniforge_mount=""
+    if [ -d "${miniforge_dir}" ]; then
+        miniforge_mount=",${miniforge_dir}:${miniforge_dir}"
+    fi
+
     # Coordinator runs as a background process, whereas we want to wait for cli
     # so that the job will finish when the cli is done (terminating background
     # processes like the coordinator and workers).
     if [ "${type}" == "coord" ]; then
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
+--container-remap-root \
 --export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${VT_ROOT}:/workspace,\
+${coord_data}:/var/lib/presto/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
+${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${miniforge_mount} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
+--container-remap-root \
 --container-image=${coord_image} \
 --export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
 --container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
 --container-mounts=${VT_ROOT}:/workspace,\
+${coord_data}:/var/lib/presto/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
+${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${miniforge_mount} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
     fi
 }
@@ -154,7 +175,9 @@ function run_worker {
     validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD CUDF_LIB DATA
 
     local gpu_id=$1 image=$2 node=$3 worker_id=$4
-    echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id}"
+    # Assign NUMA node based on GPU ID: GPUs 0-3 → node 0, GPUs 4-7 → node 1, etc.
+    local numa_node=$((gpu_id / 4))
+    echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id} numa_node ${numa_node}"
 
     local worker_image="${IMAGE_DIR}/${image}.sqsh"
     [ ! -f "${worker_image}" ] && echo_error "worker image does not exist at ${worker_image}"
@@ -173,15 +196,23 @@ function run_worker {
     mkdir -p ${worker_data}/hive/data/user_data
     mkdir -p ${VT_ROOT}/.hive_metastore
 
-    # Need to fix this to run with cpu nodes as well.
-    # Run the worker with the new configs.
-    # Use --overlap to allow multiple srun commands from same job
-    # Don't use --gres=gpu:1 here since the job already allocated GPUs
-    # Set CUDA_VISIBLE_DEVICES explicitly in bash command to override SLURM default
+    # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
+    # capabilities are already set up for the job cgroup.  Do NOT use --gres=gpu:1
+    # on the step: it restricts the step's cgroup to one GPU and then nvidia-container-cli
+    # rejects NVIDIA_VISIBLE_DEVICES values for other GPUs as "unknown device".
+    #
+    # NVIDIA_VISIBLE_DEVICES=all triggers the enroot 98-nvidia.sh hook which calls
+    # nvidia-container-cli configure --device=all --compute.  This mounts all GPU
+    # devices and all required host driver libraries (580.105.08: libcuda, libnvidia-
+    # gpucomp, libnvidia-nvvm, libnvidia-ptxjitcompiler, libnvidia-ml, etc.) and runs
+    # ldconfig inside the container.  The manual libcuda bind-mount then overrides the
+    # compat library with the host driver so cudaMallocAsync works.
+    # CUDA_VISIBLE_DEVICES=${gpu_id} inside the container restricts each worker to
+    # its assigned GPU while still allowing the CUDA driver to enumerate all devices.
     srun -N1 -w $node --ntasks=1 --overlap \
 --container-image=${worker_image} \
---export=ALL \
---container-env=LD_LIBRARY_PATH="/usr/lib64/presto-native-libs:/usr/local/lib:/usr/lib64" \
+--container-remap-root \
+--export=ALL,NVIDIA_VISIBLE_DEVICES=all,NVIDIA_DRIVER_CAPABILITIES=compute,utility \
 --container-mounts=${VT_ROOT}:/workspace,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${worker_node}:/opt/presto-server/etc/node.properties,\
@@ -189,11 +220,20 @@ ${worker_config}:/opt/presto-server/etc/config.properties,\
 ${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
+${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
+/usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
+/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1 \
 --container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
 --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
 --container-env=GLOG_logtostderr=1 \
--- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; nvidia-smi -L; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+-- /bin/bash -c "
+if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
+echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
+if [[ '${USE_NUMA}' == '1' ]]; then
+    numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+else
+    /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 function copy_hive_metastore {
@@ -226,19 +266,25 @@ function setup_benchmark {
 
 # Run a cli node that will connect to the coordinator and run queries from queries.sql
 # Results are stored in cli.log.
+# Optional: set QUERIES_FILE env var to a path inside the container to use a custom queries JSON.
 function run_queries {
     echo "running queries"
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
+    local queries_file_arg=""
+    if [[ -n "${QUERIES_FILE:-}" ]]; then
+        queries_file_arg="--queries-file ${QUERIES_FILE}"
+    fi
     # We currently skip dropping cache because it requires docker (not available on the cluster).
     run_coord_image "export PORT=$PORT; \
     export HOSTNAME=$COORD; \
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
-    yum install python3.12 jq -y > /dev/null; \
+    export MINIFORGE_HOME=${VT_ROOT}/miniforge3; \
+    export HOME=/workspace; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} \
-        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
+        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache ${queries_file_arg}" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.
@@ -336,6 +382,88 @@ function tpch_summary_to_csv() {
   ' "$in"
 }
 
+function collect_results {
+    local result_dir="${SCRIPT_DIR}/result_dir"
+
+    echo "Copying configs to ${result_dir}/configs/..."
+    mkdir -p "${result_dir}/configs"
+    cp "${CONFIGS}/etc_coordinator/config_native.properties" "${result_dir}/configs/coordinator.config"
+    cp "${CONFIGS}/etc_worker_0/config_native.properties"    "${result_dir}/configs/worker.config"
+
+    echo "Copying logs to ${result_dir}/..."
+    cp "${LOGS}"/*.log "${result_dir}/"
+}
+
+function inject_benchmark_metadata {
+    local result_file="${SCRIPT_DIR}/result_dir/benchmark_result.json"
+    if [ ! -f "${result_file}" ]; then
+        echo "Warning: ${result_file} not found, skipping metadata injection"
+        return
+    fi
+
+    local kind="multi-node"
+    if (( NUM_WORKERS == 1 )); then
+        kind="single-node"
+    fi
+
+    local timestamp
+    timestamp=$(date +"%Y-%m-%dT%H:%M:%SZ")
+
+    local gpu_name
+    gpu_name=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader -i 0 2>/dev/null | head -1) || true
+    gpu_name="${gpu_name:-unknown}"
+
+    local num_drivers
+    num_drivers=$(grep "^task\.max-drivers-per-task=" "${CONFIGS}/etc_worker/config_native.properties" 2>/dev/null \
+                  | cut -d= -f2) || true
+    num_drivers="${num_drivers:-2}"
+
+    local cudf_enabled
+    cudf_enabled=$(grep "^cudf\.enabled=" "${CONFIGS}/etc_worker/config_native.properties" 2>/dev/null \
+                   | cut -d= -f2) || true
+    local engine
+    if [[ "${cudf_enabled}" == "true" ]]; then
+        engine="presto-velox-gpu"
+    else
+        engine="presto-velox-cpu"
+    fi
+
+    local worker_image_path="${IMAGE_DIR}/${WORKER_IMAGE}.sqsh"
+    local image_digest
+    echo "Computing SHA256 of ${worker_image_path}..."
+    image_digest=$(sha256sum "${worker_image_path}" | awk '{print $1}') || true
+    image_digest="${image_digest:-unknown}"
+    echo "Image digest: ${image_digest}"
+
+    local tmp_file
+    tmp_file=$(mktemp)
+    jq --arg kind "$kind" \
+       --arg timestamp "$timestamp" \
+       --argjson n_workers "$NUM_WORKERS" \
+       --argjson node_count "$NUM_NODES" \
+       --argjson scale_factor "$SCALE_FACTOR" \
+       --argjson gpu_count "$NUM_WORKERS" \
+       --arg gpu_name "$gpu_name" \
+       --argjson num_drivers "$num_drivers" \
+       --arg worker_image "$WORKER_IMAGE" \
+       --arg image_digest "$image_digest" \
+       --arg engine "$engine" \
+       '.context += {
+           kind: $kind,
+           timestamp: $timestamp,
+           n_workers: $n_workers,
+           node_count: $node_count,
+           scale_factor: $scale_factor,
+           gpu_count: $gpu_count,
+           gpu_name: $gpu_name,
+           num_drivers: $num_drivers,
+           worker_image: $worker_image,
+           image_digest: $image_digest,
+           engine: $engine
+       }' "${result_file}" > "${tmp_file}" && mv "${tmp_file}" "${result_file}"
+    echo "Injected benchmark metadata into ${result_file}"
+}
+
 function generate_json() {
     local kind="single-node"
     if (( $NUM_WORKERS > 1 )); then
@@ -350,6 +478,7 @@ function generate_json() {
        --arg benchmark "tpch" \
        --arg timestamp "$timestamp" \
        --arg num_workers "$NUM_WORKERS" \
+       --arg num_nodes "$NUM_NODES" \
        --arg scale_factor "$SCALE_FACTOR" \
        --arg num_drivers "$NUM_DRIVERS" \
        --arg image_name "$WORKER_IMAGE" \
@@ -361,6 +490,7 @@ function generate_json() {
     timestamp: $timestamp,
     execution_number: 1,
     n_workers: ($num_workers | tonumber),
+    node_count: ($num_nodes | tonumber),
     scale_factor: ($scale_factor | tonumber),
     gpu_count: ($num_workers | tonumber),
     num_drivers: ($num_drivers | tonumber),
