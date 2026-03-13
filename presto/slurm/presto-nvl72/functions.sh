@@ -226,7 +226,14 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 --container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
 --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
 --container-env=GLOG_logtostderr=1 \
--- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES, NUMA_NODE=${numa_node}\"; if [[ '${USE_NUMA}' == '1' ]]; then numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc; else /usr/bin/presto_server --etc-dir=/opt/presto-server/etc; fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+-- /bin/bash -c "
+if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
+echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
+if [[ '${USE_NUMA}' == '1' ]]; then
+    numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+else
+    /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 function copy_hive_metastore {

@@ -38,10 +38,10 @@ export COORD_IMAGE
 
 # Assumes the repo root is four steps up from the script directory.  This should refer to velox-testing.
 export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
-export DATA=/scratch/prestouser/tpch-rs-float
+export DATA=/scratch/prestouser/tpch-rs-float-no-delta
 export IMAGE_DIR=/scratch/prestouser/images/presto
 export LOGS=$SCRIPT_DIR/logs
-export VARIANT_TYPE=gpu
+export VARIANT_TYPE=${VARIANT_TYPE:-gpu}
 export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
 # Container Images
@@ -96,7 +96,8 @@ echo "Scale factor: $SCALE_FACTOR"
 echo "Iterations: $NUM_ITERATIONS"
 echo "Data directory: $DATA"
 echo "Logs directory: $LOGS"
-echo "Total workers: $NUM_WORKERS (${NUM_NODES} nodes × ${NUM_GPUS_PER_NODE} GPUs)"
+echo "Variant: $VARIANT_TYPE"
+echo "Total workers: $NUM_WORKERS (${NUM_NODES} nodes × ${NUM_GPUS_PER_NODE} workers/node)"
 echo "Single node execution: $SINGLE_NODE_EXECUTION"
 echo "========================================"
 

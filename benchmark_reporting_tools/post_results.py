@@ -87,6 +87,8 @@ class BenchmarkMetadata:
         """Construct from the context dict embedded in benchmark_result.json."""
         timestamp_str = context["timestamp"]
         timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        engine = context["engine"]
+        is_cpu = "cpu" in engine
         return cls(
             kind=context["kind"],
             benchmark=context.get("benchmark", "tpch"),
@@ -95,12 +97,12 @@ class BenchmarkMetadata:
             n_workers=int(context["n_workers"]),
             node_count=int(context["node_count"]) if "node_count" in context else None,
             scale_factor=int(context["scale_factor"]),
-            gpu_count=int(context["gpu_count"]),
-            gpu_name=context["gpu_name"],
+            gpu_count=0 if is_cpu else int(context["gpu_count"]),
+            gpu_name="N/A" if is_cpu else context["gpu_name"],
             num_drivers=int(context["num_drivers"]),
             worker_image=context.get("worker_image"),
             image_digest=context.get("image_digest"),
-            engine=context["engine"],
+            engine=engine,
         )
 
     def serialize(self) -> dict:
