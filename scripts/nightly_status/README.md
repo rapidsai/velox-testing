@@ -96,8 +96,7 @@ python scripts/nightly_status/prepare_slack_payload.py --file status.txt --outpu
 | Secret | Purpose |
 |---|---|
 | `ANTHROPIC_API_KEY` | Claude CLI authentication for AI analysis |
-| `SLACK_WEBHOOK_NIGHTLY_STATUS` | Incoming webhook URL for the status report channel |
-| `SLACK_WEBHOOK_NIGHTLY_RCA` | Incoming webhook URL for the RCA report channel |
+| `SLACK_WEBHOOK_NIGHTLY_STATUS_URL` | Incoming webhook URL for posting status and RCA reports to Slack |
 
 ## Manual Trigger
 
