@@ -176,9 +176,7 @@ def pytest_sessionfinish(session, exitstatus):
 
     if hasattr(session, "benchmark_results"):
         benchmark_types = list(session.benchmark_results.keys())
-        json_result[BenchmarkKeys.CONTEXT_KEY]["benchmark"] = (
-            benchmark_types[0] if len(benchmark_types) == 1 else benchmark_types
-        )
+        json_result[BenchmarkKeys.CONTEXT_KEY]["benchmark"] = benchmark_types
 
     build_and_write_benchmark_result(session, json_result)
 

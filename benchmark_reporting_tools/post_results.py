@@ -87,7 +87,7 @@ def _default_logs_dir() -> Path | None:
 
 @dataclasses.dataclass(kw_only=True)
 class BenchmarkMetadata:
-    benchmark: str
+    benchmark: list[str]
     timestamp: datetime
     engine: str
     kind: str | None = None
@@ -103,6 +103,10 @@ class BenchmarkMetadata:
         """Extract metadata from the 'context' section of a parsed benchmark_result.json."""
         data = dict(raw["context"])
         data["timestamp"] = datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00"))
+
+        # Normalise legacy string values to a list.
+        if isinstance(data.get("benchmark"), str):
+            data["benchmark"] = [data["benchmark"]]
 
         known_fields = {f.name for f in dataclasses.fields(cls)}
         filtered = {k: v for k, v in data.items() if k in known_fields}
@@ -584,12 +588,6 @@ async def _process_benchmark_dir(
         print(f"  Error loading metadata: {e}", file=sys.stderr)
         return 1
 
-    try:
-        results = BenchmarkResults.from_parsed(raw, benchmark_name=benchmark_metadata.benchmark)
-    except (ValueError, KeyError) as e:
-        print(f"  Error loading results: {e}", file=sys.stderr)
-        return 1
-
     # Resolve config directory: explicit override → auto-detect from variant
     effective_config_dir = config_dir
     variant = _ENGINE_TO_VARIANT.get(benchmark_metadata.engine)
@@ -642,53 +640,64 @@ async def _process_benchmark_dir(
     elif upload_logs:
         print("  No logs directory found; skipping log upload.", file=sys.stderr)
 
-    # Build submission payload
-    try:
-        payload = _build_submission_payload(
-            benchmark_metadata=benchmark_metadata,
-            benchmark_results=results,
-            engine_config=engine_config,
-            benchmark_definition_name=benchmark_definition_name,
-            sku_name=sku_name,
-            storage_configuration_name=storage_configuration_name,
-            cache_state=cache_state,
-            engine_name=engine_name,
-            identifier_hash=identifier_hash,
-            version=version,
-            commit_hash=commit_hash,
-            is_official=is_official,
-            asset_ids=asset_ids,
-            concurrency_streams=concurrency_streams,
-        )
-    except Exception as e:
-        print(f"  Error building payload: {e}", file=sys.stderr)
-        return 1
+    # Process each benchmark type found in the result file.
+    overall_result = 0
+    for bench_name in benchmark_metadata.benchmark:
+        print(f"\n  Processing benchmark type: {bench_name}", file=sys.stderr)
 
-    # Print summary
-    print(f"  Benchmark definition: {payload['benchmark_definition_name']}", file=sys.stderr)
-    print(f"  Engine: {payload['query_engine']['engine_name']}", file=sys.stderr)
-    print(f"  Identifier hash: {payload['query_engine']['identifier_hash']}", file=sys.stderr)
-    print(f"  Node count: {payload['node_count']}", file=sys.stderr)
-    print(f"  Query logs: {len(payload['query_logs'])}", file=sys.stderr)
+        try:
+            results = BenchmarkResults.from_parsed(raw, benchmark_name=bench_name)
+        except (ValueError, KeyError) as e:
+            print(f"  Error loading results for '{bench_name}': {e}", file=sys.stderr)
+            overall_result = 1
+            continue
 
-    if dry_run:
-        print("\n  [DRY RUN] Payload:", file=sys.stderr)
-        print(json.dumps(payload, indent=2, default=str))
-        return 0
+        try:
+            payload = _build_submission_payload(
+                benchmark_metadata=benchmark_metadata,
+                benchmark_results=results,
+                engine_config=engine_config,
+                benchmark_definition_name=benchmark_definition_name,
+                sku_name=sku_name,
+                storage_configuration_name=storage_configuration_name,
+                cache_state=cache_state,
+                engine_name=engine_name,
+                identifier_hash=identifier_hash,
+                version=version,
+                commit_hash=commit_hash,
+                is_official=is_official,
+                asset_ids=asset_ids,
+                concurrency_streams=concurrency_streams,
+            )
+        except Exception as e:
+            print(f"  Error building payload for '{bench_name}': {e}", file=sys.stderr)
+            overall_result = 1
+            continue
 
-    # Post to API
-    try:
-        status_code, response_text = await _post_submission(api_url, api_key, payload, timeout)
-        print(f"  Status: {status_code}", file=sys.stderr)
-        if status_code >= 400:
-            print(f"  Response: {response_text}", file=sys.stderr)
-            return 1
-        else:
-            print(f"  Success: {response_text}", file=sys.stderr)
-            return 0
-    except httpx.RequestError as e:
-        print(f"  Error posting: {e}", file=sys.stderr)
-        return 1
+        print(f"  Benchmark definition: {payload['benchmark_definition_name']}", file=sys.stderr)
+        print(f"  Engine: {payload['query_engine']['engine_name']}", file=sys.stderr)
+        print(f"  Identifier hash: {payload['query_engine']['identifier_hash']}", file=sys.stderr)
+        print(f"  Node count: {payload['node_count']}", file=sys.stderr)
+        print(f"  Query logs: {len(payload['query_logs'])}", file=sys.stderr)
+
+        if dry_run:
+            print("\n  [DRY RUN] Payload:", file=sys.stderr)
+            print(json.dumps(payload, indent=2, default=str))
+            continue
+
+        try:
+            status_code, response_text = await _post_submission(api_url, api_key, payload, timeout)
+            print(f"  Status: {status_code}", file=sys.stderr)
+            if status_code >= 400:
+                print(f"  Response: {response_text}", file=sys.stderr)
+                overall_result = 1
+            else:
+                print(f"  Success: {response_text}", file=sys.stderr)
+        except httpx.RequestError as e:
+            print(f"  Error posting for '{bench_name}': {e}", file=sys.stderr)
+            overall_result = 1
+
+    return overall_result
 
 
 async def main() -> int:

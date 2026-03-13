@@ -2,10 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from datetime import datetime, timezone
-
 from ..common.conftest import *  # noqa: F403
-from .run_context import gather_run_context
 
 # ruff: noqa: I001
 import pytest
@@ -29,6 +26,7 @@ from ..common.fixtures import (
 from .common_fixtures import (
     benchmark_query,  # noqa: F401
     presto_cursor,  # noqa: F401
+    run_context_collector,  # noqa: F401
 )
 
 
@@ -46,27 +44,6 @@ def pytest_addoption(parser):
     parser.addoption("--profile-script-path")
     parser.addoption("--metrics", action="store_true", default=False)
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
-
-
-def pytest_sessionstart(session):
-    """Gather Presto-specific run context and attach it to the session.
-
-    The common pytest_sessionfinish merges session.run_context into the
-    benchmark_result.json context section.
-    """
-    hostname = session.config.getoption("--hostname")
-    port = session.config.getoption("--port")
-    user = session.config.getoption("--user")
-    schema_name = session.config.getoption("--schema-name")
-
-    ctx = gather_run_context(
-        hostname=hostname,
-        port=port,
-        user=user,
-        schema_name=schema_name,
-    )
-    ctx["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    session.run_context = ctx
 
 
 def pytest_configure(config):
