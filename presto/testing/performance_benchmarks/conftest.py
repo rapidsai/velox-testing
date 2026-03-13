@@ -10,7 +10,7 @@ from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.common_fixtures import (
     benchmark_queries,  # noqa: F401
     benchmark_result_collector,  # noqa: F401
-    drop_cache_once,  # noqa: F401
+    cache_setup_per_session,  # noqa: F401
 )
 from common.testing.performance_benchmarks.conftest import (
     DataLocation,
@@ -23,6 +23,7 @@ from ..common.fixtures import (
     tpch_queries,  # noqa: F401
 )
 from .common_fixtures import (
+    benchmark_data_dir,  # noqa: F401
     benchmark_query,  # noqa: F401
     presto_cursor,  # noqa: F401
 )
@@ -42,6 +43,7 @@ def pytest_addoption(parser):
     parser.addoption("--profile-script-path")
     parser.addoption("--metrics", action="store_true", default=False)
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
+    parser.addoption("--cache-mode", choices=["hot", "lukewarm", "cold", "none"], default=None)
 
 
 def pytest_configure(config):

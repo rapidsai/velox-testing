@@ -15,15 +15,32 @@ def benchmark_result_collector(request):
     request.session.benchmark_results = benchmark_results
 
 
+@pytest.fixture(scope="session")
+def benchmark_data_dir(request):
+    """Override this fixture in engine-specific conftest to provide the data directory."""
+    raise NotImplementedError("Engine-specific conftest must define a 'benchmark_data_dir' fixture")
+
+
 @pytest.fixture(scope="session", autouse=True)
-def drop_cache_once(request):
-    """Session-scoped fixture that drops the cache once at the start of the benchmark run."""
-    drop_cache_enabled = not request.config.getoption("--skip-drop-cache")
-    if drop_cache_enabled:
-        drop_cache()
-        print("[Cache] System cache dropped successfully.")
-    else:
-        print("[Cache] Skipping cache drop (--skip-drop-cache flag set).")
+def cache_setup_per_session(request, benchmark_data_dir):
+    """Session-scoped fixture that drops the cache once at the start of the benchmark
+    run for the lukewarm cache mode."""
+    cache_mode = request.config.getoption("--cache-mode")
+
+    # Legacy support: if no cache mode specified, fall back to --skip-drop-cache behavior
+    if cache_mode is None:
+        skip = request.config.getoption("--skip-drop-cache")
+        cache_mode = "none" if skip else "lukewarm"
+
+    if cache_mode == "lukewarm":
+        drop_cache(benchmark_data_dir)
+        print(f"[Cache] Cache mode: {cache_mode}. Dropped cache for: {benchmark_data_dir}")
+    elif cache_mode == "cold":
+        print(f"[Cache] Cache mode: {cache_mode}. Cache will be dropped before each iteration.")
+    elif cache_mode == "hot":
+        print(f"[Cache] Cache mode: {cache_mode}. Warmup query will run before timed iterations.")
+    elif cache_mode == "none":
+        print(f"[Cache] Cache mode: {cache_mode}. No cache management.")
 
 
 @pytest.fixture(scope="module")

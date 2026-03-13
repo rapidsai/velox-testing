@@ -35,7 +35,15 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
-    --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
+    --skip-drop-cache       Skip dropping system caches before each benchmark query. This option is only effective
+                            when --cache-mode is not specified.
+    -c, --cache-mode        Cache mode for benchmark queries. Controls page cache state between query iterations.
+                            Supported modes:
+                            lukewarm - Drop cache once at benchmark start, then let cache warm naturally across
+                                       iterations and queries.
+                            cold     - Drop cache before each query iteration.
+                            hot      - Run an untimed warmup execution before timing each query.
+                            none     - Do not manage page cache at all.
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
 
@@ -156,6 +164,15 @@ parse_args() {
         SKIP_DROP_CACHE=true
         shift
         ;;
+      -c|--cache-mode)
+        if [[ -n $2 ]]; then
+            CACHE_MODE=$2
+            shift 2
+        else
+            echo "Error: --cache-mode requires a value"
+            exit 1
+        fi
+        ;;
       -m|--metrics)
         METRICS=true
         shift
@@ -179,6 +196,12 @@ fi
 
 if [[ -z ${SCHEMA_NAME} ]]; then
   echo "Error: A schema name must be set. Use the -s or --schema-name argument."
+  print_help
+  exit 1
+fi
+
+if [[ -n ${CACHE_MODE} && ! ${CACHE_MODE} =~ ^(hot|cold|lukewarm|none)$ ]]; then
+  echo "Error: Invalid --cache-mode value '${CACHE_MODE}'. Must be one of: hot, cold, lukewarm, none."
   print_help
   exit 1
 fi
@@ -234,6 +257,10 @@ fi
 
 if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
+fi
+
+if [[ -n ${CACHE_MODE} ]]; then
+  PYTEST_ARGS+=("--cache-mode ${CACHE_MODE}")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
