@@ -730,6 +730,8 @@ _AI_PROMPT_TEMPLATE = textwrap.dedent("""\
     - For type errors, mention what type was expected vs what was provided
     - For TEST FAILURES: Always include the EXACT test case name(s) that failed (e.g., 'TestClassName.testMethodName', 'test_function_name')
     - For test failures, mention the assertion that failed or the error message from the test
+    - For download/archive failures: ALWAYS include the line that shows the command and the EXACT file name that failed (e.g., 'tar -xz ... -f fizz.tar.gz'), not just the generic error like 'gzip: stdin: not in gzip format'
+    - For Docker build failures: Include the Dockerfile line reference and the specific command that failed
 
     Job: {job_name}
     Workflow: {workflow_name}
@@ -1558,6 +1560,7 @@ def main():
     # ----- Phase 3: Build status table -----
     if CFG.slack_format:
         print_slack_header()
+        OUT.print("```")
         print_slack_table_header()
     else:
         print_plain_header()
@@ -1566,12 +1569,13 @@ def main():
     fail_entries: List[Dict[str, Any]] = []  # label, run, filter, wf
     inprog_entries: List[Dict[str, Any]] = []
 
-    for row_no, row in enumerate(ROW_DEFS, 1):
+    # Pre-compute cells for all rows (used for table + failure collection)
+    row_cells: List[Tuple[Optional[dict], Optional[dict], Optional[dict], str, str, str]] = []
+    for row in ROW_DEFS:
         up_run = run_map.get(row["upstream"]) if row["upstream"] else None
         st_run = run_map.get(row["staging"]) if row["staging"] else None
         sb_run = run_map.get(row["stable"]) if row["stable"] else None
         jf = row["job_filter"]
-
         if jf:
             up_cell = cell_for_filtered_jobs(up_run, jf)
             st_cell = cell_for_filtered_jobs(st_run, jf)
@@ -1580,13 +1584,22 @@ def main():
             up_cell = cell_for_run(up_run)
             st_cell = cell_for_run(st_run)
             sb_cell = cell_for_run(sb_run)
+        row_cells.append((up_run, st_run, sb_run, up_cell, st_cell, sb_cell))
 
+    # Print table rows
+    for row_no, (row, (up_run, st_run, sb_run, up_cell, st_cell, sb_cell)) in enumerate(zip(ROW_DEFS, row_cells), 1):
         display = row["display"]
         if CFG.slack_format:
             print_slack_table_row(row_no, display, st_cell, up_cell, sb_cell)
         else:
             print_plain_table_row(row_no, display, st_cell, up_cell, sb_cell)
 
+    if CFG.slack_format:
+        OUT.print("```")
+
+    # Collect failures and in-progress entries
+    for row, (up_run, st_run, sb_run, up_cell, st_cell, sb_cell) in zip(ROW_DEFS, row_cells):
+        jf = row["job_filter"]
         for col_name, wf_key, run_obj, cell in [
             ("Staging", "staging", st_run, st_cell),
             ("Upstream", "upstream", up_run, up_cell),
