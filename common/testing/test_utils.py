@@ -7,9 +7,7 @@ import os
 
 def get_queries(benchmark_type, queries_file=None):
     if queries_file is None:
-        queries_file = get_abs_file_path(__file__, f"./queries/{benchmark_type}/queries_best.json")
-        if not os.path.exists(queries_file):
-            queries_file = get_abs_file_path(__file__, f"./queries/{benchmark_type}/queries.json")
+        queries_file = get_abs_file_path(__file__, f"./queries/{benchmark_type}/queries.json")
     elif not os.path.isabs(queries_file):
         queries_file = get_abs_file_path(__file__, queries_file)
     with open(queries_file, "r") as file:
