@@ -3,7 +3,7 @@
 
 import argparse
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pyarrow as pa
@@ -13,22 +13,46 @@ from pyarrow import compute as pc
 
 # Multi-thread file processing
 def process_dir(input_dir, output_dir, num_threads, verbose, convert_decimal_to_float):
-    with ThreadPoolExecutor(num_threads) as executor:
-        futures = []
-        for root, _, files in os.walk(input_dir):
-            for file in files:
-                if file.endswith(".parquet"):
-                    input_file_path = os.path.join(root, file)
-                    futures.append(
+    from tqdm import tqdm
+
+    parquet_files = []
+    for root, _, files in os.walk(input_dir):
+        for file in files:
+            if file.endswith(".parquet"):
+                parquet_files.append(os.path.join(root, file))
+
+    # Group files by parent directory (table name) for nested progress.
+    tables = {}
+    for f in parquet_files:
+        table_name = os.path.basename(os.path.dirname(f))
+        tables.setdefault(table_name, []).append(f)
+
+    # Pre-count row groups per file for smooth inner progress.
+    file_rg_counts = {}
+    for f in parquet_files:
+        file_rg_counts[f] = pq.ParquetFile(f).metadata.num_row_groups
+
+    total_rgs = sum(file_rg_counts.values())
+    with tqdm(total=total_rgs, desc="Converting (overall)", unit="rg", position=0) as overall_bar:
+        for table_name, table_files in tables.items():
+            table_rgs = sum(file_rg_counts[f] for f in table_files)
+            with tqdm(total=table_rgs, desc=f"  {table_name}", unit="rg", position=1, leave=False) as table_bar:
+                with ThreadPoolExecutor(num_threads) as executor:
+                    def on_row_group():
+                        table_bar.update(1)
+                        overall_bar.update(1)
+
+                    futures = {
                         executor.submit(
-                            process_file, input_file_path, output_dir, input_dir, verbose, convert_decimal_to_float
-                        )
-                    )
-        for future in futures:
-            future.result()
+                            process_file, f, output_dir, input_dir, verbose, convert_decimal_to_float, on_row_group
+                        ): f
+                        for f in table_files
+                    }
+                    for future in as_completed(futures):
+                        future.result()
 
 
-def process_file(input_file_path, output_dir, input_dir, verbose, convert_decimal_to_float):
+def process_file(input_file_path, output_dir, input_dir, verbose, convert_decimal_to_float, on_row_group=None):
     relative_path = os.path.relpath(os.path.dirname(input_file_path), input_dir)
     output_file_path = os.path.join(output_dir, relative_path, os.path.basename(input_file_path))
 
@@ -68,6 +92,8 @@ def process_file(input_file_path, output_dir, input_dir, verbose, convert_decima
                 casted_arrays.append(arr)
             orig_row_group_size = parquet_file.metadata.row_group(row_group_index).num_rows
             writer.write_table(pa.table(casted_arrays, schema=new_schema), row_group_size=orig_row_group_size)
+            if on_row_group:
+                on_row_group()
     finally:
         writer.close()
 

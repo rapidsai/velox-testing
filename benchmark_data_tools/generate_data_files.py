@@ -7,12 +7,14 @@ import math
 import os
 import shutil
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import duckdb
 from duckdb_utils import init_benchmark_tables, is_decimal_column
 from rewrite_parquet import process_dir
+from sort_parquet import sort_tables
+from tqdm import tqdm
 
 
 def generate_partition(table, partition, raw_data_path, scale_factor, num_partitions, verbose, approx_row_group_bytes):
@@ -57,6 +59,9 @@ def generate_data_files(args):
             print("generating with duckdb")
         generate_data_files_with_duckdb(args)
 
+    if args.sort_columns:
+        sort_tables(args.data_dir_path, args.benchmark_type, args.num_threads, args.verbose)
+
 
 def generate_data_files_with_tpchgen(args):
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
@@ -68,35 +73,28 @@ def generate_data_files_with_tpchgen(args):
     else:
         raw_data_path = args.data_dir_path
 
+    total_partitions = sum(tables_sf_ratio.values())
     max_partitions = 1
-    with ThreadPoolExecutor(args.num_threads) as executor:
-        futures = []
 
+    with tqdm(total=total_partitions, desc="Generating (overall)", unit="part", position=0) as overall_bar:
         for table, num_partitions in tables_sf_ratio.items():
-            if args.verbose:
-                print(f"Generating TPC-H data for table '{table}' with {num_partitions} partitions")
-            for partition in range(1, num_partitions + 1):
-                futures.append(
-                    executor.submit(
-                        generate_partition,
-                        table,
-                        partition,
-                        raw_data_path,
-                        args.scale_factor,
-                        num_partitions,
-                        args.verbose,
-                        args.approx_row_group_bytes,
-                    )
-                )
-            max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
+            max_partitions = max(max_partitions, num_partitions)
 
-        for future in futures:
-            future.result()
+            with tqdm(total=num_partitions, desc=f"  {table}", unit="part", position=1, leave=False) as table_bar:
+                with ThreadPoolExecutor(args.num_threads) as executor:
+                    futures = {
+                        executor.submit(
+                            generate_partition, table, p, raw_data_path,
+                            args.scale_factor, num_partitions, args.verbose, args.approx_row_group_bytes,
+                        ): p
+                        for p in range(1, num_partitions + 1)
+                    }
+                    for future in as_completed(futures):
+                        future.result()
+                        table_bar.update(1)
+                        overall_bar.update(1)
 
     rearrange_directory(raw_data_path, max_partitions)
-
-    if args.verbose:
-        print(f"Raw data created at: {raw_data_path}")
 
     if args.convert_decimals_to_floats:
         process_dir(raw_data_path, args.data_dir_path, args.num_threads, args.verbose, args.convert_decimals_to_floats)
@@ -251,6 +249,13 @@ if __name__ == "__main__":
         required=False,
         default=False,
         help="Keep the original dataset that was generated before transformations",
+    )
+    parser.add_argument(
+        "--sort-columns",
+        action="store_true",
+        required=False,
+        default=False,
+        help="Sort lineitem by l_shipdate and orders by o_orderdate for better row-group pruning.",
     )
     parser.add_argument(
         "--approx-row-group-bytes",

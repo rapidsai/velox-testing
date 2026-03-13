@@ -9,4 +9,5 @@ six==1.17.0
 urllib3==2.5.0
 tpchgen-cli==2.0.1
 pyarrow==21.0.0
+tqdm
 pytest==9.0.2

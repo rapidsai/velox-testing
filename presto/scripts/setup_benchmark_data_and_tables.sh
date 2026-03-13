@@ -14,7 +14,8 @@ SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100 -f 100 -c"
 SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-f, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
     -j, --num-threads                   Number of threads to use for data generation. Default is $((`nproc` / 4)).
-    --approx-row-group-bytes            Approximate row group size in bytes."
+    --approx-row-group-bytes            Approximate row group size in bytes.
+    --sort-columns                      Sort lineitem by l_shipdate and orders by o_orderdate for row-group pruning."
 
 NUM_THREADS=$(($(nproc) / 4))
 function extra_options_parser() {
@@ -61,6 +62,12 @@ function extra_options_parser() {
       fi
       shift 2
       ;;
+    --sort-columns)
+      SORT_COLUMNS_ARG="--sort-columns"
+      SCRIPT_EXTRA_OPTIONS_SHIFTS=1
+      SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=false
+      shift
+      ;;
     *)
       return 0
       ;;
@@ -77,7 +84,7 @@ DATA_GEN_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../benchmark_data_tools/gen
 
 "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p $DATA_GEN_SCRIPT_PATH --benchmark-type $BENCHMARK_TYPE \
 --data-dir-path ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} --scale-factor $SCALE_FACTOR \
---num-threads $NUM_THREADS $CONVERT_DECIMALS_TO_FLOATS_ARG $APPROX_ROW_GROUP_BYTES_ARG
+--num-threads $NUM_THREADS $CONVERT_DECIMALS_TO_FLOATS_ARG $APPROX_ROW_GROUP_BYTES_ARG $SORT_COLUMNS_ARG
 
 SKIP_ANALYZE_TABLES_ARG=""
 if [[ "$SKIP_ANALYZE_TABLES" == "true" ]]; then
