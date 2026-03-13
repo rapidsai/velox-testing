@@ -1,26 +1,21 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 function wait_for_worker_node_registration() {
+  local host="$1"
+  local port="$2"
+
+  if [[ -z "${host}" || -z "${port}" ]]; then
+    echo "Error: wait_for_worker_node_registration requires hostname and port arguments."
+    exit 1
+  fi
+
   trap "rm -rf node_response.json" RETURN
 
   echo "Waiting for a worker node to be registered..."
-  HOSTNAME=${1:-localhost}
-  PORT=${2:-8080}
-  COORDINATOR_URL=http://${HOSTNAME}:${PORT}
+  COORDINATOR_URL=http://${host}:${port}
   echo "Coordinator URL: $COORDINATOR_URL"
   local -r MAX_RETRIES=12
   local retry_count=0

@@ -17,43 +17,61 @@ presto-nvl72/
 
 ## Quick Start
 
-### Running the Benchmark
+### Running the benchmark via launcher (recommended)
 
 ```bash
-cd /mnt/data/bzaitlen/presto-nvl72
-./launch-run.sh
+cd presto/slurm/presto-nvl72
+./launch-run.sh -n <nodes> -s <scale_factor> [-i <iterations>] [additional sbatch options]
+
+# examples
+./launch-run.sh -n 8 -s 3000
+./launch-run.sh -n 4 -s 10000 -i 3 --partition gpu --account myacct
 ```
 
-Or submit directly:
+The launcher:
+- requires node count (-n/--nodes) and scale factor (-s/--scale-factor)
+- accepts optional iterations (-i/--iterations, default 1)
+- embeds nodes/SF/iterations in .out/.err filenames
+- prints the first node’s hostname/IP when allocated and a ready-to-run SSH port-forward command to access the Presto Web UI on your machine (http://localhost:9200)
+
+### Submitting directly (advanced)
 
 ```bash
-sbatch run-presto-benchmarks.slurm
+export SCALE_FACTOR=3000
+export NUM_ITERATIONS=1
+sbatch --nodes 8 \
+  --output "presto-tpch-run_n8_sf3000_i1_%j.out" \
+  --error  "presto-tpch-run_n8_sf3000_i1_%j.err" \
+  --export "ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS}" \
+  run-presto-benchmarks.slurm
 ```
 
 ## Configuration
 
-**To change settings, edit the values directly in `run-presto-benchmarks.slurm`**
+Primary configuration is passed via the launcher flags and environment. The `.slurm` script validates that required variables are set.
 
-All configuration is at the top of the file in the "User Configuration" section.
+Key variables:
 
-### Configuration Variables
+- SCALE_FACTOR: required (provided via `-s/--scale-factor`)
+- NUM_ITERATIONS: required by the job; launcher defaults to 1 (`-i/--iterations` to override)
+- NUM_NODES: derived from Slurm allocation; provided via `-n/--nodes` to launcher
+- REPO_ROOT: auto-detected from script location
+- LOGS: `${SCRIPT_DIR}/logs` by default
+- IMAGE_DIR, DATA, CONFIGS: see below or override via environment if needed
 
-| Variable | Current Value | Description |
-|----------|---------------|-------------|
-| `SCALE_FACTOR` | 300 | TPC-H scale factor |
-| `NUM_ITERATIONS` | 5 | Number of query iterations |
-| `WORKER_IMAGE` | presto-native-worker-gpu | Worker container image |
-| `NUM_NODES` | 4 | Number of nodes to allocate |
-| `NUM_GPUS_PER_NODE` | 4 | GPUs per node |
-| `DATA` | /mnt/data/tpch-rs/scale-300 | Data directory |
-| `IMAGE_DIR` | /mnt/home/misiug/images | Container image directory |
-| `LOGS` | /mnt/data/bzaitlen/presto-nvl72/logs | Log directory |
+Other defaults:
+- WORKER_IMAGE: `presto-native-worker-gpu`
+- NUM_GPUS_PER_NODE: `4`
+- DATA: `/mnt/data/tpch-rs`
+- IMAGE_DIR: `/mnt/data/images/presto`
+- CONFIGS: `${REPO_ROOT}/presto/docker/config/generated/gpu`
 
 ### SBATCH Directives
 
 - **Time limit**: 1 hour (adjust `--time` if needed)
 - **Node allocation**: Full node (144 CPUs, 4 GPUs, exclusive)
 - **Memory**: All available (`--mem=0`)
+- `--nodes`, `--output`, and `--error` are passed by the launcher instead of being embedded in the `.slurm` file.
 
 ## Monitoring
 
@@ -62,7 +80,7 @@ All configuration is at the top of the file in the "User Configuration" section.
 squeue -u $USER
 
 # Monitor job output
-tail -f presto-tpch-run_<JOB_ID>.out
+tail -f presto-tpch-run_n<NODES>_sf<SCALE_FACTOR>_i<ITER>_<JOB_ID>.out
 
 # Check logs during execution
 tail -f logs/coord.log
@@ -70,12 +88,26 @@ tail -f logs/cli.log
 tail -f logs/worker_0.log
 ```
 
+## Coordinator IP and Web UI
+
+After submission, the launcher waits until nodes are allocated, then prints:
+- the first node’s hostname/IP
+- an SSH port-forward command you can run locally to access the Presto Web UI
+
+Example output snippet:
+
+```text
+Run this command on a machine to get access to the webUI:
+    ssh -N -L 9200:<COORDINATOR_IP>:9200 <jump-host>
+The UI will be available at http://localhost:9200
+```
+
 ## Results
 
 Results are saved to:
 - **Logs**: `logs/` directory
 - **CSV Summary**: `result_dir/summary.csv`
-- **Historical Results**: `${WORKSPACE}/benchmark-storage/YYYY/MM/DD/`
+- **Historical Results**: `${REPO_ROOT}/benchmark-storage/YYYY/MM/DD/`
 
 ## Prerequisites
 
@@ -85,7 +117,7 @@ Results are saved to:
 
 2. **Data directory** must be accessible at `${DATA}` (will be mounted in containers)
 
-3. **velox-testing repo** will be auto-cloned to `${WORKSPACE}/velox-testing` if not present
+3. **velox-testing repo** will be auto-cloned to `${REPO_ROOT}/velox-testing` if not present
 
 ## Troubleshooting
 
@@ -104,7 +136,7 @@ cat logs/worker_*.log
 ### Image not found
 Verify images exist:
 ```bash
-ls -lh /mnt/home/misiug/images/*.sqsh
+ls -lh /mnt/data/images/presto/*.sqsh
 ```
 
 ### Data directory issues

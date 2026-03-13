@@ -1,44 +1,60 @@
 #!/bin/bash
 #SBATCH --job-name=presto-tpch-run
-#SBATCH --output=/mnt/home/misiug/veloxtesting/presto-nvl72/%x_%j.out
-#SBATCH --error=/mnt/home/misiug/veloxtesting/presto-nvl72/%x_%j.err
-#SBATCH --time=01:00:00
-#SBATCH --nodes=10
+#SBATCH --time=03:00:00
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=144
 #SBATCH --mem=0
-#SBATCH --gres=gpu:4
 #SBATCH --exclusive
 
 # ==============================================================================
 # User Configuration - Edit these values directly
 # ==============================================================================
 # TPC-H Configuration
-export SCALE_FACTOR=10000
-export NUM_ITERATIONS=1
+if [ -z "${SCALE_FACTOR:-}" ]; then
+    echo "Error: SCALE_FACTOR is required. Set via launcher: -s|--scale-factor" >&2
+    exit 1
+fi
+export SCALE_FACTOR
+if [ -z "${NUM_ITERATIONS:-}" ]; then
+    echo "Error: NUM_ITERATIONS is required. Set via launcher: -i|--iterations" >&2
+    exit 1
+fi
+export NUM_ITERATIONS
+if [ -z "${SCRIPT_DIR:-}" ]; then
+    echo "Error: SCRIPT_DIR is required."
+    exit 1
+fi
+export SCRIPT_DIR
+if [ -z "${WORKER_IMAGE:-}" ]; then
+    echo "Error: WORKER_IMAGE is required."
+    exit 1
+fi
+export WORKER_IMAGE
+if [ -z "${COORD_IMAGE:-}" ]; then
+    echo "Error: COORD_IMAGE is required."
+    exit 1
+fi
+export COORD_IMAGE
 
-# Directory Configuration
-export WORKSPACE=/mnt/home/misiug
+# Assumes the repo root is four steps up from the script directory.  This should refer to velox-testing.
+export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 export DATA=/mnt/data/tpch-rs
-export IMAGE_DIR=/mnt/home/misiug/images
-export LOGS=/mnt/home/misiug/veloxtesting/presto-nvl72/logs
-export CONFIGS=/mnt/home/misiug/veloxtesting/config/generated/gpu
-#export CONFIGS=/mnt/home/misiug/veloxtesting/config/generated/cpu
+export IMAGE_DIR=/mnt/data/images/presto
+export LOGS=$SCRIPT_DIR/logs
+export VARIANT_TYPE=gpu
+export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
 # Container Images
 # Coordinator: ${IMAGE_DIR}/presto-coordinator-test.sqsh
 # Worker: ${IMAGE_DIR}/${WORKER_IMAGE}.sqsh
-#export WORKER_IMAGE=presto-native-worker-cpu
-export WORKER_IMAGE=presto-native-worker-gpu
 export NUM_NODES=$SLURM_JOB_NUM_NODES
-export NUM_GPUS_PER_NODE=4
 
 # Presto Configuration
 export PORT=9200
 export CUDF_LIB=/usr/lib64/presto-native-libs
 
 # UCX Configuration
-export UCX_TLS=^ib,ud:aux
+export UCX_TLS=^ib,ud:aux,sm
 export UCX_MAX_RNDV_RAILS=1
 export UCX_RNDV_PIPELINE_ERROR_HANDLING=y
 export UCX_TCP_KEEPINTVL=1ms
@@ -67,6 +83,7 @@ echo "Nodes: $SLURM_JOB_NUM_NODES"
 echo "Node list: $SLURM_JOB_NODELIST"
 echo "Coordinator node: $COORD"
 echo "Worker image: $WORKER_IMAGE"
+echo "Coord image: $COORD_IMAGE"
 echo "Scale factor: $SCALE_FACTOR"
 echo "Iterations: $NUM_ITERATIONS"
 echo "Data directory: $DATA"
@@ -77,7 +94,6 @@ echo "========================================"
 
 # Create necessary directories
 mkdir -p ${LOGS}
-mkdir -p ${DATA}
 
 # Launch the job script
-bash /mnt/home/misiug/veloxtesting/presto-nvl72/run-presto-benchmarks.sh
+bash $SCRIPT_DIR/run-presto-benchmarks.sh
