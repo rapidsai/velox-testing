@@ -38,6 +38,11 @@ OPTIONS:
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
+    -e, --expected-results-dir
+                            Directory containing expected query result parquet files for validation.
+                            If not specified, the default is derived from the table schema by appending
+                            "_expected" to the data directory (e.g., \$PRESTO_DATA_DIR/tpchsf100_expected).
+                            If the directory does not exist, validation is skipped.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -160,6 +165,15 @@ parse_args() {
         METRICS=true
         shift
         ;;
+      -e|--expected-results-dir)
+        if [[ -n $2 ]]; then
+          EXPECTED_RESULTS_DIR=$2
+          shift 2
+        else
+          echo "Error: --expected-results-dir requires a value"
+          exit 1
+        fi
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -234,6 +248,10 @@ fi
 
 if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
+fi
+
+if [[ -n ${EXPECTED_RESULTS_DIR} ]]; then
+  PYTEST_ARGS+=("--expected-results-dir ${EXPECTED_RESULTS_DIR}")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
