@@ -738,12 +738,12 @@ _AI_PROMPT_TEMPLATE = textwrap.dedent("""\
     {log_content}{related_items_section}
 
     Based on your analysis, provide:
-    1. STACKTRACE: Extract the relevant error stacktrace or error messages from the log (the actual error output, compiler errors, test failures, or exception traces - NOT the entire log, just the key error portion)
+    1. STACKTRACE: Extract ONLY the 3-5 most important lines that show the root cause error (e.g., the first compiler error, the failed assertion, the exception message). Do NOT include surrounding context, build system output, or symptom lines like 'make failed' or 'exit code 1'. Maximum 5 lines.
     2. CAUSE: The specific root cause (mention file/class/function names, exact error like type mismatch, missing symbol, failed test names, etc.)
     3. FIX: A concrete suggested fix or investigation step{fix_extra}
 
     Respond in exactly this format (no markdown except for STACKTRACE which can be multiline):
-    STACKTRACE:<the relevant error stacktrace or error messages, can span multiple lines, end with END_STACKTRACE on its own line>
+    STACKTRACE:<3-5 most relevant root-cause error lines only, end with END_STACKTRACE on its own line>
     END_STACKTRACE
     CAUSE:<your specific root cause description - single line>
     FIX:<your fix suggestion - single line{fix_format_extra}>""")
@@ -1036,20 +1036,32 @@ def _split_into_blocks(content: str) -> List[str]:
     return blocks
 
 
-def _analyze_block(block: str, job_name: str, wf_name: str, related_items: str) -> Tuple[str, str]:
-    """Run AI analysis on one failure block.  Returns (cause, fix)."""
+def _analyze_block(block: str, job_name: str, wf_name: str, related_items: str) -> Tuple[str, str, str]:
+    """Run AI analysis on one failure block.  Returns (stacktrace, cause, fix)."""
     if CFG.use_claude:
         resp = analyze_logs_with_claude(block, job_name, wf_name, related_items)
     else:
         resp = analyze_logs_with_ai(block, job_name, wf_name)
+    stacktrace = ""
     cause = ""
     fix = ""
+
+    # Parse STACKTRACE:...END_STACKTRACE block
+    st_match = re.search(
+        r"STACKTRACE:\s*(.*?)\s*END_STACKTRACE",
+        resp,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if st_match:
+        st_lines = [ln for ln in st_match.group(1).strip().splitlines() if ln.strip()]
+        stacktrace = "\n".join(st_lines[:5])
+
     for line in resp.splitlines():
         if line.upper().startswith("CAUSE:"):
             cause = re.sub(r"^CAUSE:\s*", "", line, flags=re.IGNORECASE)
         elif line.upper().startswith("FIX:"):
             fix = re.sub(r"^FIX:\s*", "", line, flags=re.IGNORECASE)
-    return cause, fix
+    return stacktrace, cause, fix
 
 
 # ---------------------------------------------------------------------------
@@ -1076,62 +1088,6 @@ def print_slack_table_header():
 
 def print_slack_table_row(row_no: int, display: str, st_cell: str, up_cell: str, sb_cell: str):
     OUT.print(f"| {row_no:<4} | {display:<18} | {st_cell:<9} | {up_cell:<10} | {sb_cell:<8} |")
-
-
-def _print_blocks_with_analysis(
-    job_log_content: str,
-    job_name: str,
-    wf_name: str,
-    related_items: str,
-    slack: bool,
-):
-    """Print each failure block's stacktrace + optional AI cause/fix."""
-    st_label = "*Stacktrace" if slack else "- Stacktrace"
-    cause_label = "*Cause:*" if slack else "- Cause:"
-    fix_label = "*Fix:*" if slack else "- Fix:"
-
-    if not job_log_content.strip():
-        OUT.print(f"    {st_label}: _Unavailable_")
-        if CFG.analyze_cause:
-            OUT.print(f"    {cause_label} _Unable to fetch logs for this job_")
-            if CFG.analyze_fix:
-                OUT.print(f"    {fix_label} _Check the run link above for details_")
-        return
-
-    blocks = _split_into_blocks(job_log_content)
-    n_blocks = len(blocks)
-
-    # Run AI analysis for all blocks concurrently
-    ai_results: Dict[int, Tuple[str, str]] = {}
-    if CFG.analyze_cause and blocks:
-        with ThreadPoolExecutor(max_workers=MAX_AI_WORKERS) as pool:
-            futs = {
-                pool.submit(_analyze_block, b, job_name, wf_name, related_items): idx for idx, b in enumerate(blocks)
-            }
-            for fut in as_completed(futs):
-                idx = futs[fut]
-                try:
-                    ai_results[idx] = fut.result()
-                except Exception:
-                    ai_results[idx] = ("Unable to determine cause", "Pending investigation")
-
-    for idx, block in enumerate(blocks):
-        suffix = f" {idx + 1}/{n_blocks}" if n_blocks > 1 else ""
-        if slack:
-            OUT.print(f"    {st_label}{suffix}:*")
-        else:
-            OUT.print(f"    {st_label}{suffix}:")
-        OUT.print("```")
-        for line in block.splitlines():
-            if line.strip():
-                OUT.print(line)
-        OUT.print("```")
-
-        if CFG.analyze_cause:
-            cause, fix = ai_results.get(idx, ("Unable to determine cause", "Pending investigation"))
-            OUT.print(f"    {cause_label} _{cause or 'Unable to determine cause'}_")
-            if CFG.analyze_fix:
-                OUT.print(f"    {fix_label} _{fix or 'Pending investigation'}_")
 
 
 def _process_single_failure(
@@ -1267,7 +1223,7 @@ def _process_single_failure(
             blocks = _split_into_blocks(job_log_content)
             n_blocks = len(blocks)
 
-            ai_results: Dict[int, Tuple[str, str]] = {}
+            ai_results: Dict[int, Tuple[str, str, str]] = {}
             if CFG.analyze_cause and blocks:
                 with ThreadPoolExecutor(max_workers=MAX_AI_WORKERS) as ai_pool:
                     futs = {
@@ -1280,24 +1236,29 @@ def _process_single_failure(
                             ai_results[bidx] = fut.result()
                         except Exception:
                             ai_results[bidx] = (
+                                "",
                                 "Unable to determine cause",
                                 "Pending investigation",
                             )
 
             for bidx, block in enumerate(blocks):
                 suffix = f" {bidx + 1}/{n_blocks}" if n_blocks > 1 else ""
+
+                # Use AI-extracted stacktrace if available, else fall back to raw block (max 5 lines)
+                ai_st, cause, fix = ai_results.get(bidx, ("", "", ""))
+                display_st = ai_st if ai_st else "\n".join(ln for ln in block.splitlines() if ln.strip())[:5]
+
                 if slack:
                     local_out.print(f"    {st_label}{suffix}:*")
                 else:
                     local_out.print(f"    {st_label}{suffix}:")
                 local_out.print("```")
-                for line in block.splitlines():
+                for line in display_st.splitlines()[:5]:
                     if line.strip():
                         local_out.print(line)
                 local_out.print("```")
 
                 if CFG.analyze_cause:
-                    cause, fix = ai_results.get(bidx, ("Unable to determine cause", "Pending investigation"))
                     local_out.print(f"    {cause_label} _{cause or 'Unable to determine cause'}_")
                     if CFG.analyze_fix:
                         local_out.print(f"    {fix_label} _{fix or 'Pending investigation'}_")
