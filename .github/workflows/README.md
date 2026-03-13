@@ -25,6 +25,11 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `presto-nightly-upstream.yml` | Nightly tests against upstream Presto and Velox | Tests latest upstream compatibility |
 | `presto-nightly-staging.yml` | Nightly tests against staging/stable versions | Validates known-good configurations |
 | `presto-nightly-pinned.yml` | Nightly tests using Presto's pinned Velox version | Tests exact Velox commit Presto depends on |
+| **CI Images** |||
+| `ci-images-nightly.yml` | Nightly builds of CI images for upstream, pinned, and staging | Schedule only (5am UTC) |
+| `ci-images-manual.yml` | Manual builds of CI images with user-specified inputs | `workflow_dispatch` only |
+| `build-and-test.yml` | Reusable workflow implementing CI image build/test logic | Called by ci-images workflows |
+| `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
 | **Preliminary Checks** |||
 | `preliminary-checks.yml` | Runs tests when specific directories change | Triggers on `benchmark_data_tools/` or `presto/` changes |
 
@@ -118,6 +123,62 @@ Runs benchmark sanity tests nightly on the staging branch to catch infrastructur
 
 ---
 
+## CI Images
+
+### Overview
+
+Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and published to [GitHub Container Registry](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing) under the `velox-testing-images` package. Two separate workflows handle image builds:
+
+- **`ci-images-nightly.yml`** — Nightly schedule (5am UTC). Builds images for three source combinations in parallel:
+
+  | Job | Velox | Presto |
+  |-----|-------|--------|
+  | `nightly-upstream` | `facebookincubator/velox:main` | `prestodb/presto:master` |
+  | `nightly-pinned` | Presto's pinned Velox submodule | `prestodb/presto:master` |
+  | `nightly-staging` | `$STABLE_VELOX_REPO:$STABLE_VELOX_COMMIT` | `$STABLE_PRESTO_REPO:$STABLE_PRESTO_COMMIT` |
+
+  A new nightly run cancels any in-progress nightly run.
+
+- **`ci-images-manual.yml`** — Manual dispatch only. Builds a single image set with user-specified repository/commit inputs. Runs never cancel each other.
+
+### Image Tags
+
+Images are tagged with commit SHAs, CUDA version, and build date:
+
+- **Velox deps:** `velox-deps-${VELOX_SHA}-cuda${CUDA_VERSION}-${DATE}`
+- **Velox build (GPU):** `velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}`
+- **Velox build (CPU):** `velox-${VELOX_SHA}-cpu-${DATE}`
+- **Presto deps:** `presto-deps-${PRESTO_SHA}-velox-${VELOX_SHA}-cuda${CUDA_VERSION}-${DATE}`
+- **Presto build (GPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}`
+- **Presto build (CPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-cpu-${DATE}`
+
+Images are purged after 30 days by the `ci-image-cleanup.yml` workflow.
+
+### Pulling Images
+
+The container registry is private. You must be a member of the `rapidsai` GitHub organization to pull images.
+
+1. Log into GitHub Container Registry with Docker:
+```bash
+# Ensure the gh token has read:packages scope, required for ghcr.io
+if ! gh auth status 2>&1 | grep -q 'read:packages'; then
+  echo "Token missing read:packages scope, refreshing..."
+  gh auth refresh -s read:packages
+fi
+
+# Log into ghcr.io with the current gh credentials
+echo $(gh auth token) | docker login ghcr.io -u $(gh api user -q .login) --password-stdin
+```
+
+2. Pull and run an image. For example:
+```bash
+docker run -it ghcr.io/rapidsai/velox-testing-images:velox-deps-8853645-cuda13.1-20260305
+```
+
+Browse available tags at [ghcr.io/rapidsai/velox-testing-images](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing) (requires `rapidsai` org membership).
+
+---
+
 ## Presto Testing Workflows
 
 ### `presto-test.yml`
@@ -182,4 +243,11 @@ presto-create-staging.yml ──► create-staging-composite.yml ──► [stag
 presto-nightly-upstream.yml ─┬
 presto-nightly-staging.yml ──┼──► presto-test.yml ──► presto-test-composite.yml
 presto-nightly-pinned.yml ───┘
+
+
+CI IMAGES
+─────────
+ci-images-nightly.yml ─┬──► build-and-test.yml ──► [GHCR images]
+ci-images-manual.yml ──┘
+ci-image-cleanup.yml ──► [delete old images]
 ```

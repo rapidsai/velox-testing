@@ -1,0 +1,49 @@
+name: "ci-images (nightly)"
+
+on:
+  schedule:
+    - cron: "0 5 * * *"  # 5am UTC / 1am EST
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nightly-upstream:
+    name: nightly-upstream
+    uses: ./.github/workflows/build-and-test.yml
+    with:
+      velox_repository: facebookincubator/velox
+      velox_commit: main
+      presto_repository: prestodb/presto
+      presto_commit: master
+      build_velox: true
+      build_presto: true
+      run_tests: true
+    secrets: inherit
+
+  nightly-pinned:
+    name: nightly-pinned
+    uses: ./.github/workflows/build-and-test.yml
+    with:
+      velox_repository: facebookincubator/velox
+      velox_commit: presto-pinned
+      presto_repository: prestodb/presto
+      presto_commit: master
+      build_velox: true
+      build_presto: true
+      run_tests: true
+    secrets: inherit
+
+  nightly-staging:
+    name: nightly-staging
+    uses: ./.github/workflows/build-and-test.yml
+    with:
+      velox_repository: ${{ vars.STABLE_VELOX_REPO }}
+      velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
+      presto_repository: ${{ vars.STABLE_PRESTO_REPO }}
+      presto_commit: ${{ vars.STABLE_PRESTO_COMMIT }}
+      build_velox: true
+      build_presto: true
+      run_tests: true
+    secrets: inherit
