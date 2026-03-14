@@ -93,12 +93,14 @@ jobs:
         id: presto
         if: inputs.presto_image == ''
         env:
+          GH_TOKEN: ${{ github.token }}
           PRESTO_REF: ${{ inputs.presto_commit }}
           PRESTO_REPO: ${{ inputs.presto_repository }}
         run: |
           SHA=$(git ls-remote "https://github.com/${PRESTO_REPO}.git" "${PRESTO_REF}" | head -1 | cut -f1)
           if [[ -z "$SHA" ]]; then
-            SHA="${PRESTO_REF}"
+            # Not a branch/tag — treat as a commit SHA and expand via API
+            SHA=$(gh api "repos/${PRESTO_REPO}/commits/${PRESTO_REF}" --jq '.sha')
           fi
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
@@ -121,7 +123,8 @@ jobs:
           else
             SHA=$(git ls-remote "https://github.com/${VELOX_REPO}.git" "${VELOX_REF}" | head -1 | cut -f1)
             if [[ -z "$SHA" ]]; then
-              SHA="${VELOX_REF}"
+              # Not a branch/tag — treat as a commit SHA and expand via API
+              SHA=$(gh api "repos/${VELOX_REPO}/commits/${VELOX_REF}" --jq '.sha')
             fi
           fi
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
