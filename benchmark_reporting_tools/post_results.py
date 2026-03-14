@@ -355,6 +355,7 @@ def _build_submission_payload(
     is_official: bool,
     asset_ids: list[int] | None = None,
     concurrency_streams: int = 1,
+    validation_results: dict | None = None,
 ) -> dict:
     """Build a BenchmarkSubmission payload from parsed dataclasses.
 
@@ -396,9 +397,23 @@ def _build_submission_payload(
 
     query_names = sorted(raw_times.keys(), key=_query_sort_key)
 
+    per_query_validation = (validation_results or {}).get("queries", {})
+
     for query_name in query_names:
         times = raw_times[query_name]
         is_failed = query_name in failed_queries
+
+        # Look up validation result for this query (keys are lowercase e.g. "q1")
+        vkey = "q" + query_name.lstrip("Q").lower()
+        vdata = per_query_validation.get(vkey)
+        validation_result = (
+            {
+                "status": "expected-failure" if vdata["status"] == "xfail" else vdata["status"],
+                "message": vdata.get("message"),
+            }
+            if vdata
+            else {"status": "not-validated"}
+        )
 
         # Each execution becomes a separate query log entry
         for exec_idx, runtime_ms in enumerate(times):
@@ -416,6 +431,7 @@ def _build_submission_payload(
                     "extra_info": {
                         "execution_number": exec_idx + 1,
                     },
+                    "validation_result": validation_result,
                 }
             )
             execution_order += 1
@@ -423,6 +439,16 @@ def _build_submission_payload(
     # Handle failed queries that may not have times
     for query_name, error_info in failed_queries.items():
         if query_name not in raw_times:
+            vkey = "q" + query_name.lstrip("Q").lower()
+            vdata = per_query_validation.get(vkey)
+            vr = (
+                {
+                    "status": "expected-failure" if vdata["status"] == "xfail" else vdata["status"],
+                    "message": vdata.get("message"),
+                }
+                if vdata
+                else {"status": "not-validated"}
+            )
             query_logs.append(
                 {
                     "query_name": query_name.lstrip("Q"),
@@ -432,6 +458,7 @@ def _build_submission_payload(
                     "extra_info": {
                         "error": str(error_info),
                     },
+                    "validation_result": vr,
                 }
             )
             execution_order += 1
@@ -469,6 +496,7 @@ def _build_submission_payload(
         "extra_info": extra_info,
         "is_official": is_official,
         "asset_ids": asset_ids,
+        "validation_status": "expected-failure" if (validation_results or {}).get("overall_status") == "xfail" else (validation_results or {}).get("overall_status", "not-validated"),
     }
 
 
@@ -616,6 +644,18 @@ async def _process_benchmark_dir(
             print("  Warning: no config directory found. Use --config-dir to specify one.", file=sys.stderr)
         engine_config = None
 
+    validation_results_path = benchmark_dir / "validation_results.json"
+    if validation_results_path.exists():
+        print("  Loading validation results...", file=sys.stderr)
+        try:
+            validation_results = json.loads(validation_results_path.read_text())
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"  Warning: could not load validation results: {e}", file=sys.stderr)
+            validation_results = None
+    else:
+        print("  No validation results found.", file=sys.stderr)
+        validation_results = None
+
     # Resolve logs directory: explicit override → auto-detect from repo
     effective_logs_dir = logs_dir
     if effective_logs_dir is None:
@@ -669,6 +709,7 @@ async def _process_benchmark_dir(
                 is_official=is_official,
                 asset_ids=asset_ids,
                 concurrency_streams=concurrency_streams,
+                validation_results=validation_results,
             )
         except Exception as e:
             print(f"  Error building payload for '{bench_name}': {e}", file=sys.stderr)
@@ -680,6 +721,15 @@ async def _process_benchmark_dir(
         print(f"  Identifier hash: {payload['query_engine']['identifier_hash']}", file=sys.stderr)
         print(f"  Node count: {payload['node_count']}", file=sys.stderr)
         print(f"  Query logs: {len(payload['query_logs'])}", file=sys.stderr)
+        print(f"  Validation status: {payload['validation_status']}", file=sys.stderr)
+        xfail_queries = [
+            ql["query_name"]
+            for ql in payload["query_logs"]
+            if ql.get("validation_result", {}).get("status") == "xfail"
+        ]
+        if xfail_queries:
+            unique_xfail = sorted(set(xfail_queries), key=lambda x: int(x))
+            print(f"  XFailed queries: {unique_xfail}", file=sys.stderr)
 
         if dry_run:
             print("\n  [DRY RUN] Payload:", file=sys.stderr)

@@ -31,7 +31,6 @@ OPTIONS:
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
                             schema that contains the benchmark tables.
-    -f, --scale-factor      Scale factor of the benchmark data. Only used for tpch/tpcds benchmarks.
     -o, --output-dir        Directory path that will contain the output files from the benchmark run.
                             By default, output files are written to "$(pwd)/benchmark_output".
     -i, --iterations        Number of query run iterations. By default, 5 iterations are run.
@@ -42,6 +41,16 @@ OPTIONS:
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
+    --expected-dir          Path to a directory containing expected TPC-H parquet files.
+                            Query results are always validated after the benchmark run using
+                            validate_results.py, and validation_results.json is written next
+                            to benchmark_result.json (picked up automatically by post_results.py).
+                            If --expected-dir is not provided, the path is auto-detected as
+                            \${PRESTO_DATA_DIR}/sf\${SCALE_FACTOR}_expected where SCALE_FACTOR
+                            is read from the benchmark_result.json produced by the run (requires
+                            PRESTO_DATA_DIR to be set).  The base directory for auto-detection
+                            can be overridden by setting BENCHMARK_EXPECTED_BASE_DIR.  If the
+                            auto-detected directory does not exist the result is "not-validated".
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
                             Use when engine is misdetected or the run fails.
@@ -119,15 +128,6 @@ parse_args() {
           exit 1
         fi
         ;;
-      -f|--scale-factor)
-        if [[ -n $2 ]]; then
-          SCALE_FACTOR=$2
-          shift 2
-        else
-          echo "Error: --scale-factor requires a value"
-          exit 1
-        fi
-        ;;
       -o|--output-dir)
         if [[ -n $2 ]]; then
           OUTPUT_DIR=$2
@@ -167,6 +167,15 @@ parse_args() {
         METRICS=true
         shift
         ;;
+      --expected-dir)
+        if [[ -n $2 ]]; then
+          EXPECTED_DIR=$2
+          shift 2
+        else
+          echo "Error: --expected-dir requires a value"
+          exit 1
+        fi
+        ;;
       -v|--verbose)
         export PRESTO_BENCHMARK_DEBUG=1
         shift
@@ -198,9 +207,6 @@ set_presto_coordinator_defaults
 
 PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
-if [[ -n ${SCALE_FACTOR} ]]; then
-  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
-fi
 
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
@@ -268,3 +274,53 @@ echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+
+# Compute the actual output directory (mirrors pytest's --output-dir / --tag logic).
+ACTUAL_OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/benchmark_output}"
+if [[ -n ${TAG} ]]; then
+  ACTUAL_OUTPUT_DIR="${ACTUAL_OUTPUT_DIR}/${TAG}"
+fi
+
+RESULTS_DIR="${ACTUAL_OUTPUT_DIR}/query_results"
+VALIDATE_SCRIPT="${SCRIPT_DIR}/../../benchmark_reporting_tools/validate_results.py"
+
+# Determine the expected directory.
+# If --expected-dir was not provided, auto-detect from ${PRESTO_DATA_DIR}/sf${SCALE_FACTOR}_expected
+# where SCALE_FACTOR is read from the benchmark_result.json just produced by the run.
+EXPECTED_DIR_EXPLICIT=false
+if [[ -n ${EXPECTED_DIR} ]]; then
+  EXPECTED_DIR_EXPLICIT=true
+elif [[ -n ${BENCHMARK_EXPECTED_BASE_DIR:-${PRESTO_DATA_DIR}} ]]; then
+  BENCHMARK_RESULT_JSON="${ACTUAL_OUTPUT_DIR}/benchmark_result.json"
+  SCALE_FACTOR_FROM_DATA="$(python3 -c "
+import json
+try:
+    d = json.load(open('${BENCHMARK_RESULT_JSON}'))
+    sf = d.get('context', {}).get('scale_factor')
+    if sf is not None:
+        sf = float(sf)
+        print(int(sf) if sf == int(sf) else sf)
+except Exception:
+    pass
+" 2>/dev/null)"
+  if [[ -n ${SCALE_FACTOR_FROM_DATA} ]]; then
+    EXPECTED_DIR="${BENCHMARK_EXPECTED_BASE_DIR:-${PRESTO_DATA_DIR}}/sf${SCALE_FACTOR_FROM_DATA}_expected"
+  fi
+fi
+
+VALIDATE_ARGS=("${RESULTS_DIR}")
+if [[ -n ${EXPECTED_DIR} ]]; then
+  VALIDATE_ARGS+=(--expected-dir "${EXPECTED_DIR}")
+fi
+if [[ -n ${QUERIES} ]]; then
+  VALIDATE_ARGS+=(--queries "${QUERIES}")
+fi
+# For auto-detected paths, a missing expected directory is not a fatal error.
+if [[ "${EXPECTED_DIR_EXPLICIT}" == "false" ]]; then
+  VALIDATE_ARGS+=(--allow-missing-expected)
+fi
+
+VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../../benchmark_reporting_tools/requirements.txt"
+echo "Running validation: ${RESULTS_DIR} vs ${EXPECTED_DIR:-<none>}"
+pip install -q -r "${VALIDATE_REQUIREMENTS}"
+python "${VALIDATE_SCRIPT}" "${VALIDATE_ARGS[@]}"
