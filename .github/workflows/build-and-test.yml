@@ -31,6 +31,11 @@ on:
         description: 'Run tests after builds'
         type: boolean
         required: true
+      presto_image:
+        description: 'Existing Presto worker image to test (skips Presto builds). SHAs and date are parsed from the tag.'
+        type: string
+        required: false
+        default: ''
 
 env:
   REGISTRY: ghcr.io
@@ -45,17 +50,48 @@ jobs:
     permissions:
       contents: read
     outputs:
-      velox_sha: ${{ steps.velox.outputs.sha }}
-      velox_short_sha: ${{ steps.velox.outputs.short_sha }}
-      presto_sha: ${{ steps.presto.outputs.sha }}
-      presto_short_sha: ${{ steps.presto.outputs.short_sha }}
-      date: ${{ steps.date.outputs.date }}
+      velox_sha: ${{ steps.parse_image.outputs.velox_sha || steps.velox.outputs.sha }}
+      velox_short_sha: ${{ steps.parse_image.outputs.velox_short_sha || steps.velox.outputs.short_sha }}
+      presto_sha: ${{ steps.parse_image.outputs.presto_sha || steps.presto.outputs.sha }}
+      presto_short_sha: ${{ steps.parse_image.outputs.presto_short_sha || steps.presto.outputs.short_sha }}
+      date: ${{ steps.parse_image.outputs.date || steps.date.outputs.date }}
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
+      - name: Parse existing image tag
+        id: parse_image
+        if: inputs.presto_image != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_REF: ${{ inputs.presto_image }}
+          PRESTO_REPO: ${{ inputs.presto_repository }}
+          VELOX_REPO: ${{ inputs.velox_repository }}
+        run: |
+          TAG="${IMAGE_REF##*:}"
+          echo "Parsing tag: ${TAG}"
+          if [[ "$TAG" =~ ^presto-([a-f0-9]+)-velox-([a-f0-9]+)-.*-([0-9]{8})$ ]]; then
+            PRESTO_SHORT="${BASH_REMATCH[1]}"
+            VELOX_SHORT="${BASH_REMATCH[2]}"
+            BUILD_DATE="${BASH_REMATCH[3]}"
+
+            PRESTO_FULL=$(gh api "repos/${PRESTO_REPO}/commits/${PRESTO_SHORT}" --jq '.sha')
+            VELOX_FULL=$(gh api "repos/${VELOX_REPO}/commits/${VELOX_SHORT}" --jq '.sha')
+
+            echo "presto_sha=${PRESTO_FULL}" >> "$GITHUB_OUTPUT"
+            echo "presto_short_sha=${PRESTO_SHORT}" >> "$GITHUB_OUTPUT"
+            echo "velox_sha=${VELOX_FULL}" >> "$GITHUB_OUTPUT"
+            echo "velox_short_sha=${VELOX_SHORT}" >> "$GITHUB_OUTPUT"
+            echo "date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
+            echo "Resolved: presto=${PRESTO_FULL} (${PRESTO_SHORT}), velox=${VELOX_FULL} (${VELOX_SHORT}), date=${BUILD_DATE}"
+          else
+            echo "::error::Cannot parse image tag '${TAG}'. Expected format: presto-{SHA}-velox-{SHA}-...-{YYYYMMDD}"
+            exit 1
+          fi
+
       - name: Resolve Presto commit
         id: presto
+        if: inputs.presto_image == ''
         env:
           PRESTO_REF: ${{ inputs.presto_commit }}
           PRESTO_REPO: ${{ inputs.presto_repository }}
@@ -70,6 +106,7 @@ jobs:
 
       - name: Resolve Velox commit
         id: velox
+        if: inputs.presto_image == ''
         env:
           GH_TOKEN: ${{ github.token }}
           VELOX_REF: ${{ inputs.velox_commit }}
@@ -92,11 +129,12 @@ jobs:
           echo "Velox SHA: ${SHA} (short: ${SHA:0:7})"
 
       - name: Set build date
+        if: inputs.presto_image == ''
         id: date
         run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
   velox-deps:
-    if: inputs.build_velox
+    if: inputs.build_velox && inputs.presto_image == ''
     name: velox-deps (cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-commits]
     runs-on: linux-${{ matrix.arch }}-cpu16
@@ -180,7 +218,7 @@ jobs:
           push-to-registry: true
 
   velox-build:
-    if: inputs.build_velox
+    if: inputs.build_velox && inputs.presto_image == ''
     name: velox-build (${{ matrix.build_type }}, ${{ matrix.arch }})
     needs: [resolve-commits, velox-deps]
     runs-on: linux-${{ matrix.arch }}-cpu32
@@ -315,7 +353,7 @@ jobs:
           push-to-registry: true
 
   presto-deps:
-    if: inputs.build_presto
+    if: inputs.build_presto && inputs.presto_image == ''
     name: presto-deps (cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-commits]
     runs-on: linux-${{ matrix.arch }}-cpu16
@@ -383,7 +421,7 @@ jobs:
           push-to-registry: true
 
   presto-coordinator-build:
-    if: inputs.build_presto
+    if: inputs.build_presto && inputs.presto_image == ''
     name: presto-coordinator (${{ matrix.arch }})
     needs: [resolve-commits]
     runs-on: linux-${{ matrix.arch }}-cpu16
@@ -445,7 +483,7 @@ jobs:
           push-to-registry: true
 
   presto-build:
-    if: inputs.build_presto
+    if: inputs.build_presto && inputs.presto_image == ''
     name: presto-build (${{ matrix.build_type }}, ${{ matrix.arch }})
     needs: [resolve-commits, presto-deps]
     runs-on: linux-${{ matrix.arch }}-cpu32
@@ -557,7 +595,7 @@ jobs:
           push-to-registry: true
 
   merge-velox-deps:
-    if: inputs.build_velox
+    if: inputs.build_velox && inputs.presto_image == ''
     name: merge-manifests (velox-deps)
     needs: [resolve-commits, velox-deps]
     runs-on: ubuntu-latest
@@ -588,7 +626,7 @@ jobs:
           done
 
   merge-velox-build:
-    if: inputs.build_velox
+    if: inputs.build_velox && inputs.presto_image == ''
     name: merge-manifests (velox-build)
     needs: [resolve-commits, velox-build]
     runs-on: ubuntu-latest
@@ -620,7 +658,7 @@ jobs:
           create_manifest "velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
 
   merge-presto-deps:
-    if: inputs.build_presto
+    if: inputs.build_presto && inputs.presto_image == ''
     name: merge-manifests (presto-deps)
     needs: [resolve-commits, presto-deps]
     runs-on: ubuntu-latest
@@ -652,7 +690,7 @@ jobs:
           done
 
   merge-presto-build:
-    if: inputs.build_presto
+    if: inputs.build_presto && inputs.presto_image == ''
     name: merge-manifests (presto-build)
     needs: [resolve-commits, presto-build]
     runs-on: ubuntu-latest
@@ -685,7 +723,7 @@ jobs:
           create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
 
   merge-presto-coordinator:
-    if: inputs.build_presto
+    if: inputs.build_presto && inputs.presto_image == ''
     name: merge-manifests (presto-coordinator)
     needs: [resolve-commits, presto-coordinator-build]
     runs-on: ubuntu-latest
@@ -711,7 +749,9 @@ jobs:
             "${REGISTRY}/${IMAGE_NAME}:${TAG}-arm64"
 
   test-velox-cpu:
-    if: inputs.build_velox && inputs.run_tests
+    if: >-
+      !cancelled() && inputs.run_tests &&
+      (needs.merge-velox-build.result == 'success' || inputs.presto_image != '')
     name: test-velox-cpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
     needs: [resolve-commits, merge-velox-build]
     permissions:
@@ -748,7 +788,9 @@ jobs:
             "cd /opt/velox-build/release && ctest -j 16 --label-exclude cuda_driver --output-on-failure --no-tests=error"
 
   test-velox-gpu:
-    if: inputs.build_velox && inputs.run_tests
+    if: >-
+      !cancelled() && inputs.run_tests &&
+      (needs.merge-velox-build.result == 'success' || inputs.presto_image != '')
     name: test-velox-gpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
     needs: [resolve-commits, merge-velox-build]
     permissions:
@@ -785,7 +827,9 @@ jobs:
             "cd /opt/velox-build/release && ctest -j 8 --label-regex cuda_driver --output-on-failure --no-tests=error"
 
   test-presto-smoke:
-    if: inputs.build_presto && inputs.run_tests
+    if: >-
+      !cancelled() && inputs.run_tests &&
+      (needs.merge-presto-build.result == 'success' || inputs.presto_image != '')
     name: test-presto-smoke (presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-commits, merge-presto-build]
     permissions:
@@ -855,7 +899,9 @@ jobs:
           '
 
   test-presto-integration:
-    if: inputs.build_presto && inputs.run_tests
+    if: >-
+      !cancelled() && inputs.run_tests &&
+      ((needs.merge-presto-build.result == 'success' && needs.merge-presto-coordinator.result == 'success') || inputs.presto_image != '')
     name: integ-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-commits, merge-presto-build, merge-presto-coordinator]
     permissions:
