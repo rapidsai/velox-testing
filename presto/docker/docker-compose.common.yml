@@ -4,6 +4,8 @@ services:
       - ./.hive_metastore:/var/lib/presto/data/hive/metastore
       - ../../common/testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test
       - ${PRESTO_DATA_DIR:-/dev/null}:/var/lib/presto/data/hive/data/user_data
+      - ${LOGS_DIR:-/dev/null}:/opt/presto-server/logs
+      - ./launch_presto_servers.sh:/opt/launch_presto_servers.sh:ro
 
   presto-base-java:
     extends:
@@ -18,6 +20,12 @@ services:
     image: presto-coordinator:${PRESTO_IMAGE_TAG}
     ports:
       - 8080:8080
+    environment:
+      - RUN_TIMESTAMP=${RUN_TIMESTAMP:-}
+    volumes:
+      - ./launch_coordinator.sh:/opt/launch_coordinator.sh:ro
+    entrypoint: ["bash", "/opt/launch_coordinator.sh"]
+    command: []
 
   presto-base-native-worker:
     extends:
@@ -27,3 +35,4 @@ services:
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
     environment:
       - GLOG_logtostderr=1
+      - RUN_TIMESTAMP=${RUN_TIMESTAMP:-}

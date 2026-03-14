@@ -77,13 +77,16 @@ fi
 
 source "$(dirname $(readlink -f $0))/py_env_functions.sh"
 
-trap delete_python_virtual_env EXIT
-
 init_python_virtual_env
 
-
-echo "Running pip install for requirements file: $REQUIREMENTS_FILE_PATH"
-pip install -q -r $REQUIREMENTS_FILE_PATH
+STAMP_FILE=".venv/.requirements_stamp"
+if [[ ! -f "$STAMP_FILE" ]] || ! diff -q "$REQUIREMENTS_FILE_PATH" "$STAMP_FILE" &>/dev/null; then
+  echo "Running pip install for requirements file: $REQUIREMENTS_FILE_PATH"
+  pip install -q -r $REQUIREMENTS_FILE_PATH
+  cp "$REQUIREMENTS_FILE_PATH" "$STAMP_FILE"
+else
+  echo "Requirements unchanged, skipping pip install"
+fi
 
 echo -e "\nRunning python script with args:\n$SCRIPT_PATH ${SCRIPT_ARGS[@]}\n"
 python $SCRIPT_PATH ${SCRIPT_ARGS[@]}
