@@ -909,8 +909,8 @@ jobs:
         run: |
           CONFIG_DIR="${GITHUB_WORKSPACE}/presto/docker/config/generated/gpu"
 
-          sed 's/-Xmx[0-9]*G/-Xmx8G/;s/-Xms[0-9]*G/-Xms8G/' \
-            "${CONFIG_DIR}/etc_common/jvm.config" > "${CONFIG_DIR}/etc_coordinator/jvm.config"
+          sed -i 's/-Xmx[0-9]*G/-Xmx8G/;s/-Xms[0-9]*G/-Xms8G/' \
+            "${CONFIG_DIR}/etc_common/jvm.config"
 
           sed -i \
             -e 's/memory.heap-headroom-per-node=.*/memory.heap-headroom-per-node=1GB/' \
@@ -944,7 +944,6 @@ jobs:
             --network "${DOCKER_NETWORK}" \
             -p 8080:8080 \
             -v "${CONFIG_DIR}/etc_common:/opt/presto-server/etc:ro" \
-            -v "${CONFIG_DIR}/etc_coordinator/jvm.config:/opt/presto-server/etc/jvm.config:ro" \
             -v "${CONFIG_DIR}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties:ro" \
             -v "${CONFIG_DIR}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties:ro" \
             -v "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties:ro" \
