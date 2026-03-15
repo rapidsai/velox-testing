@@ -9,9 +9,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  nightly-upstream:
-    name: nightly-upstream
-    uses: ./.github/workflows/build-and-test.yml
+  build-upstream:
+    name: build (upstream)
+    uses: ./.github/workflows/build.yml
     with:
       velox_repository: facebookincubator/velox
       velox_commit: main
@@ -19,12 +19,21 @@ jobs:
       presto_commit: master
       build_velox: true
       build_presto: true
-      run_tests: true
     secrets: inherit
 
-  nightly-pinned:
-    name: nightly-pinned
-    uses: ./.github/workflows/build-and-test.yml
+  test-upstream:
+    name: test (upstream)
+    needs: [build-upstream]
+    uses: ./.github/workflows/test.yml
+    with:
+      velox_short_sha: ${{ needs.build-upstream.outputs.velox_short_sha }}
+      presto_short_sha: ${{ needs.build-upstream.outputs.presto_short_sha }}
+      date: ${{ needs.build-upstream.outputs.date }}
+    secrets: inherit
+
+  build-pinned:
+    name: build (pinned)
+    uses: ./.github/workflows/build.yml
     with:
       velox_repository: facebookincubator/velox
       velox_commit: presto-pinned
@@ -32,12 +41,21 @@ jobs:
       presto_commit: master
       build_velox: true
       build_presto: true
-      run_tests: true
     secrets: inherit
 
-  nightly-staging:
-    name: nightly-staging
-    uses: ./.github/workflows/build-and-test.yml
+  test-pinned:
+    name: test (pinned)
+    needs: [build-pinned]
+    uses: ./.github/workflows/test.yml
+    with:
+      velox_short_sha: ${{ needs.build-pinned.outputs.velox_short_sha }}
+      presto_short_sha: ${{ needs.build-pinned.outputs.presto_short_sha }}
+      date: ${{ needs.build-pinned.outputs.date }}
+    secrets: inherit
+
+  build-staging:
+    name: build (staging)
+    uses: ./.github/workflows/build.yml
     with:
       velox_repository: ${{ vars.STABLE_VELOX_REPO }}
       velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
@@ -45,5 +63,14 @@ jobs:
       presto_commit: ${{ vars.STABLE_PRESTO_COMMIT }}
       build_velox: true
       build_presto: true
-      run_tests: true
+    secrets: inherit
+
+  test-staging:
+    name: test (staging)
+    needs: [build-staging]
+    uses: ./.github/workflows/test.yml
+    with:
+      velox_short_sha: ${{ needs.build-staging.outputs.velox_short_sha }}
+      presto_short_sha: ${{ needs.build-staging.outputs.presto_short_sha }}
+      date: ${{ needs.build-staging.outputs.date }}
     secrets: inherit

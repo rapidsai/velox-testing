@@ -38,22 +38,25 @@ on:
         type: boolean
         required: false
         default: true
-      presto_image:
-        description: 'Test existing Presto worker image (skips Presto builds). Full path or tag, e.g. ghcr.io/..:presto-8e27030-velox-3b263a7-gpu-cuda12.9-20260313'
-        type: string
-        required: false
-        default: ''
 
 jobs:
-  build-and-test:
-    uses: ./.github/workflows/build-and-test.yml
+  build:
+    uses: ./.github/workflows/build.yml
     with:
       velox_repository: ${{ inputs.velox_repository }}
       velox_commit: ${{ inputs.velox_commit }}
       presto_repository: ${{ inputs.presto_repository }}
       presto_commit: ${{ inputs.presto_commit }}
-      build_velox: ${{ inputs.presto_image == '' && inputs.build_velox }}
-      build_presto: ${{ inputs.presto_image == '' && inputs.build_presto }}
-      run_tests: ${{ inputs.run_tests }}
-      presto_image: ${{ inputs.presto_image }}
+      build_velox: ${{ inputs.build_velox }}
+      build_presto: ${{ inputs.build_presto }}
+    secrets: inherit
+
+  test:
+    needs: [build]
+    if: inputs.run_tests
+    uses: ./.github/workflows/test.yml
+    with:
+      velox_short_sha: ${{ needs.build.outputs.velox_short_sha }}
+      presto_short_sha: ${{ needs.build.outputs.presto_short_sha }}
+      date: ${{ needs.build.outputs.date }}
     secrets: inherit
