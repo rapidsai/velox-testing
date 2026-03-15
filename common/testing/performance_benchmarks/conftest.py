@@ -31,17 +31,17 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     for benchmark_type, result in terminalreporter._session.benchmark_results.items():
         assert BenchmarkKeys.AGGREGATE_TIMES_KEY in result
 
-        write_line(terminalreporter, text_report, "")
-        write_section(
+        _write_line(terminalreporter, text_report, "")
+        _write_section(
             terminalreporter, text_report, f"{benchmark_type} Benchmark Summary", sep="-", bold=True, yellow=True
         )
 
-        write_line(terminalreporter, text_report, "")
-        write_line(terminalreporter, text_report, f"Iterations Count: {iterations}")
-        write_line(terminalreporter, text_report, f"{data_location_display_name} Name: {data_location_name}")
+        _write_line(terminalreporter, text_report, "")
+        _write_line(terminalreporter, text_report, f"Iterations Count: {iterations}")
+        _write_line(terminalreporter, text_report, f"{data_location_display_name} Name: {data_location_name}")
         if tag:
-            write_line(terminalreporter, text_report, f"Tag: {tag}")
-        write_line(terminalreporter, text_report, "")
+            _write_line(terminalreporter, text_report, f"Tag: {tag}")
+        _write_line(terminalreporter, text_report, "")
 
         if iterations > 1:
             AGG_HEADERS = [
@@ -59,9 +59,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         header = " Query ID "
         for agg_header in AGG_HEADERS:
             header += f"|{agg_header:^{width}}"
-        write_line(terminalreporter, text_report, "-" * len(header), bold=True, yellow=True)
-        write_line(terminalreporter, text_report, header)
-        write_line(terminalreporter, text_report, "-" * len(header), bold=True, yellow=True)
+        _write_line(terminalreporter, text_report, "-" * len(header), bold=True, yellow=True)
+        _write_line(terminalreporter, text_report, header)
+        _write_line(terminalreporter, text_report, "-" * len(header), bold=True, yellow=True)
         for query_id, agg_timings in result[BenchmarkKeys.AGGREGATE_TIMES_KEY].items():
             line = f"{query_id:^10}"
             if agg_timings:
@@ -70,10 +70,10 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
                     line += f"|{agg_timing:^{width}}"
             else:
                 line += f"|{'NULL':^{width}}" * len(AGG_HEADERS)
-            write_line(terminalreporter, text_report, line)
+            _write_line(terminalreporter, text_report, line)
 
         # Print SUM row.
-        write_line(terminalreporter, text_report, "-" * len(header))
+        _write_line(terminalreporter, text_report, "-" * len(header))
         agg_sums = result[BenchmarkKeys.AGGREGATE_TIMES_SUM_KEY]
         line = f"{'SUM':^10}"
         if agg_sums:
@@ -83,8 +83,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         else:
             line += f"|{'NULL':^{width}}" * len(AGG_HEADERS)
 
-        write_line(terminalreporter, text_report, line)
-        write_line(terminalreporter, text_report, "")
+        _write_line(terminalreporter, text_report, line)
+        _write_line(terminalreporter, text_report, "")
 
     bench_output_dir = get_output_dir(config)
     assert bench_output_dir.is_dir()
@@ -93,34 +93,25 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         file.write(f"{report_text}\n")
 
 
-def write_line(terminalreporter, text_report, content, **kwargs):
+def _write_line(terminalreporter, text_report, content, **kwargs):
     terminalreporter.write_line(content, **kwargs)
     text_report.append(content)
 
 
-def write_section(terminalreporter, text_report, content, **kwargs):
+def _write_section(terminalreporter, text_report, content, **kwargs):
     terminalreporter.section(content, **kwargs)
 
     sep = kwargs.get("sep", " ")
     text_report.append(f" {content} ".center(120, sep))
 
 
-def pytest_sessionfinish(session, exitstatus):
+def build_and_write_benchmark_result(session, json_result):
+    """Compute aggregate timings and write benchmark_result.json.
+
+    Callers populate json_result[CONTEXT_KEY] with their own context
+    before calling this function.
+    """
     iterations = session.config.getoption("--iterations")
-
-    data_location_option = pytest.data_location.option_name
-    data_location_key = pytest.data_location.option_name
-    data_location_name = session.config.getoption(data_location_option)
-    json_result = {
-        BenchmarkKeys.CONTEXT_KEY: {
-            BenchmarkKeys.ITERATIONS_COUNT_KEY: iterations,
-            data_location_key: data_location_name,
-        },
-    }
-
-    tag = session.config.getoption("--tag")
-    if tag:
-        json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
 
     bench_output_dir = get_output_dir(session.config)
     bench_output_dir.mkdir(parents=True, exist_ok=True)
@@ -160,6 +151,34 @@ def pytest_sessionfinish(session, exitstatus):
     with open(f"{bench_output_dir}/benchmark_result.json", "w") as file:
         json.dump(json_result, file, indent=2)
         file.write("\n")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    iterations = session.config.getoption("--iterations")
+
+    data_location_option = pytest.data_location.option_name
+    data_location_key = pytest.data_location.key
+    data_location_name = session.config.getoption(data_location_option)
+    json_result = {
+        BenchmarkKeys.CONTEXT_KEY: {
+            BenchmarkKeys.ITERATIONS_COUNT_KEY: iterations,
+            data_location_key: data_location_name,
+        },
+    }
+
+    tag = session.config.getoption("--tag")
+    if tag:
+        json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
+
+    if hasattr(session, "run_context"):
+        for key, value in session.run_context.items():
+            json_result[BenchmarkKeys.CONTEXT_KEY][key] = value
+
+    if hasattr(session, "benchmark_results"):
+        benchmark_types = list(session.benchmark_results.keys())
+        json_result[BenchmarkKeys.CONTEXT_KEY]["benchmark"] = benchmark_types
+
+    build_and_write_benchmark_result(session, json_result)
 
 
 def get_output_dir(config):
