@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       presto_image:
-        description: 'Presto worker image to test. SHAs and date are parsed from the tag. e.g. ghcr.io/..:presto-8e27030-velox-3b263a7-gpu-cuda12.9-20260313'
+        description: 'Presto worker image to test. SHAs and date are parsed from the tag. e.g. ghcr.io/rapidsai/velox-testing-images:presto-8e27030-velox-3b263a7-gpu-cuda12.9-20260313'
         type: string
         required: false
         default: ''
@@ -225,7 +225,7 @@ jobs:
           '
 
   test-presto-integration:
-    name: integ-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
+    name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-inputs]
     permissions:
       contents: read
@@ -233,24 +233,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            cuda_version: *cuda12
-            gpu: l4
-            test_type: tpch
-          - arch: amd64
-            cuda_version: *cuda13
-            gpu: l4
-            test_type: tpch
-          - arch: amd64
-            cuda_version: *cuda12
-            gpu: l4
-            test_type: tpcds
-          - arch: amd64
-            cuda_version: *cuda13
-            gpu: l4
-            test_type: tpcds
-    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+        arch: [amd64, arm64]
+        cuda_version: [*cuda12, *cuda13]
+        test_type: [tpch, tpcds]
+    runs-on: linux-${{ matrix.arch }}-gpu-l4-latest-1
     env:
       DOCKER_NETWORK: presto-ci-net
       COORDINATOR_CONTAINER: presto-coordinator
