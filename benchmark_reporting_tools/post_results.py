@@ -408,7 +408,7 @@ def _build_submission_payload(
         vdata = per_query_validation.get(vkey)
         validation_result = (
             {
-                "status": "expected-failure" if vdata["status"] == "xfail" else vdata["status"],
+                "status": vdata["status"],
                 "message": vdata.get("message"),
             }
             if vdata
@@ -436,14 +436,16 @@ def _build_submission_payload(
             )
             execution_order += 1
 
-    # Handle failed queries that may not have times
+    # Handle failed queries that may not have times.
+    # Queries that failed before producing a result file are always "not-validated"
+    # since validate_results.py never ran for them (no parquet to compare against).
     for query_name, error_info in failed_queries.items():
         if query_name not in raw_times:
             vkey = "q" + query_name.lstrip("Q").lower()
             vdata = per_query_validation.get(vkey)
             vr = (
                 {
-                    "status": "expected-failure" if vdata["status"] == "xfail" else vdata["status"],
+                    "status": vdata["status"],
                     "message": vdata.get("message"),
                 }
                 if vdata
@@ -496,7 +498,7 @@ def _build_submission_payload(
         "extra_info": extra_info,
         "is_official": is_official,
         "asset_ids": asset_ids,
-        "validation_status": "expected-failure" if (validation_results or {}).get("overall_status") == "xfail" else (validation_results or {}).get("overall_status", "not-validated"),
+        "validation_status": (validation_results or {}).get("overall_status", "not-validated"),
     }
 
 
@@ -647,11 +649,7 @@ async def _process_benchmark_dir(
     validation_results_path = benchmark_dir / "validation_results.json"
     if validation_results_path.exists():
         print("  Loading validation results...", file=sys.stderr)
-        try:
-            validation_results = json.loads(validation_results_path.read_text())
-        except (json.JSONDecodeError, FileNotFoundError) as e:
-            print(f"  Warning: could not load validation results: {e}", file=sys.stderr)
-            validation_results = None
+        validation_results = json.loads(validation_results_path.read_text())
     else:
         print("  No validation results found.", file=sys.stderr)
         validation_results = None
@@ -725,11 +723,11 @@ async def _process_benchmark_dir(
         xfail_queries = [
             ql["query_name"]
             for ql in payload["query_logs"]
-            if ql.get("validation_result", {}).get("status") == "xfail"
+            if ql.get("validation_result", {}).get("status") == "expected-failure"
         ]
         if xfail_queries:
             unique_xfail = sorted(set(xfail_queries), key=lambda x: int(x))
-            print(f"  XFailed queries: {unique_xfail}", file=sys.stderr)
+            print(f"  Expected-failure queries: {unique_xfail}", file=sys.stderr)
 
         if dry_run:
             print("\n  [DRY RUN] Payload:", file=sys.stderr)

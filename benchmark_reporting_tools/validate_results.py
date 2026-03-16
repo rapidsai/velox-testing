@@ -20,10 +20,12 @@ cudf_polars/experimental/benchmarks/pdsh.py.
 
 Key behaviours
 --------------
-- Column names and row count are always checked.
-- Schema (dtypes) is NOT checked — Presto may produce different parquet
-  types than polars for the same logical values.
+- Column names, row count, and dtypes are all checked.
 - Decimal columns are cast to Float64 before comparison (same as polars).
+- Narrow integer columns (Int8/Int16/Int32) are widened to Int64; Presto
+  upcasts all integer types to Int64 while DuckDB may use narrower types.
+- String columns in the actual result are cast to the expected temporal type
+  when the expected column is temporal (Presto may write dates as strings).
 - Floating-point values are compared with rel_tol=1e-5, abs_tol=1e-8.
 - For queries with ORDER BY (sort_by non-empty):
     - We verify that the actual result is sorted by the sort_by columns.
@@ -38,17 +40,27 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict
 
 import polars as pl
 import polars.testing
+
+# Status values used throughout this module and consumed by post_results.py
+ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validated"]
+
 
 # ---------------------------------------------------------------------------
 # Per-query configuration (sort_by, limit) — from pdsh.py
 # sort_by entries: (column_name, descending)
 # ---------------------------------------------------------------------------
 
-QUERY_CONFIG: dict[str, dict] = {
+class SortLimit(TypedDict):
+    sort_by: list[tuple[str, bool]]
+    limit: int | None
+    xfail_if_empty: NotRequired[bool]
+
+
+QUERY_CONFIG: dict[str, SortLimit] = {
     "q1":  {"sort_by": [("l_returnflag", False), ("l_linestatus", False)], "limit": None},
     "q2":  {"sort_by": [("s_acctbal", True), ("n_name", False), ("s_name", False), ("p_partkey", False)], "limit": 100},
     "q3":  {"sort_by": [("revenue", True), ("o_orderdate", False)], "limit": 10},
@@ -132,7 +144,7 @@ def assert_tpch_result_equal(
     polars_kwargs: dict[str, Any] = {
         "check_row_order": True,
         "check_column_order": True,
-        "check_dtypes": False,   # Presto types may differ from polars types
+        "check_dtypes": True,
         "check_exact": False,
         "rel_tol": REL_TOL,
         "abs_tol": ABS_TOL,
@@ -152,17 +164,30 @@ def assert_tpch_result_equal(
             f"  expected columns: {right.columns}"
         )
 
-    # 2. Cast Decimal → Float64 (avoids off-by-~1% from different Decimal impls)
+    # 2. Cast Decimal → Float64 (avoids off-by-~1% from different Decimal impls).
+    # Check both sides so that check_dtypes=True sees matching Float64 on each.
     float_casts = [
         pl.col(col).cast(pl.Float64())
         for col in left.columns
-        if left.schema[col].is_decimal()
+        if left.schema[col].is_decimal() or right.schema.get(col, pl.Null).is_decimal()
     ]
     if float_casts:
         left = left.with_columns(*float_casts)
         right = right.with_columns(*float_casts)
 
-    # 2b. Normalize temporal columns: Presto writes dates as strings; cast to match expected.
+    # 2b. Cast narrow integers (Int8/Int16/Int32) → Int64.
+    # Presto upcasts all integer columns to Int64; DuckDB may use narrower types.
+    _NARROW_INT = (pl.Int8, pl.Int16, pl.Int32)
+    int_casts = [
+        pl.col(col).cast(pl.Int64())
+        for col in left.columns
+        if left.schema[col] in _NARROW_INT or right.schema.get(col) in _NARROW_INT
+    ]
+    if int_casts:
+        left = left.with_columns(*int_casts)
+        right = right.with_columns(*int_casts)
+
+    # 2c. Normalize temporal columns: Presto writes dates as strings; cast to match expected.
     temporal_casts = [
         pl.col(col).cast(right.schema[col])
         for col in left.columns
@@ -248,11 +273,11 @@ def compare_query(
     query_id: str,
     actual: pl.DataFrame,
     expected: pl.DataFrame,
-) -> tuple[str, str | None]:
+) -> tuple[ValidationStatus, str | None]:
     """
     Compare actual vs expected for one TPC-H query.
 
-    Returns (status, message) where status is 'passed', 'failed', 'xfail', or 'not-validated'.
+    Returns (status, message) where status is a ValidationStatus literal.
     """
     cfg = QUERY_CONFIG.get(query_id)
     if cfg is None:
@@ -260,7 +285,7 @@ def compare_query(
 
     # Detect known expected failures before running the full comparison.
     if cfg.get("xfail_if_empty", False) and actual.is_empty():
-        return "xfail", (
+        return "expected-failure", (
             f"{query_id.upper()} returned no rows: known float calculation mismatch "
             "in MAX(total_revenue) subquery causes empty result with float data"
         )
@@ -295,7 +320,7 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
       queries: { "q1": {"status": ..., "message": ...}, ... }
     """
     query_results: dict[str, dict] = {}
-    passed = failed = not_validated = xfailed = 0
+    passed = failed = not_validated = expected_failures = 0
 
     if queries is not None:
         result_files = sorted(
@@ -332,6 +357,13 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
         actual   = pl.read_parquet(result_file)
         expected = pl.read_parquet(expected_file)
 
+        if expected.height == 0 and all(t == pl.Null for t in expected.dtypes):
+            msg = f"expected file is empty (no schema): {expected_file.name}"
+            print(f"  {query_id.upper():4s}: SKIP     {msg}")
+            query_results[query_id] = {"status": "not-validated", "message": msg}
+            not_validated += 1
+            continue
+
         status, msg = compare_query(query_id, actual, expected)
 
         if status == "not-validated":
@@ -344,24 +376,24 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
             print(f"  {query_id.upper():4s}: PASS     [{info}]")
             query_results[query_id] = {"status": "passed", "message": None}
             passed += 1
-        elif status == "xfail":
+        elif status == "expected-failure":
             print(f"  {query_id.upper():4s}: XFAIL    {msg}")
-            query_results[query_id] = {"status": "xfail", "message": msg}
-            xfailed += 1
+            query_results[query_id] = {"status": "expected-failure", "message": msg}
+            expected_failures += 1
         else:
             print(f"  {query_id.upper():4s}: FAIL     {msg}")
             query_results[query_id] = {"status": "failed", "message": msg}
             failed += 1
 
     print()
-    print(f"Results: {passed} passed, {failed} failed, {xfailed} xfailed, {not_validated} skipped")
+    print(f"Results: {passed} passed, {failed} failed, {expected_failures} expected-failure, {not_validated} skipped")
 
     if failed > 0:
-        overall = "failed"
+        overall: ValidationStatus = "failed"
     elif not_validated > 0:
         overall = "not-validated"
-    elif xfailed > 0:
-        overall = "xfail"
+    elif expected_failures > 0:
+        overall = "expected-failure"
     elif passed > 0:
         overall = "passed"
     else:
