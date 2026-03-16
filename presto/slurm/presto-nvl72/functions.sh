@@ -9,7 +9,7 @@ function setup {
     [ -z "$SLURM_JOB_PARTITION" ] && echo "required argument '--partition' not specified" && exit 1
     [ -z "$SLURM_NNODES" ] && echo "required argument '--nodes' not specified" && exit 1
     [ -z "$IMAGE_DIR" ] && echo "IMAGE_DIR must be set" && exit 1
-    [ -z "$LOGS" ] && echo "LOGS must be set" && exit 1
+    [ -z "$LOGS_DIR" ] && echo "LOGS_DIR must be set" && exit 1
     [ -z "$CONFIGS" ] && echo "CONFIGS must be set" && exit 1
     [ -z "$NUM_NODES" ] && echo "NUM_NODES must be set" && exit 1
     [ -z "$NUM_GPUS_PER_NODE" ] && echo "NUM_GPUS_PER_NODE env variable must be set" && exit 1
@@ -58,11 +58,11 @@ function validate_environment_preconditions {
 # Execute script through the coordinator image (used for coordinator and cli executables)
 function run_coord_image {
     [ $# -ne 2 ] && echo_error "$0 expected one argument for '<script>' and one for '<coord/cli>'"
-    validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD DATA COORD_IMAGE
+    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD DATA COORD_IMAGE
     local script=$1
     local type=$2
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
-    local log_file="${type}.log"
+    local log_file="${type}_${RUN_TIMESTAMP}.log"
 
     local coord_image="${IMAGE_DIR}/${COORD_IMAGE}.sqsh"
     [ ! -f "${coord_image}" ] && echo_error "coord image does not exist at ${coord_image}"
@@ -83,7 +83,7 @@ ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/confi
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
+-- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS_DIR}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
@@ -97,7 +97,7 @@ ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/confi
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
--- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
+-- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS_DIR}/${log_file} 2>&1
     fi
 }
 
@@ -151,7 +151,7 @@ run_coord_image "$COORD_SCRIPT" "coord"
 # Runs a worker on a given node with custom configuration files which are generated as necessary.
 function run_worker {
     [ $# -ne 4 ] && echo_error "$0 expected arguments 'gpu_id', 'image', 'node_id', and 'worker_id'"
-    validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD CUDF_LIB DATA
+    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD CUDF_LIB DATA
 
     local gpu_id=$1 image=$2 node=$3 worker_id=$4
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id}"
@@ -193,7 +193,7 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 --container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
 --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
 --container-env=GLOG_logtostderr=1 \
--- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; nvidia-smi -L; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+-- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; echo \"GPU Name: \$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)\"; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS_DIR}/worker_${worker_id}_${RUN_TIMESTAMP}.log 2>&1 &
 }
 
 function copy_hive_metastore {
@@ -244,7 +244,7 @@ function run_queries {
 # Check if the coordinator is running via curl.  Fail after 10 retries.
 function wait_until_coordinator_is_running {
     echo "waiting for coordinator to be accessible"
-    validate_environment_preconditions COORD LOGS
+    validate_environment_preconditions COORD LOGS_DIR
     local state="INACTIVE"
     for i in {1..10}; do
         state=$(curl -s http://${COORD}:${PORT}/v1/info/state || true)
@@ -259,7 +259,7 @@ function wait_until_coordinator_is_running {
 
 # Check N nodes are registered with the coordinator.  Fail after 60 retries (5 minutes).
 function wait_for_workers_to_register {
-    validate_environment_preconditions LOGS COORD
+    validate_environment_preconditions LOGS_DIR COORD
     [ $# -ne 1 ] && echo_error "$0 expected one argument for 'expected number of workers'"
     echo "waiting for $1 workers to register"
     local expected_num_workers=$1
@@ -342,7 +342,10 @@ function generate_json() {
 	kind="${NUM_WORKERS}-node"
     fi
     local timestamp=$(date +"%Y-%m-%dT%H:%M:%SZ")
-    local gpu=$(grep "GPU 0: NVIDIA [^ ]* " ${OUTPUT_PREFIX}/logs/worker_0.log | sed "s/GPU 0: NVIDIA \([^ ]*\) .*/\1/g")
+    local worker_log
+    worker_log="$(ls -t ${OUTPUT_PREFIX}/logs/worker_0_*.log 2>/dev/null | head -1)"
+    [ -z "${worker_log}" ] && worker_log="${OUTPUT_PREFIX}/logs/worker_0.log"
+    local gpu=$(grep "GPU 0: NVIDIA [^ ]* " "${worker_log}" | sed "s/GPU 0: NVIDIA \([^ ]*\) .*/\1/g")
     echo "GPU = $gpu"
 
     jq --null-input \
@@ -360,7 +363,7 @@ function generate_json() {
     benchmark: $benchmark,
     timestamp: $timestamp,
     execution_number: 1,
-    n_workers: ($num_workers | tonumber),
+    worker_count: ($num_workers | tonumber),
     scale_factor: ($scale_factor | tonumber),
     gpu_count: ($num_workers | tonumber),
     num_drivers: ($num_drivers | tonumber),
@@ -402,8 +405,8 @@ function push_csv() {
     fi
 
     # Copy logs
-    if [ -d "${LOGS}" ]; then
-        cp -r ${LOGS} ${run_dir}/
+    if [ -d "${LOGS_DIR}" ]; then
+        cp -r ${LOGS_DIR} ${run_dir}/
     fi
 
     # Copy slurm output files from the job directory

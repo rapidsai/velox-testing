@@ -40,7 +40,14 @@ export COORD_IMAGE
 export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 export DATA=/mnt/data/tpch-rs
 export IMAGE_DIR=/mnt/data/images/presto
-export LOGS=$SCRIPT_DIR/logs
+export LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/logs}"
+[ -L "${LOGS_DIR}" ] && rm -f "${LOGS_DIR}"
+mkdir -p "${LOGS_DIR}"
+if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
+  mkdir -p "${LOGS_DIR}/archive"
+  mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
+fi
+export RUN_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
 export VARIANT_TYPE=gpu
 export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
@@ -87,13 +94,10 @@ echo "Coord image: $COORD_IMAGE"
 echo "Scale factor: $SCALE_FACTOR"
 echo "Iterations: $NUM_ITERATIONS"
 echo "Data directory: $DATA"
-echo "Logs directory: $LOGS"
+echo "Logs directory: $LOGS_DIR"
 echo "Total workers: $NUM_WORKERS (${NUM_NODES} nodes × ${NUM_GPUS_PER_NODE} GPUs)"
 echo "Single node execution: $SINGLE_NODE_EXECUTION"
 echo "========================================"
-
-# Create necessary directories
-mkdir -p ${LOGS}
 
 # Launch the job script
 bash $SCRIPT_DIR/run-presto-benchmarks.sh
