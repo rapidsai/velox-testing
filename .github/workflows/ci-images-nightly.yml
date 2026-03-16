@@ -24,6 +24,8 @@ jobs:
   test-upstream:
     name: test (upstream)
     needs: [build-upstream]
+    # Run tests even if some build jobs failed; tests for missing images fail at docker pull.
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/test.yml
     with:
       velox_short_sha: ${{ needs.build-upstream.outputs.velox_short_sha }}
@@ -46,6 +48,8 @@ jobs:
   test-pinned:
     name: test (pinned)
     needs: [build-pinned]
+    # Run tests even if some build jobs failed; tests for missing images fail at docker pull.
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/test.yml
     with:
       velox_short_sha: ${{ needs.build-pinned.outputs.velox_short_sha }}
@@ -68,6 +72,8 @@ jobs:
   test-staging:
     name: test (staging)
     needs: [build-staging]
+    # Run tests even if some build jobs failed; tests for missing images fail at docker pull.
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/test.yml
     with:
       velox_short_sha: ${{ needs.build-staging.outputs.velox_short_sha }}
