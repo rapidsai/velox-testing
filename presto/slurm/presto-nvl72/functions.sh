@@ -266,16 +266,11 @@ function setup_benchmark {
 
 # Run a cli node that will connect to the coordinator and run queries from queries.sql
 # Results are stored in cli.log.
-# Optional: set QUERIES_FILE env var to a path inside the container to use a custom queries JSON.
 function run_queries {
     echo "running queries"
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
-    local queries_file_arg=""
-    if [[ -n "${QUERIES_FILE:-}" ]]; then
-        queries_file_arg="--queries-file ${QUERIES_FILE}"
-    fi
     # We currently skip dropping cache because it requires docker (not available on the cluster).
     run_coord_image "export PORT=$PORT; \
     export HOSTNAME=$COORD; \
@@ -284,7 +279,7 @@ function run_queries {
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} \
-        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache ${queries_file_arg}" "cli"
+        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.

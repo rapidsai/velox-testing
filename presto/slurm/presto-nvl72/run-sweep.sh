@@ -60,6 +60,7 @@ for SF in "${SCALE_FACTORS[@]}"; do
         echo "Output: ${OUTPUT_DIR}"
         echo "========================================"
 
+        rm -rf "${OUTPUT_DIR}"
         "${SCRIPT_DIR}/launch-run.sh" \
             -n "${N}" \
             -s "${SF}" \

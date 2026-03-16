@@ -19,8 +19,10 @@ set -e
 # Change to script directory
 cd "$(dirname "$0")"
 
-# Clean up old output files
-rm -f result_dir/* logs/* *.out *.err 2>/dev/null || true
+# Clean up old output files — use rm -rf so subdirectories (e.g. query_results/)
+# are fully removed and stale benchmark_result.json cannot survive a cancelled run.
+rm -rf result_dir logs 2>/dev/null || true
+rm -f *.out *.err 2>/dev/null || true
 mkdir -p result_dir logs
 
 echo "Submitting Presto TPC-H benchmark job..."
