@@ -18,6 +18,7 @@ export CC=/opt/rh/gcc-toolset-12/root/bin/gcc
 export CXX=/opt/rh/gcc-toolset-12/root/bin/g++
 export ARM_BUILD_TARGET=${ARM_BUILD_TARGET:-""}
 export VELOX_ARROW_CMAKE_PATCH=/velox/cmake-compatibility.patch
+export EXTRA_ARROW_PATCH=${EXTRA_ARROW_PATCH:-/scripts/arrow-flight.patch}
 
 # Override /root/.local/share/uv/tools to workaround --container-remap-root
 # /mnt/home/$USER/.config/uv/uv-receipt.json will be created regardless and there's no way to configure that

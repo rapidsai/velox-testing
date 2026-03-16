@@ -49,6 +49,11 @@ if [[ ! -f "${PRESTO_BUILD_DIR}/presto/presto-native-execution/velox/CMake/resol
     exit 1
 fi
 
+if [[ ! -f "${PRESTO_BUILD_DIR}/presto/presto-native-execution/CMake/arrow/arrow-flight.patch" ]]; then
+    echo "ERROR: Arrow Flight patch not found at ${PRESTO_BUILD_DIR}/presto/presto-native-execution/CMake/arrow/arrow-flight.patch"
+    exit 1
+fi
+
 echo "Step 1/4: Copying Presto scripts to /scripts..."
 cp -r "${PRESTO_BUILD_DIR}/presto/presto-native-execution/scripts" /scripts
 
@@ -59,6 +64,11 @@ cp -r "${PRESTO_BUILD_DIR}/presto/presto-native-execution/velox/scripts" /velox/
 echo "Step 3/4: Copying Velox CMake patch to /velox/cmake-compatibility.patch..."
 cp "${PRESTO_BUILD_DIR}/presto/presto-native-execution/velox/CMake/resolve_dependency_modules/arrow/cmake-compatibility.patch" \
    /velox/cmake-compatibility.patch
+
+echo "Step 3b: Copying Arrow Flight patch to /scripts/arrow-flight.patch..."
+cp "${PRESTO_BUILD_DIR}/presto/presto-native-execution/CMake/arrow/arrow-flight.patch" \
+   /scripts/arrow-flight.patch
+export EXTRA_ARROW_PATCH=/scripts/arrow-flight.patch
 
 echo ls -l "/scripts/"
 ls -l "/scripts/"

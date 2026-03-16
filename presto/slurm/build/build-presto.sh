@@ -59,6 +59,15 @@ if [[ "$INSTALL_NSIGHT" == "true" ]]; then
     dnf install -y nsight-systems-cli-2025.5.1 2>/dev/null || echo "Warning: nsight-systems installation failed, continuing..."
 fi
 
+echo ""
+echo "============================================"
+echo "Installing numactl..."
+echo "============================================"
+rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub || true
+source /etc/os-release
+dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel${VERSION_ID%%.*}/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" 2>/dev/null || true
+dnf install -y numactl 2>/dev/null || echo "Warning: nsight-systems installation failed, continuing..."
+
 # Step 2: Set up compiler environment
 # For GPU builds, use gcc-toolset-14
 if [[ "${GPU}" == "ON" ]]; then

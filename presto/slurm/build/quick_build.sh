@@ -11,9 +11,37 @@
 
 set -e
 
-IMAGES_DIR=${IMAGES_DIR:-/mnt/data/$USER/images/presto}
+IMAGES_DIR=${IMAGES_DIR:-$HOME/Misiu/Images}
 mkdir -p "$IMAGES_DIR"
 PRESTO_SLURM_BUILD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source repo locations (separate from the build scripts directory)
+PRESTO_SOURCE_DIR=${PRESTO_SOURCE_DIR:-$HOME/Misiu/Build/presto}
+VELOX_SOURCE_DIR=${VELOX_SOURCE_DIR:-$HOME/Misiu/Build/velox}
+
+# All three stages mount: build scripts, presto source, and velox source.
+# Velox is mounted at the nested path the build expects.
+SOURCE_MOUNTS="$PRESTO_SLURM_BUILD_DIR:/presto-build,\
+$PRESTO_SOURCE_DIR:/presto-build/presto,\
+$VELOX_SOURCE_DIR:/presto-build/presto/presto-native-execution/velox"
+
+CENTOS_BASE_IMAGE=$IMAGES_DIR/centos-stream9-base.sqsh
+
+# ==============================================================================
+# STAGE 0: Pull CentOS base image (once — pyxis can't pull+write in one step)
+# ==============================================================================
+if [[ ! -f "$CENTOS_BASE_IMAGE" ]]; then
+  echo "Pulling CentOS Stream 9 base image..."
+  srun --export=ALL,PMIX_MCA_gds=^ds12 \
+    --nodes=1 --mem=0 --ntasks-per-node=1 \
+    --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
+    --mpi=pmix_v4 --container-remap-root \
+    --container-image=quay.io#centos/centos:stream9 \
+    --container-save=$CENTOS_BASE_IMAGE \
+    /bin/true
+else
+  echo "Using cached base image: $CENTOS_BASE_IMAGE"
+fi
 
 # ==============================================================================
 # STAGE 1: Build Dependencies Image (Run once, ~30-60 minutes)
@@ -21,9 +49,9 @@ PRESTO_SLURM_BUILD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 srun --export=ALL,PMIX_MCA_gds=^ds12 \
   --nodes=1 --mem=0 --ntasks-per-node=1 \
   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
-  --mpi=pmix_v4 --container-remap-root \
-  --container-image=quay.io/centos/centos:stream9 \
-  --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+  --mpi=pmix_v4 --container-remap-root --container-writable \
+  --container-image=$CENTOS_BASE_IMAGE \
+  --container-mounts=$SOURCE_MOUNTS \
   --container-save=$IMAGES_DIR/prestissimo-dependency-centos9.sqsh \
   /presto-build/build-deps-in-container.sh
 
@@ -35,9 +63,9 @@ srun --export=ALL,PMIX_MCA_gds=^ds12 \
 srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRESTO_DIR=/presto-build/presto/presto-native-execution \
   --nodes=1 --mem=0 --ntasks-per-node=1 \
   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
-  --mpi=pmix_v4 --container-remap-root \
+  --mpi=pmix_v4 --container-remap-root --container-writable \
   --container-image=$IMAGES_DIR/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+  --container-mounts=$SOURCE_MOUNTS \
   --container-save=$IMAGES_DIR/presto-native-worker-gpu.sqsh \
   /presto-build/build-presto.sh
 
@@ -45,9 +73,9 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRES
 # srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,GPU=OFF,PRESTO_DIR=/presto-build/presto/presto-native-execution,EXTRA_CMAKE_FLAGS="-DPRESTO_ENABLE_TESTING=OFF -DPRESTO_ENABLE_PARQUET=ON -DPRESTO_ENABLE_CUDF=OFF -DVELOX_BUILD_TESTING=OFF" \
 #   --nodes=1 --mem=0 --ntasks-per-node=1 \
 #   --cpus-per-task=144 \
-#   --mpi=pmix_v4 --container-remap-root \
+#   --mpi=pmix_v4 --container-remap-root --container-writable \
 #   --container-image=$IMAGES_DIR/prestissimo-dependency-centos9.sqsh \
-#   --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+#   --container-mounts=$SOURCE_MOUNTS \
 #   --container-save=$IMAGES_DIR/presto-native-worker-cpu.sqsh \
 #   /presto-build/build-presto.sh
 
@@ -57,9 +85,9 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRES
 srun --export=ALL,PMIX_MCA_gds=^ds12,PRESTO_VERSION=testing,PRESTO_SOURCE_DIR=/presto-build/presto \
   --nodes=1 --mem=0 --ntasks-per-node=1 \
   --cpus-per-task=144 \
-  --mpi=pmix_v4 --container-remap-root \
+  --mpi=pmix_v4 --container-remap-root --container-writable \
   --container-image=$IMAGES_DIR/prestissimo-dependency-centos9.sqsh \
-  --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+  --container-mounts=$SOURCE_MOUNTS \
   --container-save=$IMAGES_DIR/presto-coordinator.sqsh \
   /presto-build/setup-coordinator.sh
 
@@ -71,9 +99,9 @@ srun --export=ALL,PMIX_MCA_gds=^ds12,PRESTO_VERSION=testing,PRESTO_SOURCE_DIR=/p
 # srun --export=ALL,PMIX_MCA_gds=^ds12,NUM_THREADS=144,CUDA_ARCHITECTURES=100,PRESTO_DIR=/presto-build/presto/presto-native-execution \
 #   --nodes=1 --mem=0 --ntasks-per-node=1 \
 #   --cpus-per-task=144 --gpus-per-task=4 --gres=gpu:4 \
-#   --mpi=pmix_v4 --container-remap-root \
+#   --mpi=pmix_v4 --container-remap-root --container-writable \
 #   --container-image=$IMAGES_DIR/presto-native-worker-gpu.sqsh \
-#   --container-mounts=$PRESTO_SLURM_BUILD_DIR:/presto-build \
+#   --container-mounts=$SOURCE_MOUNTS \
 #   --container-save=$IMAGES_DIR/presto-native-worker-gpu-REBUILD.sqsh \
 #   /presto-build/build-presto.sh
 
