@@ -1,0 +1,361 @@
+name: test
+
+on:
+  workflow_call:
+    inputs:
+      velox_short_sha:
+        description: 'Short Velox commit SHA (7 chars)'
+        type: string
+        required: true
+      presto_short_sha:
+        description: 'Short Presto commit SHA (7 chars)'
+        type: string
+        required: true
+      date:
+        description: 'Build date (YYYYMMDD)'
+        type: string
+        required: true
+
+  workflow_dispatch:
+    inputs:
+      presto_image:
+        description: 'Presto worker image to test. SHAs and date are parsed from the tag. e.g. ghcr.io/rapidsai/velox-testing-images:presto-8e27030-velox-3b263a7-gpu-cuda12.9-20260313'
+        type: string
+        required: false
+        default: ''
+      velox_short_sha:
+        description: 'Short Velox commit SHA (ignored if presto_image is set)'
+        type: string
+        required: false
+        default: ''
+      presto_short_sha:
+        description: 'Short Presto commit SHA (ignored if presto_image is set)'
+        type: string
+        required: false
+        default: ''
+      date:
+        description: 'Build date YYYYMMDD (ignored if presto_image is set)'
+        type: string
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-images
+
+jobs:
+  resolve-inputs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
+      presto_short_sha: ${{ steps.resolve.outputs.presto_short_sha }}
+      date: ${{ steps.resolve.outputs.date }}
+    steps:
+      - name: Resolve test inputs
+        id: resolve
+        env:
+          PRESTO_IMAGE: ${{ inputs.presto_image }}
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
+          DATE: ${{ inputs.date }}
+        run: |
+          if [[ -n "${PRESTO_IMAGE}" ]]; then
+            TAG="${PRESTO_IMAGE##*:}"
+            echo "Parsing tag: ${TAG}"
+            if [[ "$TAG" =~ ^presto-([a-f0-9]+)-velox-([a-f0-9]+)-.*-([0-9]{8})(-[a-z0-9]+)?$ ]]; then
+              echo "presto_short_sha=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+              echo "velox_short_sha=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+              echo "date=${BASH_REMATCH[3]}" >> "$GITHUB_OUTPUT"
+              echo "Parsed: presto=${BASH_REMATCH[1]}, velox=${BASH_REMATCH[2]}, date=${BASH_REMATCH[3]}"
+            else
+              echo "::error::Cannot parse image tag '${TAG}'. Expected format: presto-{SHA}-velox-{SHA}-...-{YYYYMMDD}"
+              exit 1
+            fi
+          else
+            if [[ -z "${VELOX_SHORT_SHA}" || -z "${PRESTO_SHORT_SHA}" || -z "${DATE}" ]]; then
+              echo "::error::Either presto_image or all of velox_short_sha, presto_short_sha, date must be provided"
+              exit 1
+            fi
+            echo "velox_short_sha=${VELOX_SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "presto_short_sha=${PRESTO_SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "date=${DATE}" >> "$GITHUB_OUTPUT"
+          fi
+
+  test-velox-cpu:
+    name: test-velox-cpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
+    needs: [resolve-inputs]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            image_tag: gpu-cuda12.9
+          - arch: amd64
+            image_tag: gpu-cuda13.1
+          - arch: amd64
+            image_tag: cpu
+    runs-on: linux-${{ matrix.arch }}-cpu16
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Run CPU tests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          IMAGE_TAG: ${{ matrix.image_tag }}
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-${IMAGE_TAG}-${BUILD_DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm "${IMAGE}" bash -c \
+            "cd /opt/velox-build/release && ctest -j 16 --label-exclude cuda_driver --output-on-failure --no-tests=error"
+
+  test-velox-gpu:
+    name: test-velox-gpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
+    needs: [resolve-inputs]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            image_tag: gpu-cuda12.9
+            gpu: l4
+          - arch: amd64
+            image_tag: gpu-cuda13.1
+            gpu: l4
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Run GPU tests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          IMAGE_TAG: ${{ matrix.image_tag }}
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-${IMAGE_TAG}-${BUILD_DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm --gpus all "${IMAGE}" bash -c \
+            "cd /opt/velox-build/release && ctest -j 8 --label-regex cuda_driver --output-on-failure --no-tests=error"
+
+  test-presto-smoke:
+    name: test-presto-smoke (presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
+    needs: [resolve-inputs]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            cuda_version: &cuda12 '12.9'
+            gpu: l4
+          - arch: amd64
+            cuda_version: &cuda13 '13.1'
+            gpu: l4
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Smoke test
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
+          PRESTO_SHORT_SHA: ${{ needs.resolve-inputs.outputs.presto_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          CUDA_VERSION: ${{ matrix.cuda_version }}
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          echo "--- nvidia-smi ---"
+          docker run --rm --gpus all "${IMAGE}" nvidia-smi
+          echo "--- presto_server startup with cudf.enabled=true ---"
+          docker run --rm --gpus all \
+            -v "${GITHUB_WORKSPACE}/presto/docker/config/smoke-test:/opt/presto-server/etc:ro" \
+            "${IMAGE}" bash -c '
+          set -euo pipefail
+          ldconfig
+          mkdir -p /var/lib/presto/data/hive/metastore
+
+          /usr/bin/presto_server --etc-dir=/opt/presto-server/etc &
+          SERVER_PID=$!
+
+          MAX_RETRIES=12
+          for i in $(seq 1 $MAX_RETRIES); do
+            STATE=$(curl -sf http://localhost:8080/v1/info/state 2>/dev/null || true)
+            if [[ "$STATE" == "\"ACTIVE\"" ]]; then
+              echo "presto_server reached ACTIVE state after ~$((i * 5))s"
+              INFO=$(curl -sf http://localhost:8080/v1/info)
+              echo "Server info: ${INFO}"
+              kill $SERVER_PID
+              wait $SERVER_PID 2>/dev/null || true
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ERROR: presto_server did not reach ACTIVE state within 60s"
+          kill $SERVER_PID 2>/dev/null
+          wait $SERVER_PID 2>/dev/null || true
+          exit 1
+          '
+
+  test-presto-integration:
+    name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
+    needs: [resolve-inputs]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        cuda_version: [*cuda12, *cuda13]
+        test_type: [tpch, tpcds]
+    runs-on: linux-${{ matrix.arch }}-gpu-l4-latest-1
+    env:
+      DOCKER_NETWORK: presto-ci-net
+      COORDINATOR_CONTAINER: presto-coordinator
+      WORKER_CONTAINER: presto-native-worker
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Generate Presto configs
+        env:
+          VARIANT_TYPE: gpu
+          NUM_WORKERS: 1
+          OVERWRITE_CONFIG: 'true'
+        working-directory: presto/scripts
+        run: ./generate_presto_config.sh
+
+      - name: Patch configs for CI container execution
+        run: presto/scripts/patch_ci_configs.sh "${GITHUB_WORKSPACE}/presto/docker/config/generated/gpu"
+
+      - name: Create Docker network
+        run: docker network create "${DOCKER_NETWORK}"
+
+      - name: Start Java coordinator
+        env:
+          PRESTO_SHORT_SHA: ${{ needs.resolve-inputs.outputs.presto_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+        run: |
+          COORD_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}"
+          echo "Coordinator image: ${COORD_IMAGE}"
+          docker pull "${COORD_IMAGE}"
+
+          CONFIG_DIR="${GITHUB_WORKSPACE}/presto/docker/config/generated/gpu"
+          mkdir -p /tmp/hive_metastore
+
+          docker run -d \
+            --name "${COORDINATOR_CONTAINER}" \
+            --network "${DOCKER_NETWORK}" \
+            -p 8080:8080 \
+            -v "${CONFIG_DIR}/etc_common:/opt/presto-server/etc:ro" \
+            -v "${CONFIG_DIR}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties:ro" \
+            -v "${CONFIG_DIR}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties:ro" \
+            -v "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties:ro" \
+            -v "${GITHUB_WORKSPACE}/common/testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test:ro" \
+            -v "/tmp/hive_metastore:/var/lib/presto/data/hive/metastore" \
+            "${COORD_IMAGE}"
+
+      - name: Start native GPU worker
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
+          PRESTO_SHORT_SHA: ${{ needs.resolve-inputs.outputs.presto_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          CUDA_VERSION: ${{ matrix.cuda_version }}
+        run: |
+          WORKER_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}"
+          echo "Worker image: ${WORKER_IMAGE}"
+          docker pull "${WORKER_IMAGE}"
+
+          CONFIG_DIR="${GITHUB_WORKSPACE}/presto/docker/config/generated/gpu"
+
+          docker run -d --gpus all \
+            --name "${WORKER_CONTAINER}" \
+            --network "${DOCKER_NETWORK}" \
+            -v "${CONFIG_DIR}/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties:ro" \
+            -v "${CONFIG_DIR}/etc_worker/node.properties:/opt/presto-server/etc/node.properties:ro" \
+            -v "${CONFIG_DIR}/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties:ro" \
+            -v "${GITHUB_WORKSPACE}/common/testing/integration_tests/data:/var/lib/presto/data/hive/data/integration_test:ro" \
+            -v "/tmp/hive_metastore:/var/lib/presto/data/hive/metastore" \
+            "${WORKER_IMAGE}" bash -c "ldconfig && /usr/bin/presto_server --etc-dir=/opt/presto-server/etc"
+
+      - name: Wait for coordinator and worker registration
+        run: |
+          MAX_RETRIES=24
+          for i in $(seq 1 $MAX_RETRIES); do
+            STATE=$(curl -sf http://localhost:8080/v1/info/state 2>/dev/null || true)
+            if [[ "$STATE" == '"ACTIVE"' ]]; then
+              NODES=$(curl -sf http://localhost:8080/v1/node 2>/dev/null || true)
+              COUNT=$(echo "$NODES" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+              if [[ "$COUNT" -gt 0 ]]; then
+                echo "Coordinator ACTIVE with $COUNT worker(s) registered after ~$((i * 5))s"
+                curl -sf http://localhost:8080/v1/info
+                exit 0
+              fi
+              echo "Coordinator ACTIVE but no workers yet... attempt $i/$MAX_RETRIES"
+            else
+              echo "Waiting for coordinator... attempt $i/$MAX_RETRIES (state=$STATE)"
+            fi
+            sleep 5
+          done
+          echo "ERROR: Presto cluster not ready within 120s"
+          echo "--- Coordinator logs ---"
+          docker logs "${COORDINATOR_CONTAINER}" 2>&1 | tail -50
+          echo "--- Worker logs ---"
+          docker logs "${WORKER_CONTAINER}" 2>&1 | tail -50
+          exit 1
+
+      - name: Run TPC-H integration tests
+        if: matrix.test_type == 'tpch'
+        working-directory: presto/scripts
+        run: |
+          ./run_integ_test.sh -b tpch -q "1,2,3,4,5,6,7,8,9,10,11,12,13,14,16,17,18,19,20,21,22"
+
+      - name: Run TPC-DS integration tests
+        if: matrix.test_type == 'tpcds'
+        working-directory: presto/scripts
+        run: |
+          ./run_integ_test.sh -b tpcds
+
+      - name: Stop Presto cluster
+        if: always()
+        run: |
+          docker stop "${WORKER_CONTAINER}" 2>/dev/null || true
+          docker rm "${WORKER_CONTAINER}" 2>/dev/null || true
+          docker stop "${COORDINATOR_CONTAINER}" 2>/dev/null || true
+          docker rm "${COORDINATOR_CONTAINER}" 2>/dev/null || true
+          docker network rm "${DOCKER_NETWORK}" 2>/dev/null || true

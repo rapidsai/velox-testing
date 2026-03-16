@@ -28,7 +28,8 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | **CI Images** |||
 | `ci-images-nightly.yml` | Nightly builds of CI images for upstream, pinned, and staging | Schedule only (5am UTC) |
 | `ci-images-manual.yml` | Manual builds of CI images with user-specified inputs | `workflow_dispatch` only |
-| `build-and-test.yml` | Reusable workflow implementing CI image build/test logic | Called by ci-images workflows |
+| `build.yml` | Reusable workflow implementing CI image build logic | Called by ci-images workflows |
+| `test.yml` | Reusable workflow implementing CI image test logic | Called by ci-images workflows; also supports `workflow_dispatch` for test-only runs |
 | `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
 | **Preliminary Checks** |||
 | `preliminary-checks.yml` | Runs tests when specific directories change | Triggers on `benchmark_data_tools/` or `presto/` changes |
@@ -247,7 +248,8 @@ presto-nightly-pinned.yml ───┘
 
 CI IMAGES
 ─────────
-ci-images-nightly.yml ─┬──► build-and-test.yml ──► [GHCR images]
+ci-images-nightly.yml ─┬──► build.yml ──► [GHCR images] ──► test.yml
 ci-images-manual.yml ──┘
+test.yml (workflow_dispatch) ──► [test pre-built images]
 ci-image-cleanup.yml ──► [delete old images]
 ```
