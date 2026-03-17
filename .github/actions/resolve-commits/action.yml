@@ -1,0 +1,86 @@
+name: Resolve Commits
+description: >
+  Resolves Velox and Presto commit SHAs from refs/branches, including
+  "presto-pinned" which reads the Velox submodule pin from Presto.
+  Also sets the build date (YYYYMMDD UTC).
+
+inputs:
+  velox_repository:
+    description: 'Velox repository (e.g. facebookincubator/velox)'
+    required: true
+  velox_commit:
+    description: 'Velox commit SHA, branch, or "presto-pinned"'
+    required: true
+  presto_repository:
+    description: 'Presto repository (e.g. prestodb/presto)'
+    required: true
+  presto_commit:
+    description: 'Presto commit SHA or branch'
+    required: true
+  github_token:
+    description: 'GitHub token for API calls'
+    required: true
+
+outputs:
+  velox_sha:
+    description: 'Resolved full Velox commit SHA'
+    value: ${{ steps.velox.outputs.sha }}
+  velox_short_sha:
+    description: 'Resolved short Velox commit SHA (7 chars)'
+    value: ${{ steps.velox.outputs.short_sha }}
+  presto_sha:
+    description: 'Resolved full Presto commit SHA'
+    value: ${{ steps.presto.outputs.sha }}
+  presto_short_sha:
+    description: 'Resolved short Presto commit SHA (7 chars)'
+    value: ${{ steps.presto.outputs.short_sha }}
+  date:
+    description: 'Build date (YYYYMMDD UTC)'
+    value: ${{ steps.date.outputs.date }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Presto commit
+      id: presto
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PRESTO_REF: ${{ inputs.presto_commit }}
+        PRESTO_REPO: ${{ inputs.presto_repository }}
+      run: |
+        SHA=$(git ls-remote "https://github.com/${PRESTO_REPO}.git" "${PRESTO_REF}" | head -1 | cut -f1)
+        if [[ -z "$SHA" ]]; then
+          SHA=$(gh api "repos/${PRESTO_REPO}/commits/${PRESTO_REF}" --jq '.sha')
+        fi
+        echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+        echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+        echo "Presto SHA: ${SHA} (short: ${SHA:0:7})"
+
+    - name: Resolve Velox commit
+      id: velox
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        VELOX_REF: ${{ inputs.velox_commit }}
+        VELOX_REPO: ${{ inputs.velox_repository }}
+        PRESTO_REPO: ${{ inputs.presto_repository }}
+        PRESTO_SHA: ${{ steps.presto.outputs.sha }}
+      run: |
+        if [[ "${VELOX_REF}" == "presto-pinned" ]]; then
+          SHA=$(gh api "repos/${PRESTO_REPO}/contents/presto-native-execution/velox?ref=${PRESTO_SHA}" --jq '.sha')
+          echo "Resolved Velox SHA from Presto submodule pin: ${SHA}"
+        else
+          SHA=$(git ls-remote "https://github.com/${VELOX_REPO}.git" "${VELOX_REF}" | head -1 | cut -f1)
+          if [[ -z "$SHA" ]]; then
+            SHA=$(gh api "repos/${VELOX_REPO}/commits/${VELOX_REF}" --jq '.sha')
+          fi
+        fi
+        echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+        echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+        echo "Velox SHA: ${SHA} (short: ${SHA:0:7})"
+
+    - name: Set build date
+      id: date
+      shell: bash
+      run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"

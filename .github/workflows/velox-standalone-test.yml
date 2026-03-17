@@ -1,0 +1,219 @@
+name: Velox Standalone Test
+run-name: ${{ github.event.head_commit.message }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository: &repository
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit: &velox_commit
+        description: 'Velox commit SHA or branch'
+        type: string
+        required: false
+        default: 'main'
+      build_target:
+        description: 'Select the build target'
+        type: choice
+        required: false
+        default: 'gpu'
+        options:
+          - all
+          - cpu
+          - gpu
+      use_upstream_deps_image: &use_upstream_deps_image
+        description: 'Use upstream deps image from ghcr.io'
+        type: boolean
+        default: true
+      enable_sccache: &enable_sccache
+        description: 'Enable sccache for build acceleration'
+        type: boolean
+        default: true
+      enable_sccache_dist: &enable_sccache_dist
+        description: 'Enable sccache distributed compilation (requires scheduler access)'
+        type: boolean
+        default: true
+      sccache_recache: &sccache_recache
+        description: 'Force sccache to recompile and overwrite existing cache entries'
+        type: boolean
+        default: false
+
+  workflow_call:
+    inputs:
+      repository: *repository
+      velox_commit: *velox_commit
+      build_target:
+        description: 'Select the build target'
+        type: string
+        required: false
+        default: 'gpu'
+      use_upstream_deps_image: *use_upstream_deps_image
+      enable_sccache: *enable_sccache
+      enable_sccache_dist: *enable_sccache_dist
+      sccache_recache: *sccache_recache
+
+permissions:
+  id-token: write
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  velox-cpu:
+    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'cpu' }}
+    runs-on: linux-amd64-cpu4
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: runc
+
+    steps:
+      - &checkout-velox-testing
+        name: Checkout this repository for CI scripts
+        uses: actions/checkout@v4
+        with:
+          path: velox-testing
+
+      - &checkout-velox
+        name: Setup Velox
+        uses: ./velox-testing/.github/actions/velox-setup
+        with:
+          repository: ${{ inputs.repository }}
+          velox_commit: ${{ inputs.velox_commit }}
+
+      - &pull-deps
+        if: ${{ inputs.use_upstream_deps_image }}
+        name: Pull Velox Dependencies
+        run: |
+          for attempt in 1 2 3; do
+            echo "=== Pull attempt $attempt of 3 ==="
+            if docker pull ghcr.io/facebookincubator/velox-dev:adapters; then
+              break
+            fi
+            if [[ $attempt -lt 3 ]]; then
+              echo "Pull failed, retrying in 30s..."
+              sleep 30
+            else
+              exit 1
+            fi
+          done
+
+      - &fetch-and-load-deps
+        if: ${{ ! inputs.use_upstream_deps_image }}
+        name: Fetch or Build Velox Dependencies
+        uses: ./velox-testing/.github/actions/velox-deps-fetch
+        with:
+          aws_arn_string: ${{ secrets.AWS_ARN_STRING }}
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          s3_bucket_name: ${{ vars.S3_BUCKET_NAME }}
+          s3_bucket_region: ${{ vars.S3_BUCKET_REGION }}
+          fail_on_fetch_error: false
+          auto_build_on_failure: true
+
+      - &setup-sccache
+        name: Setup sccache
+        id: sccache
+        if: ${{ inputs.enable_sccache }}
+        uses: ./velox-testing/.github/actions/sccache-setup
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          enable-dist: ${{ inputs.enable_sccache_dist }}
+
+      - name: Building Velox for CPU
+        run: |
+          echo "   - CUDF support: DISABLED"
+          echo "   - Target: CPU-only build"
+          echo "   - sccache: ${{ steps.sccache.outputs.enabled || 'false' }}"
+          echo "   - sccache dist: ${{ steps.sccache.outputs.dist-enabled || 'false' }}"
+          echo "   - sccache recache: ${{ inputs.sccache_recache }}"
+          if [[ "${{ inputs.sccache_recache }}" == "true" ]]; then
+            export SCCACHE_RECACHE=1
+          fi
+          cd ${{ github.workspace }}/velox-testing/velox/scripts
+          SCCACHE_FLAG=""
+          if [[ "${{ steps.sccache.outputs.enabled }}" == "true" ]]; then
+            SCCACHE_FLAG="--sccache"
+            if [[ "${{ steps.sccache.outputs.dist-enabled }}" == "true" ]]; then
+              SCCACHE_FLAG="--sccache --sccache-enable-dist"
+            fi
+          fi
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --cpu ${SCCACHE_FLAG} --log build_velox_cpu.log
+
+      - &show-sccache-stats
+        name: Show sccache stats
+        if: always() && steps.sccache.outputs.enabled == 'true'
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: |
+          LOG_FILE=$(ls build_velox_*.log 2>/dev/null | head -1)
+          if [[ -n "$LOG_FILE" ]]; then
+            grep -A 30 "Post-build sccache statistics:" "$LOG_FILE" || echo "sccache stats not found in build log"
+          else
+            echo "No build log found"
+          fi
+
+      - name: Upload velox_cpu_build_log as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: velox_cpu_build_log
+          path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_cpu.log
+
+      - &run-velox-tests
+        name: Run Velox CPU Tests
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./test_velox.sh --device-type cpu
+
+  velox-gpu:
+    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'gpu' }}
+    runs-on: linux-amd64-gpu-l4-latest-1
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCKER_RUNTIME: nvidia
+
+    steps:
+      - *checkout-velox-testing
+
+      - *checkout-velox
+
+      - *pull-deps
+      - *fetch-and-load-deps
+
+      - *setup-sccache
+
+      - name: Building Velox for GPU
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: |
+          echo "   - CUDF support: ENABLED"
+          echo "   - Target: GPU-accelerated build"
+          echo "   - sccache: ${{ steps.sccache.outputs.enabled || 'false' }}"
+          echo "   - sccache dist: ${{ steps.sccache.outputs.dist-enabled || 'false' }}"
+          echo "   - sccache recache: ${{ inputs.sccache_recache }}"
+          if [[ "${{ inputs.sccache_recache }}" == "true" ]]; then
+            export SCCACHE_RECACHE=1
+          fi
+          SCCACHE_FLAG=""
+          if [[ "${{ steps.sccache.outputs.enabled }}" == "true" ]]; then
+            SCCACHE_FLAG="--sccache"
+            if [[ "${{ steps.sccache.outputs.dist-enabled }}" == "true" ]]; then
+              SCCACHE_FLAG="--sccache --sccache-enable-dist"
+            fi
+          fi
+          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --gpu ${SCCACHE_FLAG} --log build_velox_gpu.log
+
+      - *show-sccache-stats
+
+      - name: Upload velox_gpu_build_log as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: velox_gpu_build_log
+          path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_gpu.log
+
+      - name: Run Velox GPU Tests
+        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
+        run: ./test_velox.sh -j 1 --device-type gpu

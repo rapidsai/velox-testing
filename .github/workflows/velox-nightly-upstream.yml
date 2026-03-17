@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   nightly:
-    uses: ./.github/workflows/velox-test.yml
+    uses: ./.github/workflows/velox-standalone-test.yml
     with:
       repository: facebookincubator/velox
       velox_commit: main
