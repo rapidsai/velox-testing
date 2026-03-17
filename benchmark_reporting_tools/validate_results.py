@@ -28,7 +28,8 @@ Key behaviours
   when the expected column is temporal (Presto may write dates as strings).
 - Floating-point values are compared with rel_tol=1e-5, abs_tol=1e-8.
 - For queries with ORDER BY (sort_by non-empty):
-    - We verify that the actual result is sorted by the sort_by columns.
+    - We verify that the actual result is sorted by the sort_by columns,
+      respecting the nulls_last setting (default True, matching DuckDB ASC).
     - Tie-breaking is resolved by sorting both frames on all *non-float*
       columns, to avoid floating-point sort instability.
 - For queries with ORDER BY + LIMIT, rows at the limit boundary (ties on
@@ -58,6 +59,7 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 class SortLimit(TypedDict):
     sort_by: list[tuple[str, bool]]
     limit: int | None
+    nulls_last: NotRequired[bool]
     xfail_if_empty: NotRequired[bool]
 
 
@@ -139,6 +141,7 @@ def assert_tpch_result_equal(
     right: pl.DataFrame,
     *,
     sort_by: list[tuple[str, bool]],
+    nulls_last: bool = True,
     limit: int | None = None,
 ) -> None:
     """
@@ -217,7 +220,7 @@ def assert_tpch_result_equal(
         try:
             polars.testing.assert_frame_equal(
                 df.select(by),
-                df.select(by).sort(by=by, descending=descending, maintain_order=True),
+                df.select(by).sort(by=by, descending=descending, maintain_order=True, nulls_last=nulls_last),
             )
         except AssertionError as e:
             raise AssertionError(f"{side} frame is not sorted by {sort_by}: {e}") from e
@@ -295,6 +298,7 @@ def compare_query(
             actual,
             expected,
             sort_by=cfg["sort_by"],
+            nulls_last=cfg.get("nulls_last", True),
             limit=cfg["limit"],
         )
         return "passed", None
