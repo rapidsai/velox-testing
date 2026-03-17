@@ -75,7 +75,7 @@ services:
       RUN_TIMESTAMP: ${RUN_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
-      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_TLS: tcp,cuda_copy,cuda_ipc,self
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
       # don't know, leave it for now
@@ -103,7 +103,7 @@ services:
       RUN_TIMESTAMP: ${RUN_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
-      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_TLS: tcp,cuda_copy,cuda_ipc,self
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
       # don't know, leave it for now
@@ -119,7 +119,7 @@ services:
       RUN_TIMESTAMP: ${RUN_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
-      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_TLS: tcp,cuda_copy,cuda_ipc,self
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
       # don't know, leave it for now
