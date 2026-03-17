@@ -54,6 +54,7 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 # sort_by entries: (column_name, descending)
 # ---------------------------------------------------------------------------
 
+
 class SortLimit(TypedDict):
     sort_by: list[tuple[str, bool]]
     limit: int | None
@@ -61,22 +62,25 @@ class SortLimit(TypedDict):
 
 
 QUERY_CONFIG: dict[str, SortLimit] = {
-    "q1":  {"sort_by": [("l_returnflag", False), ("l_linestatus", False)], "limit": None},
-    "q2":  {"sort_by": [("s_acctbal", True), ("n_name", False), ("s_name", False), ("p_partkey", False)], "limit": 100},
-    "q3":  {"sort_by": [("revenue", True), ("o_orderdate", False)], "limit": 10},
-    "q4":  {"sort_by": [("o_orderpriority", False)], "limit": None},
-    "q5":  {"sort_by": [("revenue", True)], "limit": None},
-    "q6":  {"sort_by": [], "limit": None},
-    "q7":  {"sort_by": [("supp_nation", False), ("cust_nation", False), ("l_year", False)], "limit": None},
-    "q8":  {"sort_by": [("o_year", False)], "limit": None},
-    "q9":  {"sort_by": [("nation", False), ("o_year", True)], "limit": None},
+    "q1": {"sort_by": [("l_returnflag", False), ("l_linestatus", False)], "limit": None},
+    "q2": {"sort_by": [("s_acctbal", True), ("n_name", False), ("s_name", False), ("p_partkey", False)], "limit": 100},
+    "q3": {"sort_by": [("revenue", True), ("o_orderdate", False)], "limit": 10},
+    "q4": {"sort_by": [("o_orderpriority", False)], "limit": None},
+    "q5": {"sort_by": [("revenue", True)], "limit": None},
+    "q6": {"sort_by": [], "limit": None},
+    "q7": {"sort_by": [("supp_nation", False), ("cust_nation", False), ("l_year", False)], "limit": None},
+    "q8": {"sort_by": [("o_year", False)], "limit": None},
+    "q9": {"sort_by": [("nation", False), ("o_year", True)], "limit": None},
     "q10": {"sort_by": [("revenue", True)], "limit": 20},
     "q11": {"sort_by": [("value", True)], "limit": None},
     "q12": {"sort_by": [("l_shipmode", False)], "limit": None},
     "q13": {"sort_by": [("custdist", True), ("c_count", True)], "limit": None},
     "q14": {"sort_by": [], "limit": None},
     "q15": {"sort_by": [("s_suppkey", False)], "limit": None, "xfail_if_empty": True},
-    "q16": {"sort_by": [("supplier_cnt", True), ("p_brand", False), ("p_type", False), ("p_size", False)], "limit": None},
+    "q16": {
+        "sort_by": [("supplier_cnt", True), ("p_brand", False), ("p_type", False), ("p_size", False)],
+        "limit": None,
+    },
     "q17": {"sort_by": [], "limit": None},
     "q18": {"sort_by": [("o_totalprice", True), ("o_orderdate", False)], "limit": 100},
     "q19": {"sort_by": [], "limit": None},
@@ -92,6 +96,7 @@ ABS_TOL = 1e-8
 # ---------------------------------------------------------------------------
 # Assertion logic — ported from cudf_polars/experimental/benchmarks/asserts.py
 # ---------------------------------------------------------------------------
+
 
 def _polars_assert_frame_equal(left: pl.DataFrame, right: pl.DataFrame, **kwargs: Any) -> None:
     """Call polars.testing.assert_frame_equal, handling rel_tol/abs_tol API differences."""
@@ -119,6 +124,7 @@ def _reconcile_presto_col_names(result: pl.DataFrame, expected: pl.DataFrame) ->
     Non-anonymous columns are left untouched so real name mismatches still fail.
     """
     import re
+
     renames = {}
     for i, (res_col, exp_col) in enumerate(zip(result.columns, expected.columns)):
         if re.fullmatch(r"_col\d+", res_col) and res_col != exp_col:
@@ -214,15 +220,10 @@ def assert_tpch_result_equal(
                 df.select(by).sort(by=by, descending=descending, maintain_order=True),
             )
         except AssertionError as e:
-            raise AssertionError(
-                f"{side} frame is not sorted by {sort_by}: {e}"
-            ) from e
+            raise AssertionError(f"{side} frame is not sorted by {sort_by}: {e}") from e
 
     # 4. Sort both frames by non-float columns to resolve ties deterministically
-    non_float_columns = [
-        col for col in left.columns
-        if left.schema[col] not in (pl.Float32, pl.Float64)
-    ]
+    non_float_columns = [col for col in left.columns if left.schema[col] not in (pl.Float32, pl.Float64)]
     left_sorted = left.sort(by=non_float_columns)
     right_sorted = right.sort(by=non_float_columns)
 
@@ -236,19 +237,17 @@ def assert_tpch_result_equal(
     exprs = []
     for (col, val), desc in zip(split_at.items(), descending, strict=True):
         if isinstance(val, float):
-            exprs.append(
-                pl.col(col).lt(val - 2 * ABS_TOL) | pl.col(col).gt(val + 2 * ABS_TOL)
-            )
+            exprs.append(pl.col(col).lt(val - 2 * ABS_TOL) | pl.col(col).gt(val + 2 * ABS_TOL))
         else:
             op = pl.col(col).gt if desc else pl.col(col).lt
             exprs.append(op(val))
 
     expr = pl.Expr.or_(*exprs)
 
-    result_first   = left.filter(expr)
+    result_first = left.filter(expr)
     expected_first = right.filter(expr)
-    result_ties    = left.filter(~expr)
-    expected_ties  = right.filter(~expr)
+    result_ties = left.filter(~expr)
+    expected_ties = right.filter(~expr)
 
     # Non-ties: full comparison
     _polars_assert_frame_equal(
@@ -268,6 +267,7 @@ def assert_tpch_result_equal(
 # ---------------------------------------------------------------------------
 # Per-query validation
 # ---------------------------------------------------------------------------
+
 
 def compare_query(
     query_id: str,
@@ -306,6 +306,7 @@ def compare_query(
 # Main validation loop
 # ---------------------------------------------------------------------------
 
+
 def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = None) -> dict:
     """Run validation and return a results dict.
 
@@ -323,11 +324,7 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
     passed = failed = not_validated = expected_failures = 0
 
     if queries is not None:
-        result_files = sorted(
-            f for q in queries
-            for f in [results_dir / f"q{q}.parquet"]
-            if f.exists()
-        )
+        result_files = sorted(f for q in queries for f in [results_dir / f"q{q}.parquet"] if f.exists())
     else:
         result_files = sorted(results_dir.glob("q*.parquet"))
     if not result_files:
@@ -342,19 +339,24 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
         #   q1.parquet   (q-prefixed, no zero-padding)
         #   01.parquet   (zero-padded, no prefix)
         expected_file = next(
-            (expected_dir / name for name in (
-                f"q{q_num:02d}.parquet", f"q{q_num}.parquet", f"{q_num:02d}.parquet"
-            ) if (expected_dir / name).exists()),
+            (
+                expected_dir / name
+                for name in (f"q{q_num:02d}.parquet", f"q{q_num}.parquet", f"{q_num:02d}.parquet")
+                if (expected_dir / name).exists()
+            ),
             expected_dir / f"q{q_num:02d}.parquet",  # fallback for the "not found" message
         )
 
         if not expected_file.exists():
             print(f"  {query_id.upper():4s}: SKIP     expected file not found: {expected_file}")
-            query_results[query_id] = {"status": "not-validated", "message": f"expected file not found: {expected_file.name}"}
+            query_results[query_id] = {
+                "status": "not-validated",
+                "message": f"expected file not found: {expected_file.name}",
+            }
             not_validated += 1
             continue
 
-        actual   = pl.read_parquet(result_file)
+        actual = pl.read_parquet(result_file)
         expected = pl.read_parquet(expected_file)
 
         if expected.height == 0 and all(t == pl.Null for t in expected.dtypes):
@@ -406,6 +408,7 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Validate TPC-H query results against expected parquet files.",
@@ -421,20 +424,20 @@ def parse_args() -> argparse.Namespace:
         required=False,
         default=None,
         help="Directory containing expected parquet files "
-             "(e.g. /scratch/prestouser/tpch-rs-no-delta-expected/scale-10000). "
-             "If omitted, validation is skipped and overall_status is 'not-validated'.",
+        "(e.g. /scratch/prestouser/tpch-rs-no-delta-expected/scale-10000). "
+        "If omitted, validation is skipped and overall_status is 'not-validated'.",
     )
     parser.add_argument(
         "--allow-missing-expected",
         action="store_true",
         help="When set, a missing --expected-dir path is treated as 'not-validated' "
-             "rather than an error.  Used by run_benchmark.sh for auto-detected paths.",
+        "rather than an error.  Used by run_benchmark.sh for auto-detected paths.",
     )
     parser.add_argument(
         "--queries",
         default=None,
         help="Comma-separated list of query numbers to validate (e.g. '1,6,14'). "
-             "When omitted, all result files in results_dir are validated.",
+        "When omitted, all result files in results_dir are validated.",
     )
     return parser.parse_args()
 
