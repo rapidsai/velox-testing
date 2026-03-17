@@ -1,0 +1,38 @@
+name: 'Delete intermediate arch-specific tags'
+description: 'Removes -amd64 and -arm64 intermediate tags after multi-arch manifest creation'
+
+inputs:
+  base-tags:
+    description: 'Newline-separated list of base tag names (without arch suffix)'
+    required: true
+  registry:
+    description: 'Container registry hostname (e.g. ghcr.io)'
+    required: true
+  image-name:
+    description: 'Full image name without registry prefix (e.g. rapidsai/velox-testing-images)'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install crane
+      shell: bash
+      run: |
+        curl -sSL "https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz" \
+          | tar xzf - -C /usr/local/bin crane
+
+    - name: Delete arch-specific tags
+      shell: bash
+      env:
+        BASE_TAGS: ${{ inputs.base-tags }}
+        REGISTRY: ${{ inputs.registry }}
+        IMAGE_NAME: ${{ inputs.image-name }}
+      run: |
+        while IFS= read -r base_tag; do
+          [[ -z "${base_tag}" ]] && continue
+          for arch in amd64 arm64; do
+            crane delete "${REGISTRY}/${IMAGE_NAME}:${base_tag}-${arch}" \
+              && echo "Deleted intermediate tag: ${base_tag}-${arch}" \
+              || echo "::warning::Failed to delete intermediate tag: ${base_tag}-${arch}"
+          done
+        done <<< "${BASE_TAGS}"
