@@ -60,7 +60,6 @@ jobs:
   velox-test-upstream:
     name: velox-test (upstream)
     needs: [resolve-commits-upstream, velox-build-upstream]
-    if: ${{ !cancelled() }}
     uses: ./.github/workflows/velox-test.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits-upstream.outputs.velox_short_sha }}
@@ -70,7 +69,6 @@ jobs:
   presto-test-upstream:
     name: presto-test (upstream)
     needs: [resolve-commits-upstream, presto-build-upstream]
-    if: ${{ !cancelled() }}
     uses: ./.github/workflows/presto-test.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits-upstream.outputs.velox_short_sha }}
@@ -129,7 +127,6 @@ jobs:
   velox-test-pinned:
     name: velox-test (pinned)
     needs: [resolve-commits-pinned, velox-build-pinned]
-    if: ${{ !cancelled() }}
     uses: ./.github/workflows/velox-test.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits-pinned.outputs.velox_short_sha }}
@@ -139,7 +136,6 @@ jobs:
   presto-test-pinned:
     name: presto-test (pinned)
     needs: [resolve-commits-pinned, presto-build-pinned]
-    if: ${{ !cancelled() }}
     uses: ./.github/workflows/presto-test.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits-pinned.outputs.velox_short_sha }}
@@ -198,7 +194,6 @@ jobs:
   velox-test-staging:
     name: velox-test (staging)
     needs: [resolve-commits-staging, velox-build-staging]
-    if: ${{ !cancelled() }}
     uses: ./.github/workflows/velox-test.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits-staging.outputs.velox_short_sha }}
@@ -208,7 +203,6 @@ jobs:
   presto-test-staging:
     name: presto-test (staging)
     needs: [resolve-commits-staging, presto-build-staging]
-    if: ${{ !cancelled() }}
     uses: ./.github/workflows/presto-test.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits-staging.outputs.velox_short_sha }}
