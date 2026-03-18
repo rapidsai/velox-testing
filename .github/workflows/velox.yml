@@ -48,8 +48,6 @@ jobs:
         with:
           velox_repository: ${{ inputs.velox_repository }}
           velox_commit: ${{ inputs.velox_commit }}
-          presto_repository: prestodb/presto
-          presto_commit: master
           github_token: ${{ github.token }}
 
   velox-build:
