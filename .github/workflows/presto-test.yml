@@ -161,7 +161,11 @@ jobs:
           NUM_WORKERS: 1
           OVERWRITE_CONFIG: 'true'
         working-directory: presto/scripts
-        run: ./generate_presto_config.sh --ci
+        run: ./generate_presto_config.sh
+
+      - name: Patch configs for CI
+        working-directory: presto/scripts
+        run: ./patch_ci_configs.sh ../docker/config/generated/gpu
 
       - name: Create Docker network
         run: docker network create "${DOCKER_NETWORK}"
