@@ -116,6 +116,13 @@ jobs:
           cp -r velox/scripts presto-deps-context/velox/scripts
           cp -r velox/CMake presto-deps-context/velox/CMake
 
+          # Workaround: gflags installs to /usr/local/lib64 which isn't in
+          # the default ldconfig search path on CentOS Stream 9. Without
+          # ldconfig, thrift1 fails at runtime with:
+          #   error while loading shared libraries: libgflags.so.2.2
+          sed -i '/cmake_install_dir gflags/a\  ldconfig' \
+            presto-deps-context/velox/scripts/setup-centos9.sh
+
       - name: Build and push Presto deps image
         id: push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
