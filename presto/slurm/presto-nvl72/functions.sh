@@ -346,7 +346,13 @@ function generate_json() {
     local worker_log
     worker_log="$(ls -t ${OUTPUT_PREFIX}/logs/worker_*_*.log 2>/dev/null | head -1)"
     [ -z "${worker_log}" ] && worker_log="$(ls -t ${OUTPUT_PREFIX}/logs/worker_*.log 2>/dev/null | head -1)"
-    local gpu=$(grep "^GPU Name:" "${worker_log}" | sed "s/^GPU Name:[[:space:]]*//")
+    local gpu="unknown"
+    if [ -n "${worker_log}" ]; then
+        gpu="$(grep "^GPU Name:" "${worker_log}" 2>/dev/null | sed "s/^GPU Name:[[:space:]]*//" || true)"
+        [ -z "${gpu}" ] && gpu="unknown"
+    else
+        echo "No worker log found; defaulting GPU name to 'unknown'."
+    fi
     echo "GPU = $gpu"
 
     jq --null-input \
