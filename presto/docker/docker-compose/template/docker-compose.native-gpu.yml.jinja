@@ -97,6 +97,7 @@ services:
 {%- if workers %}
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
+      WORKER_ID: {{ workers[0] }}
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE}
       PROFILE_ARGS: ${PROFILE_ARGS}
