@@ -10,6 +10,7 @@ function setup {
     [ -z "$SLURM_NNODES" ] && echo "required argument '--nodes' not specified" && exit 1
     [ -z "$IMAGE_DIR" ] && echo "IMAGE_DIR must be set" && exit 1
     [ -z "$LOGS_DIR" ] && echo "LOGS_DIR must be set" && exit 1
+    [ -z "$SERVER_START_TIMESTAMP" ] && echo "SERVER_START_TIMESTAMP must be set" && exit 1
     [ -z "$CONFIGS" ] && echo "CONFIGS must be set" && exit 1
     [ -z "$NUM_NODES" ] && echo "NUM_NODES must be set" && exit 1
     [ -z "$NUM_GPUS_PER_NODE" ] && echo "NUM_GPUS_PER_NODE env variable must be set" && exit 1
@@ -58,11 +59,11 @@ function validate_environment_preconditions {
 # Execute script through the coordinator image (used for coordinator and cli executables)
 function run_coord_image {
     [ $# -ne 2 ] && echo_error "$0 expected one argument for '<script>' and one for '<coord/cli>'"
-    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD DATA COORD_IMAGE
+    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD DATA COORD_IMAGE SERVER_START_TIMESTAMP
     local script=$1
     local type=$2
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
-    local log_file="${type}_${RUN_TIMESTAMP}.log"
+    local log_file="${type}_${SERVER_START_TIMESTAMP}.log"
 
     local coord_image="${IMAGE_DIR}/${COORD_IMAGE}.sqsh"
     [ ! -f "${coord_image}" ] && echo_error "coord image does not exist at ${coord_image}"
@@ -193,7 +194,7 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 --container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
 --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
 --container-env=GLOG_logtostderr=1 \
--- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; echo \"GPU Name: \$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)\"; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS_DIR}/worker_${worker_id}_${RUN_TIMESTAMP}.log 2>&1 &
+-- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; echo \"GPU Name: \$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)\"; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS_DIR}/worker_${worker_id}_${SERVER_START_TIMESTAMP}.log 2>&1 &
 }
 
 function copy_hive_metastore {
@@ -225,7 +226,7 @@ function setup_benchmark {
 }
 
 # Run a cli node that will connect to the coordinator and run queries from queries.sql
-# Results are stored in cli.log.
+# Results are stored in cli_<SERVER_START_TIMESTAMP>.log.
 function run_queries {
     echo "running queries"
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
@@ -343,9 +344,15 @@ function generate_json() {
     fi
     local timestamp=$(date +"%Y-%m-%dT%H:%M:%SZ")
     local worker_log
-    worker_log="$(ls -t ${OUTPUT_PREFIX}/logs/worker_0_*.log 2>/dev/null | head -1)"
-    [ -z "${worker_log}" ] && worker_log="${OUTPUT_PREFIX}/logs/worker_0.log"
-    local gpu=$(grep "GPU 0: NVIDIA [^ ]* " "${worker_log}" | sed "s/GPU 0: NVIDIA \([^ ]*\) .*/\1/g")
+    worker_log="$(ls -t ${OUTPUT_PREFIX}/logs/worker_*_*.log 2>/dev/null | head -1)"
+    [ -z "${worker_log}" ] && worker_log="$(ls -t ${OUTPUT_PREFIX}/logs/worker_*.log 2>/dev/null | head -1)"
+    local gpu="unknown"
+    if [ -n "${worker_log}" ]; then
+        gpu="$(grep "^GPU Name:" "${worker_log}" 2>/dev/null | sed "s/^GPU Name:[[:space:]]*//" || true)"
+        [ -z "${gpu}" ] && gpu="unknown"
+    else
+        echo "No worker log found; defaulting GPU name to 'unknown'."
+    fi
     echo "GPU = $gpu"
 
     jq --null-input \

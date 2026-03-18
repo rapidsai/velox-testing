@@ -77,29 +77,43 @@ def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_na
 def _find_worker_log(worker_id: int = 0) -> Path | None:
     """Locate the worker log file for *worker_id*.
 
-    Tries, in order:
-    1. ``LOGS_DIR/worker_<id>_<RUN_TIMESTAMP>.log`` (exact match when RUN_TIMESTAMP is set)
-    2. The newest ``LOGS_DIR/worker_<id>_*.log`` by mtime (glob fallback)
-    3. ``LOGS_DIR/worker_<id>.log`` (legacy non-timestamped name)
+    Requires LOGS_DIR and SERVER_START_TIMESTAMP to be set; returns None if the
+    exact-match file ``LOGS_DIR/worker_<id>_<SERVER_START_TIMESTAMP>.log`` is not found.
     """
     logs_dir = os.environ.get("LOGS_DIR")
     if not logs_dir:
         return None
-    logs_path = Path(logs_dir)
+    ts = os.environ.get("SERVER_START_TIMESTAMP")
+    if not ts:
+        return None
+    exact = Path(logs_dir) / f"worker_{worker_id}_{ts}.log"
+    if exact.is_file():
+        return exact
+    _debug(f"worker log not found for worker_{worker_id} with SERVER_START_TIMESTAMP={ts}")
+    return None
 
-    ts = os.environ.get("RUN_TIMESTAMP")
-    if ts:
-        exact = logs_path / f"worker_{worker_id}_{ts}.log"
-        if exact.is_file():
-            return exact
 
-    candidates = sorted(logs_path.glob(f"worker_{worker_id}_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+def _find_any_worker_log() -> Path | None:
+    """Return a log file for any available worker.
+
+    Tries worker_0 first for backwards compatibility, then discovers any
+    ``worker_*_<SERVER_START_TIMESTAMP>.log`` present in LOGS_DIR.
+    Returns None if LOGS_DIR or SERVER_START_TIMESTAMP is unset, or no matching log exists.
+    """
+    log = _find_worker_log(0)
+    if log is not None:
+        return log
+
+    logs_dir = os.environ.get("LOGS_DIR")
+    if not logs_dir:
+        return None
+    ts = os.environ.get("SERVER_START_TIMESTAMP")
+    if not ts:
+        return None
+    candidates = sorted(Path(logs_dir).glob(f"worker_*_{ts}.log"))
     if candidates:
         return candidates[0]
-
-    legacy = logs_path / f"worker_{worker_id}.log"
-    if legacy.is_file():
-        return legacy
+    _debug(f"no worker logs found with SERVER_START_TIMESTAMP={ts}")
     return None
 
 
@@ -108,10 +122,10 @@ def _get_gpu_name_from_worker_logs() -> str | None:
 
     Both Docker and SLURM workers write a 'GPU Name: <model>' line
     to LOGS_DIR/worker_<id>_<timestamp>.log before starting the server.
-    All workers are assumed to have the same GPU; only worker_0 is read.
+    All workers are assumed to have the same GPU; the first available worker log is read.
     Returns None when LOGS_DIR is unset or no matching line is found.
     """
-    log_file = _find_worker_log(0)
+    log_file = _find_any_worker_log()
     if log_file is None:
         return None
     try:
@@ -173,9 +187,9 @@ def _get_num_drivers() -> int | None:
     The Presto native server logs its configuration at startup.
     Returns None when LOGS_DIR is unset or the property is not found.
     """
-    log_file = _find_worker_log(0)
+    log_file = _find_any_worker_log()
     if log_file is None:
-        _debug("num_drivers: worker_0 log not found")
+        _debug("num_drivers: no worker log found")
         return None
     try:
         with open(log_file) as f:
