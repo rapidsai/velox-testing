@@ -7,7 +7,7 @@ on:
 
 jobs:
   nightly:
-    uses: ./.github/workflows/presto-test.yml
+    uses: ./.github/workflows/presto-standalone-test.yml
     with:
       presto_repository: prestodb/presto
       presto_commit: master

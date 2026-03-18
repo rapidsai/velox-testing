@@ -11,7 +11,7 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `velox-create-staging.yml` | Creates Velox staging branch by merging cuDF PRs | Auto-fetches PRs with `cudf` label by default |
 | `presto-create-staging.yml` | Creates Presto staging branch by merging specified PRs | Requires manual PR numbers (no auto-fetch) |
 | **Velox Testing** |||
-| `velox-test.yml` | Builds and tests Velox (CPU and/or GPU) | Foundation workflow called by nightly jobs |
+| `velox-standalone-test.yml` | Builds and tests Velox (CPU and/or GPU) | Foundation workflow called by nightly jobs |
 | `velox-nightly-upstream.yml` | Nightly tests against upstream `facebookincubator/velox:main` | Early detection of upstream regressions |
 | `velox-nightly-staging.yml` | Nightly tests against the staging branch | Validates staging before cuDF merges |
 | **Velox Benchmarking** |||
@@ -20,19 +20,21 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | **Velox Dependencies** |||
 | `velox-deps-upload.yml` | Builds and uploads Velox dependencies image to S3 | Run when base dependencies change |
 | **Presto Testing** |||
-| `presto-test.yml` | Tests Presto with Java, Native CPU, or Native GPU workers | Supports multiple worker configurations |
-| `presto-test-composite.yml` | Reusable workflow implementing Presto test logic | Called by presto-test.yml |
+| `presto-standalone-test.yml` | Tests Presto with Java, Native CPU, or Native GPU workers | Supports multiple worker configurations |
+| `presto-test-composite.yml` | Reusable workflow implementing Presto test logic | Called by presto-standalone-test.yml |
 | `presto-nightly-upstream.yml` | Nightly tests against upstream Presto and Velox | Tests latest upstream compatibility |
 | `presto-nightly-staging.yml` | Nightly tests against staging/stable versions | Validates known-good configurations |
 | `presto-nightly-pinned.yml` | Nightly tests using Presto's pinned Velox version | Tests exact Velox commit Presto depends on |
 | **CI Images** |||
 | `ci-images-nightly.yml` | Nightly builds of CI images for upstream, pinned, and staging | Schedule only (5am UTC) |
 | `ci-images-manual.yml` | Manual builds of CI images with user-specified inputs | `workflow_dispatch` only |
-| `build.yml` | Reusable workflow implementing CI image build logic | Called by ci-images workflows |
-| `test.yml` | Reusable workflow implementing CI image test logic | Called by ci-images workflows; also supports `workflow_dispatch` for test-only runs |
+| `actions/resolve-commits/` | Composite action to resolve Velox/Presto commit SHAs | Used by ci-images workflows |
+| `actions/resolve-inputs/` | Composite action to parse image tags into SHAs + date | Used by test workflows for `workflow_dispatch` |
+| `velox-build.yml` | Reusable workflow for Velox CI image builds + merge | Builds deps + build images, creates multi-arch manifests |
+| `presto-build.yml` | Reusable workflow for Presto CI image builds + merge | Builds deps + build + coordinator, creates multi-arch manifests |
+| `velox-test.yml` | Reusable workflow for Velox CI image tests | CPU + GPU tests; supports `workflow_dispatch` for test-only runs |
+| `presto-test.yml` | Reusable workflow for Presto CI image tests | Smoke + integration tests; supports `workflow_dispatch` for test-only runs |
 | `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
-| **Preliminary Checks** |||
-| `preliminary-checks.yml` | Runs tests when specific directories change | Triggers on `benchmark_data_tools/` or `presto/` changes |
 
 ---
 
@@ -103,7 +105,7 @@ The additional merge happens **after** the base reset but **before** PR merging.
 
 ## Velox Testing Workflows
 
-### `velox-test.yml`
+### `velox-standalone-test.yml`
 Core build and test workflow for Velox. Supports CPU-only, GPU-only, or both targets. Used as a foundation by nightly workflows.
 
 ### `velox-nightly-upstream.yml`
@@ -132,15 +134,37 @@ Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and publis
 
 - **`ci-images-nightly.yml`** — Nightly schedule (5am UTC). Builds images for three source combinations in parallel:
 
-  | Job | Velox | Presto |
-  |-----|-------|--------|
-  | `nightly-upstream` | `facebookincubator/velox:main` | `prestodb/presto:master` |
-  | `nightly-pinned` | Presto's pinned Velox submodule | `prestodb/presto:master` |
-  | `nightly-staging` | `$STABLE_VELOX_REPO:$STABLE_VELOX_COMMIT` | `$STABLE_PRESTO_REPO:$STABLE_PRESTO_COMMIT` |
+  | Variant | Velox | Presto |
+  |---------|-------|--------|
+  | `upstream` | `facebookincubator/velox:main` | `prestodb/presto:master` |
+  | `pinned` | Presto's pinned Velox submodule | `prestodb/presto:master` |
+  | `staging` | `$STABLE_VELOX_REPO:$STABLE_VELOX_COMMIT` | `$STABLE_PRESTO_REPO:$STABLE_PRESTO_COMMIT` |
 
-  A new nightly run cancels any in-progress nightly run.
+  Per variant, velox and presto builds run in parallel. A new nightly run cancels any in-progress nightly run.
 
 - **`ci-images-manual.yml`** — Manual dispatch only. Builds a single image set with user-specified repository/commit inputs. Runs never cancel each other.
+
+### CI Image Pipeline
+
+Each variant follows this dependency graph:
+
+```
+resolve-commits ─┬─► velox-build ──► velox-test
+                 └─► presto-build ─► presto-test
+```
+
+The pipeline is split into focused reusable workflows:
+
+| Workflow | Purpose |
+|----------|---------|
+| `actions/resolve-commits/` | Composite action: resolves Velox/Presto commit SHAs (including `presto-pinned` logic) and sets the build date |
+| `velox-build.yml` | Builds velox-deps and velox images, creates multi-arch manifests |
+| `presto-build.yml` | Builds presto-deps, presto native worker, and coordinator images, creates multi-arch manifests |
+| `velox-test.yml` | Runs Velox CPU and GPU tests against built images |
+| `presto-test.yml` | Runs Presto smoke tests and TPC-H/TPC-DS integration tests against built images |
+| `actions/resolve-inputs/` | Composite action: parses image tags into SHAs + date for `workflow_dispatch` test-only runs |
+
+Both `velox-test.yml` and `presto-test.yml` support `workflow_dispatch` for test-only runs against pre-built images.
 
 ### Image Tags
 
@@ -152,6 +176,7 @@ Images are tagged with commit SHAs, CUDA version, and build date:
 - **Presto deps:** `presto-deps-${PRESTO_SHA}-velox-${VELOX_SHA}-cuda${CUDA_VERSION}-${DATE}`
 - **Presto build (GPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}`
 - **Presto build (CPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-cpu-${DATE}`
+- **Presto coordinator:** `presto-coordinator-${PRESTO_SHA}-${DATE}`
 
 Images are purged after 30 days by the `ci-image-cleanup.yml` workflow.
 
@@ -182,7 +207,7 @@ Browse available tags at [ghcr.io/rapidsai/velox-testing-images](https://github.
 
 ## Presto Testing Workflows
 
-### `presto-test.yml`
+### `presto-standalone-test.yml`
 Main Presto testing workflow supporting three worker types:
 - **Java Worker:** Traditional Presto Java execution
 - **Native CPU Worker:** Prestissimo with Velox CPU
@@ -231,7 +256,7 @@ VELOX WORKFLOWS
 ───────────────
 velox-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
 
-velox-nightly-upstream.yml ─┬──► velox-test.yml
+velox-nightly-upstream.yml ─┬──► velox-standalone-test.yml
 velox-nightly-staging.yml ──┘
 
 velox-benchmark-nightly-staging.yml ──► velox-benchmark-sanity-test.yml
@@ -242,14 +267,18 @@ PRESTO WORKFLOWS
 presto-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
 
 presto-nightly-upstream.yml ─┬
-presto-nightly-staging.yml ──┼──► presto-test.yml ──► presto-test-composite.yml
+presto-nightly-staging.yml ──┼──► presto-standalone-test.yml ──► presto-test-composite.yml
 presto-nightly-pinned.yml ───┘
 
 
 CI IMAGES
 ─────────
-ci-images-nightly.yml ─┬──► build.yml ──► [GHCR images] ──► test.yml
-ci-images-manual.yml ──┘
-test.yml (workflow_dispatch) ──► [test pre-built images]
+                              ┌──► velox-build.yml ──► velox-test.yml
+ci-images-nightly.yml ─┬──► [resolve-commits action] ─┤
+ci-images-manual.yml ──┘                               └──► presto-build.yml ─► presto-test.yml
+
+velox-test.yml (workflow_dispatch) ──► [resolve-inputs action] ──► [test pre-built velox images]
+presto-test.yml (workflow_dispatch) ──► [resolve-inputs action] ──► [test pre-built presto images]
+
 ci-image-cleanup.yml ──► [delete old images]
 ```
