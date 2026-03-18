@@ -16,19 +16,6 @@ jobs:
       variant_label: upstream
       velox_repository: facebookincubator/velox
       velox_commit: main
-      presto_repository: prestodb/presto
-      presto_commit: master
-      run_tests: true
-    secrets: inherit
-
-  pinned:
-    uses: ./.github/workflows/velox.yml
-    with:
-      variant_label: pinned
-      velox_repository: facebookincubator/velox
-      velox_commit: presto-pinned
-      presto_repository: prestodb/presto
-      presto_commit: master
       run_tests: true
     secrets: inherit
 
@@ -38,7 +25,5 @@ jobs:
       variant_label: staging
       velox_repository: ${{ vars.STABLE_VELOX_REPO }}
       velox_commit: ${{ vars.STABLE_VELOX_COMMIT }}
-      presto_repository: ${{ vars.STABLE_PRESTO_REPO }}
-      presto_commit: ${{ vars.STABLE_PRESTO_COMMIT }}
       run_tests: true
     secrets: inherit

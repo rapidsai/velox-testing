@@ -15,20 +15,10 @@ on:
         required: false
         default: 'facebookincubator/velox'
       velox_commit: &velox_commit
-        description: 'Velox commit SHA, branch, or "presto-pinned"'
+        description: 'Velox commit SHA or branch'
         type: string
         required: false
         default: 'main'
-      presto_repository: &presto_repository
-        description: 'Presto repository used when resolving "presto-pinned"'
-        type: string
-        required: false
-        default: 'prestodb/presto'
-      presto_commit: &presto_commit
-        description: 'Presto commit used when resolving "presto-pinned"'
-        type: string
-        required: false
-        default: 'master'
       run_tests: &run_tests
         description: 'Run tests after build'
         type: boolean
@@ -40,8 +30,6 @@ on:
       variant_label: *variant_label
       velox_repository: *velox_repository
       velox_commit: *velox_commit
-      presto_repository: *presto_repository
-      presto_commit: *presto_commit
       run_tests: *run_tests
 
 jobs:
@@ -60,8 +48,8 @@ jobs:
         with:
           velox_repository: ${{ inputs.velox_repository }}
           velox_commit: ${{ inputs.velox_commit }}
-          presto_repository: ${{ inputs.presto_repository }}
-          presto_commit: ${{ inputs.presto_commit }}
+          presto_repository: prestodb/presto
+          presto_commit: master
           github_token: ${{ github.token }}
 
   velox-build:
