@@ -10,6 +10,7 @@ function setup {
     [ -z "$SLURM_NNODES" ] && echo "required argument '--nodes' not specified" && exit 1
     [ -z "$IMAGE_DIR" ] && echo "IMAGE_DIR must be set" && exit 1
     [ -z "$LOGS_DIR" ] && echo "LOGS_DIR must be set" && exit 1
+    [ -z "$SERVER_START_TIMESTAMP" ] && echo "SERVER_START_TIMESTAMP must be set" && exit 1
     [ -z "$CONFIGS" ] && echo "CONFIGS must be set" && exit 1
     [ -z "$NUM_NODES" ] && echo "NUM_NODES must be set" && exit 1
     [ -z "$NUM_GPUS_PER_NODE" ] && echo "NUM_GPUS_PER_NODE env variable must be set" && exit 1
@@ -58,7 +59,7 @@ function validate_environment_preconditions {
 # Execute script through the coordinator image (used for coordinator and cli executables)
 function run_coord_image {
     [ $# -ne 2 ] && echo_error "$0 expected one argument for '<script>' and one for '<coord/cli>'"
-    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD DATA COORD_IMAGE
+    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD DATA COORD_IMAGE SERVER_START_TIMESTAMP
     local script=$1
     local type=$2
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
@@ -345,7 +346,13 @@ function generate_json() {
     local worker_log
     worker_log="$(ls -t ${OUTPUT_PREFIX}/logs/worker_*_*.log 2>/dev/null | head -1)"
     [ -z "${worker_log}" ] && worker_log="$(ls -t ${OUTPUT_PREFIX}/logs/worker_*.log 2>/dev/null | head -1)"
-    local gpu=$(grep "^GPU Name:" "${worker_log}" | sed "s/^GPU Name:[[:space:]]*//")
+    local gpu="unknown"
+    if [ -n "${worker_log}" ]; then
+        gpu="$(grep "^GPU Name:" "${worker_log}" 2>/dev/null | sed "s/^GPU Name:[[:space:]]*//" || true)"
+        [ -z "${gpu}" ] && gpu="unknown"
+    else
+        echo "No worker log found; defaulting GPU name to 'unknown'."
+    fi
     echo "GPU = $gpu"
 
     jq --null-input \
