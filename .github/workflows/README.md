@@ -10,21 +10,11 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `create-staging-composite.yml` | Reusable workflow for creating staging branches | Supports additional repo merge + PR merging |
 | `velox-create-staging.yml` | Creates Velox staging branch by merging cuDF PRs | Auto-fetches PRs with `cudf` label by default |
 | `presto-create-staging.yml` | Creates Presto staging branch by merging specified PRs | Requires manual PR numbers (no auto-fetch) |
-| **Velox Testing** |||
-| `velox-standalone-test.yml` | Builds and tests Velox (CPU and/or GPU) | Foundation workflow called by nightly jobs |
-| `velox-nightly-upstream.yml` | Nightly tests against upstream `facebookincubator/velox:main` | Early detection of upstream regressions |
-| `velox-nightly-staging.yml` | Nightly tests against the staging branch | Validates staging before cuDF merges |
 | **Velox Benchmarking** |||
 | `velox-benchmark-sanity-test.yml` | Validates benchmarking scripts execute correctly | **Not a representative benchmark** - uses minimal data |
 | `velox-benchmark-nightly-staging.yml` | Nightly benchmark sanity test on staging | Catches script/infrastructure regressions |
 | **Velox Dependencies** |||
 | `velox-deps-upload.yml` | Builds and uploads Velox dependencies image to S3 | Run when base dependencies change |
-| **Presto Testing** |||
-| `presto-standalone-test.yml` | Tests Presto with Java, Native CPU, or Native GPU workers | Supports multiple worker configurations |
-| `presto-test-composite.yml` | Reusable workflow implementing Presto test logic | Called by presto-standalone-test.yml |
-| `presto-nightly-upstream.yml` | Nightly tests against upstream Presto and Velox | Tests latest upstream compatibility |
-| `presto-nightly-staging.yml` | Nightly tests against staging/stable versions | Validates known-good configurations |
-| `presto-nightly-pinned.yml` | Nightly tests using Presto's pinned Velox version | Tests exact Velox commit Presto depends on |
 | **CI Images** |||
 | `ci-images-nightly.yml` | Nightly builds of CI images for upstream, pinned, and staging | Schedule only (5am UTC) |
 | `ci-images-manual.yml` | Manual builds of CI images with user-specified inputs | `workflow_dispatch` only |
@@ -100,19 +90,6 @@ The additional merge happens **after** the base reset but **before** PR merging.
 ```
 
 **Note:** In local mode, push to remote is skipped. Use `--mode ci` to enable pushing.
-
----
-
-## Velox Testing Workflows
-
-### `velox-standalone-test.yml`
-Core build and test workflow for Velox. Supports CPU-only, GPU-only, or both targets. Used as a foundation by nightly workflows.
-
-### `velox-nightly-upstream.yml`
-Tests against the latest upstream Velox (`facebookincubator/velox:main`). Catches regressions introduced in upstream before they affect our staging branch.
-
-### `velox-nightly-staging.yml`
-Tests against the staging branch with cuDF PRs integrated. Validates the staging configuration works before promoting to stable.
 
 ---
 
@@ -205,25 +182,6 @@ Browse available tags at [ghcr.io/rapidsai/velox-testing-images](https://github.
 
 ---
 
-## Presto Testing Workflows
-
-### `presto-standalone-test.yml`
-Main Presto testing workflow supporting three worker types:
-- **Java Worker:** Traditional Presto Java execution
-- **Native CPU Worker:** Prestissimo with Velox CPU
-- **Native GPU Worker:** Prestissimo with Velox GPU/cuDF
-
-### `presto-nightly-upstream.yml`
-Tests latest upstream Presto (`prestodb/presto:master`) with latest upstream Velox. Catches compatibility issues early.
-
-### `presto-nightly-staging.yml`
-Tests known-good staging/stable configurations. Uses repository variables for version pinning.
-
-### `presto-nightly-pinned.yml`
-Tests Presto with its exact pinned Velox submodule version. Ensures Presto works with its declared Velox dependency.
-
----
-
 ## Required Secrets
 
 | Secret | Purpose |
@@ -252,23 +210,14 @@ Tests Presto with its exact pinned Velox submodule version. Ensures Presto works
 ## Workflow Dependency Graph
 
 ```
-VELOX WORKFLOWS
-───────────────
+STAGING WORKFLOWS
+─────────────────
 velox-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
-
-velox-nightly-upstream.yml ─┬──► velox-standalone-test.yml
-velox-nightly-staging.yml ──┘
-
-velox-benchmark-nightly-staging.yml ──► velox-benchmark-sanity-test.yml
-
-
-PRESTO WORKFLOWS
-────────────────
 presto-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
 
-presto-nightly-upstream.yml ─┬
-presto-nightly-staging.yml ──┼──► presto-standalone-test.yml ──► presto-test-composite.yml
-presto-nightly-pinned.yml ───┘
+BENCHMARKING
+────────────
+velox-benchmark-nightly-staging.yml ──► velox-benchmark-sanity-test.yml
 
 
 CI IMAGES
