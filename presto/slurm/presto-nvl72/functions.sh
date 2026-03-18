@@ -58,7 +58,7 @@ function validate_environment_preconditions {
 # Execute script through the coordinator image (used for coordinator and cli executables)
 function run_coord_image {
     [ $# -ne 2 ] && echo_error "$0 expected one argument for '<script>' and one for '<coord/cli>'"
-    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD DATA COORD_IMAGE
+    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD DATA COORD_IMAGE SERVER_START_TIMESTAMP
     local script=$1
     local type=$2
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
