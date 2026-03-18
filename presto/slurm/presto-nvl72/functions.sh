@@ -10,6 +10,7 @@ function setup {
     [ -z "$SLURM_NNODES" ] && echo "required argument '--nodes' not specified" && exit 1
     [ -z "$IMAGE_DIR" ] && echo "IMAGE_DIR must be set" && exit 1
     [ -z "$LOGS_DIR" ] && echo "LOGS_DIR must be set" && exit 1
+    [ -z "$SERVER_START_TIMESTAMP" ] && echo "SERVER_START_TIMESTAMP must be set" && exit 1
     [ -z "$CONFIGS" ] && echo "CONFIGS must be set" && exit 1
     [ -z "$NUM_NODES" ] && echo "NUM_NODES must be set" && exit 1
     [ -z "$NUM_GPUS_PER_NODE" ] && echo "NUM_GPUS_PER_NODE env variable must be set" && exit 1
