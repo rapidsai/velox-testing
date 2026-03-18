@@ -267,4 +267,3 @@ function validate_config_directory {
     validate_file_exists "${CONFIGS}/etc_worker/node.properties"
     echo "configs are valid"
 }
-
