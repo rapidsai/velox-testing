@@ -131,16 +131,10 @@ EOF
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
-
-    if [[ ${NUM_WORKERS} -eq 1 ]]; then
-      # Adds a cluster tag for gpu variant
-      echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
-    fi
+    echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
   fi
 
-  # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
-    # Adds a cluster tag for cpu variant
     echo "cluster-tag=native-cpu" >> ${COORD_CONFIG}
   fi
 

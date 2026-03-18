@@ -33,7 +33,7 @@ jobs:
           echo "PRESTO_PINNED_VELOX_SHA=${{ steps.get-presto-pinned-velox-version.outputs.PRESTO_PINNED_VELOX_SHA }}" >> $GITHUB_OUTPUT
   nightly:
     needs: get-presto-pinned-velox
-    uses: ./.github/workflows/presto-test.yml
+    uses: ./.github/workflows/presto-standalone-test.yml
     with:
       presto_repository: prestodb/presto
       presto_commit: master

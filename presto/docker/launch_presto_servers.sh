@@ -1,5 +1,14 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -e
+# Run ldconfig once
+ldconfig
+
+LOGS_DIR="/opt/presto-server/logs"
+mkdir -p "${LOGS_DIR}"
+RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +"%Y%m%dT%H%M%S")}"
 
 ETC_BASE="/opt/presto-server/etc"
 
@@ -28,14 +37,19 @@ launch_worker() {
     fi
   fi
 
-  CUDA_VISIBLE_DEVICES="$gpu_id" "${launcher[@]}" presto_server --etc-dir="$etc_dir" &
+  log_file="${LOGS_DIR}/worker_${gpu_id}_${RUN_TIMESTAMP}.log"
+  gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i $gpu_id"
+  echo "GPU Name: ${gpu_name:-unknown}" > "${log_file}"
+  CUDA_VISIBLE_DEVICES="$gpu_id" "${launcher[@]}" presto_server --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &
 }
 
 # No args → single worker using CUDA_VISIBLE_DEVICES (default 0), shared config dir.
 # With args → one worker per GPU ID, each with its own config dir (etc<gpu_id>).
 if [ $# -eq 0 ]; then
+  # Single worker mode.
   launch_worker "${CUDA_VISIBLE_DEVICES:-0}" "${ETC_BASE}/"
 else
+  # Multi-worker single-container mode.  Each GPU ID is an argument.
   for gpu_id in "$@"; do
     launch_worker "$gpu_id" "${ETC_BASE}${gpu_id}"
   done

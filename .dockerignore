@@ -1,0 +1,9 @@
+**/.git
+**/.github
+**/.gitignore
+**/.gitmodules
+**/build
+**/cmake-build-*
+**/_build
+**/__pycache__
+**/*.pyc
