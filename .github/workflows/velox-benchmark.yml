@@ -52,7 +52,7 @@ jobs:
           date: ${{ inputs.date }}
 
   benchmark-velox-gpu:
-    name: benchmark-velox-gpu (tpch, cuda${{ matrix.cuda_version }})
+    name: benchmark-velox-gpu (tpch, cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
     needs: [resolve-inputs]
     permissions:
       contents: read
