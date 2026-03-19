@@ -33,8 +33,8 @@ def pytest_addoption(parser):
     parser.addoption("--output-dir", default="benchmark_output")
     parser.addoption("--tag")
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
-    parser.addoption("--gluten-jar-path")
-    parser.addoption("--spark-config")
+    parser.addoption("--hostname", default="localhost")
+    parser.addoption("--port", default="15002")
 
 
 def pytest_configure(config):

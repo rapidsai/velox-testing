@@ -42,6 +42,8 @@ OPTIONS:
     --preview-rows-count                Number of rows to include in the preview i.e. when
                                         --show-spark-result-preview or --show-reference-result-preview is specified.
     --skip-reference-comparison         Skip Spark rows comparison against a reference set of rows.
+    --hostname                          Hostname of the Spark Connect server (default: localhost).
+    --port                              Port of the Spark Connect gRPC service (default: 15002).
     --reuse-venv                        If this argument is specified, reuse the existing Python virtual environment if
                                         one exists and skip dependency installation.
 
@@ -143,6 +145,24 @@ parse_args() {
         SKIP_REFERENCE_COMPARISON=true
         shift
         ;;
+      --hostname)
+        if [[ -n $2 ]]; then
+          HOSTNAME=$2
+          shift 2
+        else
+          echo "Error: --hostname requires a value"
+          exit 1
+        fi
+        ;;
+      --port)
+        if [[ -n $2 ]]; then
+          PORT=$2
+          shift 2
+        else
+          echo "Error: --port requires a value"
+          exit 1
+        fi
+        ;;
       --reuse-venv)
         REUSE_VENV=true
         shift
@@ -217,6 +237,9 @@ fi
 if [[ -n ${SKIP_REFERENCE_COMPARISON} ]]; then
   PYTEST_ARGS+=("--skip-reference-comparison")
 fi
+
+PYTEST_ARGS+=("--hostname" "${HOSTNAME:-localhost}")
+PYTEST_ARGS+=("--port" "${PORT:-15002}")
 
 VENV_DIR=".integ_test_venv"
 

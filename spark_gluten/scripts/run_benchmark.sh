@@ -27,6 +27,8 @@ OPTIONS:
                               stored inside a directory under the --output-dir path with a name matching the tag name.
                               Tags must contain only alphanumeric and underscore characters.
     --skip-drop-cache         Skip dropping system caches before running benchmark queries (dropped by default).
+    --hostname                Hostname of the Spark Connect server (default: localhost).
+    --port                    Port of the Spark Connect gRPC service (default: 15002).
     --reuse-venv              If this argument is specified, reuse the existing Python virtual environment if
                               one exists and skip dependency installation.
 
@@ -106,6 +108,24 @@ parse_args() {
         SKIP_DROP_CACHE=true
         shift
         ;;
+      --hostname)
+        if [[ -n $2 ]]; then
+          HOSTNAME=$2
+          shift 2
+        else
+          echo "Error: --hostname requires a value"
+          exit 1
+        fi
+        ;;
+      --port)
+        if [[ -n $2 ]]; then
+          PORT=$2
+          shift 2
+        else
+          echo "Error: --port requires a value"
+          exit 1
+        fi
+        ;;
       --reuse-venv)
         REUSE_VENV=true
         shift
@@ -168,6 +188,9 @@ fi
 if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
 fi
+
+PYTEST_ARGS+=("--hostname" "${HOSTNAME:-localhost}")
+PYTEST_ARGS+=("--port" "${PORT:-15002}")
 
 VENV_DIR=".benchmark_venv"
 

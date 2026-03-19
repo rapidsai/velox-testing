@@ -34,6 +34,18 @@ ENV NUM_THREADS=${NUM_THREADS}
 # ELF NEEDED entries after the C++ build.
 RUN dnf install -y python3.12 python3.12-pip patchelf && dnf clean all
 
+ARG SPARK_VERSION=3.5.5
+RUN curl -fsSL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
+        | tar -xz -C /opt && \
+    mv "/opt/spark-${SPARK_VERSION}-bin-hadoop3" /opt/spark && \
+    curl -fsSL -o "/opt/spark/jars/spark-connect_2.12-${SPARK_VERSION}.jar" \
+        "https://repo1.maven.org/maven2/org/apache/spark/spark-connect_2.12/${SPARK_VERSION}/spark-connect_2.12-${SPARK_VERSION}.jar"
+
+ENV SPARK_HOME=/opt/spark
+ENV PATH="${SPARK_HOME}/bin:${SPARK_HOME}/sbin:${PATH}"
+
+COPY velox-testing/spark_gluten/scripts/launch_spark_connect_server.sh /opt/spark/
+
 # Bind-mount the Gluten and Velox source trees from the build context.
 # A BuildKit cache mount at /build_staging persists C++ build artifacts
 # across rebuilds so that incremental compilation is possible.  Pass
