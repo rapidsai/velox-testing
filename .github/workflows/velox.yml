@@ -24,6 +24,16 @@ on:
         type: boolean
         required: false
         default: true
+      build_type: &build_type
+        description: 'One of: [nightly, manual]'
+        type: string
+        required: false
+        default: 'manual'
+      build_variant: &build_variant
+        description: 'One of: [upstream, staging, manual]'
+        type: string
+        required: false
+        default: 'manual'
 
   workflow_call:
     inputs:
@@ -31,6 +41,8 @@ on:
       velox_repository: *velox_repository
       velox_commit: *velox_commit
       run_tests: *run_tests
+      build_type: *build_type
+      build_variant: *build_variant
 
 jobs:
   resolve-commits:
@@ -58,6 +70,8 @@ jobs:
       velox_sha: ${{ needs.resolve-commits.outputs.velox_sha }}
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
+      build_type: ${{ inputs.build_type }}
+      build_variant: ${{ inputs.build_variant }}
     secrets: inherit
 
   velox-test:
