@@ -33,6 +33,7 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `velox-build.yml` | Reusable workflow for Velox CI image builds + merge | Builds deps + build images, creates multi-arch manifests |
 | `presto-build.yml` | Reusable workflow for Presto CI image builds + merge | Builds deps + build + coordinator, creates multi-arch manifests |
 | `velox-test.yml` | Reusable workflow for Velox CI image tests | CPU + GPU tests; supports `workflow_dispatch` for test-only runs |
+| `velox-benchmark.yml` | Reusable workflow for Velox GPU benchmarks | TPC-H benchmarks against pre-built CI images; supports `workflow_dispatch` |
 | `presto-test.yml` | Reusable workflow for Presto CI image tests | Smoke + integration tests; supports `workflow_dispatch` for test-only runs |
 | `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
 
@@ -149,8 +150,10 @@ Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and publis
 Each variant follows this dependency graph:
 
 ```
-resolve-commits ─┬─► velox-build ──► velox-test
-                 └─► presto-build ─► presto-test
+                                     ┌─► velox-test
+resolve-commits ─┬─► velox-build ────┤
+                 │                   └─► velox-benchmark
+                 └─► presto-build ──► presto-test
 ```
 
 The pipeline is split into focused reusable workflows:
@@ -161,10 +164,11 @@ The pipeline is split into focused reusable workflows:
 | `velox-build.yml` | Builds velox-deps and velox images, creates multi-arch manifests |
 | `presto-build.yml` | Builds presto-deps, presto native worker, and coordinator images, creates multi-arch manifests |
 | `velox-test.yml` | Runs Velox CPU and GPU tests against built images |
+| `velox-benchmark.yml` | Runs TPC-H GPU benchmarks against built Velox images |
 | `presto-test.yml` | Runs Presto smoke tests and TPC-H/TPC-DS integration tests against built images |
 | `actions/resolve-inputs/` | Composite action: parses image tags into SHAs + date for `workflow_dispatch` test-only runs |
 
-Both `velox-test.yml` and `presto-test.yml` support `workflow_dispatch` for test-only runs against pre-built images.
+`velox-test.yml`, `velox-benchmark.yml`, and `presto-test.yml` all support `workflow_dispatch` for standalone runs against pre-built images.
 
 ### Image Tags
 
@@ -278,6 +282,7 @@ ci-images-nightly.yml ─┬──► [resolve-commits action] ─┤
 ci-images-manual.yml ──┘                               └──► presto-build.yml ─► presto-test.yml
 
 velox-test.yml (workflow_dispatch) ──► [resolve-inputs action] ──► [test pre-built velox images]
+velox-benchmark.yml (workflow_dispatch) ──► [resolve-inputs action] ──► [benchmark pre-built velox images]
 presto-test.yml (workflow_dispatch) ──► [resolve-inputs action] ──► [test pre-built presto images]
 
 ci-image-cleanup.yml ──► [delete old images]

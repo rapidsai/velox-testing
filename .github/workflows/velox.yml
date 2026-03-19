@@ -68,3 +68,11 @@ jobs:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
     secrets: inherit
+
+  velox-benchmark:
+    needs: [resolve-commits, velox-build]
+    uses: ./.github/workflows/velox-benchmark.yml
+    with:
+      velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+      date: ${{ needs.resolve-commits.outputs.date }}
+    secrets: inherit
