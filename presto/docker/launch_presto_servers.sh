@@ -8,7 +8,7 @@ ldconfig
 
 LOGS_DIR="/opt/presto-server/logs"
 mkdir -p "${LOGS_DIR}"
-RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +"%Y%m%dT%H%M%S")}"
+: "${SERVER_START_TIMESTAMP:?SERVER_START_TIMESTAMP must be set before starting the container}"
 
 ETC_BASE="/opt/presto-server/etc"
 
@@ -37,7 +37,7 @@ launch_worker() {
     fi
   fi
 
-  log_file="${LOGS_DIR}/worker_${gpu_id}_${RUN_TIMESTAMP}.log"
+  log_file="${LOGS_DIR}/worker_${gpu_id}_${SERVER_START_TIMESTAMP}.log"
   gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i $gpu_id"
   echo "GPU Name: ${gpu_name:-unknown}" > "${log_file}"
   CUDA_VISIBLE_DEVICES="$gpu_id" "${launcher[@]}" presto_server --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &

@@ -1,0 +1,70 @@
+name: velox
+run-name: velox (${{ inputs.variant_label }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant_label: &variant_label
+        description: 'Run label shown in the workflow name'
+        type: string
+        required: false
+        default: 'manual'
+      velox_repository: &velox_repository
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit: &velox_commit
+        description: 'Velox commit SHA or branch'
+        type: string
+        required: false
+        default: 'main'
+      run_tests: &run_tests
+        description: 'Run tests after build'
+        type: boolean
+        required: false
+        default: true
+
+  workflow_call:
+    inputs:
+      variant_label: *variant_label
+      velox_repository: *velox_repository
+      velox_commit: *velox_commit
+      run_tests: *run_tests
+
+jobs:
+  resolve-commits:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      velox_sha: ${{ steps.resolve.outputs.velox_sha }}
+      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
+      date: ${{ steps.resolve.outputs.date }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: ./.github/actions/resolve-commits
+        id: resolve
+        with:
+          velox_repository: ${{ inputs.velox_repository }}
+          velox_commit: ${{ inputs.velox_commit }}
+          github_token: ${{ github.token }}
+
+  velox-build:
+    needs: [resolve-commits]
+    uses: ./.github/workflows/velox-build.yml
+    with:
+      velox_repository: ${{ inputs.velox_repository }}
+      velox_sha: ${{ needs.resolve-commits.outputs.velox_sha }}
+      velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+      date: ${{ needs.resolve-commits.outputs.date }}
+    secrets: inherit
+
+  velox-test:
+    needs: [resolve-commits, velox-build]
+    if: ${{ inputs.run_tests }}
+    uses: ./.github/workflows/velox-test.yml
+    with:
+      velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+      date: ${{ needs.resolve-commits.outputs.date }}
+    secrets: inherit

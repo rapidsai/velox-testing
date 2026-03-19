@@ -62,7 +62,7 @@ run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
 # ==============================================================================
 echo "Processing results..."
 mkdir -p ${SCRIPT_DIR}/result_dir
-cp -r ${LOGS_DIR}/cli_${RUN_TIMESTAMP}.log ${SCRIPT_DIR}/result_dir/summary.txt
+cp -r ${LOGS_DIR}/cli_${SERVER_START_TIMESTAMP}.log ${SCRIPT_DIR}/result_dir/summary.txt
 
 echo "========================================"
 echo "Benchmark complete!"

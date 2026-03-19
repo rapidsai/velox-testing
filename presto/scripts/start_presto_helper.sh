@@ -149,7 +149,7 @@ if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
   mkdir -p "${LOGS_DIR}/archive"
   mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
 fi
-export RUN_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
+export SERVER_START_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
 export LOGS_DIR
 
 "${SCRIPT_DIR}/stop_presto.sh"
