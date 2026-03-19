@@ -1,0 +1,126 @@
+name: velox-benchmark
+
+on:
+  workflow_call:
+    inputs:
+      velox_short_sha:
+        description: 'Short Velox commit SHA (7 chars)'
+        type: string
+        required: true
+      date:
+        description: 'Build date (YYYYMMDD)'
+        type: string
+        required: true
+
+  workflow_dispatch:
+    inputs:
+      velox_image:
+        description: 'Velox GPU image to benchmark. SHAs and date are parsed from the tag. e.g. ghcr.io/rapidsai/velox-testing-images:velox-3b263a7-gpu-cuda12.9-20260313'
+        type: string
+        required: false
+        default: ''
+      velox_short_sha:
+        description: 'Short Velox commit SHA (ignored if velox_image is set)'
+        type: string
+        required: false
+        default: ''
+      date:
+        description: 'Build date YYYYMMDD (ignored if velox_image is set)'
+        type: string
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-images
+
+jobs:
+  resolve-inputs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
+      date: ${{ steps.resolve.outputs.date }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: ./.github/actions/resolve-inputs
+        id: resolve
+        with:
+          image_tag: ${{ inputs.velox_image || '' }}
+          velox_short_sha: ${{ inputs.velox_short_sha }}
+          date: ${{ inputs.date }}
+
+  benchmark-velox-gpu:
+    name: benchmark-velox-gpu (tpch, cuda${{ matrix.cuda_version }})
+    needs: [resolve-inputs]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            cuda_version: '12.9'
+            gpu: l4
+          - arch: amd64
+            cuda_version: '13.1'
+            gpu: l4
+          - arch: arm64
+            cuda_version: '12.9'
+            gpu: l4
+          - arch: arm64
+            cuda_version: '13.1'
+            gpu: l4
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+    env:
+      TPCH_DATA_DIR: ${{ github.workspace }}/benchmark-data/tpch
+    steps:
+      - &login_ghcr
+        name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - &checkout_velox_testing
+        name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Generate TPC-H benchmark data
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install -q -r benchmark_data_tools/requirements.txt
+          python benchmark_data_tools/generate_data_files.py \
+            --benchmark-type tpch \
+            --data-dir-path "${TPCH_DATA_DIR}" \
+            --scale-factor 0.01 \
+            --convert-decimals-to-floats
+
+      - name: Run TPC-H GPU benchmarks
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          CUDA_VERSION: ${{ matrix.cuda_version }}
+        working-directory: velox/scripts
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}"
+          ./benchmark_velox.sh \
+            --image "${IMAGE}" \
+            --benchmark-type tpch \
+            --device-type gpu \
+            --data-dir "${TPCH_DATA_DIR}" \
+            --num-repeats 2 \
+            --output "${GITHUB_WORKSPACE}/benchmark-results"
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}-${{ needs.resolve-inputs.outputs.velox_short_sha }}-${{ needs.resolve-inputs.outputs.date }}"
+          path: benchmark-results
+          if-no-files-found: error
+          retention-days: 14
