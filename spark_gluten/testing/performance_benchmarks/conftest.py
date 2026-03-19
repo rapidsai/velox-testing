@@ -35,6 +35,8 @@ def pytest_addoption(parser):
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
     parser.addoption("--hostname", default="localhost")
     parser.addoption("--port", default="15002")
+    parser.addoption("--profile", action="store_true", default=False)
+    parser.addoption("--profile-script-path")
 
 
 def pytest_configure(config):

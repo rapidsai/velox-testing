@@ -20,6 +20,27 @@ if [[ -z "${GLUTEN_JARS}" ]]; then
   exit 1
 fi
 
+PROFILE_CMD=""
+if [[ "${PROFILE}" == "ON" ]]; then
+  mkdir -p /presto_profiles
+
+  # Prefer the devtools-installed nsys over the CUDA toolkit's stripped-down version.
+  NSYS_BIN="nsys"
+  nsys_cli_bin=$(compgen -G "/opt/nvidia/nsight-systems-cli/*/target-linux-x64/nsys" | sort -V | tail -1)
+  if [[ -n "${nsys_cli_bin}" ]]; then
+    NSYS_BIN="${nsys_cli_bin}"
+  fi
+
+  if [[ -z "${PROFILE_ARGS}" ]]; then
+    PROFILE_ARGS="-t nvtx,cuda,osrt
+                  --cuda-memory-usage=true
+                  --cuda-um-cpu-page-faults=true
+                  --cuda-um-gpu-page-faults=true
+                  --cudabacktrace=true"
+  fi
+  PROFILE_CMD="${NSYS_BIN} launch ${PROFILE_ARGS}"
+fi
+
 CONF_ARGS=()
 if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -32,7 +53,7 @@ if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
   done < "${CONFIG_FILE}"
 fi
 
-exec $SPARK_HOME/bin/spark-submit \
+$PROFILE_CMD $SPARK_HOME/bin/spark-submit \
     --class org.apache.spark.sql.connect.service.SparkConnectServer \
     --master "local[*]" \
     --jars "${GLUTEN_JARS}" \

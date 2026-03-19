@@ -25,11 +25,17 @@ OPTIONS:
     --static-gluten-jar-path        Path to a statically-linked Gluten JAR on the host.
                                     Cannot be used with --image-tag.
     --spark-config                  Path to a Spark config file. Values are merged on top of
-                                    the default config and passed to the server as --conf args.
+                                    the default config (and the GPU config for GPU images) and
+                                    passed to the server as --conf args.
     --env-file                      Path to an environment file. Each non-blank, non-comment
-                                    line is passed as a Docker -e flag.
+                                    line is passed as a Docker -e flag. For GPU images, the
+                                    default GPU env file is applied automatically.
     --port                          Spark Connect gRPC port (default: 15002).
     --ui-port                       Spark UI port (default: 4040).
+    -p, --profile                   Launch the Spark Connect server with nsys profiling enabled.
+    --profile-args                  Arguments to pass to nsys when it launches the Spark Connect
+                                    server. This will override the default arguments. Requires
+                                    --profile.
 
     If neither --image-tag nor --static-gluten-jar-path is provided, the default
     image tag "dynamic_gpu_\${USER:-latest}" is used.
@@ -38,7 +44,7 @@ EXAMPLES:
     $0
     $0 --image-tag dynamic_gpu_myuser
     $0 --static-gluten-jar-path /path/to/gluten-bundle.jar
-    $0 --spark-config ../testing/config/gpu_default.conf --env-file ../testing/config/gpu_default.env
+    $0 --spark-config custom_overrides.conf
     $0 --port 15002 --ui-port 4040
     $0 -h
 
@@ -109,6 +115,19 @@ parse_args() {
           exit 1
         fi
         ;;
+      -p|--profile)
+        PROFILE=true
+        shift
+        ;;
+      --profile-args)
+        if [[ -n $2 ]]; then
+          PROFILE_ARGS="$2"
+          shift 2
+        else
+          echo "Error: --profile-args requires a value"
+          exit 1
+        fi
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -119,6 +138,11 @@ parse_args() {
 }
 
 parse_args "$@"
+
+if [[ -n ${PROFILE_ARGS} && "${PROFILE}" != "true" ]]; then
+  echo "Error: --profile-args should only be set when --profile is enabled"
+  exit 1
+fi
 
 if [[ -n ${IMAGE_TAG} && -n ${GLUTEN_JAR_PATH} ]]; then
   echo "Error: --image-tag and --static-gluten-jar-path are mutually exclusive."
@@ -164,13 +188,17 @@ else
   fi
 fi
 
-# Build a merged config file: default.conf + optional user overlay.
-DEFAULT_CONFIG="${REPO_ROOT}/spark_gluten/testing/config/default.conf"
+# Build a merged config file: default.conf [+ gpu_default.conf] + optional user overlay.
+CONFIG_DIR="${REPO_ROOT}/spark_gluten/testing/config"
 MERGED_CONFIG="$(mktemp)"
 trap 'rm -f "${MERGED_CONFIG}"' EXIT
 
-if [[ -f "${DEFAULT_CONFIG}" ]]; then
-  cp "${DEFAULT_CONFIG}" "${MERGED_CONFIG}"
+if [[ -f "${CONFIG_DIR}/default.conf" ]]; then
+  cp "${CONFIG_DIR}/default.conf" "${MERGED_CONFIG}"
+fi
+
+if [[ "${device_type}" == "gpu" && -f "${CONFIG_DIR}/gpu_default.conf" ]]; then
+  cat "${CONFIG_DIR}/gpu_default.conf" >> "${MERGED_CONFIG}"
 fi
 
 if [[ -n ${SPARK_CONFIG_FILE} ]]; then
@@ -185,7 +213,12 @@ fi
 CONTAINER_CONFIG_PATH="/tmp/spark-connect.conf"
 EXTRA_DOCKER_ARGS+=(-v "${MERGED_CONFIG}:${CONTAINER_CONFIG_PATH}:ro")
 
-# Parse --env-file into Docker -e flags.
+# Apply environment file. For GPU images, the default GPU env file is used
+# automatically unless --env-file is provided.
+if [[ -z ${ENV_FILE} && "${device_type}" == "gpu" && -f "${CONFIG_DIR}/gpu_default.env" ]]; then
+  ENV_FILE="${CONFIG_DIR}/gpu_default.env"
+fi
+
 if [[ -n ${ENV_FILE} ]]; then
   ENV_FILE="$(readlink -f "${ENV_FILE}")"
   if [[ ! -f "${ENV_FILE}" ]]; then
@@ -201,6 +234,13 @@ fi
 # Mount SPARK_DATA_DIR if set.
 if [[ -n ${SPARK_DATA_DIR} ]]; then
   EXTRA_DOCKER_ARGS+=(-v "${SPARK_DATA_DIR}:${SPARK_DATA_DIR}")
+fi
+
+if [[ "${PROFILE}" == "true" ]]; then
+  EXTRA_DOCKER_ARGS+=(-e "PROFILE=ON")
+  if [[ -n "${PROFILE_ARGS}" ]]; then
+    EXTRA_DOCKER_ARGS+=(-e "PROFILE_ARGS=${PROFILE_ARGS}")
+  fi
 fi
 
 echo "Starting Spark Connect server (image: ${docker_image}, service: ${compose_service}, port: ${PORT}, ui-port: ${UI_PORT}) ..."

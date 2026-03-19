@@ -34,6 +34,11 @@ ENV NUM_THREADS=${NUM_THREADS}
 # ELF NEEDED entries after the C++ build.
 RUN dnf install -y python3.12 python3.12-pip patchelf && dnf clean all
 
+RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
+    dnf install -y 'dnf-command(config-manager)' && \
+    dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
+    dnf install -y nsight-systems-cli
+
 ARG SPARK_VERSION=3.5.5
 RUN curl -fsSL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
         | tar -xz -C /opt && \

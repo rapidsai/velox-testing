@@ -29,6 +29,8 @@ OPTIONS:
     --skip-drop-cache         Skip dropping system caches before running benchmark queries (dropped by default).
     --hostname                Hostname of the Spark Connect server (default: localhost).
     --port                    Port of the Spark Connect gRPC service (default: 15002).
+    -p, --profile             Enable nsys GPU profiling around each query execution. The Spark Connect
+                              server must have been started with --profile.
     --reuse-venv              If this argument is specified, reuse the existing Python virtual environment if
                               one exists and skip dependency installation.
 
@@ -126,6 +128,10 @@ parse_args() {
           exit 1
         fi
         ;;
+      -p|--profile)
+        PROFILE=true
+        shift
+        ;;
       --reuse-venv)
         REUSE_VENV=true
         shift
@@ -191,6 +197,11 @@ fi
 
 PYTEST_ARGS+=("--hostname" "${HOSTNAME:-localhost}")
 PYTEST_ARGS+=("--port" "${PORT:-15002}")
+
+if [[ "${PROFILE}" == "true" ]]; then
+  PYTEST_ARGS+=("--profile" "--profile-script-path" \
+    "$(readlink -f "${SCRIPT_DIR}/profiler_functions.sh")")
+fi
 
 VENV_DIR=".benchmark_venv"
 
