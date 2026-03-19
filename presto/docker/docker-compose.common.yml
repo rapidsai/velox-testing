@@ -21,7 +21,7 @@ services:
     ports:
       - 8080:8080
     environment:
-      - RUN_TIMESTAMP=${RUN_TIMESTAMP:-}
+      - SERVER_START_TIMESTAMP=${SERVER_START_TIMESTAMP:-}
     volumes:
       - ./launch_coordinator.sh:/opt/launch_coordinator.sh:ro
     entrypoint: ["bash", "/opt/launch_coordinator.sh"]
@@ -35,4 +35,4 @@ services:
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
     environment:
       - GLOG_logtostderr=1
-      - RUN_TIMESTAMP=${RUN_TIMESTAMP:-}
+      - SERVER_START_TIMESTAMP=${SERVER_START_TIMESTAMP:-}

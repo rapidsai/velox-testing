@@ -31,6 +31,16 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
+      build_type:
+        description: 'One of: [nightly, manual]'
+        type: string
+        required: false
+        default: 'manual'
+      build_variant:
+        description: 'One of: [upstream, pinned, staging, manual]'
+        type: string
+        required: false
+        default: 'manual'
 
 env:
   REGISTRY: ghcr.io
@@ -344,6 +354,8 @@ jobs:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
         run: |
           create_manifest() {
             local tag="$1"
@@ -355,6 +367,14 @@ jobs:
           for cuda in 12.9 13.1; do
             create_manifest "presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
           done
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
+            for cuda in 12.9 13.1; do
+              docker buildx imagetools create \
+                -t "${REGISTRY}/${IMAGE_NAME}:presto-deps-latest-cuda${cuda}" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-arm64"
+            done
+          fi
 
   merge-presto-build:
     name: merge-manifests (presto-build)
@@ -375,6 +395,8 @@ jobs:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
         run: |
           create_manifest() {
             local tag="$1"
@@ -387,6 +409,18 @@ jobs:
             create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
           done
           create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
+            for cuda in 12.9 13.1; do
+              docker buildx imagetools create \
+                -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-gpu-cuda${cuda}" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-arm64"
+            done
+            docker buildx imagetools create \
+              -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-cpu" \
+              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-arm64"
+          fi
 
   merge-presto-coordinator:
     name: merge-manifests (presto-coordinator)
@@ -406,9 +440,17 @@ jobs:
         env:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
         run: |
           TAG="presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}"
           echo "Creating multi-arch manifest: ${TAG}"
           docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${TAG}" \
             "${REGISTRY}/${IMAGE_NAME}:${TAG}-amd64" \
             "${REGISTRY}/${IMAGE_NAME}:${TAG}-arm64"
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
+            docker buildx imagetools create \
+              -t "${REGISTRY}/${IMAGE_NAME}:presto-coordinator-latest" \
+              "${REGISTRY}/${IMAGE_NAME}:${TAG}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${TAG}-arm64"
+          fi
