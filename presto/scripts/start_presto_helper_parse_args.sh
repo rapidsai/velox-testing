@@ -66,6 +66,7 @@ BUILD_TYPE=release
 ALL_CUDA_ARCHS=false
 export SINGLE_CONTAINER=false
 export OVERWRITE_CONFIG=false
+SKIP_GENERATE_CONFIG=false
 export PROFILE=OFF
 export NUM_WORKERS=1
 export KVIKIO_THREADS=8
@@ -173,6 +174,10 @@ parse_args() {
         ;;
       --overwrite-config)
         OVERWRITE_CONFIG=true
+        shift
+        ;;
+      --skip-generate-config)
+        SKIP_GENERATE_CONFIG=true
         shift
         ;;
       --logs-dir)
