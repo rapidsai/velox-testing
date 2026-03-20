@@ -13,34 +13,45 @@ Usage: $0 [OPTIONS]
 This script runs the specified type of benchmark.
 
 OPTIONS:
-    -h, --help              Show this help message.
-    -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
-    -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
-                            By default, all benchmark queries are run.
-    -d, --dataset-name      Name of the dataset containing the Parquet files that will be queried.
-                            This should be a directory name under the path specified by the SPARK_DATA_DIR environment
-                            variable.
-    -o, --output-dir        Directory path that will contain the output files from the benchmark run.
-                            By default, output files are written to "$(pwd)/benchmark_output".
-    -i, --iterations        Number of query run iterations. By default, 5 iterations are run.
-    -t, --tag               Tag associated with the benchmark run. When a tag is specified, benchmark output will be
-                            stored inside a directory under the --output-dir path with a name matching the tag name.
-                            Tags must contain only alphanumeric and underscore characters.
-    --skip-drop-cache       Skip dropping system caches before running benchmark queries (dropped by default).
-    --gluten-jar-path       Path to Gluten JAR file. By default, the "spark_gluten/testing/spark-gluten-install"
-                            path is searched for a file that matches the format: "gluten-*.jar".
+    -h, --help                Show this help message.
+    -b, --benchmark-type      Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
+    -q, --queries             Set of benchmark queries to run. This should be a comma separate list of query numbers.
+                              By default, all benchmark queries are run.
+    -d, --dataset-name        Name of the dataset containing the Parquet files that will be queried.
+                              This should be a directory name under the path specified by the SPARK_DATA_DIR environment
+                              variable.
+    -o, --output-dir          Directory path that will contain the output files from the benchmark run.
+                              By default, output files are written to "\$(pwd)/benchmark_output".
+    -i, --iterations          Number of query run iterations. By default, 5 iterations are run.
+    -t, --tag                 Tag associated with the benchmark run. When a tag is specified, benchmark output will be
+                              stored inside a directory under the --output-dir path with a name matching the tag name.
+                              Tags must contain only alphanumeric and underscore characters.
+    --skip-drop-cache         Skip dropping system caches before running benchmark queries (dropped by default).
+    --static-gluten-jar-path  Path to a statically-linked Gluten JAR file on the host.
+    --image-tag               Tag of docker image to use for the benchmark run. The full image reference is
+                              "apache/gluten:{image-tag}". The default value is "dynamic_gpu_\${USER:-latest}".
+    --spark-config            Path to a Spark configuration file. Values in this file override
+                              the default Spark configurations. Each line should contain a key
+                              and value separated by whitespace.
+    --env-file                Path to an environment variable file. Each line should contain a
+                              variable assignment in KEY=VALUE format. These variables will be
+                              set in the container environment when running benchmarks.
 
 EXAMPLES:
     $0 -b tpch -d bench_sf100
     $0 -b tpch -q "1,2" -d bench_sf100
+    $0 -b tpch -d bench_sf100 --image-tag my_gpu_image_tag
+    $0 -b tpch -d bench_sf100 --spark-config /path/to/custom_config.conf
+    $0 -b tpch -d bench_sf100 --env-file /path/to/env_vars.env
     $0 -b tpch -d bench_sf100 -i 10 -o ~/tpch_benchmark_output
     $0 -b tpch -d bench_sf100 -t gh200_cpu_sf100
-    $0 -b tpch -d bench_sf100 --gluten-jar-path /path/to/custom/gluten/build.jar
+    $0 -b tpch -d bench_sf100 --static-gluten-jar-path /path/to/custom/gluten/build.jar
     $0 -h
 
 EOF
 }
 
+OUTPUT_DIR="benchmark_output"
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -106,12 +117,43 @@ parse_args() {
         SKIP_DROP_CACHE=true
         shift
         ;;
-      --gluten-jar-path)
+      --static-gluten-jar-path)
         if [[ -n $2 ]]; then
+          # shellcheck disable=SC2034 # consumed by run_test_in_docker.sh
           GLUTEN_JAR_PATH=$2
           shift 2
         else
-          echo "Error: --gluten-jar-path requires a value"
+          echo "Error: --static-gluten-jar-path requires a value"
+          exit 1
+        fi
+        ;;
+      --image-tag)
+        if [[ -n $2 ]]; then
+          # shellcheck disable=SC2034 # consumed by run_test_in_docker.sh
+          IMAGE_TAG=$2
+          shift 2
+        else
+          echo "Error: --image-tag requires a value"
+          exit 1
+        fi
+        ;;
+      --spark-config)
+        if [[ -n $2 ]]; then
+          # shellcheck disable=SC2034 # consumed by resolve_config_args
+          SPARK_CONFIG_FILE=$2
+          shift 2
+        else
+          echo "Error: --spark-config requires a value"
+          exit 1
+        fi
+        ;;
+      --env-file)
+        if [[ -n $2 ]]; then
+          # shellcheck disable=SC2034 # consumed by resolve_config_args
+          ENV_FILE=$2
+          shift 2
+        else
+          echo "Error: --env-file requires a value"
           exit 1
         fi
         ;;
@@ -171,22 +213,19 @@ if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
 fi
 
-if [[ -n ${GLUTEN_JAR_PATH} ]]; then
-  PYTEST_ARGS+=("--gluten-jar-path" "${GLUTEN_JAR_PATH}")
-fi
-
-# Compute the directory where this script resides
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR=".benchmark_venv"
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/run_test_in_docker.sh"
 
-trap delete_python_virtual_env EXIT
+resolve_config_args
 
-init_python_virtual_env
+# Mount the data directory so the benchmark can access the datasets.
+EXTRA_DOCKER_ARGS+=(-v "${SPARK_DATA_DIR}:${SPARK_DATA_DIR}" -e SPARK_DATA_DIR="${SPARK_DATA_DIR}")
 
-TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
-pip install --disable-pip-version-check -q -r "${TEST_DIR}/requirements.txt"
+TEST_FILE="../testing/performance_benchmarks/${BENCHMARK_TYPE}_test.py"
 
-BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q -s "${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py" "${PYTEST_ARGS[@]}"
+run_test_in_docker \
+  "${VENV_DIR}" \
+  "${OUTPUT_DIR}" \
+  -q -s "${TEST_FILE}" "${PYTEST_ARGS[@]}"

@@ -135,6 +135,18 @@ else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
 
+# Set up LOGS_DIR before any docker compose commands (stop, build, or up)
+# since docker-compose.common.yml requires it via ${LOGS_DIR:?...}.
+LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
+[ -L "${LOGS_DIR}" ] && rm -f "${LOGS_DIR}"
+mkdir -p "${LOGS_DIR}"
+if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
+  mkdir -p "${LOGS_DIR}/archive"
+  mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
+fi
+export SERVER_START_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
+export LOGS_DIR
+
 "${SCRIPT_DIR}/stop_presto.sh"
 
 "${SCRIPT_DIR}/generate_presto_config.sh"

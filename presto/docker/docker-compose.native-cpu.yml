@@ -18,6 +18,8 @@ services:
     build:
       args:
         - GPU=OFF
+    entrypoint: ["bash", "/opt/launch_presto_servers.sh"]
+    command: []
     depends_on:
       - presto-coordinator
     volumes:

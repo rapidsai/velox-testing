@@ -1,0 +1,37 @@
+name: ci-image-cleanup
+
+on:
+  schedule:
+    - cron: '0 9 * * 2'  # 9:00a UTC every Tuesday
+  workflow_dispatch:
+    inputs:
+      days-to-retain-versions:
+        description: |
+          Positive integer. Images more than this many days old will be deleted.
+        type: number
+        default: 30
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  image-cleanup:
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: delete old versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/delete-old-images.sh \
+            "velox-testing-images" \
+            "${{ inputs.days-to-retain-versions || 30 }}"
