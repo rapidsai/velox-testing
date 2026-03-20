@@ -1,0 +1,325 @@
+name: velox-build
+
+on:
+  workflow_call:
+    inputs:
+      velox_repository:
+        description: 'Velox repository'
+        type: string
+        required: true
+      velox_sha:
+        description: 'Resolved full Velox commit SHA'
+        type: string
+        required: true
+      velox_short_sha:
+        description: 'Resolved short Velox commit SHA'
+        type: string
+        required: true
+      date:
+        description: 'Build date (YYYYMMDD)'
+        type: string
+        required: true
+      build_type:
+        description: 'One of: [nightly, manual]'
+        type: string
+        required: false
+        default: 'manual'
+      build_variant:
+        description: 'One of: [upstream, staging, manual]'
+        type: string
+        required: false
+        default: 'manual'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-images
+
+jobs:
+  velox-deps:
+    name: velox-deps (cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
+    runs-on: linux-${{ matrix.arch }}-cpu16
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            cuda_version: &cuda12 '12.9'
+          - arch: arm64
+            cuda_version: *cuda12
+          - arch: amd64
+            cuda_version: &cuda13 '13.1'
+          - arch: arm64
+            cuda_version: *cuda13
+    steps:
+      - &checkout_velox
+        name: Checkout Velox
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ inputs.velox_repository }}
+          ref: ${{ inputs.velox_sha }}
+          path: velox
+
+      - &setup_proxy_cache
+        name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+        continue-on-error: true
+        with:
+          enable-apt: true
+
+      - &setup_buildx
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+        with:
+          buildkitd-config: /etc/buildkit/buildkitd.toml
+          driver-opts: network=host
+
+      - &login_ghcr
+        name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - &login_dockerhub
+        name: Login to DockerHub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
+          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
+
+      - name: Build and push Velox deps image
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          context: velox
+          file: velox/scripts/docker/centos-multi.dockerfile
+          target: adapters
+          build-args: |
+            CUDA_VERSION=${{ matrix.cuda_version }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-velox-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-velox-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }},mode=max
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ matrix.arch }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  velox-build:
+    name: velox-build (${{ matrix.build_type }}, ${{ matrix.arch }})
+    needs: [velox-deps]
+    runs-on: linux-${{ matrix.arch }}-cpu32
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            cuda_version: *cuda12
+            build_type: gpu-cuda12.9
+            cudf: 'ON'
+            cuda_architectures: &cuda12_archs '70;75;80;86;90;100;120'
+          - arch: arm64
+            cuda_version: *cuda12
+            build_type: gpu-cuda12.9
+            cudf: 'ON'
+            cuda_architectures: *cuda12_archs
+          - arch: amd64
+            cuda_version: *cuda13
+            build_type: gpu-cuda13.1
+            cudf: 'ON'
+            cuda_architectures: &cuda13_archs '75;80;86;90;100;120'
+          - arch: arm64
+            cuda_version: *cuda13
+            build_type: gpu-cuda13.1
+            cudf: 'ON'
+            cuda_architectures: *cuda13_archs
+          - arch: amd64
+            build_type: cpu
+            cudf: 'OFF'
+          - arch: arm64
+            build_type: cpu
+            cudf: 'OFF'
+    steps:
+      - &checkout_velox_testing
+        name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          path: velox-testing
+
+      - *checkout_velox
+      - *setup_proxy_cache
+      - *setup_buildx
+      - *login_ghcr
+      - *login_dockerhub
+
+      - &setup_sccache
+        name: Setup sccache
+        id: sccache
+        uses: ./velox-testing/.github/actions/sccache-setup
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          enable-dist: 'true'
+
+      - &ensure_sccache
+        name: Ensure sccache auth dir exists
+        env:
+          SCCACHE_ENABLED: ${{ steps.sccache.outputs.enabled }}
+        run: |
+          if [[ "${SCCACHE_ENABLED}" != "true" ]]; then
+            echo "::error::sccache setup failed. sccache is required for ci-images builds."
+            exit 1
+          fi
+
+      - &copy_dockerignore
+        name: Copy .dockerignore
+        run: cp velox-testing/.dockerignore .dockerignore
+
+      - name: Determine deps image tag
+        id: deps
+        env:
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
+          ARCH: ${{ matrix.arch }}
+          CUDA: ${{ matrix.cuda_version || '12.9' }}
+        run: |
+          echo "image=${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine image tag
+        id: tag
+        env:
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
+          ARCH: ${{ matrix.arch }}
+          BUILD_TYPE: ${{ matrix.build_type }}
+          CUDA_VERSION: ${{ matrix.cuda_version }}
+        run: |
+          if [[ "${BUILD_TYPE}" == "cpu" ]]; then
+            echo "tag=velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push Velox image
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          context: .
+          file: velox-testing/velox/docker/adapters_build.dockerfile
+          network: host
+          allow: network.host
+          build-contexts: |
+            ghcr.io/facebookincubator/velox-dev:adapters=docker-image://${{ steps.deps.outputs.image }}
+          build-args: |
+            BUILD_WITH_VELOX_ENABLE_CUDF=${{ matrix.cudf }}
+            CUDA_ARCHITECTURES=${{ matrix.cuda_architectures || '70' }}
+            CUDA_VERSION=${{ matrix.cuda_version || '12.9' }}
+            ENABLE_SCCACHE=ON
+            NUM_THREADS=31
+          secret-files: |
+            github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
+            aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  merge-velox-deps:
+    name: merge-manifests (velox-deps)
+    needs: [velox-deps]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - *login_ghcr
+      - name: Create and push multi-arch manifests
+        env:
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
+        run: |
+          create_manifest() {
+            local tag="$1"
+            echo "Creating multi-arch manifest: ${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
+          }
+          for cuda in 12.9 13.1; do
+            create_manifest "velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
+          done
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
+            for cuda in 12.9 13.1; do
+              docker buildx imagetools create \
+                -t "${REGISTRY}/${IMAGE_NAME}:velox-deps-latest-cuda${cuda}" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-arm64"
+            done
+          fi
+
+  merge-velox-build:
+    name: merge-manifests (velox-build)
+    needs: [velox-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - *login_ghcr
+      - name: Create and push multi-arch manifests
+        env:
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
+        run: |
+          create_manifest() {
+            local tag="$1"
+            echo "Creating multi-arch manifest: ${tag}"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
+          }
+          for cuda in 12.9 13.1; do
+            create_manifest "velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
+          done
+          create_manifest "velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
+            for cuda in 12.9 13.1; do
+              docker buildx imagetools create \
+                -t "${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda${cuda}" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-arm64"
+            done
+            docker buildx imagetools create \
+              -t "${REGISTRY}/${IMAGE_NAME}:velox-latest-cpu" \
+              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-arm64"
+          fi
