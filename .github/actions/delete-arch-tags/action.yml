@@ -27,6 +27,6 @@ runs:
         while IFS= read -r base_tag; do
           [[ -z "${base_tag}" ]] && continue
           for arch in amd64 arm64; do
-            ./scripts/ghcr-delete-tags.sh "${base_tag}-${arch}"
+            ./ci/delete-arch-tags.sh "${base_tag}-${arch}"
           done
         done <<< "${BASE_TAGS}"
