@@ -75,11 +75,6 @@ if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   exit 1
 fi
 
-if [[ "$PROFILE" == "ON" && $NUM_WORKERS -gt 1 && "$SINGLE_CONTAINER" == "false" ]]; then
-  echo "Error: multi-worker --profile argument is only currently supported with the --single-container option"
-  exit 1
-fi
-
 # Set PRESTO_IMAGE_TAG to the username in order to avoid conflicts when multiple users build images.
 # Falls back to "latest" if USER is not set.
 if [ -z "${PRESTO_IMAGE_TAG}" ]; then
