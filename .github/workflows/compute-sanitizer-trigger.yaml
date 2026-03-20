@@ -1,0 +1,75 @@
+name: compute-sanitizer-trigger
+
+# Runs compute-sanitizer tools on all Velox cuDF (cuda_driver) tests.
+# WARNING: This is resource intensive and runs many GPU jobs.
+# For targeted testing, manually trigger compute-sanitizer-run.yaml with specific inputs.
+
+on:
+  schedule:
+    - cron: '0 10 * * 6'  # Weekly on Saturday at 10:00 UTC
+  workflow_dispatch:
+    inputs:
+      velox_image:
+        description: 'Velox GPU image to test (e.g. ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318). Leave empty to use velox-latest-gpu-cuda12.9.'
+        type: string
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-images
+
+jobs:
+  discover-tests:
+    runs-on: linux-amd64-cpu4
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      tests: ${{ steps.find-tests.outputs.tests }}
+      velox_image: ${{ steps.resolve-image.outputs.velox_image }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Resolve image
+        id: resolve-image
+        run: |
+          if [ -n "${{ inputs.velox_image }}" ]; then
+            echo "velox_image=${{ inputs.velox_image }}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "velox_image=${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda12.9" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Discover test executables
+        id: find-tests
+        env:
+          IMAGE: ${{ steps.resolve-image.outputs.velox_image }}
+        run: |
+          docker pull "${IMAGE}"
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}/ci/discover_velox_cudf_tests.sh:/tmp/discover.sh:ro" \
+            -e GITHUB_OUTPUT=/tmp/gh_output \
+            "${IMAGE}" bash -c "bash /tmp/discover.sh && cat /tmp/gh_output" >> "${GITHUB_OUTPUT}"
+
+  run-sanitizer-tests-racecheck:
+    name: compute-sanitizer racecheck
+    needs: discover-tests
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    with:
+      tool_name: "racecheck"
+      test_names: ${{ needs.discover-tests.outputs.tests }}
+      velox_image: ${{ needs.discover-tests.outputs.velox_image }}
+
+  run-sanitizer-tests-synccheck:
+    name: compute-sanitizer synccheck
+    needs: discover-tests
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    with:
+      tool_name: "synccheck"
+      test_names: ${{ needs.discover-tests.outputs.tests }}
+      velox_image: ${{ needs.discover-tests.outputs.velox_image }}
