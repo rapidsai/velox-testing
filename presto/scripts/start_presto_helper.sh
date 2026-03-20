@@ -132,7 +132,7 @@ elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   if [[ -n $GPU_IDS ]]; then
     FIRST_GPU_ID=$(echo $GPU_IDS | cut -d',' -f1)
   fi
-  if [[ -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 ]]; then
+  if [[ -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 && "$SINGLE_CONTAINER" == "false" ]]; then
     GPU_WORKER_SERVICE="presto-native-worker-gpu-${FIRST_GPU_ID}"
   fi
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
