@@ -56,6 +56,15 @@ jobs:
             -e GITHUB_OUTPUT=/tmp/gh_output \
             "${IMAGE}" bash -c "bash /tmp/discover.sh && cat /tmp/gh_output" >> "${GITHUB_OUTPUT}"
 
+  run-sanitizer-tests-memcheck:
+    name: compute-sanitizer memcheck
+    needs: discover-tests
+    uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
+    with:
+      tool_name: "memcheck"
+      test_names: ${{ needs.discover-tests.outputs.tests }}
+      velox_image: ${{ needs.discover-tests.outputs.velox_image }}
+
   run-sanitizer-tests-racecheck:
     name: compute-sanitizer racecheck
     needs: discover-tests
