@@ -15,24 +15,18 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install crane
-      shell: bash
-      run: |
-        curl -sSL "https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz" \
-          | tar xzf - -C /usr/local/bin crane
-
-    - name: Delete arch-specific tags
+    - name: Delete arch-specific tags using script
       shell: bash
       env:
         BASE_TAGS: ${{ inputs.base-tags }}
         REGISTRY: ${{ inputs.registry }}
         IMAGE_NAME: ${{ inputs.image-name }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
+        # Process each base tag line
         while IFS= read -r base_tag; do
           [[ -z "${base_tag}" ]] && continue
           for arch in amd64 arm64; do
-            crane delete "${REGISTRY}/${IMAGE_NAME}:${base_tag}-${arch}" \
-              && echo "Deleted intermediate tag: ${base_tag}-${arch}" \
-              || echo "::warning::Failed to delete intermediate tag: ${base_tag}-${arch}"
+            ./scripts/ghcr-delete-tags.sh "${base_tag}-${arch}"
           done
         done <<< "${BASE_TAGS}"
