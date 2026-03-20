@@ -122,6 +122,7 @@ jobs:
         with:
           context: presto-deps-context
           file: presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
+          no-cache: true  # TODO: remove after cache is refreshed with gflags fix
           build-args: |
             CUDA_VERSION=${{ matrix.cuda_version }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
