@@ -15,6 +15,7 @@ jobs:
       - checks
       - detect-changes
       - test_benchmark_data_tools
+      - compute-sanitizer
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main
     if: always()
@@ -56,3 +57,6 @@ jobs:
 
       - name: Test benchmark_data_tools
         uses: ./.github/actions/test-benchmark-data-tools
+
+  compute-sanitizer:
+    uses: ./.github/workflows/velox-compute-sanitizer-trigger.yaml
