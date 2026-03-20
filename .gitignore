@@ -37,7 +37,11 @@ presto/slurm/presto-nvl72/kept_results/
 presto/slurm/presto-nvl72/worker_data*
 
 devstate*
+<<<<<<< HEAD
+**/.env
+=======
 
 spark-gluten-install/
 
 build_artifacts
+>>>>>>> main
