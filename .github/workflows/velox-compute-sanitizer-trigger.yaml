@@ -59,7 +59,7 @@ jobs:
   run-sanitizer-tests-racecheck:
     name: compute-sanitizer racecheck
     needs: discover-tests
-    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
     with:
       tool_name: "racecheck"
       test_names: ${{ needs.discover-tests.outputs.tests }}
@@ -68,7 +68,7 @@ jobs:
   run-sanitizer-tests-synccheck:
     name: compute-sanitizer synccheck
     needs: discover-tests
-    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
     with:
       tool_name: "synccheck"
       test_names: ${{ needs.discover-tests.outputs.tests }}
