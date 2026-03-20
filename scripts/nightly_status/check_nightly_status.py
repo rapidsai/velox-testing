@@ -60,6 +60,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -111,59 +112,89 @@ class Config:
 
 CFG = Config()
 
+
+class _TokenTracker:
+    """Thread-safe accumulator for AI token usage and cost estimation."""
+
+    def __init__(self):
+        self._pricing = {
+            "opus": (15.0, 75.0),
+            "sonnet": (3.0, 15.0),
+            "haiku": (0.25, 1.25),
+        }
+        self._default_pricing = (0.15, 0.60)
+        self._lock = threading.Lock()
+        self.api_calls = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.skipped_by_dedup = 0
+
+    def record(self, input_toks: int, output_toks: int):
+        with self._lock:
+            self.api_calls += 1
+            self.input_tokens += input_toks
+            self.output_tokens += output_toks
+
+    def record_dedup_skip(self, count: int = 1):
+        with self._lock:
+            self.skipped_by_dedup += count
+
+    def _estimate_tokens(self, text: str) -> int:
+        return max(1, len(text) // 4)
+
+    def record_estimate(self, prompt: str, response: str):
+        self.record(self._estimate_tokens(prompt), self._estimate_tokens(response))
+
+    def summary(self) -> str:
+        if self.api_calls == 0 and self.skipped_by_dedup == 0:
+            return ""
+        model = CFG.claude_model if CFG.use_claude else CFG.llm_model
+        inp_price, out_price = self._pricing.get(model, self._default_pricing)
+        cost_input = self.input_tokens * inp_price / 1_000_000
+        cost_output = self.output_tokens * out_price / 1_000_000
+        total = cost_input + cost_output
+        lines = [
+            "AI Token Usage Summary:",
+            f"  Model:            {model}",
+            f"  API calls:        {self.api_calls}",
+            f"  Skipped (dedup):  {self.skipped_by_dedup}",
+            f"  Input tokens:     ~{self.input_tokens:,}",
+            f"  Output tokens:    ~{self.output_tokens:,}",
+            f"  Est. cost:        ~${total:.4f} (input ${cost_input:.4f} + output ${cost_output:.4f})",
+        ]
+        return "\n".join(lines)
+
+
+TOKEN_TRACKER = _TokenTracker()
+
+
 # ---------------------------------------------------------------------------
-# Row definitions (mirrors bash associative arrays)
+# Workflow and row definitions
 # ---------------------------------------------------------------------------
 
+NIGHTLY_WORKFLOWS: Dict[str, str] = {
+    "velox": "velox-nightly.yml",
+    "presto": "presto-nightly.yml",
+}
+
+PIPELINE_VARIANTS: Dict[str, List[str]] = {
+    "velox": ["upstream", "staging"],
+    "presto": ["upstream", "staging", "pinned"],
+}
+
+VARIANT_COLUMNS = ["upstream", "staging", "pinned"]
+
 ROW_DEFS: List[Dict[str, str]] = [
-    {
-        "name": "Velox Build CPU",
-        "display": "Velox Build (CPU)",
-        "upstream": "velox-nightly-upstream.yml",
-        "staging": "velox-nightly-staging.yml",
-        "stable": "",
-        "job_filter": "cpu",
-    },
-    {
-        "name": "Velox Build GPU",
-        "display": "Velox Build (GPU)",
-        "upstream": "velox-nightly-upstream.yml",
-        "staging": "velox-nightly-staging.yml",
-        "stable": "",
-        "job_filter": "gpu",
-    },
-    {
-        "name": "Velox Benchmark",
-        "display": "Velox Benchmark",
-        "upstream": "",
-        "staging": "velox-benchmark-nightly-staging.yml",
-        "stable": "",
-        "job_filter": "",
-    },
-    {
-        "name": "Presto Java",
-        "display": "Presto (Java)",
-        "upstream": "presto-nightly-upstream.yml",
-        "staging": "presto-nightly-staging.yml",
-        "stable": "presto-nightly-pinned.yml",
-        "job_filter": "java",
-    },
-    {
-        "name": "Presto CPU",
-        "display": "Presto (CPU)",
-        "upstream": "presto-nightly-upstream.yml",
-        "staging": "presto-nightly-staging.yml",
-        "stable": "presto-nightly-pinned.yml",
-        "job_filter": "native-cpu",
-    },
-    {
-        "name": "Presto GPU",
-        "display": "Presto (GPU)",
-        "upstream": "presto-nightly-upstream.yml",
-        "staging": "presto-nightly-staging.yml",
-        "stable": "presto-nightly-pinned.yml",
-        "job_filter": "native-gpu",
-    },
+    {"pipeline": "velox", "display": "Deps Build", "job_pattern": "velox-deps ("},
+    {"pipeline": "velox", "display": "Image Build", "job_pattern": "velox-build ("},
+    {"pipeline": "velox", "display": "Test (CPU)", "job_pattern": "test-velox-cpu"},
+    {"pipeline": "velox", "display": "Test (GPU)", "job_pattern": "test-velox-gpu"},
+    {"pipeline": "velox", "display": "Benchmark", "job_pattern": "benchmark-velox-gpu"},
+    {"pipeline": "presto", "display": "Deps Build", "job_pattern": "presto-deps ("},
+    {"pipeline": "presto", "display": "Coordinator Build", "job_pattern": "presto-coordinator ("},
+    {"pipeline": "presto", "display": "Image Build", "job_pattern": "presto-build ("},
+    {"pipeline": "presto", "display": "Test (Smoke)", "job_pattern": "test-presto-smoke"},
+    {"pipeline": "presto", "display": "Test (Integration)", "job_pattern": "integration-test"},
 ]
 
 # ---------------------------------------------------------------------------
@@ -400,6 +431,38 @@ def _prefetch_jobs_for_runs(runs: List[Optional[dict]]):
         return
     with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
         list(pool.map(_fetch_jobs_json, ids))
+
+
+def cell_for_variant_jobs(run: Optional[dict], variant: str, job_pattern: str) -> str:
+    """Compute cell status for jobs matching a variant prefix and job name pattern.
+
+    Job names from nested reusable workflows follow the convention:
+        ``{variant} / {calling_job} / {leaf_job} ({matrix params})``
+    e.g. ``upstream / velox-build / velox-deps (cuda12.9, amd64)``
+    """
+    if run is None:
+        return EMOJI_DASH
+    run_id = run.get("databaseId")
+    if run_id is None:
+        return EMOJI_DASH
+    jobs_data = _fetch_jobs_json(run_id)
+    if not jobs_data:
+        return EMOJI_DASH
+    jobs = jobs_data.get("jobs", [])
+    prefix = f"{variant} / ".lower()
+    pat = job_pattern.lower()
+    filtered = [j for j in jobs if j.get("name", "").lower().startswith(prefix) and pat in j.get("name", "").lower()]
+    if not filtered:
+        return EMOJI_DASH
+    for j in filtered:
+        if j.get("status") != "completed":
+            return EMOJI_HOURGLASS
+    if all(j.get("conclusion") == "skipped" for j in filtered):
+        return EMOJI_DASH
+    for j in filtered:
+        if j.get("conclusion", "") not in ("success", "skipped"):
+            return EMOJI_CROSS
+    return EMOJI_CHECK
 
 
 # ---------------------------------------------------------------------------
@@ -802,6 +865,14 @@ def analyze_logs_with_ai(log_content: str, job_name: str, workflow_name: str) ->
         )
         with urllib.request.urlopen(req, timeout=CFG.llm_timeout) as resp:
             body = json.loads(resp.read().decode())
+        usage = body.get("usage", {})
+        if usage:
+            TOKEN_TRACKER.record(
+                usage.get("prompt_tokens", 0),
+                usage.get("completion_tokens", 0),
+            )
+        else:
+            TOKEN_TRACKER.record_estimate(prompt, body.get("choices", [{}])[0].get("message", {}).get("content", ""))
         content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
         if content:
             return content
@@ -885,6 +956,7 @@ def analyze_logs_with_claude(
         )
         content = proc.stdout.strip()
         if content:
+            TOKEN_TRACKER.record_estimate(prompt, content)
             return content
     except Exception:
         pass
@@ -903,15 +975,19 @@ def analyze_logs_with_claude(
 # ---------------------------------------------------------------------------
 
 
-def compute_failure_signature(run_id: int, job_filter: str) -> str:
+def compute_failure_signature(run_id: int, job_filter: str, variant: str = "") -> str:
     jobs_data = _fetch_jobs_json(run_id)
     if not jobs_data:
         return f"unique_{run_id}"
     jobs = jobs_data.get("jobs", [])
+    prefix = f"{variant} / ".lower() if variant else ""
     sig_parts = []
     for j in jobs:
         name = j.get("name", "")
-        if job_filter and job_filter.lower() not in name.lower():
+        name_lower = name.lower()
+        if prefix and not name_lower.startswith(prefix):
+            continue
+        if job_filter and job_filter.lower() not in name_lower:
             continue
         conc = j.get("conclusion", "")
         if conc in ("success", "skipped"):
@@ -1003,12 +1079,16 @@ def _filter_raw_log_for_job(full_log: str, job_name: str) -> str:
     return full_log
 
 
-def _get_failed_jobs(jobs_data: dict, job_filter: str) -> List[dict]:
+def _get_failed_jobs(jobs_data: dict, job_filter: str, variant: str = "") -> List[dict]:
     """Return list of failed job dicts from jobs_data."""
     jobs = jobs_data.get("jobs", [])
+    prefix = f"{variant} / ".lower() if variant else ""
     result = []
     for j in jobs:
-        if job_filter and job_filter.lower() not in j.get("name", "").lower():
+        name_lower = j.get("name", "").lower()
+        if prefix and not name_lower.startswith(prefix):
+            continue
+        if job_filter and job_filter.lower() not in name_lower:
             continue
         conc = j.get("conclusion", "")
         if conc not in ("success", "skipped"):
@@ -1084,12 +1164,66 @@ def print_slack_header():
 
 
 def print_slack_table_header():
-    OUT.print("| *NO* | *Job Name*         | *Staging* | *Upstream* | *Stable* |")
-    OUT.print("|------|--------------------| --------- | ---------- | -------- |")
+    OUT.print("| *NO* | *Pipeline* | *Phase*              | *Upstream* | *Staging* | *Pinned* |")
+    OUT.print("|------|------------|----------------------|------------|-----------|----------|")
 
 
-def print_slack_table_row(row_no: int, display: str, st_cell: str, up_cell: str, sb_cell: str):
-    OUT.print(f"| {row_no:<4} | {display:<18} | {st_cell:<9} | {up_cell:<10} | {sb_cell:<8} |")
+def print_slack_table_row(row_no: int, pipeline: str, phase: str, up_cell: str, st_cell: str, pn_cell: str):
+    OUT.print(f"| {row_no:<4} | {pipeline:<8} | {phase:<20} | {up_cell:<10} | {st_cell:<9} | {pn_cell:<8} |")
+
+
+_DOCKER_STEP_PREFIX = re.compile(r"^#\d+\s+[\d.]+\s*")
+
+_ERROR_SIMILARITY_THRESHOLD = 0.45
+
+
+def _normalize_log_line(line: str) -> str:
+    """Aggressively normalise a single log line for comparison.
+
+    Strips every component that commonly varies across architectures, CUDA
+    versions, or matrix entries so that the *structure* of the error is
+    preserved but platform-specific details are erased.
+    """
+    s = line.strip()
+    s = _DOCKER_STEP_PREFIX.sub("", s)
+    s = _TIMESTAMP_PREFIX.sub("", s)
+    s = re.sub(r":\d+:\d+:", ":", s)
+    s = re.sub(r":\d+:", ":", s)
+    s = re.sub(r"/[\w./_-]+/", "", s)
+    s = re.sub(r"'[^']{12,}'", "'_'", s)
+    s = re.sub(r'"[^"]{12,}"', '"_"', s)
+    s = re.sub(r"`[^`]{12,}`", "`_`", s)
+    s = re.sub(r"0x[0-9a-fA-F]+", "0xN", s)
+    s = re.sub(r"\b\d{4,}\b", "N", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _compute_error_tokens(log_content: str) -> frozenset:
+    """Return a set of normalised lines from error log content."""
+    if not log_content.strip():
+        return frozenset()
+    lines: set = set()
+    for raw in log_content.splitlines():
+        norm = _normalize_log_line(raw)
+        if norm and len(norm) >= 5:
+            lines.add(norm)
+    return frozenset(lines)
+
+
+def _error_similarity(a: frozenset, b: frozenset) -> float:
+    """Overlap coefficient between two normalised-line sets.
+
+    Returns the fraction of the *smaller* set that is shared with the
+    larger one.  This is more forgiving than Jaccard for small sets where
+    a couple of variable lines (e.g. different build-target filenames)
+    would otherwise break grouping even though the core error is identical.
+    """
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return len(a & b) / min(len(a), len(b))
 
 
 def _process_single_failure(
@@ -1099,6 +1233,7 @@ def _process_single_failure(
     slack: bool,
     idx: int,
     extra_affects: str = "",
+    variant: str = "",
 ) -> str:
     """Process one failure entry.  Returns formatted output as a string.
 
@@ -1183,8 +1318,39 @@ def _process_single_failure(
             local_out.print("  - WARN: failed to fetch job/step details (network/API timeout). See run link above.")
         return local_out.text()
 
-    failed_jobs = _get_failed_jobs(jobs_data, job_filter)
+    failed_jobs = _get_failed_jobs(jobs_data, job_filter, variant)
+
+    # -- Pre-compute logs & fingerprints, then group jobs by error ----------
+    job_info: List[Tuple[dict, str]] = []  # (job, log_content)
     for job in failed_jobs:
+        jname = job.get("name", "unknown")
+        jlog = ""
+        if log_out:
+            jlog = extract_relevant_failures(_filter_raw_log_for_job(log_out, jname))
+        job_info.append((job, jlog))
+
+    job_token_sets = [_compute_error_tokens(jlog) for _, jlog in job_info]
+
+    error_groups: List[List[int]] = []
+    for i, tokens in enumerate(job_token_sets):
+        placed = False
+        for grp in error_groups:
+            if _error_similarity(tokens, job_token_sets[grp[0]]) >= _ERROR_SIMILARITY_THRESHOLD:
+                grp.append(i)
+                placed = True
+                break
+        if not placed:
+            error_groups.append([i])
+
+    st_label = "*Stacktrace" if slack else "- Stacktrace"
+    cause_label = "*Cause:*" if slack else "- Cause:"
+    fix_label = "*Fix:*" if slack else "- Fix:"
+
+    for member_indices in error_groups:
+        rep_idx = member_indices[0]
+        dup_indices = member_indices[1:]
+
+        job, job_log_content = job_info[rep_idx]
         job_name = job.get("name", "unknown")
         job_conclusion = job.get("conclusion", "unknown")
         failed_steps = _get_failed_steps(job)
@@ -1198,22 +1364,11 @@ def _process_single_failure(
             for s in failed_steps:
                 local_out.print(f"    - Step: {s.get('name', '?')} ({s.get('conclusion', 'unknown')})")
 
-        # Extract job-specific logs
-        job_log_content = ""
-        if log_out:
-            raw_job_log = _filter_raw_log_for_job(log_out, job_name)
-            job_log_content = extract_relevant_failures(raw_job_log)
-
-        # Find related GitHub items
         related_items = ""
         if CFG.analyze_cause:
             repo = upstream_repo_for_label(label)
-            prefix = "    \u2022 " if slack else "    - "
-            related_items = find_related_github_items(repo, job_log_content, since_date, prefix)
-
-        st_label = "*Stacktrace" if slack else "- Stacktrace"
-        cause_label = "*Cause:*" if slack else "- Cause:"
-        fix_label = "*Fix:*" if slack else "- Fix:"
+            prefix_str = "    \u2022 " if slack else "    - "
+            related_items = find_related_github_items(repo, job_log_content, since_date, prefix_str)
 
         if not job_log_content.strip():
             local_out.print(f"    {st_label}: _Unavailable_")
@@ -1245,8 +1400,6 @@ def _process_single_failure(
 
             for bidx, block in enumerate(blocks):
                 suffix = f" {bidx + 1}/{n_blocks}" if n_blocks > 1 else ""
-
-                # Use AI-extracted stacktrace if available, else fall back to raw block (max 5 lines)
                 ai_st, cause, fix = ai_results.get(bidx, ("", "", ""))
                 display_st = ai_st if ai_st else "\n".join(ln for ln in block.splitlines() if ln.strip())[:5]
 
@@ -1272,6 +1425,29 @@ def _process_single_failure(
             else:
                 local_out.print("  Related issues/PRs (last 7 days):")
             local_out.print(related_items)
+
+        if dup_indices:
+            TOKEN_TRACKER.record_dedup_skip(len(dup_indices))
+            local_out.print()
+            if slack:
+                local_out.print("  _Same error also appears in:_")
+            else:
+                local_out.print("  Same error also appears in:")
+            for di in dup_indices:
+                dup_job, _ = job_info[di]
+                dup_name = dup_job.get("name", "unknown")
+                dup_job_id = dup_job.get("databaseId", "")
+                if dup_job_id:
+                    dup_url = f"{run_url}/job/{dup_job_id}"
+                    if slack:
+                        local_out.print(f"  \u2022 `{dup_name}` \u2192 {dup_url}")
+                    else:
+                        local_out.print(f"  - {dup_name} -> {dup_url}")
+                else:
+                    if slack:
+                        local_out.print(f"  \u2022 `{dup_name}`")
+                    else:
+                        local_out.print(f"  - {dup_name}")
 
     # Combined logs
     if CFG.print_logs:
@@ -1388,12 +1564,14 @@ def print_plain_header():
         dd = CFG.today_utc
     OUT.print(f"1. Nightly Jobs Status Table - current date ({dd})")
     OUT.print()
-    OUT.print(f"{'SNO':<4} | {'Job Name':<18} | {'Staging':<8} | {'Upstream':<8} | {'Stable':<8}")
-    OUT.print(f"{'----':<4}-|-{'------------------':<18}-|-{'--------':<8}-|-{'--------':<8}-|-{'--------':<8}")
+    OUT.print(f"{'SNO':<4} | {'Pipeline':<8} | {'Phase':<20} | {'Upstream':<8} | {'Staging':<8} | {'Pinned':<8}")
+    OUT.print(
+        f"{'----':<4}-|-{'--------':<8}-|-{'--------------------':<20}-|-{'--------':<8}-|-{'--------':<8}-|-{'--------':<8}"
+    )
 
 
-def print_plain_table_row(row_no: int, display: str, st_cell: str, up_cell: str, sb_cell: str):
-    OUT.print(f"{row_no:<4} | {display:<18} | {st_cell:<8} | {up_cell:<8} | {sb_cell:<8}")
+def print_plain_table_row(row_no: int, pipeline: str, phase: str, up_cell: str, st_cell: str, pn_cell: str):
+    OUT.print(f"{row_no:<4} | {pipeline:<8} | {phase:<20} | {up_cell:<8} | {st_cell:<8} | {pn_cell:<8}")
 
 
 # ---------------------------------------------------------------------------
@@ -1431,7 +1609,7 @@ def _get_last_nightly_run_date() -> str:
         "-R",
         CFG.repo,
         "--workflow",
-        "velox-nightly-upstream.yml",
+        "velox-nightly.yml",
         "--limit",
         "1",
         "--json",
@@ -1521,6 +1699,46 @@ def init_config(args: argparse.Namespace):
 # ---------------------------------------------------------------------------
 
 
+def _print_inprog_section(entries: List[Dict[str, Any]], slack: bool):
+    """Print in-progress details, deduped by (run_id, variant)."""
+    if not entries:
+        return
+    seen: set = set()
+    deduped: List[Dict[str, Any]] = []
+    for entry in entries:
+        key = (entry["run"]["databaseId"], entry.get("variant", ""))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(entry)
+
+    if slack:
+        OUT.print()
+        OUT.print("---")
+        OUT.print()
+        OUT.print("*\u23f3 In-Progress Details:*")
+    else:
+        OUT.print()
+        OUT.print("In-progress Details:")
+
+    with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
+        ip_futs = {}
+        for ip_idx, entry in enumerate(deduped, 1):
+            fut = pool.submit(
+                _process_in_progress,
+                entry["label"],
+                entry["wf"],
+                entry["run"],
+                slack,
+                ip_idx,
+            )
+            ip_futs[fut] = ip_idx
+        ip_results: Dict[int, str] = {}
+        for fut in as_completed(ip_futs):
+            ip_results[ip_futs[fut]] = fut.result()
+    for ip_idx in sorted(ip_results):
+        OUT.print(ip_results[ip_idx], end="")
+
+
 def main():
     if not shutil.which("gh"):
         print("ERROR: missing required command: gh", file=sys.stderr)
@@ -1529,102 +1747,89 @@ def main():
     args = parse_args()
     init_config(args)
 
-    # ----- Phase 1: Fetch all workflow runs concurrently -----
-    # Collect unique (non-empty) workflow files to fetch
-    wf_to_fetch: set = set()
-    for row in ROW_DEFS:
-        for col in ("upstream", "staging", "stable"):
-            wf = row[col]
-            if wf:
-                wf_to_fetch.add(wf)
-
+    # ----- Phase 1: Fetch nightly workflow runs concurrently -----
     run_map: Dict[str, Optional[dict]] = {}
     with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
-        futures = {pool.submit(_fetch_run, wf): wf for wf in wf_to_fetch}
+        futures = {pool.submit(_fetch_run, wf): wf for wf in NIGHTLY_WORKFLOWS.values()}
         for fut in as_completed(futures):
             wf_file, run = fut.result()
             run_map[wf_file] = run
 
-    # ----- Phase 2: Prefetch jobs for all runs that need job-level filtering -----
-    all_runs_needing_jobs = []
-    for row in ROW_DEFS:
-        if row["job_filter"]:
-            for col in ("upstream", "staging", "stable"):
-                wf = row[col]
-                if wf:
-                    r = run_map.get(wf)
-                    if r:
-                        all_runs_needing_jobs.append(r)
-    _prefetch_jobs_for_runs(all_runs_needing_jobs)
+    # ----- Phase 2: Prefetch jobs for all runs -----
+    all_runs = [r for r in run_map.values() if r]
+    _prefetch_jobs_for_runs(all_runs)
 
     # ----- Phase 3: Build status table -----
     if CFG.slack_format:
         print_slack_header()
+        for _pipeline, wf_file in NIGHTLY_WORKFLOWS.items():
+            run = run_map.get(wf_file)
+            if run:
+                emoji = cell_for_run(run)
+                OUT.print(f"\u2022 *{wf_file}:* {run['url']} {emoji}")
+            else:
+                OUT.print(f"\u2022 *{wf_file}:* _no run found for {CFG.today_utc}_")
+        OUT.print()
         OUT.print("```")
         print_slack_table_header()
     else:
         print_plain_header()
 
-    # Each row: collect cells + failures/in-progress
-    fail_entries: List[Dict[str, Any]] = []  # label, run, filter, wf
+    fail_entries: List[Dict[str, Any]] = []
     inprog_entries: List[Dict[str, Any]] = []
 
-    # Pre-compute cells for all rows (used for table + failure collection)
-    row_cells: List[Tuple[Optional[dict], Optional[dict], Optional[dict], str, str, str]] = []
+    row_no = 0
+    prev_pipeline = ""
     for row in ROW_DEFS:
-        up_run = run_map.get(row["upstream"]) if row["upstream"] else None
-        st_run = run_map.get(row["staging"]) if row["staging"] else None
-        sb_run = run_map.get(row["stable"]) if row["stable"] else None
-        jf = row["job_filter"]
-        if jf:
-            up_cell = cell_for_filtered_jobs(up_run, jf)
-            st_cell = cell_for_filtered_jobs(st_run, jf)
-            sb_cell = cell_for_filtered_jobs(sb_run, jf)
-        else:
-            up_cell = cell_for_run(up_run)
-            st_cell = cell_for_run(st_run)
-            sb_cell = cell_for_run(sb_run)
-        row_cells.append((up_run, st_run, sb_run, up_cell, st_cell, sb_cell))
+        pipeline = row["pipeline"]
+        wf_file = NIGHTLY_WORKFLOWS[pipeline]
+        run = run_map.get(wf_file)
+        variants = PIPELINE_VARIANTS.get(pipeline, [])
 
-    # Print table rows
-    for row_no, (row, (up_run, st_run, sb_run, up_cell, st_cell, sb_cell)) in enumerate(zip(ROW_DEFS, row_cells), 1):
-        display = row["display"]
+        cells: Dict[str, str] = {}
+        for variant in VARIANT_COLUMNS:
+            if variant in variants and run:
+                cells[variant] = cell_for_variant_jobs(run, variant, row["job_pattern"])
+            else:
+                cells[variant] = EMOJI_DASH
+
+        if prev_pipeline and pipeline != prev_pipeline:
+            if CFG.slack_format:
+                OUT.print("|------|----------|----------------------|------------|-----------|----------|")
+            else:
+                OUT.print(
+                    f"{'----':<4}-|-{'--------':<8}-|-{'--------------------':<20}-|-{'--------':<8}-|-{'--------':<8}-|-{'--------':<8}"
+                )
+        prev_pipeline = pipeline
+
+        row_no += 1
+        up_cell = cells["upstream"]
+        st_cell = cells["staging"]
+        pn_cell = cells["pinned"]
+
         if CFG.slack_format:
-            print_slack_table_row(row_no, display, st_cell, up_cell, sb_cell)
+            print_slack_table_row(row_no, pipeline.title(), row["display"], up_cell, st_cell, pn_cell)
         else:
-            print_plain_table_row(row_no, display, st_cell, up_cell, sb_cell)
+            print_plain_table_row(row_no, pipeline.title(), row["display"], up_cell, st_cell, pn_cell)
+
+        for variant in variants:
+            cell = cells[variant]
+            if not run:
+                continue
+            entry = {
+                "label": f"{pipeline.title()} {row['display']} / {variant}",
+                "run": run,
+                "filter": row["job_pattern"],
+                "variant": variant,
+                "wf": wf_file,
+            }
+            if cell == EMOJI_CROSS:
+                fail_entries.append(entry)
+            elif cell == EMOJI_HOURGLASS:
+                inprog_entries.append(entry)
 
     if CFG.slack_format:
         OUT.print("```")
-
-    # Collect failures and in-progress entries
-    for row, (up_run, st_run, sb_run, up_cell, st_cell, sb_cell) in zip(ROW_DEFS, row_cells):
-        jf = row["job_filter"]
-        for col_name, wf_key, run_obj, cell in [
-            ("Staging", "staging", st_run, st_cell),
-            ("Upstream", "upstream", up_run, up_cell),
-            ("Stable", "stable", sb_run, sb_cell),
-        ]:
-            wf = row[wf_key]
-            if run_obj and wf:
-                if cell == EMOJI_CROSS:
-                    fail_entries.append(
-                        {
-                            "label": f"{row['name']} / {col_name}",
-                            "run": run_obj,
-                            "filter": jf,
-                            "wf": wf,
-                        }
-                    )
-                elif cell == EMOJI_HOURGLASS:
-                    inprog_entries.append(
-                        {
-                            "label": f"{row['name']} / {col_name}",
-                            "run": run_obj,
-                            "filter": jf,
-                            "wf": wf,
-                        }
-                    )
 
     # ----- Phase 4: Failure details -----
     if CFG.slack_format:
@@ -1636,18 +1841,18 @@ def main():
         if not fail_entries:
             OUT.print()
             OUT.print(f"_No failures detected for {CFG.today_utc}._")
+            _print_inprog_section(inprog_entries, slack=True)
             OUT.flush_to(CFG.status_file)
             return
 
-        # Dedup by failure signature
         sigs: List[str] = []
         for entry in fail_entries:
             rid = entry["run"]["databaseId"]
-            sig = compute_failure_signature(rid, entry["filter"])
+            sig = compute_failure_signature(rid, entry["filter"], entry.get("variant", ""))
             sigs.append(sig)
 
         seen_sigs: set = set()
-        ordered_failures: List[Tuple[int, str]] = []  # (original_index, extra_affects)
+        ordered_failures: List[Tuple[int, str]] = []
         for i, sig in enumerate(sigs):
             if sig in seen_sigs:
                 continue
@@ -1659,7 +1864,6 @@ def main():
                     extra_parts.append(f"{e['label']}\t{e['run']['url']}")
             ordered_failures.append((i, "\n".join(extra_parts)))
 
-        # Process failures concurrently
         with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
             fut_map = {}
             for display_idx, (orig_i, extra) in enumerate(ordered_failures, 1):
@@ -1672,10 +1876,10 @@ def main():
                     True,
                     display_idx,
                     extra,
+                    e.get("variant", ""),
                 )
                 fut_map[fut] = display_idx
 
-            # Collect results in display order
             results_by_idx: Dict[int, str] = {}
             for fut in as_completed(fut_map):
                 didx = fut_map[fut]
@@ -1692,38 +1896,16 @@ def main():
             first = False
             OUT.print(results_by_idx[didx], end="")
 
-        # In-progress
-        if inprog_entries:
-            OUT.print()
-            OUT.print("---")
-            OUT.print()
-            OUT.print("*\u23f3 In-Progress Details:*")
-            with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
-                ip_futs = {}
-                for ip_idx, entry in enumerate(inprog_entries, 1):
-                    fut = pool.submit(
-                        _process_in_progress,
-                        entry["label"],
-                        entry["wf"],
-                        entry["run"],
-                        True,
-                        ip_idx,
-                    )
-                    ip_futs[fut] = ip_idx
-                ip_results: Dict[int, str] = {}
-                for fut in as_completed(ip_futs):
-                    ip_results[ip_futs[fut]] = fut.result()
-            for ip_idx in sorted(ip_results):
-                OUT.print(ip_results[ip_idx], end="")
+        _print_inprog_section(inprog_entries, slack=True)
 
     else:
-        # Plain format
         OUT.print()
         OUT.print("2. Failure Details:")
 
         if not fail_entries:
             OUT.print()
             OUT.print(f"(No failures detected for {CFG.today_utc}.)")
+            _print_inprog_section(inprog_entries, slack=False)
             OUT.flush_to(CFG.status_file)
             return
 
@@ -1737,6 +1919,8 @@ def main():
                     entry["filter"],
                     False,
                     fi,
+                    "",
+                    entry.get("variant", ""),
                 )
                 fut_map[fut] = fi
             results_by_idx: Dict[int, str] = {}
@@ -1750,28 +1934,13 @@ def main():
         for fi in sorted(results_by_idx):
             OUT.print(results_by_idx[fi], end="")
 
-        if inprog_entries:
-            OUT.print()
-            OUT.print("3. In-progress Details:")
-            with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
-                ip_futs = {}
-                for ip_idx, entry in enumerate(inprog_entries, 1):
-                    fut = pool.submit(
-                        _process_in_progress,
-                        entry["label"],
-                        entry["wf"],
-                        entry["run"],
-                        False,
-                        ip_idx,
-                    )
-                    ip_futs[fut] = ip_idx
-                ip_results: Dict[int, str] = {}
-                for fut in as_completed(ip_futs):
-                    ip_results[ip_futs[fut]] = fut.result()
-            for ip_idx in sorted(ip_results):
-                OUT.print(ip_results[ip_idx], end="")
+        _print_inprog_section(inprog_entries, slack=False)
 
     OUT.flush_to(CFG.status_file)
+
+    token_summary = TOKEN_TRACKER.summary()
+    if token_summary:
+        print(f"\n{token_summary}", file=sys.stderr)
 
 
 if __name__ == "__main__":
