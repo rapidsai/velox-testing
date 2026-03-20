@@ -1,9 +1,9 @@
 name: PR Checks
 
 on:
-  pull_request:
-    branches: [ main ]
-    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - "pull-request/[0-9]+"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,6 +15,9 @@ jobs:
       - checks
       - detect-changes
       - test_benchmark_data_tools
+      - compute-sanitizer-memcheck
+      - compute-sanitizer-racecheck
+      - compute-sanitizer-synccheck
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main
     if: always()
@@ -56,3 +59,57 @@ jobs:
 
       - name: Test benchmark_data_tools
         uses: ./.github/actions/test-benchmark-data-tools
+
+  discover-sanitizer-tests:
+    runs-on: linux-amd64-cpu4
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      tests: ${{ steps.find-tests.outputs.tests }}
+    env:
+      VELOX_IMAGE: ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Discover test executables
+        id: find-tests
+        run: |
+          docker pull "${VELOX_IMAGE}"
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}/ci/discover_velox_cudf_tests.sh:/tmp/discover.sh:ro" \
+            -e GITHUB_OUTPUT=/tmp/gh_output \
+            "${VELOX_IMAGE}" bash -c "bash /tmp/discover.sh && cat /tmp/gh_output" >> "${GITHUB_OUTPUT}"
+
+  compute-sanitizer-memcheck:
+    name: compute-sanitizer memcheck
+    needs: discover-sanitizer-tests
+    uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
+    with:
+      tool_name: "memcheck"
+      test_names: ${{ needs.discover-sanitizer-tests.outputs.tests }}
+      velox_image: "ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318"
+
+  compute-sanitizer-racecheck:
+    name: compute-sanitizer racecheck
+    needs: discover-sanitizer-tests
+    uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
+    with:
+      tool_name: "racecheck"
+      test_names: ${{ needs.discover-sanitizer-tests.outputs.tests }}
+      velox_image: "ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318"
+
+  compute-sanitizer-synccheck:
+    name: compute-sanitizer synccheck
+    needs: discover-sanitizer-tests
+    uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
+    with:
+      tool_name: "synccheck"
+      test_names: ${{ needs.discover-sanitizer-tests.outputs.tests }}
+      velox_image: "ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318"
