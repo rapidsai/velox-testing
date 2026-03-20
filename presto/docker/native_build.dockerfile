@@ -25,8 +25,13 @@ ARG SCCACHE_RECACHE
 ARG SCCACHE_NO_CACHE
 ARG SCCACHE_NO_DIST_COMPILE
 
+# Override ARM_BUILD_TARGET to prevent get_cxx_flags() in Velox's
+# setup-helper-functions.sh from reading the MIDR_EL1 register and emitting
+# -mcpu=neoverse-v1. Build runners (Neoverse V1) and test runners (e.g. Neoverse N1)
+# may differ; the fallback -march=armv8-a+crc+crypto is safe on all ARMv8-A hardware.
 ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     CXX=/opt/rh/gcc-toolset-14/root/bin/g++ \
+    ARM_BUILD_TARGET="" \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS} \
     NUM_THREADS=${NUM_THREADS} \
