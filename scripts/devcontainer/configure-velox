@@ -1,0 +1,107 @@
+#!/bin/bash
+# Run CMake configuration only for velox (useful for IDE integration)
+# Usage: configure-velox [--release|--debug]
+
+set -euo pipefail
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+
+# Defaults
+BUILD_TYPE="${BUILD_TYPE:-release}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
+
+usage() {
+    cat <<EOF
+Usage: configure-velox [OPTIONS]
+
+Run CMake configuration for velox without building.
+Useful for IDE integration (CMake Tools, clangd, etc.)
+
+Options:
+  --release         Configure for release build (default)
+  --debug           Configure for debug build
+  -h, --help        Show this help message
+
+Environment variables:
+  BUILD_TYPE        release or debug
+  BUILD_BASE_DIR    Base directory for build output (default: /opt/velox-build)
+  CUDAARCHS         CUDA architectures (default: RAPIDS)
+EOF
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --release) BUILD_TYPE="release"; shift ;;
+        --debug) BUILD_TYPE="debug"; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+VELOX_DIR="${HOME}/velox"
+if [[ ! -d "${VELOX_DIR}" ]]; then
+    echo "Error: velox repository not found at ${VELOX_DIR}"
+    echo "Please ensure velox is mounted as a sibling directory."
+    exit 1
+fi
+
+cd "${VELOX_DIR}"
+
+# Enable sccache if available
+export CMAKE_C_COMPILER_LAUNCHER="${CMAKE_C_COMPILER_LAUNCHER:-sccache}"
+export CMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER:-sccache}"
+export CMAKE_CUDA_COMPILER_LAUNCHER="${CMAKE_CUDA_COMPILER_LAUNCHER:-sccache}"
+
+resolve_cudaarchs
+
+echo -e "\033[1;36mConfiguring Velox\033[0m"
+echo "Build type:  ${BUILD_TYPE}"
+echo "CUDA archs:  ${CUDAARCHS}"
+echo "Build dir:   ${BUILD_BASE_DIR}/${BUILD_TYPE}"
+echo ""
+
+# Build CMake flags
+# Disable C++20 module scanning — GCC 14 ICEs with -fmodules-ts on CMake 4.x
+EXTRA_CMAKE_FLAGS="-DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
+# Suppress false-positive stringop-overflow from system fmt v9 (format_dragon/bigint)
+EXTRA_CMAKE_FLAGS+=" -DCMAKE_CXX_FLAGS=-Wno-error=stringop-overflow"
+EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_CUDF=ON"
+EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_ARROW=ON"
+EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_PARQUET=ON"
+EXTRA_CMAKE_FLAGS+=" -DVELOX_MONO_LIBRARY=ON"
+EXTRA_CMAKE_FLAGS+=" -DVELOX_BUILD_SHARED=ON"
+
+# All dependencies built from source — standalone velox is fully self-contained
+EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DGTest_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DDuckDB_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dfaiss_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dsimdjson_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DFastFloat_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dabsl_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DgRPC_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DArrow_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dgeos_SOURCE=BUNDLED"
+
+# Auto-detect pre-built RAPIDS libraries (cudf, rmm, kvikio)
+CUDF_BUILD_DIR=$(get_rapids_cmake_dir "cudf")
+if [[ -n "${CUDF_BUILD_DIR}" ]]; then
+    EXTRA_CMAKE_FLAGS+=" -Dcudf_SOURCE=SYSTEM"
+else
+    echo "No prebuilt cudf found, will build from source"
+    EXTRA_CMAKE_FLAGS+=" -Dcudf_SOURCE=BUNDLED"
+fi
+append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
+
+echo ""
+
+make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" \
+    EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"
+
+echo ""
+echo -e "\033[1;32mVelox configuration complete\033[0m"
+echo "Build directory: ${BUILD_BASE_DIR}/${BUILD_TYPE}"
+echo ""
+echo "To build, run: build-velox --${BUILD_TYPE}"
