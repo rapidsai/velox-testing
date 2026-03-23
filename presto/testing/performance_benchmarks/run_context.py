@@ -40,32 +40,39 @@ def _get_node_count(hostname: str, port: int) -> int | None:
 _SAFE_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 
 
-def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_name: str) -> int | float | None:
+def _get_schema_info(hostname: str, port: int, user: str, schema_name: str) -> dict:
     """
-    Resolve scale factor from the schema's data source (metadata.json next to table data).
+    Resolve schema metadata from the schema's data source (metadata.json next to table data).
     Uses same logic as test_utils.get_scale_factor but without pytest request.
+
+    Returns a dict with:
+        scale_factor: int | float | None
+        data_dir: str | None  — parent directory of the table data (e.g. /data/sf100)
     """
+    result: dict = {"scale_factor": None, "data_dir": None}
     if not _SAFE_IDENTIFIER_RE.match(schema_name):
-        _debug(f"schema_name {schema_name!r} contains unsafe characters, skipping scale factor lookup")
-        return None
+        _debug(f"schema_name {schema_name!r} contains unsafe characters, skipping schema info lookup")
+        return result
     conn = None
     try:
         conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema_name)
         cursor = conn.cursor()
         tables = cursor.execute(f"SHOW TABLES IN {schema_name}").fetchall()
         if not tables:
-            return None
+            return result
         table = tables[0][0]
         location = test_utils.get_table_external_location(schema_name, table, cursor)
-        meta_path = (Path(location).parent / "metadata.json").resolve()
-        if not meta_path.is_file():
-            return None
-        with open(meta_path) as f:
-            data = json.load(f)
-        return data.get("scale_factor")
+        data_dir = Path(location).parent.resolve()
+        result["data_dir"] = str(data_dir)
+        meta_path = data_dir / "metadata.json"
+        if meta_path.is_file():
+            with open(meta_path) as f:
+                data = json.load(f)
+            result["scale_factor"] = data.get("scale_factor")
+        return result
     except Exception as e:
-        _debug(f"scale factor lookup failed: {e}")
-        return None
+        _debug(f"schema info lookup failed: {e}")
+        return result
     finally:
         if conn is not None:
             try:
@@ -207,9 +214,12 @@ def gather_run_context(
     from the metadata file next to the schema's table data.
     """
     ctx = {}
-    sf = _get_scale_factor_from_schema(hostname, port, user, schema_name)
+    schema_info = _get_schema_info(hostname, port, user, schema_name)
+    sf = schema_info["scale_factor"]
     if sf is not None:
         ctx["scale_factor"] = int(sf) if isinstance(sf, float) and sf == int(sf) else sf
+    if schema_info["data_dir"] is not None:
+        ctx["data_dir"] = schema_info["data_dir"]
 
     n_workers = _get_node_count(hostname, port)
     engine = _get_engine(hostname, port)

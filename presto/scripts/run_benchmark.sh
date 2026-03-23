@@ -41,15 +41,13 @@ OPTIONS:
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
-    --expected-dir          Path to a directory containing expected TPC-H parquet files.
+    --reference-results-dir Path to a directory containing reference (expected) parquet files.
                             Query results are always validated after the benchmark run using
                             validate_results.py, and validation_results.json is written next
                             to benchmark_result.json (picked up automatically by post_results.py).
-                            If --expected-dir is not provided, the path is auto-detected as
-                            \${PRESTO_DATA_DIR}/sf\${SCALE_FACTOR}_expected where SCALE_FACTOR
-                            is read from the benchmark_result.json produced by the run (requires
-                            PRESTO_DATA_DIR to be set).  The base directory for auto-detection
-                            can be overridden by setting BENCHMARK_EXPECTED_BASE_DIR.  If the
+                            If --reference-results-dir is not provided, the path is auto-detected
+                            as <data_dir>_expected where data_dir is the source data directory
+                            recorded in benchmark_result.json by run_context.py.  If the
                             auto-detected directory does not exist the result is "not-validated".
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
@@ -167,12 +165,12 @@ parse_args() {
         METRICS=true
         shift
         ;;
-      --expected-dir)
+      --reference-results-dir)
         if [[ -n $2 ]]; then
-          EXPECTED_DIR=$2
+          REFERENCE_RESULTS_DIR=$2
           shift 2
         else
-          echo "Error: --expected-dir requires a value"
+          echo "Error: --reference-results-dir requires a value"
           exit 1
         fi
         ;;
@@ -284,43 +282,15 @@ fi
 RESULTS_DIR="${ACTUAL_OUTPUT_DIR}/query_results"
 VALIDATE_SCRIPT="${SCRIPT_DIR}/../../benchmark_reporting_tools/validate_results.py"
 
-# Determine the expected directory.
-# If --expected-dir was not provided, auto-detect from ${PRESTO_DATA_DIR}/sf${SCALE_FACTOR}_expected
-# where SCALE_FACTOR is read from the benchmark_result.json just produced by the run.
-EXPECTED_DIR_EXPLICIT=false
-if [[ -n ${EXPECTED_DIR} ]]; then
-  EXPECTED_DIR_EXPLICIT=true
-elif [[ -n ${BENCHMARK_EXPECTED_BASE_DIR:-${PRESTO_DATA_DIR}} ]]; then
-  BENCHMARK_RESULT_JSON="${ACTUAL_OUTPUT_DIR}/benchmark_result.json"
-  SCALE_FACTOR_FROM_DATA="$(python3 -c "
-import json
-try:
-    d = json.load(open('${BENCHMARK_RESULT_JSON}'))
-    sf = d.get('context', {}).get('scale_factor')
-    if sf is not None:
-        sf = float(sf)
-        print(int(sf) if sf == int(sf) else sf)
-except Exception:
-    pass
-" 2>/dev/null)"
-  if [[ -n ${SCALE_FACTOR_FROM_DATA} ]]; then
-    EXPECTED_DIR="${BENCHMARK_EXPECTED_BASE_DIR:-${PRESTO_DATA_DIR}}/sf${SCALE_FACTOR_FROM_DATA}_expected"
-  fi
-fi
-
 VALIDATE_ARGS=("${RESULTS_DIR}")
-if [[ -n ${EXPECTED_DIR} ]]; then
-  VALIDATE_ARGS+=(--expected-dir "${EXPECTED_DIR}")
+if [[ -n ${REFERENCE_RESULTS_DIR} ]]; then
+  VALIDATE_ARGS+=(--reference-results-dir "${REFERENCE_RESULTS_DIR}")
 fi
 if [[ -n ${QUERIES} ]]; then
   VALIDATE_ARGS+=(--queries "${QUERIES}")
 fi
-# For auto-detected paths, a missing expected directory is not a fatal error.
-if [[ "${EXPECTED_DIR_EXPLICIT}" == "false" ]]; then
-  VALIDATE_ARGS+=(--allow-missing-expected)
-fi
 
 VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../../benchmark_reporting_tools/requirements.txt"
-echo "Running validation: ${RESULTS_DIR} vs ${EXPECTED_DIR:-<none>}"
+echo "Running validation: ${RESULTS_DIR} vs ${REFERENCE_RESULTS_DIR:-<auto-detect>}"
 pip install -q -r "${VALIDATE_REQUIREMENTS}"
 python "${VALIDATE_SCRIPT}" "${VALIDATE_ARGS[@]}"

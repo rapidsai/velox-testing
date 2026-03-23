@@ -13,7 +13,13 @@ Validate TPC-H query results against expected parquet files.
 
 Validation logic is ported from cudf_polars's assert_tpch_result_equal
 (cudf_polars/experimental/benchmarks/asserts.py) so that both engines use
-identical comparison semantics.
+identical comparison semantics.  We intentionally do not reuse
+common/testing/integration_tests/test_utils.py here: that module operates on
+raw rows via pandas/duckdb and is designed for integration tests, whereas this
+script works with pre-written parquet files using polars and applies the same
+float-tolerant, sort-aware comparison logic as cudf-polars.  When fixing bugs
+in the comparison logic, remember to apply the same fix in
+cudf_polars/experimental/benchmarks/asserts.py.
 
 Per-query sort_by / limit configuration is taken from
 cudf_polars/experimental/benchmarks/pdsh.py.
@@ -424,18 +430,12 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing q1.parquet ... q22.parquet result files",
     )
     parser.add_argument(
-        "--expected-dir",
+        "--reference-results-dir",
         required=False,
         default=None,
-        help="Directory containing expected parquet files "
+        help="Directory containing reference (expected) parquet files "
         "(e.g. /scratch/prestouser/tpch-rs-no-delta-expected/scale-10000). "
         "If omitted, validation is skipped and overall_status is 'not-validated'.",
-    )
-    parser.add_argument(
-        "--allow-missing-expected",
-        action="store_true",
-        help="When set, a missing --expected-dir path is treated as 'not-validated' "
-        "rather than an error.  Used by run_benchmark.sh for auto-detected paths.",
     )
     parser.add_argument(
         "--queries",
@@ -455,6 +455,24 @@ def _write_not_validated(results_dir: Path, reason: str) -> None:
     print(f"Validation results written to {output_path}")
 
 
+def _auto_detect_reference_dir(benchmark_result_json: Path) -> Path | None:
+    """Derive the reference results directory from a benchmark_result.json.
+
+    Reads context.data_dir (the source data directory recorded by run_context.py)
+    and appends "_expected".  Returns None if the field is absent or the JSON
+    cannot be read.
+    """
+    try:
+        with open(benchmark_result_json) as fh:
+            d = json.load(fh)
+        data_dir = d.get("context", {}).get("data_dir")
+        if data_dir is not None:
+            return Path(data_dir + "_expected")
+    except Exception:
+        pass
+    return None
+
+
 if __name__ == "__main__":
     args = parse_args()
     results_dir = Path(args.results_dir)
@@ -463,19 +481,27 @@ if __name__ == "__main__":
         print(f"Error: results directory not found: {results_dir}", file=sys.stderr)
         sys.exit(1)
 
-    if args.expected_dir is None:
-        _write_not_validated(results_dir, "No expected directory provided; validation skipped.")
+    # Resolve the reference results directory: explicit flag takes priority,
+    # otherwise attempt auto-detection from the benchmark_result.json.
+    auto_detection_mode = False
+    if args.reference_results_dir is not None:
+        expected_dir: Path | None = Path(args.reference_results_dir)
+    else:
+        auto_detection_mode = True
+        expected_dir = _auto_detect_reference_dir(results_dir.parent / "benchmark_result.json")
+
+    if expected_dir is None:
+        _write_not_validated(results_dir, "No reference results directory provided; validation skipped.")
         sys.exit(0)
 
-    expected_dir = Path(args.expected_dir)
     if not expected_dir.is_dir():
-        if args.allow_missing_expected:
+        if auto_detection_mode:
             _write_not_validated(
                 results_dir,
-                f"Expected directory not found: {expected_dir}; validation skipped.",
+                f"Reference results directory not found: {expected_dir}; validation skipped.",
             )
             sys.exit(0)
-        print(f"Error: expected directory not found: {expected_dir}", file=sys.stderr)
+        print(f"Error: reference results directory not found: {expected_dir}", file=sys.stderr)
         sys.exit(1)
 
     queries = [int(q.strip()) for q in args.queries.split(",")] if args.queries else None
