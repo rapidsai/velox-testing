@@ -29,9 +29,11 @@ ARG SCCACHE_NO_DIST_COMPILE
 # setup-helper-functions.sh from reading the MIDR_EL1 register and emitting
 # -mcpu=neoverse-v1. Build runners (Neoverse V1) and test runners (e.g. Neoverse N1)
 # may differ; the fallback -march=armv8-a+crc+crypto is safe on all ARMv8-A hardware.
+# Must be a non-empty value: the script uses ${ARM_BUILD_TARGET:-"local"}, so an
+# empty string is treated the same as unset and falls back to "local".
 ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     CXX=/opt/rh/gcc-toolset-14/root/bin/g++ \
-    ARM_BUILD_TARGET="" \
+    ARM_BUILD_TARGET="generic" \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS} \
     NUM_THREADS=${NUM_THREADS} \
