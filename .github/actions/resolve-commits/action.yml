@@ -7,16 +7,20 @@ description: >
 inputs:
   velox_repository:
     description: 'Velox repository (e.g. facebookincubator/velox)'
-    required: true
+    required: false
+    default: 'facebookincubator/velox'
   velox_commit:
     description: 'Velox commit SHA, branch, or "presto-pinned"'
-    required: true
+    required: false
+    default: 'main'
   presto_repository:
     description: 'Presto repository (e.g. prestodb/presto)'
-    required: true
+    required: false
+    default: 'prestodb/presto'
   presto_commit:
     description: 'Presto commit SHA or branch'
-    required: true
+    required: false
+    default: 'master'
   github_token:
     description: 'GitHub token for API calls'
     required: true

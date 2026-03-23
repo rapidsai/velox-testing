@@ -32,6 +32,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          scripts/delete-old-images.sh \
+          ci/delete-old-images.sh \
             "velox-testing-images" \
             "${{ inputs.days-to-retain-versions || 30 }}"

@@ -31,6 +31,16 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
+      build_type:
+        description: 'One of: [nightly, manual]'
+        type: string
+        required: false
+        default: 'manual'
+      build_variant:
+        description: 'One of: [upstream, pinned, staging, manual]'
+        type: string
+        required: false
+        default: 'manual'
 
 env:
   REGISTRY: ghcr.io
@@ -333,6 +343,8 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -344,6 +356,8 @@ jobs:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
         run: |
           create_manifest() {
             local tag="$1"
@@ -355,6 +369,23 @@ jobs:
           for cuda in 12.9 13.1; do
             create_manifest "presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
           done
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
+            for cuda in 12.9 13.1; do
+              docker buildx imagetools create \
+                -t "${REGISTRY}/${IMAGE_NAME}:presto-deps-latest-cuda${cuda}" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-arm64"
+            done
+          fi
+      - name: Delete intermediate arch-specific tags
+        continue-on-error: true
+        uses: ./.github/actions/delete-arch-tags
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          base-tags: |
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}
 
   merge-presto-build:
     name: merge-manifests (presto-build)
@@ -364,6 +395,8 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -375,6 +408,8 @@ jobs:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
         run: |
           create_manifest() {
             local tag="$1"
@@ -387,6 +422,28 @@ jobs:
             create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
           done
           create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
+            for cuda in 12.9 13.1; do
+              docker buildx imagetools create \
+                -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-gpu-cuda${cuda}" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-arm64"
+            done
+            docker buildx imagetools create \
+              -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-cpu" \
+              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-arm64"
+          fi
+      - name: Delete intermediate arch-specific tags
+        continue-on-error: true
+        uses: ./.github/actions/delete-arch-tags
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          base-tags: |
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}
 
   merge-presto-coordinator:
     name: merge-manifests (presto-coordinator)
@@ -396,6 +453,8 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -406,9 +465,24 @@ jobs:
         env:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
         run: |
           TAG="presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}"
           echo "Creating multi-arch manifest: ${TAG}"
           docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${TAG}" \
             "${REGISTRY}/${IMAGE_NAME}:${TAG}-amd64" \
             "${REGISTRY}/${IMAGE_NAME}:${TAG}-arm64"
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
+            docker buildx imagetools create \
+              -t "${REGISTRY}/${IMAGE_NAME}:presto-coordinator-latest" \
+              "${REGISTRY}/${IMAGE_NAME}:${TAG}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${TAG}-arm64"
+          fi
+      - name: Delete intermediate arch-specific tags
+        continue-on-error: true
+        uses: ./.github/actions/delete-arch-tags
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          base-tags: presto-coordinator-${{ inputs.presto_short_sha }}-${{ inputs.date }}

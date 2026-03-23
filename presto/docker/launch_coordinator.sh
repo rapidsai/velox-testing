@@ -6,7 +6,7 @@ set -e
 
 LOGS_DIR="/opt/presto-server/logs"
 mkdir -p "${LOGS_DIR}"
-RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +"%Y%m%dT%H%M%S")}"
-log_file="${LOGS_DIR}/coordinator_${RUN_TIMESTAMP}.log"
+: "${SERVER_START_TIMESTAMP:?SERVER_START_TIMESTAMP must be set before starting the container}"
+log_file="${LOGS_DIR}/coordinator_${SERVER_START_TIMESTAMP}.log"
 
 exec /opt/presto-server/bin/launcher run >> "${log_file}" 2>&1
