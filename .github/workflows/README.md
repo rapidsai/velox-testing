@@ -10,29 +10,19 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `create-staging-composite.yml` | Reusable workflow for creating staging branches | Supports additional repo merge + PR merging |
 | `velox-create-staging.yml` | Creates Velox staging branch by merging cuDF PRs | Auto-fetches PRs with `cudf` label by default |
 | `presto-create-staging.yml` | Creates Presto staging branch by merging specified PRs | Requires manual PR numbers (no auto-fetch) |
-| **Velox Testing** |||
-| `velox-test.yml` | Builds and tests Velox (CPU and/or GPU) | Foundation workflow called by nightly jobs |
-| `velox-nightly-upstream.yml` | Nightly tests against upstream `facebookincubator/velox:main` | Early detection of upstream regressions |
-| `velox-nightly-staging.yml` | Nightly tests against the staging branch | Validates staging before cuDF merges |
-| **Velox Benchmarking** |||
-| `velox-benchmark-sanity-test.yml` | Validates benchmarking scripts execute correctly | **Not a representative benchmark** - uses minimal data |
-| `velox-benchmark-nightly-staging.yml` | Nightly benchmark sanity test on staging | Catches script/infrastructure regressions |
-| **Velox Dependencies** |||
-| `velox-deps-upload.yml` | Builds and uploads Velox dependencies image to S3 | Run when base dependencies change |
-| **Presto Testing** |||
-| `presto-test.yml` | Tests Presto with Java, Native CPU, or Native GPU workers | Supports multiple worker configurations |
-| `presto-test-composite.yml` | Reusable workflow implementing Presto test logic | Called by presto-test.yml |
-| `presto-nightly-upstream.yml` | Nightly tests against upstream Presto and Velox | Tests latest upstream compatibility |
-| `presto-nightly-staging.yml` | Nightly tests against staging/stable versions | Validates known-good configurations |
-| `presto-nightly-pinned.yml` | Nightly tests using Presto's pinned Velox version | Tests exact Velox commit Presto depends on |
 | **CI Images** |||
-| `ci-images-nightly.yml` | Nightly builds of CI images for upstream, pinned, and staging | Schedule only (5am UTC) |
-| `ci-images-manual.yml` | Manual builds of CI images with user-specified inputs | `workflow_dispatch` only |
-| `build.yml` | Reusable workflow implementing CI image build logic | Called by ci-images workflows |
-| `test.yml` | Reusable workflow implementing CI image test logic | Called by ci-images workflows; also supports `workflow_dispatch` for test-only runs |
+| `velox-nightly.yml` | Nightly Velox builds + tests + benchmarks (upstream, staging) | Schedule (5am UTC) + manual dispatch |
+| `presto-nightly.yml` | Nightly Presto builds + tests (upstream, pinned, staging) | Schedule (5am UTC) + manual dispatch |
+| `velox.yml` | Velox CI image build + test + benchmark pipeline | Called by nightly; also supports `workflow_dispatch` |
+| `presto.yml` | Presto CI image build + test pipeline | Called by nightly; also supports `workflow_dispatch` |
+| `actions/resolve-commits/` | Composite action to resolve Velox/Presto commit SHAs | Used by CI image workflows |
+| `actions/resolve-inputs/` | Composite action to parse image tags into SHAs + date | Used by test/benchmark workflows for `workflow_dispatch` |
+| `velox-build.yml` | Reusable workflow for Velox CI image builds + merge | Builds deps + build images, creates multi-arch manifests |
+| `presto-build.yml` | Reusable workflow for Presto CI image builds + merge | Builds deps + build + coordinator, creates multi-arch manifests |
+| `velox-test.yml` | Reusable workflow for Velox CI image tests | CPU + GPU tests; supports `workflow_dispatch` for test-only runs |
+| `velox-benchmark.yml` | Reusable workflow for Velox GPU benchmarks | TPC-H benchmarks against pre-built CI images; supports `workflow_dispatch` |
+| `presto-test.yml` | Reusable workflow for Presto CI image tests | Smoke + integration tests; supports `workflow_dispatch` for test-only runs |
 | `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
-| **Preliminary Checks** |||
-| `preliminary-checks.yml` | Runs tests when specific directories change | Triggers on `benchmark_data_tools/` or `presto/` changes |
 
 ---
 
@@ -101,46 +91,51 @@ The additional merge happens **after** the base reset but **before** PR merging.
 
 ---
 
-## Velox Testing Workflows
-
-### `velox-test.yml`
-Core build and test workflow for Velox. Supports CPU-only, GPU-only, or both targets. Used as a foundation by nightly workflows.
-
-### `velox-nightly-upstream.yml`
-Tests against the latest upstream Velox (`facebookincubator/velox:main`). Catches regressions introduced in upstream before they affect our staging branch.
-
-### `velox-nightly-staging.yml`
-Tests against the staging branch with cuDF PRs integrated. Validates the staging configuration works before promoting to stable.
-
----
-
-## Velox Benchmarking Workflows
-
-### `velox-benchmark-sanity-test.yml`
-**Important:** This is a sanity test of the benchmarking infrastructure, NOT a representative performance benchmark. It uses minimal data and iterations to verify scripts execute without errors.
-
-### `velox-benchmark-nightly-staging.yml`
-Runs benchmark sanity tests nightly on the staging branch to catch infrastructure regressions.
-
----
-
 ## CI Images
 
 ### Overview
 
-Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and published to [GitHub Container Registry](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing) under the `velox-testing-images` package. Two separate workflows handle image builds:
+Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and published to [GitHub Container Registry](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing) under the `velox-testing-images` package.
 
-- **`ci-images-nightly.yml`** — Nightly schedule (5am UTC). Builds images for three source combinations in parallel:
+- **`velox-nightly.yml`** — Nightly schedule (5am UTC). Calls `velox.yml` for upstream and staging variants.
+- **`presto-nightly.yml`** — Nightly schedule (5am UTC). Calls `presto.yml` for upstream, pinned, and staging variants.
+- **`velox.yml`** / **`presto.yml`** — Reusable pipelines that resolve commits, build images, run tests, and (for Velox) run benchmarks. Also support `workflow_dispatch` for manual runs.
 
-  | Job | Velox | Presto |
-  |-----|-------|--------|
-  | `nightly-upstream` | `facebookincubator/velox:main` | `prestodb/presto:master` |
-  | `nightly-pinned` | Presto's pinned Velox submodule | `prestodb/presto:master` |
-  | `nightly-staging` | `$STABLE_VELOX_REPO:$STABLE_VELOX_COMMIT` | `$STABLE_PRESTO_REPO:$STABLE_PRESTO_COMMIT` |
+  | Variant | Velox | Presto |
+  |---------|-------|--------|
+  | `upstream` | `facebookincubator/velox:main` | `prestodb/presto:master` |
+  | `pinned` | Presto's pinned Velox submodule | `prestodb/presto:master` |
+  | `staging` | `$STABLE_VELOX_REPO:$STABLE_VELOX_COMMIT` | `$STABLE_PRESTO_REPO:$STABLE_PRESTO_COMMIT` |
 
-  A new nightly run cancels any in-progress nightly run.
+### CI Image Pipeline
 
-- **`ci-images-manual.yml`** — Manual dispatch only. Builds a single image set with user-specified repository/commit inputs. Runs never cancel each other.
+The Velox pipeline (`velox.yml`):
+
+```
+                                 ┌─► velox-test
+resolve-commits ──► velox-build ─┤
+                                 └─► velox-benchmark
+```
+
+The Presto pipeline (`presto.yml`):
+
+```
+resolve-commits ──► presto-build ──► presto-test
+```
+
+The pipeline is split into focused reusable workflows:
+
+| Workflow | Purpose |
+|----------|---------|
+| `actions/resolve-commits/` | Composite action: resolves Velox/Presto commit SHAs (including `presto-pinned` logic) and sets the build date |
+| `velox-build.yml` | Builds velox-deps and velox images, creates multi-arch manifests |
+| `presto-build.yml` | Builds presto-deps, presto native worker, and coordinator images, creates multi-arch manifests |
+| `velox-test.yml` | Runs Velox CPU and GPU tests against built images |
+| `velox-benchmark.yml` | Runs TPC-H GPU benchmarks against built Velox images using `benchmark_velox.sh --image` |
+| `presto-test.yml` | Runs Presto smoke tests and TPC-H/TPC-DS integration tests against built images |
+| `actions/resolve-inputs/` | Composite action: parses image tags into SHAs + date for `workflow_dispatch` test/benchmark-only runs |
+
+`velox-test.yml`, `velox-benchmark.yml`, and `presto-test.yml` all support `workflow_dispatch` for standalone runs against pre-built images.
 
 ### Image Tags
 
@@ -152,6 +147,7 @@ Images are tagged with commit SHAs, CUDA version, and build date:
 - **Presto deps:** `presto-deps-${PRESTO_SHA}-velox-${VELOX_SHA}-cuda${CUDA_VERSION}-${DATE}`
 - **Presto build (GPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}`
 - **Presto build (CPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-cpu-${DATE}`
+- **Presto coordinator:** `presto-coordinator-${PRESTO_SHA}-${DATE}`
 
 Images are purged after 30 days by the `ci-image-cleanup.yml` workflow.
 
@@ -160,6 +156,7 @@ Images are purged after 30 days by the `ci-image-cleanup.yml` workflow.
 The container registry is private. You must be a member of the `rapidsai` GitHub organization to pull images.
 
 1. Log into GitHub Container Registry with Docker:
+
 ```bash
 # Ensure the gh token has read:packages scope, required for ghcr.io
 if ! gh auth status 2>&1 | grep -q 'read:packages'; then
@@ -172,30 +169,12 @@ echo $(gh auth token) | docker login ghcr.io -u $(gh api user -q .login) --passw
 ```
 
 2. Pull and run an image. For example:
+
 ```bash
 docker run -it ghcr.io/rapidsai/velox-testing-images:velox-deps-8853645-cuda13.1-20260305
 ```
 
 Browse available tags at [ghcr.io/rapidsai/velox-testing-images](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing) (requires `rapidsai` org membership).
-
----
-
-## Presto Testing Workflows
-
-### `presto-test.yml`
-Main Presto testing workflow supporting three worker types:
-- **Java Worker:** Traditional Presto Java execution
-- **Native CPU Worker:** Prestissimo with Velox CPU
-- **Native GPU Worker:** Prestissimo with Velox GPU/cuDF
-
-### `presto-nightly-upstream.yml`
-Tests latest upstream Presto (`prestodb/presto:master`) with latest upstream Velox. Catches compatibility issues early.
-
-### `presto-nightly-staging.yml`
-Tests known-good staging/stable configurations. Uses repository variables for version pinning.
-
-### `presto-nightly-pinned.yml`
-Tests Presto with its exact pinned Velox submodule version. Ensures Presto works with its declared Velox dependency.
 
 ---
 
@@ -227,29 +206,27 @@ Tests Presto with its exact pinned Velox submodule version. Ensures Presto works
 ## Workflow Dependency Graph
 
 ```
-VELOX WORKFLOWS
-───────────────
+STAGING
+───────
 velox-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
-
-velox-nightly-upstream.yml ─┬──► velox-test.yml
-velox-nightly-staging.yml ──┘
-
-velox-benchmark-nightly-staging.yml ──► velox-benchmark-sanity-test.yml
-
-
-PRESTO WORKFLOWS
-────────────────
 presto-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
 
-presto-nightly-upstream.yml ─┬
-presto-nightly-staging.yml ──┼──► presto-test.yml ──► presto-test-composite.yml
-presto-nightly-pinned.yml ───┘
+CI IMAGES (VELOX)
+─────────────────
+                                                         ┌─► velox-test.yml
+velox-nightly.yml ──► velox.yml ──► velox-build.yml ─────┤
+                                                         └─► velox-benchmark.yml
 
+velox-test.yml (workflow_dispatch) ──► [resolve-inputs] ──► [test pre-built images]
+velox-benchmark.yml (workflow_dispatch) ──► [resolve-inputs] ──► [benchmark pre-built images]
 
-CI IMAGES
-─────────
-ci-images-nightly.yml ─┬──► build.yml ──► [GHCR images] ──► test.yml
-ci-images-manual.yml ──┘
-test.yml (workflow_dispatch) ──► [test pre-built images]
+CI IMAGES (PRESTO)
+──────────────────
+presto-nightly.yml ──► presto.yml ──► presto-build.yml ──► presto-test.yml
+
+presto-test.yml (workflow_dispatch) ──► [resolve-inputs] ──► [test pre-built images]
+
+CLEANUP
+───────
 ci-image-cleanup.yml ──► [delete old images]
 ```
