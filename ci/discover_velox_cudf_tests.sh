@@ -10,7 +10,7 @@ set -euo pipefail
 BUILD_DIR="/opt/velox-build/release"
 
 if [ ! -d "${BUILD_DIR}" ]; then
-  echo "Error: Build directory ${BUILD_DIR} not found"
+  echo "Error: Build directory ${BUILD_DIR} not found" >&2
   exit 1
 fi
 
@@ -28,12 +28,12 @@ print(json.dumps(names))
 count=$(echo "${tests}" | python3 -c "import sys, json; print(len(json.load(sys.stdin)))")
 
 if [ "${count}" -eq 0 ]; then
-  echo "Error: No test executables found matching cuda_driver label"
+  echo "Error: No test executables found matching cuda_driver label" >&2
   exit 1
 fi
 
-echo "Found ${count} cuda_driver tests:"
-echo "${tests}" | python3 -c "import sys, json; [print(f'  {t}') for t in json.load(sys.stdin)]"
+echo "Found ${count} cuda_driver tests:" >&2
+echo "${tests}" | python3 -c "import sys, json; [print(f'  {t}') for t in json.load(sys.stdin)]" >&2
 
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   echo "tests=${tests}" >> "${GITHUB_OUTPUT}"
