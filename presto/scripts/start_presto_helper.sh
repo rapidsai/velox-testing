@@ -132,7 +132,7 @@ elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   if [[ -n $GPU_IDS ]]; then
     FIRST_GPU_ID=$(echo $GPU_IDS | cut -d',' -f1)
   fi
-  if [[ -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 ]]; then
+  if [[ -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 && "$SINGLE_CONTAINER" == "false" ]]; then
     GPU_WORKER_SERVICE="presto-native-worker-gpu-${FIRST_GPU_ID}"
   fi
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
@@ -149,12 +149,14 @@ if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
   mkdir -p "${LOGS_DIR}/archive"
   mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
 fi
-export RUN_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
+export SERVER_START_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
 export LOGS_DIR
 
 "${SCRIPT_DIR}/stop_presto.sh"
 
-"${SCRIPT_DIR}/generate_presto_config.sh"
+if [[ "${SKIP_GENERATE_CONFIG:-false}" != "true" ]]; then
+  "${SCRIPT_DIR}/generate_presto_config.sh"
+fi
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
