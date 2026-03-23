@@ -19,6 +19,16 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
+      build_type:
+        description: 'One of: [nightly, manual]'
+        type: string
+        required: false
+        default: 'manual'
+      build_variant:
+        description: 'One of: [upstream, staging, manual]'
+        type: string
+        required: false
+        default: 'manual'
 
 env:
   REGISTRY: ghcr.io
@@ -247,11 +257,15 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - *login_ghcr
       - name: Create and push multi-arch manifests
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
         run: |
           create_manifest() {
             local tag="$1"
@@ -263,6 +277,23 @@ jobs:
           for cuda in 12.9 13.1; do
             create_manifest "velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
           done
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
+            for cuda in 12.9 13.1; do
+              docker buildx imagetools create \
+                -t "${REGISTRY}/${IMAGE_NAME}:velox-deps-latest-cuda${cuda}" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-arm64"
+            done
+          fi
+      - name: Delete intermediate arch-specific tags
+        continue-on-error: true
+        uses: ./.github/actions/delete-arch-tags
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          base-tags: |
+            velox-deps-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}
+            velox-deps-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}
 
   merge-velox-build:
     name: merge-manifests (velox-build)
@@ -272,11 +303,15 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - *login_ghcr
       - name: Create and push multi-arch manifests
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
         run: |
           create_manifest() {
             local tag="$1"
@@ -289,3 +324,25 @@ jobs:
             create_manifest "velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
           done
           create_manifest "velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
+            for cuda in 12.9 13.1; do
+              docker buildx imagetools create \
+                -t "${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda${cuda}" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-arm64"
+            done
+            docker buildx imagetools create \
+              -t "${REGISTRY}/${IMAGE_NAME}:velox-latest-cpu" \
+              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-arm64"
+          fi
+      - name: Delete intermediate arch-specific tags
+        continue-on-error: true
+        uses: ./.github/actions/delete-arch-tags
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          base-tags: |
+            velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}
+            velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}
+            velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}

@@ -154,7 +154,9 @@ export LOGS_DIR
 
 "${SCRIPT_DIR}/stop_presto.sh"
 
-"${SCRIPT_DIR}/generate_presto_config.sh"
+if [[ "${SKIP_GENERATE_CONFIG:-false}" != "true" ]]; then
+  "${SCRIPT_DIR}/generate_presto_config.sh"
+fi
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
