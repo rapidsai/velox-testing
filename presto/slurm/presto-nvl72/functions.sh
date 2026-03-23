@@ -10,6 +10,7 @@ function setup {
     [ -z "$SLURM_NNODES" ] && echo "required argument '--nodes' not specified" && exit 1
     [ -z "$IMAGE_DIR" ] && echo "IMAGE_DIR must be set" && exit 1
     [ -z "$LOGS_DIR" ] && echo "LOGS_DIR must be set" && exit 1
+    [ -z "$SERVER_START_TIMESTAMP" ] && echo "SERVER_START_TIMESTAMP must be set" && exit 1
     [ -z "$CONFIGS" ] && echo "CONFIGS must be set" && exit 1
     [ -z "$NUM_NODES" ] && echo "NUM_NODES must be set" && exit 1
     [ -z "$NUM_GPUS_PER_NODE" ] && echo "NUM_GPUS_PER_NODE env variable must be set" && exit 1
@@ -58,11 +59,11 @@ function validate_environment_preconditions {
 # Execute script through the coordinator image (used for coordinator and cli executables)
 function run_coord_image {
     [ $# -ne 2 ] && echo_error "$0 expected one argument for '<script>' and one for '<coord/cli>'"
-    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD DATA COORD_IMAGE
+    validate_environment_preconditions LOGS_DIR CONFIGS VT_ROOT COORD DATA COORD_IMAGE SERVER_START_TIMESTAMP
     local script=$1
     local type=$2
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
-    local log_file="${type}_${RUN_TIMESTAMP}.log"
+    local log_file="${type}_${SERVER_START_TIMESTAMP}.log"
 
     local coord_image="${IMAGE_DIR}/${COORD_IMAGE}.sqsh"
     [ ! -f "${coord_image}" ] && echo_error "coord image does not exist at ${coord_image}"
@@ -193,39 +194,15 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore \
 --container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
 --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
 --container-env=GLOG_logtostderr=1 \
--- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; echo \"GPU Name: \$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)\"; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS_DIR}/worker_${worker_id}_${RUN_TIMESTAMP}.log 2>&1 &
+-- /bin/bash -c "export CUDA_VISIBLE_DEVICES=${gpu_id}; echo \"CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"; echo \"--- Environment Variables ---\"; set | grep -E 'UCX_|CUDA_VISIBLE_DEVICES'; echo \"GPU Name: \$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)\"; /usr/bin/presto_server --etc-dir=/opt/presto-server/etc" > ${LOGS_DIR}/worker_${worker_id}_${SERVER_START_TIMESTAMP}.log 2>&1 &
 }
 
 function copy_hive_metastore {
     cp -r /mnt/data/tpch-rs/HIVE-METASTORE-MG-260313 ${VT_ROOT}/.hive_metastore
 }
 
-#./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
-function setup_benchmark {
-    echo "setting up benchmark"
-    [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
-    local scale_factor=$1
-    local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 -y; yum install jq -y; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -H $COORD -p $PORT -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor} --skip-analyze-tables --no-docker; " "cli"
-
-    # Copy the hive metastore from a local copy.  This means we don't have to create
-    # or analyze the tables.
-    for dataset in $(ls ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE); do
-	if [[ -d ${VT_ROOT}/.hive_metastore/${dataset} ]]; then
-	    echo "replacing dataset metadata: $dataset"
-	    cp -r ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE/${dataset} ${VT_ROOT}/.hive_metastore/
-	    for table in $(ls ${VT_ROOT}/.hive_metastore/${dataset}); do
-		# Need to remove checksum file (it will be recreated).
-		if [ -f ${VT_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc ]; then
-		    rm ${VT_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc
-		fi
-	    done
-        fi
-    done
-}
-
 # Run a cli node that will connect to the coordinator and run queries from queries.sql
-# Results are stored in cli.log.
+# Results are stored in cli_<SERVER_START_TIMESTAMP>.log.
 function run_queries {
     echo "running queries"
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
@@ -290,135 +267,4 @@ function validate_config_directory {
     validate_file_exists "${CONFIGS}/etc_worker/config_native.properties"
     validate_file_exists "${CONFIGS}/etc_worker/node.properties"
     echo "configs are valid"
-}
-
-function tpch_summary_to_csv() {
-  local in="$1" out="${2:-}"
-  awk -v outFile="$out" '
-    function trim(s){ gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
-    function emit(line){ if (outFile!="") print line > outFile; else print line }
-
-    BEGIN{ inblk=0; header_done=0 }
-
-    # Enter the summary block after this header line
-    /tpch[[:space:]]+Benchmark[[:space:]]+Summary/ { inblk=1; header_done=0; next }
-
-    # Leave the block when we hit a terminating line (e.g., "22 passed in ...")
-    inblk && /passed in/ { inblk=0; exit }
-
-    !inblk { next }
-
-    /^[[:space:]]*$/ { next }                # skip empty
-    /^[[:space:]]*-+$/ { next }               # skip separator lines
-    index($0, "|")==0 { next }                # only lines with columns
-
-    {
-      n = split($0, a, /\|/)
-      for (i=1; i<=n; i++) a[i]=trim(a[i])
-
-      # Header row
-      if (!header_done && $0 ~ /Query[[:space:]]+ID/) {
-        line=""
-        for (i=1; i<=n; i++) if (length(a[i])) line=(line?line ",":line) a[i]
-        emit(line)
-        header_done=1
-        next
-      }
-
-      # Data rows (Q1, Q2, ...)
-      cols=0; delete col
-      for (i=1; i<=n; i++) if (length(a[i])) col[++cols]=a[i]
-      if (cols>=2 && col[1] ~ /^Q[0-9]+$/) {
-        # Emit exactly 6 columns: Query ID, Avg, Min, Max, Median, GMean (if present)
-        emit(col[1] "," col[2] "," col[3] "," col[4] "," col[5] "," col[6])
-      }
-    }
-  ' "$in"
-}
-
-function generate_json() {
-    local kind="single-node"
-    if (( $NUM_WORKERS > 1 )); then
-	kind="${NUM_WORKERS}-node"
-    fi
-    local timestamp=$(date +"%Y-%m-%dT%H:%M:%SZ")
-    local worker_log
-    worker_log="$(ls -t ${OUTPUT_PREFIX}/logs/worker_0_*.log 2>/dev/null | head -1)"
-    [ -z "${worker_log}" ] && worker_log="${OUTPUT_PREFIX}/logs/worker_0.log"
-    local gpu=$(grep "GPU 0: NVIDIA [^ ]* " "${worker_log}" | sed "s/GPU 0: NVIDIA \([^ ]*\) .*/\1/g")
-    echo "GPU = $gpu"
-
-    jq --null-input \
-       --arg kind "$kind" \
-       --arg benchmark "tpch" \
-       --arg timestamp "$timestamp" \
-       --arg num_workers "$NUM_WORKERS" \
-       --arg scale_factor "$SCALE_FACTOR" \
-       --arg num_drivers "$NUM_DRIVERS" \
-       --arg image_name "$WORKER_IMAGE" \
-       --arg gpu_name "$gpu" \
-       --arg engine_name "velox" \
-  '{
-    kind: $kind,
-    benchmark: $benchmark,
-    timestamp: $timestamp,
-    execution_number: 1,
-    worker_count: ($num_workers | tonumber),
-    scale_factor: ($scale_factor | tonumber),
-    gpu_count: ($num_workers | tonumber),
-    num_drivers: ($num_drivers | tonumber),
-    worker_image: $image_name,
-    gpu_name: $gpu_name,
-    engine: $engine_name
-  }' > ${OUTPUT_PREFIX}/benchmark.json
-}
-
-# Create a new output directory within the date structure.
-# This will be an incremented value based on what is already present.
-function create_output_prefix() {
-    [ $# -ne 1 ] && echo_error "$0 expected arguments 'output_dir'"
-    local output_dir=$1
-    pushd $output_dir
-    for ((i=1; i<=99; i++)); do
-	local candidate=$(printf "%02d" "$i")
-	if [[ ! -e "$candidate" ]]; then
-	    OUTPUT_PREFIX=$(printf "%02d" "$i")
-	    break
-	fi
-    done
-    echo "$PWD output_prefix: $OUTPUT_PREFIX"
-    popd
-}
-
-# Push results to gitlab.
-function push_csv() {
-    local results_dir="${SCRIPT_DIR}/results_dir"
-    local timestamp="$(date +%Y%m%d_%H%M%S)"
-    local run_dir="${results_dir}/run_${timestamp}_scale${SCALE_FACTOR}"
-
-    echo "Collecting results to: ${run_dir}"
-    mkdir -p ${run_dir}
-
-    # Copy result_dir if it exists
-    if [ -d "${results_dir}" ]; then
-        cp -r ${results_dir} ${run_dir}/
-    fi
-
-    # Copy logs
-    if [ -d "${LOGS_DIR}" ]; then
-        cp -r ${LOGS_DIR} ${run_dir}/
-    fi
-
-    # Copy slurm output files from the job directory
-    if [ -n "${SLURM_JOB_ID}" ]; then
-        cp ${SCRIPT_DIR}/presto-tpch-run_${SLURM_JOB_ID}.out ${run_dir}/ 2>/dev/null || true
-        cp ${SCRIPT_DIR}/presto-tpch-run_${SLURM_JOB_ID}.err ${run_dir}/ 2>/dev/null || true
-    fi
-
-    # Copy configs
-    mkdir -p ${run_dir}/configs
-    cp ${CONFIGS}/etc_coordinator/config_native.properties ${run_dir}/configs/coordinator.config 2>/dev/null || true
-    cp ${CONFIGS}/etc_worker_0/config_native.properties ${run_dir}/configs/worker.config 2>/dev/null || true
-
-    echo "Results saved to: ${run_dir}"
 }
