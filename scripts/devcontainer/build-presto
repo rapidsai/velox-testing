@@ -71,7 +71,12 @@ build_fb_deps() {
     local FB_VERSION="v2026.01.05.00"
     local SCRATCH_DIR="/tmp/fb-deps-build"
     # CPU flags must match velox's build for folly F14 hash table ABI compatibility
-    local CXX_FLAGS="-mavx2 -mfma -mavx -mf16c -mlzcnt -mbmi2"
+    local CXX_FLAGS
+    if [[ "$(uname -m)" == "aarch64" ]]; then
+        CXX_FLAGS="-march=armv8-a+crc+crypto"
+    else
+        CXX_FLAGS="-mavx2 -mfma -mavx -mf16c -mlzcnt -mbmi2"
+    fi
     local GITHUB="https://github.com"
 
     local CMAKE_COMMON=(
