@@ -23,11 +23,11 @@
     "source=${localWorkspaceFolder}/../rmm,target=/home/coder/rmm,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../cudf,target=/home/coder/cudf,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../kvikio,target=/home/coder/kvikio,type=bind,consistency=consistent",
-    "source=${localWorkspaceFolder}/../devcontainers,target=/home/coder/devcontainers,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.aws,target=/home/coder/.aws,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cache,target=/home/coder/.cache,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.config,target=/home/coder/.config,type=bind,consistency=consistent",
-    "source=${localWorkspaceFolder}/../.local/share/velox-testing-cuda13.1-venvs,target=/home/coder/.local/share/venvs,type=bind,consistency=consistent"
+    "source=${localWorkspaceFolder}/../.local/share/velox-testing-cuda13.1-venvs,target=/home/coder/.local/share/venvs,type=bind,consistency=consistent",
+    "source=/scratch/0,target=/data/tpch,type=bind,readonly"
   ],
   "hostRequirements": {
     "gpu": "optional"
