@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build velox with cuDF support
-# Usage: build-velox [--release|--debug] [-j N] [--cuda-arch ARCH]
+# Usage: build-velox [--release|--debug] [-j N] [--cuda-arch ARCH] [-D<VAR>=<VALUE>]...
 
 set -euo pipefail
 
@@ -12,9 +12,12 @@ CUDA_ARCH="${CUDA_ARCH:-}"
 
 usage() {
     cat <<EOF
-Usage: build-velox [OPTIONS]
+Usage: build-velox [OPTIONS] [-D<VAR>=<VALUE>]...
 
 Build velox with cuDF support.
+
+Any -D flags are passed through to CMake via configure-velox, e.g.:
+  build-velox -DVELOX_ENABLE_BENCHMARKS=ON
 
 Options:
   --release         Build in release mode (default)
@@ -31,7 +34,8 @@ Environment variables:
 EOF
 }
 
-# Parse arguments
+# Parse arguments — collect -D flags for CMake passthrough
+CMAKE_PASSTHROUGH=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) BUILD_TYPE="release"; shift ;;
@@ -40,6 +44,7 @@ while [[ $# -gt 0 ]]; do
         -j*) NUM_THREADS="${1#-j}"; shift ;;
         --cuda-arch) CUDA_ARCH="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
+        -D*) CMAKE_PASSTHROUGH+=("$1"); shift ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
     esac
 done
@@ -53,11 +58,12 @@ if [[ ! -d "${VELOX_DIR}" ]]; then
     exit 1
 fi
 
-# Run configuration
+# Run configuration — forward -D flags to configure-velox
 CONFIGURE_ARGS=("--${BUILD_TYPE}")
 if [[ -n "${CUDA_ARCH}" ]]; then
     CONFIGURE_ARGS+=("--cuda-arch" "${CUDA_ARCH}")
 fi
+CONFIGURE_ARGS+=("${CMAKE_PASSTHROUGH[@]+"${CMAKE_PASSTHROUGH[@]}"}")
 BUILD_BASE_DIR="${BUILD_BASE_DIR}" configure-velox "${CONFIGURE_ARGS[@]}"
 
 # Build
