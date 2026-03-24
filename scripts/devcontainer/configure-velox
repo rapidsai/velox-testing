@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run CMake configuration only for velox (useful for IDE integration)
-# Usage: configure-velox [--release|--debug]
+# Usage: configure-velox [--release|--debug] [-D<VAR>=<VALUE>]...
 
 set -euo pipefail
 # shellcheck source=_devcontainer_common_utils.sh
@@ -12,10 +12,13 @@ BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
 
 usage() {
     cat <<EOF
-Usage: configure-velox [OPTIONS]
+Usage: configure-velox [OPTIONS] [-D<VAR>=<VALUE>]...
 
 Run CMake configuration for velox without building.
 Useful for IDE integration (CMake Tools, clangd, etc.)
+
+Any -D flags are passed through to CMake, e.g.:
+  configure-velox -DVELOX_ENABLE_BENCHMARKS=ON
 
 Options:
   --release         Configure for release build (default)
@@ -29,12 +32,14 @@ Environment variables:
 EOF
 }
 
-# Parse arguments
+# Parse arguments — collect -D flags for CMake passthrough
+CMAKE_PASSTHROUGH=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) BUILD_TYPE="release"; shift ;;
         --debug) BUILD_TYPE="debug"; shift ;;
         -h|--help) usage; exit 0 ;;
+        -D*) CMAKE_PASSTHROUGH+=("$1"); shift ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
     esac
 done
@@ -94,6 +99,11 @@ else
     EXTRA_CMAKE_FLAGS+=" -Dcudf_SOURCE=BUNDLED"
 fi
 append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
+
+# Append any user-supplied -D flags (passthrough to CMake)
+for flag in "${CMAKE_PASSTHROUGH[@]+"${CMAKE_PASSTHROUGH[@]}"}"; do
+    EXTRA_CMAKE_FLAGS+=" ${flag}"
+done
 
 echo ""
 
