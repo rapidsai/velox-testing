@@ -31,16 +31,21 @@ dnf install -y "cuda-sanitizer-${CUDA_VERSION_DASHED}"
 echo "Checking GPU"
 nvidia-smi
 
-# Resolve test name to executable path via ctest
-TEST_EXECUTABLE=$(ctest --test-dir "${BUILD_DIR}" --show-only=json-v1 --label-regex cuda_driver \
+# Resolve test name to executable path and working directory via ctest
+read -r TEST_EXECUTABLE TEST_WORKING_DIR < <(ctest --test-dir "${BUILD_DIR}" --show-only=json-v1 --label-regex cuda_driver \
   | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for t in data.get('tests', []):
     if t['name'] == '${TEST_NAME}':
-        print(t['command'][0])
+        exe = t['command'][0]
+        workdir = ''
+        for prop in t.get('properties', []):
+            if prop['name'] == 'WORKING_DIRECTORY':
+                workdir = prop['value']
+                break
+        print(exe, workdir)
         sys.exit(0)
-print('', end='')
 sys.exit(1)
 ")
 
@@ -51,6 +56,10 @@ fi
 
 echo "Running compute-sanitizer --tool ${TOOL_NAME} on ${TEST_NAME}"
 echo "  executable: ${TEST_EXECUTABLE}"
+if [ -n "${TEST_WORKING_DIR}" ]; then
+  echo "  working directory: ${TEST_WORKING_DIR}"
+  cd "${TEST_WORKING_DIR}"
+fi
 
 CS_EXCLUDE_NAMES="kns=nvcomp,kns=zstd,kns=_no_sanitize,kns=_no_${TOOL_NAME}"
 

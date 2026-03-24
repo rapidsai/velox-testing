@@ -16,12 +16,18 @@ fi
 
 cd "${BUILD_DIR}"
 
+# Tests to exclude from compute-sanitizer (no CUDA API calls, test infra issues, etc.)
+EXCLUDED_TESTS=(
+  "velox_cudf_config_test"  # No CUDA API calls - only tests CPU config parsing
+)
+
 # Extract test names from ctest for the cuda_driver label
 tests=$(ctest --show-only=json-v1 --label-regex cuda_driver \
   | python3 -c "
 import sys, json
+excluded = set('''${EXCLUDED_TESTS[*]}'''.split())
 data = json.load(sys.stdin)
-names = sorted(t['name'] for t in data.get('tests', []))
+names = sorted(t['name'] for t in data.get('tests', []) if t['name'] not in excluded)
 print(json.dumps(names))
 ")
 
