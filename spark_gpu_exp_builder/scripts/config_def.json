@@ -1,0 +1,235 @@
+{
+  "section_order": ["sources", "docker", "build", "execution", "maven", "steps"],
+  "entries": {
+    "sources": {
+      "gluten_dir": {
+        "shell_var": "GLUTEN_DIR",
+        "default": "",
+        "required": true,
+        "env_alias": "GLUTEN_DIR",
+        "description": "Path to gluten source tree",
+        "env_ref_default": "${GLUTEN_DIR}"
+      },
+      "velox_dir": {
+        "shell_var": "VELOX_DIR",
+        "default": "",
+        "required": true,
+        "env_alias": "VELOX_DIR",
+        "description": "Path to velox source tree",
+        "env_ref_default": "${VELOX_DIR}"
+      }
+    },
+    "docker": {
+      "prebuild_image": {
+        "shell_var": "PREBUILD_IMAGE",
+        "default": "",
+        "required": false,
+        "env_alias": "BUILD_IMG",
+        "description": "Prebuild image tag; also the container used in docker mode [env: BUILD_IMG]",
+        "env_ref_default": "${BUILD_IMG}"
+      },
+      "build_output": {
+        "shell_var": "BUILD_OUTPUT",
+        "default": "",
+        "required": false,
+        "env_alias": "",
+        "description": "Docker tag (e.g. gluten:runtime) → build runtime image; path (e.g. /tmp/libs) → build libs there",
+        "env_ref_default": ""
+      },
+      "base_image": {
+        "shell_var": "PREBUILD_BASE_IMAGE",
+        "default": "apache/gluten:centos-9-jdk8-cudf",
+        "required": false,
+        "env_alias": "",
+        "description": "Base Docker image for the prebuild stage",
+        "env_ref_default": ""
+      },
+      "build_target": {
+        "shell_var": "BUILD_TARGET",
+        "default": "runtime",
+        "required": false,
+        "env_alias": "",
+        "description": "What to build: prebuild, runtime, or all",
+        "env_ref_default": ""
+      },
+      "no_cache": {
+        "shell_var": "NO_CACHE",
+        "default": "false",
+        "required": false,
+        "env_alias": "",
+        "description": "",
+        "env_ref_default": ""
+      },
+      "build_mode": {
+        "shell_var": "DOCKER_BUILD_MODE",
+        "default": "run",
+        "required": false,
+        "env_alias": "",
+        "description": "run = execute the build; print = show commands only",
+        "env_ref_default": ""
+      },
+      "libs_run_mode": {
+        "shell_var": "LIBS_RUN_MODE",
+        "default": "direct",
+        "required": false,
+        "env_alias": "",
+        "description": "direct = docker run/exec with prebuild image; docker = builder.sh manages container",
+        "env_ref_default": ""
+      },
+      "log_file": {
+        "shell_var": "LOG_FILE",
+        "default": "",
+        "required": false,
+        "env_alias": "",
+        "description": "Build log file path",
+        "env_ref_default": ""
+      }
+    },
+    "build": {
+      "spark_version": {
+        "shell_var": "SPARK_VERSION",
+        "default": "3.5",
+        "required": false,
+        "env_alias": "",
+        "description": "Spark major.minor version",
+        "env_ref_default": ""
+      },
+      "spark_full_version": {
+        "shell_var": "SPARK_FULL_VERSION",
+        "default": "3.5.5",
+        "required": false,
+        "env_alias": "",
+        "description": "Full Spark version (major.minor.patch)",
+        "env_ref_default": ""
+      },
+      "arrow_version": {
+        "shell_var": "ARROW_VERSION",
+        "default": "15.0.0",
+        "required": false,
+        "env_alias": "",
+        "description": "",
+        "env_ref_default": ""
+      },
+      "enable_hdfs": {
+        "shell_var": "ENABLE_HDFS",
+        "default": "ON",
+        "required": false,
+        "env_alias": "",
+        "description": "",
+        "env_ref_default": ""
+      },
+      "enable_s3": {
+        "shell_var": "ENABLE_S3",
+        "default": "OFF",
+        "required": false,
+        "env_alias": "",
+        "description": "",
+        "env_ref_default": ""
+      },
+      "cuda_arch": {
+        "shell_var": "CUDA_ARCH",
+        "default": "",
+        "required": false,
+        "env_alias": "",
+        "description": "CUDA arch(s) e.g. 80 or 80;86 — auto-detected if unset",
+        "env_ref_default": ""
+      }
+    },
+    "execution": {
+      "container": {
+        "shell_var": "CONTAINER_NAME",
+        "default": "",
+        "required": false,
+        "env_alias": "",
+        "description": "Reuse an existing named running container (docker mode only)",
+        "env_ref_default": ""
+      }
+    },
+    "maven": {
+      "settings_file": {
+        "shell_var": "MAVEN_SETTINGS",
+        "default": "",
+        "required": false,
+        "env_alias": "MVN_SET",
+        "description": "Path to custom Maven settings.xml [env: MVN_SET]",
+        "env_ref_default": "${MVN_SET}"
+      }
+    },
+    "steps": {
+      "build_cudf": {
+        "shell_var": "BUILD_CUDF",
+        "default": "false",
+        "required": false,
+        "env_alias": "",
+        "description": "Build cuDF from source (BUNDLED) instead of using pre-installed (SYSTEM)",
+        "env_ref_default": ""
+      },
+      "skip_arrow": {
+        "shell_var": "SKIP_ARROW",
+        "default": "auto",
+        "required": false,
+        "env_alias": "",
+        "description": "Skip Arrow build; auto = skip if pre-installed, false = force build",
+        "env_ref_default": ""
+      },
+      "skip_velox": {
+        "shell_var": "SKIP_VELOX",
+        "default": "false",
+        "required": false,
+        "env_alias": "",
+        "description": "Skip the Velox native build step",
+        "env_ref_default": ""
+      },
+      "skip_gluten_cpp": {
+        "shell_var": "SKIP_GLUTEN_CPP",
+        "default": "false",
+        "required": false,
+        "env_alias": "",
+        "description": "Skip the Gluten C++ native build step",
+        "env_ref_default": ""
+      },
+      "rebuild_velox": {
+        "shell_var": "REBUILD_VELOX",
+        "default": "false",
+        "required": false,
+        "env_alias": "",
+        "description": "Clean Velox build dir and rebuild from scratch",
+        "env_ref_default": ""
+      },
+      "rebuild_gluten_cpp": {
+        "shell_var": "REBUILD_GLUTEN_CPP",
+        "default": "false",
+        "required": false,
+        "env_alias": "",
+        "description": "Clean Gluten C++ build dir before building",
+        "env_ref_default": ""
+      },
+      "ignore_version_check": {
+        "shell_var": "IGNORE_VERSION_CHECK",
+        "default": "false",
+        "required": false,
+        "env_alias": "",
+        "description": "Skip cuDF commit consistency check between image and Velox source",
+        "env_ref_default": ""
+      }
+    },
+    "_internal": {
+      "config_file": {
+        "shell_var": "CONFIG_FILE",
+        "default": "",
+        "required": false,
+        "env_alias": "CFG_FILE",
+        "description": "XML config file path [env: CFG_FILE]",
+        "env_ref_default": ""
+      },
+      "exec_mode": {
+        "shell_var": "EXEC_MODE",
+        "default": "direct",
+        "required": false,
+        "env_alias": "",
+        "description": "Builder execution mode: direct = current shell; docker = inside container",
+        "env_ref_default": ""
+      }
+    }
+  }
+}

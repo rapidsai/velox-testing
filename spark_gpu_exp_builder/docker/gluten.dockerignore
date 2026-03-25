@@ -1,0 +1,63 @@
+# Dockerignore for the gluten build context.
+# Mirrors gluten/.gitignore to avoid sending build artifacts to the daemon.
+#
+# NOTE: Docker .dockerignore patterns are root-anchored by default (unlike
+# .gitignore).  Use **/ prefix for patterns that should match at any depth.
+
+# Git
+.git
+
+# Maven build output (at any depth)
+**/target
+**/dependency-reduced-pom.xml
+
+# C++ / cmake build artifacts (at any depth)
+**/build
+**/CMakeFiles
+**/CMakeCache.txt
+**/CTestTestfile.cmake
+**/cmake_install.cmake
+**/cmake-build-*
+**/Testing
+
+# Re-include Maven wrapper scripts excluded by **/build above
+!build/mvn
+!build/mvnd
+
+# Downloaded dependency sources (Arrow, etc.)
+ep/_ep
+
+# vcpkg build cache (3.6 GB)
+dev/vcpkg/.vcpkg
+
+# IDE / editor
+**/.idea
+**/.vscode
+**/.bloop
+**/.metals
+**/.mtj.tmp
+**/*.iml
+**/*.swp
+**/*.cache
+**/*.class
+**/*.bak
+
+# OS
+**/.DS_Store
+
+# Logs
+**/*.log
+
+# Generated artifacts
+backends-velox/generated-native-benchmark
+backends-velox/spark-warehouse
+cpp-ch/ClickHouse
+cpp-ch/cmake-build-*
+cpp-ch/build_ch
+dist
+metastore_db
+**/.ipynb_checkpoints
+.worktrees
+.profiler
+**/.mvn
+.run-scala-test-cache
