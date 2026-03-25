@@ -44,6 +44,14 @@ def parse_args():
         required=False,
         help="Number of KvikIO threads (optional).",
     )
+    parser.add_argument(
+        "--sccache",
+        type=str_to_bool,
+        default=False,
+        dest="sccache",
+        required=False,
+        help="Enable sccache build secrets in the rendered compose file.",
+    )
     return parser.parse_args()
 
 
@@ -85,6 +93,7 @@ def main() -> int:
         workers=workers,
         single_container=parsed_args.single_container,
         kvikio_threads=parsed_args.kvikio_threads,
+        sccache=parsed_args.sccache,
     )
 
     os.makedirs(os.path.dirname(parsed_args.output_path), exist_ok=True)

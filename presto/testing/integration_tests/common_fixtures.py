@@ -4,7 +4,7 @@
 import prestodb
 import pytest
 
-from ..common.test_utils import get_table_external_location
+from ..common.test_utils import get_abs_file_path, get_table_external_location
 from . import create_hive_tables, test_utils
 
 
@@ -28,16 +28,19 @@ def setup_and_teardown(request, presto_cursor):
 
     should_create_tables = not has_schema_name
     if should_create_tables:
-        schemas_dir = test_utils.get_abs_file_path(f"../common/schemas/{benchmark_type}")
+        schemas_dir = get_abs_file_path(__file__, f"../common/schemas/{benchmark_type}")
         data_sub_directory = f"integration_test/{benchmark_type}"
         create_hive_tables.create_tables(presto_cursor, schema_name, schemas_dir, data_sub_directory)
 
-    # duckdb will need to know the name of each table in a hive schema,
-    # as well as the path to the parquet directory they are based on.
-    tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
-    for (table,) in tables:
-        location = get_table_external_location(schema_name, table, presto_cursor)
-        test_utils.create_duckdb_table(table, location)
+    if not request.config.getoption("--reference-results-dir"):
+        # duckdb will need to know the name of each table in a hive schema,
+        # as well as the path to the parquet directory they are based on.
+        tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
+        for (table,) in tables:
+            location = get_table_external_location(schema_name, table, presto_cursor)
+            test_utils.create_duckdb_table(table, location)
+
+    test_utils.initialize_output_dir(request.config, "presto")
 
     yield
 

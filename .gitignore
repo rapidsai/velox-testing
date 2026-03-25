@@ -1,5 +1,7 @@
 # python virtual environment
 .venv
+.integ_test_venv
+
 # jetbrains IDE folder
 .idea
 # python bytcode cache
@@ -17,10 +19,26 @@ presto/docker/hive_metastore/
 # Default benchmark output directory
 benchmark_output
 
+# Default integration test output directory
+integ_test_output
+
 # Generated Presto Config
 presto/docker/config/generated*/
 
 # Generated Presto Docker Compose files
 presto/docker/docker-compose/generated*/
+presto/scripts/presto_logs/
+
+# Slurm logs and results
+presto/slurm/presto-nvl72/logs/
+presto/slurm/presto-nvl72/*.err
+presto/slurm/presto-nvl72/*.out
+presto/slurm/presto-nvl72/result_dir/
+presto/slurm/presto-nvl72/kept_results/
+presto/slurm/presto-nvl72/worker_data*
 
 devstate*
+
+spark-gluten-install/
+
+build_artifacts

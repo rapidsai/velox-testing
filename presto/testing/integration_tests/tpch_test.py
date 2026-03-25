@@ -9,5 +9,5 @@ BENCHMARK_TYPE = "tpch"
 
 
 @pytest.mark.usefixtures("setup_and_teardown")
-def test_query(presto_cursor, tpch_queries, tpch_query_id):
-    test_utils.execute_query_and_compare_results(presto_cursor, tpch_queries, tpch_query_id)
+def test_query(request, presto_cursor, tpch_queries, tpch_query_id):
+    test_utils.execute_query_and_compare_results(request.config, presto_cursor, tpch_queries, tpch_query_id)
