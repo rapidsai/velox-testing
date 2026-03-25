@@ -68,7 +68,33 @@ fi
 # is passed.
 # ──────────────────────────────────────────────────────────────────────
 build_fb_deps() {
-    local FB_VERSION="v2026.01.05.00"
+    # Source dependency versions from Velox rather than hardcoding them here.
+    # setup-versions.sh exports: FB_OS_VERSION, XSIMD_VERSION, FAST_FLOAT_VERSION, etc.
+    local VELOX_VERSIONS="${HOME}/velox/scripts/setup-versions.sh"
+    if [[ ! -f "${VELOX_VERSIONS}" ]]; then
+        echo "Error: Velox versions file not found at ${VELOX_VERSIONS}"
+        exit 1
+    fi
+    # shellcheck disable=SC1090
+    source "${VELOX_VERSIONS}"
+
+    _require_version() {
+        local name="$1" value="$2" pattern="$3"
+        if [[ -z "${value}" ]]; then
+            echo "Error: ${name} is empty after sourcing ${VELOX_VERSIONS}"
+            exit 1
+        fi
+        if [[ ! "${value}" =~ ${pattern} ]]; then
+            echo "Error: Invalid ${name} format: ${value}"
+            exit 1
+        fi
+        echo "Using ${name}: ${value}"
+    }
+
+    _require_version "FB_OS_VERSION"    "${FB_OS_VERSION:-}"   '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}$'
+    _require_version "XSIMD_VERSION"    "${XSIMD_VERSION:-}"   '^[0-9]+\.[0-9]+\.[0-9]+$'
+    _require_version "FAST_FLOAT_VERSION" "${FAST_FLOAT_VERSION:-}" '^v[0-9]+\.[0-9]+\.[0-9]+$'
+
     local SCRATCH_DIR="/tmp/fb-deps-build"
     # CPU flags must match velox's build for folly F14 hash table ABI compatibility
     local CXX_FLAGS
@@ -134,16 +160,13 @@ build_fb_deps() {
     }
 
         echo ""
-        echo -e "\033[1;36mBuilding Facebook OSS dependencies (${FB_VERSION})\033[0m"
+        echo -e "\033[1;36mBuilding Facebook OSS dependencies (${FB_OS_VERSION})\033[0m"
         echo "Install prefix: ${FB_DEPS_PREFIX}"
         echo ""
 
     mkdir -p "${FB_DEPS_PREFIX}"
     rm -rf "${SCRATCH_DIR}"
     mkdir -p "${SCRATCH_DIR}"
-
-    local FAST_FLOAT_VERSION="v8.0.2"
-    local XSIMD_VERSION="10.0.0"
 
     _build_pkg "fast_float" \
         "${GITHUB}/fastfloat/fast_float/archive/refs/tags/${FAST_FLOAT_VERSION}.tar.gz" \
@@ -154,19 +177,19 @@ build_fb_deps() {
         "."
 
     _build_pkg "folly" \
-        "${GITHUB}/facebook/folly/releases/download/${FB_VERSION}/folly-${FB_VERSION}.tar.gz" \
+        "${GITHUB}/facebook/folly/releases/download/${FB_OS_VERSION}/folly-${FB_OS_VERSION}.tar.gz" \
         "." -DBUILD_SHARED_LIBS=ON -DFOLLY_HAVE_INT128_T=ON
 
     _build_pkg "fizz" \
-        "${GITHUB}/facebookincubator/fizz/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "${GITHUB}/facebookincubator/fizz/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         "fizz" -DBUILD_SHARED_LIBS=ON
 
     _build_pkg "wangle" \
-        "${GITHUB}/facebook/wangle/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "${GITHUB}/facebook/wangle/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         "wangle" -DBUILD_SHARED_LIBS=ON
 
     _build_pkg "mvfst" \
-        "${GITHUB}/facebook/mvfst/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "${GITHUB}/facebook/mvfst/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         "." -DBUILD_SHARED_LIBS=ON
 
     # fbthrift: static with PIC and -fvisibility=default.
@@ -175,12 +198,12 @@ build_fb_deps() {
     # alongside Arrow's bundled Apache Thrift, the linker fails. We disable PIE
     # in the presto link and force default visibility here as defense in depth.
     _build_pkg "fbthrift" \
-        "${GITHUB}/facebook/fbthrift/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "${GITHUB}/facebook/fbthrift/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         "." -DBUILD_SHARED_LIBS=OFF -Denable_tests=OFF \
         "-DCMAKE_CXX_FLAGS=${CXX_FLAGS} -fvisibility=default"
 
     _build_pkg "proxygen" \
-        "${GITHUB}/facebook/proxygen/archive/refs/tags/${FB_VERSION}.tar.gz" \
+        "${GITHUB}/facebook/proxygen/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         "." -DBUILD_SHARED_LIBS=ON
 
     local DATASKETCHES_VERSION="5.2.0"
