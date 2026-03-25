@@ -2,7 +2,7 @@
 
 set -e
 
-IMAGE_NAME='presto/prestissimo-dependency:centos9'
+IMAGE_NAME="presto/prestissimo-dependency:centos9-${USER:-latest}"
 NO_CACHE_ARG=''
 
 print_help() {
@@ -18,7 +18,7 @@ WARNING: If an image of the given name already exists, it will be removed prior 
 
 OPTIONS:
     -h, --help           Show this help message
-    -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9)
+    -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9-\${USER:-latest})
     -n, --no-cache       Do not use Docker build cache (default: use cache)
 
 EOF
@@ -95,6 +95,13 @@ cp -r ../../velox/CMake velox
 # now build
 echo "Building..."
 docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
+
+# tag with the user-specific name to avoid conflicts between multiple users on the same host
+COMPOSE_IMAGE_NAME='presto/prestissimo-dependency:centos9'
+if [[ "${IMAGE_NAME}" != "${COMPOSE_IMAGE_NAME}" ]]; then
+  echo "Tagging image as ${IMAGE_NAME}..."
+  docker tag ${COMPOSE_IMAGE_NAME} ${IMAGE_NAME}
+fi
 
 # done (will cleanup on exit)
 echo "Presto dependencies/run-time container image built!"
