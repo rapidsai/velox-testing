@@ -40,6 +40,7 @@ OPTIONS:
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
+    --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
     -v, --verbose           Print debug logs for worker/engine detection
@@ -163,6 +164,10 @@ parse_args() {
         SKIP_DROP_CACHE=true
         shift
         ;;
+      --skip-analyze-check)
+        SKIP_ANALYZE_CHECK=true
+        shift
+        ;;
       -m|--metrics)
         METRICS=true
         shift
@@ -245,6 +250,10 @@ fi
 
 if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
+fi
+
+if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then
+  PYTEST_ARGS+=("--skip-analyze-check")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
