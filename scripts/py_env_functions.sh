@@ -40,6 +40,13 @@ function activate_python_virtual_env() {
 
   if [[ -d "$venv_dir/conda-meta" ]]; then
     echo "Activating conda environment"
+    if [[ -z "${LOCAL_CONDA_INIT:-}" ]]; then
+      if [[ -z "${MINIFORGE_HOME:-}" ]]; then
+        echo "Error: MINIFORGE_HOME must be set to activate a conda environment"
+        exit 1
+      fi
+      init_conda
+    fi
     conda activate "$(readlink -f $venv_dir)"
   elif [[ -f "$venv_dir/pyvenv.cfg" ]]; then
     echo "Activating venv environment"
