@@ -95,10 +95,10 @@ jobs:
           source .venv/bin/activate
           pip install -q -r benchmark_data_tools/requirements.txt
           python benchmark_data_tools/generate_data_files.py \
-            --benchmark-type tpch \
-            --data-dir-path "${TPCH_DATA_DIR}" \
-            --scale-factor 0.01 \
-            --convert-decimals-to-floats
+            tpch \
+            --output "${TPCH_DATA_DIR}" \
+            --scale 0.01 \
+            --use-float-type
 
       - name: Run TPC-H GPU benchmarks
         env:
