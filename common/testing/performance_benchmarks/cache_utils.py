@@ -1,19 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
-import ctypes
-import ctypes.util
-import functools
 import io
 import os
 import subprocess
 from pathlib import Path
 from typing import Union
-
-
-@functools.cache
-def _libc():
-    return ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
 
 def _drop_file_cache(
@@ -81,12 +73,7 @@ def _drop_file_cache(
         # accessed in the near future, which subsequently attempts to free the
         # associated cached pages. A `length` of 0 means until the end of the file
         # from the offset.
-        ret = _libc().posix_fadvise(
-            ctypes.c_int(fd),
-            ctypes.c_longlong(offset),
-            ctypes.c_longlong(length),
-            ctypes.c_int(os.POSIX_FADV_DONTNEED),
-        )
+        ret = os.posix_fadvise(fd, offset, length, os.POSIX_FADV_DONTNEED)
         if ret != 0:
             raise OSError(ret, f"posix_fadvise failed: {os.strerror(ret)}")
     finally:
