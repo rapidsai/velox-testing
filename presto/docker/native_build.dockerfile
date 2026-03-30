@@ -3,7 +3,7 @@ FROM presto/prestissimo-dependency:centos9
 
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
     dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
-    dnf install -y nsight-systems-cli-2025.5.1
+    dnf install -y nsight-systems-cli-2025.5.1 numactl
 
 ARG GPU=ON
 ARG BUILD_TYPE=release
@@ -25,8 +25,15 @@ ARG SCCACHE_RECACHE
 ARG SCCACHE_NO_CACHE
 ARG SCCACHE_NO_DIST_COMPILE
 
+# Override ARM_BUILD_TARGET to prevent get_cxx_flags() in Velox's
+# setup-helper-functions.sh from reading the MIDR_EL1 register and emitting
+# -mcpu=neoverse-v1. Build runners (Neoverse V1) and test runners (e.g. Neoverse N1)
+# may differ; the fallback -march=armv8-a+crc+crypto is safe on all ARMv8-A hardware.
+# Must be a non-empty value: the script uses ${ARM_BUILD_TARGET:-"local"}, so an
+# empty string is treated the same as unset and falls back to "local".
 ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     CXX=/opt/rh/gcc-toolset-14/root/bin/g++ \
+    ARM_BUILD_TARGET="generic" \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS} \
     NUM_THREADS=${NUM_THREADS} \
@@ -38,12 +45,17 @@ ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     SCCACHE_BUCKET=rapids-sccache-devs \
     SCCACHE_REGION=us-east-2 \
     SCCACHE_S3_NO_CREDENTIALS=false \
+    SCCACHE_S3_USE_SSL=true \
+    SCCACHE_DIRECT=true \
     SCCACHE_IDLE_TIMEOUT=0 \
     SCCACHE_DIST_AUTH_TYPE=token \
     SCCACHE_DIST_REQUEST_TIMEOUT=7140 \
     SCCACHE_DIST_SCHEDULER_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com" \
-    SCCACHE_DIST_MAX_RETRIES=4 \
-    SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true
+    SCCACHE_DIST_MAX_RETRIES=10 \
+    SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true \
+    SCCACHE_S3_USE_PREPROCESSOR_CACHE_MODE=true \
+    SCCACHE_S3_KEY_PREFIX=velox-testing/object-cache \
+    SCCACHE_S3_PREPROCESSOR_CACHE_KEY_PREFIX=velox-testing/preprocessor-cache
 
 RUN mkdir /runtime-libraries
 
@@ -73,12 +85,10 @@ if [ -f "${BUILD_BASE_DIR}/CMakeCache.txt" ]; then
 fi
 
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
-  # Add sccache distributed compilation control (disabled by default)
-  if [ -n "$SCCACHE_NO_DIST_COMPILE" ]; then
-    export SCCACHE_NO_DIST_COMPILE;
+  if [ -n "${SCCACHE_NO_DIST_COMPILE:-}" ]; then
+    export SCCACHE_NO_DIST_COMPILE=1;
   fi
   bash /sccache_setup.sh;
-  sccache --zero-stats;
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
 fi
@@ -87,7 +97,7 @@ make --directory="/presto_native_staging/presto" cmake-and-build BUILD_TYPE=${BU
 
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
   echo "Post-build sccache statistics:";
-  sccache --show-stats;
+  sccache --show-adv-stats;
 fi
 
 !(LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | grep "not found" | grep -v -E "libcuda\.so|libnvidia");

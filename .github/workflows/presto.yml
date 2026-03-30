@@ -1,0 +1,104 @@
+name: presto
+run-name: presto (${{ inputs.variant_label }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant_label: &variant_label
+        description: 'Run label shown in the workflow name'
+        type: string
+        required: false
+        default: 'manual'
+      presto_repository: &presto_repository
+        description: 'Presto repository'
+        type: string
+        required: false
+        default: 'prestodb/presto'
+      presto_commit: &presto_commit
+        description: 'Presto commit SHA or branch'
+        type: string
+        required: false
+        default: 'master'
+      velox_repository: &velox_repository
+        description: 'Velox repository'
+        type: string
+        required: false
+        default: 'facebookincubator/velox'
+      velox_commit: &velox_commit
+        description: 'Velox commit SHA, branch, or "presto-pinned"'
+        type: string
+        required: false
+        default: 'presto-pinned'
+      run_tests: &run_tests
+        description: 'Run tests after build'
+        type: boolean
+        required: false
+        default: true
+      build_type: &build_type
+        description: 'One of: [nightly, manual]'
+        type: string
+        required: false
+        default: 'manual'
+      build_variant: &build_variant
+        description: 'One of: [upstream, pinned, staging, manual]'
+        type: string
+        required: false
+        default: 'manual'
+
+  workflow_call:
+    inputs:
+      variant_label: *variant_label
+      presto_repository: *presto_repository
+      presto_commit: *presto_commit
+      velox_repository: *velox_repository
+      velox_commit: *velox_commit
+      run_tests: *run_tests
+      build_type: *build_type
+      build_variant: *build_variant
+
+jobs:
+  resolve-commits:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      velox_sha: ${{ steps.resolve.outputs.velox_sha }}
+      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
+      presto_sha: ${{ steps.resolve.outputs.presto_sha }}
+      presto_short_sha: ${{ steps.resolve.outputs.presto_short_sha }}
+      date: ${{ steps.resolve.outputs.date }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: ./.github/actions/resolve-commits
+        id: resolve
+        with:
+          velox_repository: ${{ inputs.velox_repository }}
+          velox_commit: ${{ inputs.velox_commit }}
+          presto_repository: ${{ inputs.presto_repository }}
+          presto_commit: ${{ inputs.presto_commit }}
+          github_token: ${{ github.token }}
+
+  presto-build:
+    needs: [resolve-commits]
+    uses: ./.github/workflows/presto-build.yml
+    with:
+      velox_repository: ${{ inputs.velox_repository }}
+      presto_repository: ${{ inputs.presto_repository }}
+      velox_sha: ${{ needs.resolve-commits.outputs.velox_sha }}
+      velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+      presto_sha: ${{ needs.resolve-commits.outputs.presto_sha }}
+      presto_short_sha: ${{ needs.resolve-commits.outputs.presto_short_sha }}
+      date: ${{ needs.resolve-commits.outputs.date }}
+      build_type: ${{ inputs.build_type }}
+      build_variant: ${{ inputs.build_variant }}
+    secrets: inherit
+
+  presto-test:
+    needs: [resolve-commits, presto-build]
+    if: ${{ inputs.run_tests }}
+    uses: ./.github/workflows/presto-test.yml
+    with:
+      velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+      presto_short_sha: ${{ needs.resolve-commits.outputs.presto_short_sha }}
+      date: ${{ needs.resolve-commits.outputs.date }}
+    secrets: inherit

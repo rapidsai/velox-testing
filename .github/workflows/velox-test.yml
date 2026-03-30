@@ -1,181 +1,130 @@
-name: Velox Test
-run-name: ${{ github.event.head_commit.message }}
+name: velox-test
 
 on:
-  workflow_dispatch:
-    inputs:
-      repository: &repository
-        description: 'Velox repository'
-        type: string
-        required: false
-        default: 'facebookincubator/velox'
-      velox_commit: &velox_commit
-        description: 'Velox commit SHA or branch'
-        type: string
-        required: false
-        default: 'main'
-      build_target:
-        description: 'Select the build target'
-        type: choice
-        required: false
-        default: 'gpu'
-        options:
-          - all
-          - cpu
-          - gpu
-      use_upstream_deps_image: &use_upstream_deps_image
-        description: 'Use upstream deps image from ghcr.io'
-        type: boolean
-        default: true
-      enable_sccache: &enable_sccache
-        description: 'Enable sccache for build acceleration'
-        type: boolean
-        default: true
-
   workflow_call:
     inputs:
-      repository: *repository
-      velox_commit: *velox_commit
-      build_target:
-        description: 'Select the build target'
+      velox_short_sha:
+        description: 'Short Velox commit SHA (7 chars)'
+        type: string
+        required: true
+      date:
+        description: 'Build date (YYYYMMDD)'
+        type: string
+        required: true
+
+  workflow_dispatch:
+    inputs:
+      velox_image:
+        description: 'Velox image to test. SHAs and date are parsed from the tag. e.g. ghcr.io/rapidsai/velox-testing-images:velox-3b263a7-gpu-cuda12.9-20260313'
         type: string
         required: false
-        default: 'gpu'
-      use_upstream_deps_image: *use_upstream_deps_image
-      enable_sccache: *enable_sccache
+        default: ''
+      velox_short_sha:
+        description: 'Short Velox commit SHA (ignored if velox_image is set)'
+        type: string
+        required: false
+        default: ''
+      date:
+        description: 'Build date YYYYMMDD (ignored if velox_image is set)'
+        type: string
+        required: false
+        default: ''
 
-permissions:
-  id-token: write
-  contents: read
-
-defaults:
-  run:
-    shell: bash
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-images
 
 jobs:
-  velox-cpu:
-    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'cpu' }}
-    runs-on: linux-amd64-cpu4
-
-    env:
-      GH_TOKEN: ${{ github.token }}
-      DOCKER_RUNTIME: runc
-
+  resolve-inputs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
+      presto_short_sha: ${{ steps.resolve.outputs.presto_short_sha }}
+      date: ${{ steps.resolve.outputs.date }}
     steps:
-      - &checkout-velox-testing
-        name: Checkout this repository for CI scripts
-        uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: ./.github/actions/resolve-inputs
+        id: resolve
         with:
-          path: velox-testing
+          image_tag: ${{ inputs.velox_image || '' }}
+          velox_short_sha: ${{ inputs.velox_short_sha }}
+          date: ${{ inputs.date }}
 
-      - &checkout-velox
-        name: Setup Velox
-        uses: ./velox-testing/.github/actions/velox-setup
-        with:
-          repository: ${{ inputs.repository }}
-          velox_commit: ${{ inputs.velox_commit }}
-
-      - &pull-deps
-        if: ${{ inputs.use_upstream_deps_image }}
-        name: Pull Velox Dependencies
-        run: |
-          docker pull ghcr.io/facebookincubator/velox-dev:adapters
-
-      - &fetch-and-load-deps
-        if: ${{ ! inputs.use_upstream_deps_image }}
-        name: Fetch or Build Velox Dependencies
-        uses: ./velox-testing/.github/actions/velox-deps-fetch
-        with:
-          aws_arn_string: ${{ secrets.AWS_ARN_STRING }}
-          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          s3_bucket_name: ${{ vars.S3_BUCKET_NAME }}
-          s3_bucket_region: ${{ vars.S3_BUCKET_REGION }}
-          fail_on_fetch_error: false
-          auto_build_on_failure: true
-
-      - &setup-sccache
-        name: Setup sccache
-        id: sccache
-        if: ${{ inputs.enable_sccache }}
-        uses: ./velox-testing/.github/actions/sccache-setup
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Building Velox for CPU
-        run: |
-          echo "   - CUDF support: DISABLED"
-          echo "   - Target: CPU-only build"
-          echo "   - sccache: ${{ steps.sccache.outputs.enabled || 'false' }}"
-          cd ${{ github.workspace }}/velox-testing/velox/scripts
-          SCCACHE_FLAG=""
-          if [[ "${{ steps.sccache.outputs.enabled }}" == "true" ]]; then
-            SCCACHE_FLAG="--sccache"
-          fi
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --cpu ${SCCACHE_FLAG} --log build_velox_cpu.log
-
-      - &show-sccache-stats
-        name: Show sccache stats
-        if: always() && steps.sccache.outputs.enabled == 'true'
-        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
-        run: |
-          LOG_FILE=$(ls build_velox_*.log 2>/dev/null | head -1)
-          if [[ -n "$LOG_FILE" ]]; then
-            grep -A 30 "Post-build sccache statistics:" "$LOG_FILE" || echo "sccache stats not found in build log"
-          else
-            echo "No build log found"
-          fi
-
-      - name: Upload velox_cpu_build_log as an artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: velox_cpu_build_log
-          path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_cpu.log
-
-      - &run-velox-tests
-        name: Run Velox CPU Tests
-        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
-        run: ./test_velox.sh --device-type cpu
-
-  velox-gpu:
-    if: ${{ inputs.build_target == 'all' || inputs.build_target == 'gpu' }}
-    runs-on: linux-amd64-gpu-l4-latest-1
-
-    env:
-      GH_TOKEN: ${{ github.token }}
-      DOCKER_RUNTIME: nvidia
-
+  test-velox-cpu:
+    name: test-velox-cpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
+    needs: [resolve-inputs]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            image_tag: cpu
+          - arch: arm64
+            image_tag: cpu
+    runs-on: linux-${{ matrix.arch }}-cpu16
     steps:
-      - *checkout-velox-testing
-
-      - *checkout-velox
-
-      - *pull-deps
-      - *fetch-and-load-deps
-
-      - *setup-sccache
-
-      - name: Building Velox for GPU
-        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
-        run: |
-          echo "   - CUDF support: ENABLED"
-          echo "   - Target: GPU-accelerated build"
-          echo "   - sccache: ${{ steps.sccache.outputs.enabled || 'false' }}"
-          SCCACHE_FLAG=""
-          if [[ "${{ steps.sccache.outputs.enabled }}" == "true" ]]; then
-            SCCACHE_FLAG="--sccache"
-          fi
-          TREAT_WARNINGS_AS_ERRORS=0 ./build_velox.sh --gpu ${SCCACHE_FLAG} --log build_velox_gpu.log
-
-      - *show-sccache-stats
-
-      - name: Upload velox_gpu_build_log as an artifact
-        uses: actions/upload-artifact@v4
+      - &login_ghcr
+        name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
-          name: velox_gpu_build_log
-          path: ${{ github.workspace }}/velox-testing/velox/scripts/build_velox_gpu.log
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Run CPU tests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          IMAGE_TAG: ${{ matrix.image_tag }}
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-${IMAGE_TAG}-${BUILD_DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm "${IMAGE}" bash -c \
+            "cd /opt/velox-build/release && ctest -j 16 --label-exclude cuda_driver --output-on-failure --no-tests=error"
 
-      - name: Run Velox GPU Tests
-        working-directory: ${{ github.workspace }}/velox-testing/velox/scripts
-        run: ./test_velox.sh -j 1 --device-type gpu
+  test-velox-gpu:
+    name: test-velox-gpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
+    needs: [resolve-inputs]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            image_tag: 12.9
+            gpu: l4
+          - arch: amd64
+            image_tag: 13.1
+            gpu: l4
+          - arch: arm64
+            image_tag: 12.9
+            gpu: l4
+          - arch: arm64
+            image_tag: 13.1
+            gpu: l4
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Run GPU tests
+        env:
+          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          IMAGE_TAG: ${{ matrix.image_tag }}
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${IMAGE_TAG}-${BUILD_DATE}"
+          echo "Testing image: ${IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm --gpus all "${IMAGE}" bash -c \
+            "cd /opt/velox-build/release && ctest -j 8 --label-regex cuda_driver --output-on-failure --no-tests=error"

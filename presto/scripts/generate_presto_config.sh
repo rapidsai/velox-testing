@@ -53,8 +53,6 @@ function duplicate_worker_configs() {
     # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_native_config}
     # make join-distribution-type=PARTITIONED if we are running multiple workers
-    # (ucx exchange does not currently support BROADCAST partition type)
-    sed -i "s+join-distribution-type=.*+join-distribution-type=PARTITIONED+g" ${coord_native_config}
   fi
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
@@ -133,16 +131,10 @@ EOF
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
-
-    if [[ ${NUM_WORKERS} -eq 1 ]]; then
-      # Adds a cluster tag for gpu variant
-      echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
-    fi
+    echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
   fi
 
-  # now perform other variant-specific modifications to the generated configs
   if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
-    # Adds a cluster tag for cpu variant
     echo "cluster-tag=native-cpu" >> ${COORD_CONFIG}
   fi
 

@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+
+from ..common.conftest import *  # noqa: F403
+
 # ruff: noqa: I001
 import pytest
-
-from ..common.conftest import pytest_generate_tests  # noqa: F401
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.common_fixtures import (
@@ -26,6 +27,7 @@ from .common_fixtures import (
     benchmark_data_dir,  # noqa: F401
     benchmark_query,  # noqa: F401
     presto_cursor,  # noqa: F401
+    run_context_collector,  # noqa: F401
 )
 
 

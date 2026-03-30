@@ -40,6 +40,13 @@ function activate_python_virtual_env() {
 
   if [[ -d "$venv_dir/conda-meta" ]]; then
     echo "Activating conda environment"
+    if [[ -z "${LOCAL_CONDA_INIT:-}" ]]; then
+      if [[ -z "${MINIFORGE_HOME:-}" ]]; then
+        echo "Error: MINIFORGE_HOME must be set to activate a conda environment"
+        exit 1
+      fi
+      init_conda
+    fi
     conda activate "$(readlink -f $venv_dir)"
   elif [[ -f "$venv_dir/pyvenv.cfg" ]]; then
     echo "Activating venv environment"
@@ -52,6 +59,13 @@ function activate_python_virtual_env() {
 
 function init_python_virtual_env() {
   local venv_dir=${1:-".venv"}
+
+  if [[ -f "$venv_dir/pyvenv.cfg" || -d "$venv_dir/conda-meta" ]]; then
+    echo "Reusing existing virtual environment at $venv_dir"
+    activate_python_virtual_env $venv_dir
+    return
+  fi
+
   rm -rf $venv_dir
 
   if python3.12 -m venv $venv_dir &>/dev/null; then
@@ -81,7 +95,7 @@ function init_python_virtual_env() {
 function delete_python_virtual_env() {
   local venv_dir=${1:-".venv"}
 
-  if [ -n "$LOCAL_CONDA_INIT" ] && command -v conda &> /dev/null; then
+  if [ -n "${LOCAL_CONDA_INIT:-}" ] && command -v conda &> /dev/null; then
       echo "Deactivating conda environment"
       conda deactivate
       LOCAL_CONDA_INIT=""

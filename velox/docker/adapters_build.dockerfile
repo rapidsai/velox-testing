@@ -108,13 +108,17 @@ ${BUILD_BASE_DIR}/${BUILD_TYPE}/_deps/nvcomp_proprietary_binary-src/lib64" \
     SCCACHE_BUCKET=rapids-sccache-devs \
     SCCACHE_REGION=us-east-2 \
     SCCACHE_S3_NO_CREDENTIALS=false \
-    # disable shutdown-on-idle
+    SCCACHE_S3_USE_SSL=true \
+    SCCACHE_DIRECT=true \
     SCCACHE_IDLE_TIMEOUT=0 \
     SCCACHE_DIST_AUTH_TYPE=token \
     SCCACHE_DIST_REQUEST_TIMEOUT=7140 \
     SCCACHE_DIST_SCHEDULER_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com" \
-    SCCACHE_DIST_MAX_RETRIES=4 \
-    SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true
+    SCCACHE_DIST_MAX_RETRIES=10 \
+    SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true \
+    SCCACHE_S3_USE_PREPROCESSOR_CACHE_MODE=true \
+    SCCACHE_S3_KEY_PREFIX=velox-testing/object-cache \
+    SCCACHE_S3_PREPROCESSOR_CACHE_KEY_PREFIX=velox-testing/preprocessor-cache
 
 WORKDIR /workspace/velox
 
@@ -155,15 +159,10 @@ gcc --version | head -1;
 
 # Install and configure sccache if enabled
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
-  # Add sccache distributed compilation control (disabled by default)
-  if [ -n "$SCCACHE_NO_DIST_COMPILE" ]; then
+  if [ -n "${SCCACHE_NO_DIST_COMPILE:-}" ]; then
     export SCCACHE_NO_DIST_COMPILE=1;
   fi
-  # Run sccache setup script
   bash /sccache_setup.sh;
-  # Zero sccache stats
-  sccache --zero-stats;
-  # Add sccache CMake flags
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
 fi
@@ -184,7 +183,10 @@ time make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}";
 # Show final sccache stats if enabled
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
   echo "Post-build sccache statistics:";
-  sccache --show-stats;
+  sccache --show-adv-stats;
 fi
 
 EOF
+
+# Copy velox source into the image so tests can find it at /workspace/velox
+COPY velox /workspace/velox

@@ -62,10 +62,10 @@ run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
 # ==============================================================================
 echo "Processing results..."
 mkdir -p ${SCRIPT_DIR}/result_dir
-cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
+cp -r ${LOGS_DIR}/cli_${SERVER_START_TIMESTAMP}.log ${SCRIPT_DIR}/result_dir/summary.txt
 
 echo "========================================"
 echo "Benchmark complete!"
 echo "Results saved to: ${SCRIPT_DIR}/results_dir"
-echo "Logs available at: ${LOGS}"
+echo "Logs available at: ${LOGS_DIR}"
 echo "========================================"
