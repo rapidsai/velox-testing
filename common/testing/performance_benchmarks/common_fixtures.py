@@ -26,12 +26,6 @@ def cache_setup_per_session(request, benchmark_data_dir):
     """Session-scoped fixture that drops the cache once at the start of the benchmark
     run for the lukewarm cache mode."""
     cache_mode = request.config.getoption("--cache-mode")
-
-    # Legacy support: if no cache mode specified, fall back to --skip-drop-cache behavior
-    if cache_mode is None:
-        skip = request.config.getoption("--skip-drop-cache")
-        cache_mode = "none" if skip else "lukewarm"
-
     if cache_mode == "lukewarm":
         drop_cache(benchmark_data_dir)
         print(f"[Cache] Cache mode: {cache_mode}. Dropped cache for: {benchmark_data_dir}")
