@@ -73,9 +73,7 @@ def _drop_file_cache(
         # accessed in the near future, which subsequently attempts to free the
         # associated cached pages. A `length` of 0 means until the end of the file
         # from the offset.
-        ret = os.posix_fadvise(fd, offset, length, os.POSIX_FADV_DONTNEED)
-        if ret != 0:
-            raise OSError(ret, f"posix_fadvise failed: {os.strerror(ret)}")
+        os.posix_fadvise(fd, offset, length, os.POSIX_FADV_DONTNEED)
     finally:
         if should_close:
             os.close(fd)
