@@ -24,9 +24,9 @@ def benchmark_data_dir(request):
 @pytest.fixture(scope="session", autouse=True)
 def cache_setup_per_session(request, benchmark_data_dir):
     """Session-scoped fixture that drops the cache once at the start of the benchmark
-    run for the lukewarm cache mode."""
+    run for the default cache mode."""
     cache_mode = request.config.getoption("--cache-mode")
-    if cache_mode == "lukewarm":
+    if cache_mode == "default":
         drop_cache(benchmark_data_dir)
         print(f"[Cache] Cache mode: {cache_mode}. Dropped cache for: {benchmark_data_dir}")
     elif cache_mode == "cold":

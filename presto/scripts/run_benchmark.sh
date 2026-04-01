@@ -41,8 +41,7 @@ OPTIONS:
     -p, --profile           Enable profiling of benchmark queries.
     -c, --cache-mode        Cache mode for benchmark queries. Controls page cache state between query iterations.
                             Supported modes:
-                            lukewarm - (Default) Drop cache once at benchmark start, then let cache warm naturally
-                                       across iterations and queries.
+                            default  - Drop cache once at benchmark start, then let cache warm naturally across iterations and queries.
                             cold     - Drop cache before each query iteration.
                             hot      - Run an untimed warmup execution before timing each query.
                             none     - Do not manage page cache at all.
@@ -205,8 +204,8 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
-if [[ -n ${CACHE_MODE} && ! ${CACHE_MODE} =~ ^(hot|cold|lukewarm|none)$ ]]; then
-  echo "Error: Invalid --cache-mode value '${CACHE_MODE}'. Must be one of: hot, cold, lukewarm, none."
+if [[ -n ${CACHE_MODE} && ! ${CACHE_MODE} =~ ^(hot|cold|default|none)$ ]]; then
+  echo "Error: Invalid --cache-mode value '${CACHE_MODE}'. Must be one of: hot, cold, default, none."
   print_help
   exit 1
 fi
