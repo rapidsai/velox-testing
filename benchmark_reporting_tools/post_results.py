@@ -399,21 +399,19 @@ def _build_submission_payload(
 
     per_query_validation = (validation_results or {}).get("queries", {})
 
+    def _get_validation_result(query_name):
+        # Look up validation result for this query (keys are lowercase e.g. "q1")
+        vkey = "q" + query_name.lstrip("Q").lower()
+        vdata = per_query_validation.get(vkey)
+        if vdata:
+            return {"status": vdata["status"], "message": vdata.get("message")}
+        return {"status": "not-validated"}
+
     for query_name in query_names:
         times = raw_times[query_name]
         is_failed = query_name in failed_queries
 
-        # Look up validation result for this query (keys are lowercase e.g. "q1")
-        vkey = "q" + query_name.lstrip("Q").lower()
-        vdata = per_query_validation.get(vkey)
-        validation_result = (
-            {
-                "status": vdata["status"],
-                "message": vdata.get("message"),
-            }
-            if vdata
-            else {"status": "not-validated"}
-        )
+        validation_result = _get_validation_result(query_name)
 
         # Each execution becomes a separate query log entry
         for exec_idx, runtime_ms in enumerate(times):
@@ -441,16 +439,6 @@ def _build_submission_payload(
     # since validate_results.py never ran for them (no parquet to compare against).
     for query_name, error_info in failed_queries.items():
         if query_name not in raw_times:
-            vkey = "q" + query_name.lstrip("Q").lower()
-            vdata = per_query_validation.get(vkey)
-            vr = (
-                {
-                    "status": vdata["status"],
-                    "message": vdata.get("message"),
-                }
-                if vdata
-                else {"status": "not-validated"}
-            )
             query_logs.append(
                 {
                     "query_name": query_name.lstrip("Q"),
@@ -460,7 +448,7 @@ def _build_submission_payload(
                     "extra_info": {
                         "error": str(error_info),
                     },
-                    "validation_result": vr,
+                    "validation_result": _get_validation_result(query_name),
                 }
             )
             execution_order += 1
