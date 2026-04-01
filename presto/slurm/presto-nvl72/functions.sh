@@ -16,12 +16,12 @@ function setup {
     [ ! -d "$VT_ROOT" ] && echo "VT_ROOT must be a valid directory" && exit 1
     [ ! -d "$DATA" ] && echo "DATA must be a valid directory" && exit 1
 
-    if [ ! -d ${VT_ROOT}/.hive_metastore ]; then
-        echo "Copying hive metastore from data source."
-        copy_hive_metastore
-    else
-        echo "Hive metastore already exists.  Reusing."
-    fi
+    #if [ ! -d ${VT_ROOT}/.hive_metastore ]; then
+    #    echo "Copying hive metastore from data source."
+    #    copy_hive_metastore
+    #else
+    #    echo "Hive metastore already exists.  Reusing."
+    #fi
 
     [ ! -d ${VT_ROOT}/.hive_metastore/tpchsf${SCALE_FACTOR} ] && echo "Schema for SF ${SCALE_FACTOR} does not exist in hive metastore." && exit 1
 
