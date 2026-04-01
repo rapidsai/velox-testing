@@ -51,8 +51,34 @@ def parse_args():
         dest="kvikio_compat_mode",
         required=False,
         help=(
-            "Select KvikIO compatibility/GDS mode (optional). ON: Use POSIX path. "
-            "OFF: Use cuFile GDS path. AUTO (default): Let KvikIO decide."
+            "KvikIO I/O backend selection. "
+            "ON: POSIX (compatibility mode). "
+            "OFF: cuFile (GPUDirect Storage). "
+            "AUTO: let KvikIO decide based on runtime environment (default: AUTO)."
+        ),
+    )
+    parser.add_argument(
+        "--kvikio-auto-direct-io-read",
+        type=str_to_bool,
+        default=False,
+        dest="kvikio_auto_direct_io_read",
+        required=False,
+        help=(
+            "Enable automatic direct I/O for reads. When enabled, aligned segments "
+            "use O_DIRECT and unaligned segments fall back to buffered I/O "
+            "(default: false)."
+        ),
+    )
+    parser.add_argument(
+        "--kvikio-auto-direct-io-read-overread",
+        type=str_to_bool,
+        default=False,
+        dest="kvikio_auto_direct_io_read_overread",
+        required=False,
+        help=(
+            "Force all reads to use O_DIRECT by rounding offsets down and sizes up "
+            "to page boundaries. Requires --kvikio-auto-direct-io-read to be enabled. "
+            "May read extra bytes beyond the requested range (default: false)."
         ),
     )
     parser.add_argument(
