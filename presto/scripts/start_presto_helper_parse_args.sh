@@ -114,6 +114,33 @@ parse_args() {
           exit 1
         fi
         ;;
+      --kvikio-compat-mode)
+        if [[ -n $2 ]]; then
+          export KVIKIO_COMPAT_MODE=$2
+          shift 2
+        else
+          echo "Error: --kvikio-compat-mode requires a value"
+          exit 1
+        fi
+        ;;
+      --kvikio-auto-direct-io-read)
+        if [[ -n $2 ]]; then
+          export KVIKIO_AUTO_DIRECT_IO_READ=$2
+          shift 2
+        else
+          echo "Error: --kvikio-auto-direct-io-read requires a value"
+          exit 1
+        fi
+        ;;
+      --kvikio-auto-direct-io-read-overread)
+        if [[ -n $2 ]]; then
+          export KVIKIO_AUTO_DIRECT_IO_READ_OVERREAD=$2
+          shift 2
+        else
+          echo "Error: --kvikio-auto-direct-io-read-overread requires a value"
+          exit 1
+        fi
+        ;;
       --num-drivers)
         if [[ -n $2 ]]; then
           export VCPU_PER_WORKER=$2
