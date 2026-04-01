@@ -1,6 +1,6 @@
 # python virtual environment
 .venv
-.integ_test_venv
+.*_venv
 
 # jetbrains IDE folder
 .idea
@@ -27,6 +27,7 @@ presto/docker/config/generated*/
 # Generated Presto Docker Compose files
 presto/docker/docker-compose/generated*/
 presto/scripts/presto_logs/
+spark_gluten/scripts/spark_logs/
 
 # Slurm logs and results
 presto/slurm/presto-nvl72/logs/

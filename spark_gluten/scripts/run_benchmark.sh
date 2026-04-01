@@ -27,25 +27,18 @@ OPTIONS:
                               stored inside a directory under the --output-dir path with a name matching the tag name.
                               Tags must contain only alphanumeric and underscore characters.
     --skip-drop-cache         Skip dropping system caches before running benchmark queries (dropped by default).
-    --static-gluten-jar-path  Path to a statically-linked Gluten JAR file on the host.
-    --image-tag               Tag of docker image to use for the benchmark run. The full image reference is
-                              "apache/gluten:{image-tag}". The default value is "dynamic_gpu_\${USER:-latest}".
-    --spark-config            Path to a Spark configuration file. Values in this file override
-                              the default Spark configurations. Each line should contain a key
-                              and value separated by whitespace.
-    --env-file                Path to an environment variable file. Each line should contain a
-                              variable assignment in KEY=VALUE format. These variables will be
-                              set in the container environment when running benchmarks.
+    --hostname                Hostname of the Spark Connect server (default: localhost).
+    --port                    Port of the Spark Connect gRPC service (default: 15002).
+    -p, --profile             Enable profiling of benchmark queries. The Spark Connect server must have been started
+                              with --profile.
+    --reset-venv              Delete and recreate the Python virtual environment before running.
 
 EXAMPLES:
     $0 -b tpch -d bench_sf100
     $0 -b tpch -q "1,2" -d bench_sf100
-    $0 -b tpch -d bench_sf100 --image-tag my_gpu_image_tag
-    $0 -b tpch -d bench_sf100 --spark-config /path/to/custom_config.conf
-    $0 -b tpch -d bench_sf100 --env-file /path/to/env_vars.env
     $0 -b tpch -d bench_sf100 -i 10 -o ~/tpch_benchmark_output
     $0 -b tpch -d bench_sf100 -t gh200_cpu_sf100
-    $0 -b tpch -d bench_sf100 --static-gluten-jar-path /path/to/custom/gluten/build.jar
+    $0 -b tpch -d bench_sf100 -p
     $0 -h
 
 EOF
@@ -117,45 +110,31 @@ parse_args() {
         SKIP_DROP_CACHE=true
         shift
         ;;
-      --static-gluten-jar-path)
+      --hostname)
         if [[ -n $2 ]]; then
-          # shellcheck disable=SC2034 # consumed by run_test_in_docker.sh
-          GLUTEN_JAR_PATH=$2
+          HOST_NAME=$2
           shift 2
         else
-          echo "Error: --static-gluten-jar-path requires a value"
+          echo "Error: --hostname requires a value"
           exit 1
         fi
         ;;
-      --image-tag)
+      --port)
         if [[ -n $2 ]]; then
-          # shellcheck disable=SC2034 # consumed by run_test_in_docker.sh
-          IMAGE_TAG=$2
+          PORT=$2
           shift 2
         else
-          echo "Error: --image-tag requires a value"
+          echo "Error: --port requires a value"
           exit 1
         fi
         ;;
-      --spark-config)
-        if [[ -n $2 ]]; then
-          # shellcheck disable=SC2034 # consumed by resolve_config_args
-          SPARK_CONFIG_FILE=$2
-          shift 2
-        else
-          echo "Error: --spark-config requires a value"
-          exit 1
-        fi
+      -p|--profile)
+        PROFILE=true
+        shift
         ;;
-      --env-file)
-        if [[ -n $2 ]]; then
-          # shellcheck disable=SC2034 # consumed by resolve_config_args
-          ENV_FILE=$2
-          shift 2
-        else
-          echo "Error: --env-file requires a value"
-          exit 1
-        fi
+      --reset-venv)
+        RESET_VENV=true
+        shift
         ;;
       *)
         echo "Error: Unknown argument $1"
@@ -186,6 +165,9 @@ if [[ -z ${DATASET_NAME} ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
 PYTEST_ARGS=("--dataset-name" "${DATASET_NAME}")
 
 if [[ -n ${QUERIES} ]]; then
@@ -213,19 +195,39 @@ if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
 fi
 
+PYTEST_ARGS+=("--hostname" "${HOST_NAME:-localhost}")
+PYTEST_ARGS+=("--port" "${PORT:-15002}")
+
+if [[ "${PROFILE}" == "true" ]]; then
+  PYTEST_ARGS+=("--profile" "--profile-script-path" \
+    "$(readlink -f "${SCRIPT_DIR}/profiler_functions.sh")")
+fi
+
 VENV_DIR=".benchmark_venv"
 
 # shellcheck disable=SC1091
-source "$(dirname "${BASH_SOURCE[0]}")/run_test_in_docker.sh"
+source "${REPO_ROOT}/scripts/py_env_functions.sh"
 
-resolve_config_args
+if [[ "${RESET_VENV}" == "true" ]]; then
+  delete_python_virtual_env "${VENV_DIR}"
+fi
 
-# Mount the data directory so the benchmark can access the datasets.
-EXTRA_DOCKER_ARGS+=(-v "${SPARK_DATA_DIR}:${SPARK_DATA_DIR}" -e SPARK_DATA_DIR="${SPARK_DATA_DIR}")
+TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
 
-TEST_FILE="../testing/performance_benchmarks/${BENCHMARK_TYPE}_test.py"
+init_python_virtual_env "${VENV_DIR}"
+pip install --disable-pip-version-check -q -r "${TEST_DIR}/requirements.txt"
 
-run_test_in_docker \
-  "${VENV_DIR}" \
-  "${OUTPUT_DIR}" \
-  -q -s "${TEST_FILE}" "${PYTEST_ARGS[@]}"
+LOG_FILE="${OUTPUT_DIR}/spark_warnings.log"
+mkdir -p "${OUTPUT_DIR}"
+
+TEST_FILE="${SCRIPT_DIR}/../testing/performance_benchmarks/${BENCHMARK_TYPE}_test.py"
+
+echo "Warnings/stderr redirected to ${LOG_FILE}"
+pytest -q -s "${TEST_FILE}" "${PYTEST_ARGS[@]}" 2>"${LOG_FILE}"
+EXIT_CODE=$?
+
+if [[ -s "${LOG_FILE}" ]]; then
+  echo "Warning log saved to ${LOG_FILE} ($(wc -l < "${LOG_FILE}") lines)"
+fi
+
+exit "${EXIT_CODE}"
