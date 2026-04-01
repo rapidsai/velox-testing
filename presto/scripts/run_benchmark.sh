@@ -8,6 +8,10 @@ set -e
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# LOGS_DIR points to the directory where server log files (including nvidia-smi
+# output) are written so that run_context.py can parse GPU info.
+export LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
+
 source "${SCRIPT_DIR}/presto_connection_defaults.sh"
 
 print_help() {
@@ -40,6 +44,9 @@ OPTIONS:
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
+    -v, --verbose           Print debug logs for worker/engine detection
+                            (e.g. node URIs, cluster-tag, GPU model).
+                            Use when engine is misdetected or the run fails.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -48,7 +55,7 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
     $0 -b tpch -s bench_sf100 --metrics
-    $0 -h
+    $0 -b tpch -s bench_sf100 --verbose
 
 EOF
 }
@@ -171,6 +178,10 @@ parse_args() {
         METRICS=true
         shift
         ;;
+      -v|--verbose)
+        export PRESTO_BENCHMARK_DEBUG=1
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -240,7 +251,7 @@ if [[ -n ${TAG} ]]; then
 fi
 
 if [[ "${PROFILE}" == "true" ]]; then
-  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
+  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f "${SCRIPT_DIR}/profiler_functions.sh")")
 fi
 
 if [[ "${METRICS}" == "true" ]]; then
@@ -265,7 +276,9 @@ source "${SCRIPT_DIR}/common_functions.sh"
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 echo "Running bench"
-export PRESTO_IMAGE_TAG="${USER:-latest}"
+if [ -z "${PRESTO_IMAGE_TAG}" ]; then
+  export PRESTO_IMAGE_TAG="${USER:-latest}"
+fi
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks

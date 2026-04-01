@@ -1,9 +1,9 @@
 name: PR Checks
 
 on:
-  pull_request:
-    branches: [ main ]
-    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - "pull-request/[0-9]+"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

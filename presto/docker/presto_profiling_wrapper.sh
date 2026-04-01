@@ -8,11 +8,7 @@ if [[ "$PROFILE" == "ON" ]]; then
   mkdir /presto_profiles
 
   if [[ -z $PROFILE_ARGS ]]; then
-    PROFILE_ARGS="-t nvtx,cuda,osrt,ucx
-                  --cuda-memory-usage=true
-                  --cuda-um-cpu-page-faults=true
-                  --cuda-um-gpu-page-faults=true
-                  --cudabacktrace=true"
+    PROFILE_ARGS="-t nvtx,cuda"
   fi
   PROFILE_CMD="nsys launch $PROFILE_ARGS"
 fi
