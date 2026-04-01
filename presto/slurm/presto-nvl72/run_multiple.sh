@@ -87,6 +87,8 @@ IFS=',' read -ra SF_ARRAY <<< "$SCALE_FACTOR"
 for s in "${SF_ARRAY[@]}"; do
     for n in "${NODES_ARRAY[@]}"; do
         ./launch-run.sh -s $s -n $n -i $NUM_ITERATIONS -w $WORKER_IMAGE -c $COORD_IMAGE
-        cp logs/cli.log kept_results/${n}N-${s}SF-summary.txt
+        cli_log="$(ls -t logs/cli_*.log 2>/dev/null | head -1)"
+        [ -z "${cli_log}" ] && cli_log="logs/cli.log"
+        cp "${cli_log}" kept_results/${n}N-${s}SF-summary.txt
     done
 done

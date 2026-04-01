@@ -22,8 +22,9 @@ BENCHMARK_RESULTS_OUTPUT="./benchmark-results"
 PROFILE="false"
 DATA_DIR="${REPO_ROOT}/../velox-benchmark-data/tpch"  # Default to TPC-H, will be adjusted per benchmark type
 NUM_REPEATS=2
+DOCKER_IMAGE=""  # When set, use docker run with this image instead of docker compose
 
-# Docker compose configuration
+# Docker compose configuration (used when DOCKER_IMAGE is empty)
 COMPOSE_FILE="${SCRIPT_DIR}/../docker/docker-compose.adapters.benchmark.yml"
 CONTAINER_NAME="velox-benchmark"  # Uses dedicated benchmark service with pre-configured volumes
 
@@ -34,7 +35,9 @@ Usage: $(basename "$0") [OPTIONS]
 
 Runs Velox benchmarks with CPU and/or GPU execution engines.
 Validates that Velox is built and benchmark data is available before running.
-Uses the velox-benchmark Docker service with pre-configured volumes and environment.
+
+In local mode (default), uses docker compose with the velox-adapters-build image.
+In CI mode (--image), uses docker run with a pre-built CI image from GHCR.
 
 Benchmark Options:
   -b, --benchmark-type TYPE               Type of benchmark to run (default: tpch)
@@ -45,6 +48,7 @@ Benchmark Options:
   --num-repeats NUM                       Number of times to repeat each query (default: 2)
 
 General Options:
+  --image IMAGE                           Use a pre-built Docker image (e.g. from GHCR) instead of docker compose
   -o, --output DIR                        Save benchmark results to DIR (default: ./benchmark-results)
   -h, --help                              Show this help message and exit
 
@@ -60,10 +64,9 @@ Examples:
   $(basename "$0") --queries 6 --device-type cpu --num-repeats 5  # Run Q6 with 5 repetitions
 
 Prerequisites:
-  1. Velox must be built using: ./build_velox.sh
+  1. Velox must be built using: ./build_velox.sh (local mode) or use --image (CI mode)
   2. Benchmark data must exist and location can be specified with --data-dir option
-  3. Docker and docker-compose must be available
-  4. Uses velox-benchmark Docker service (pre-configured with volumes and environment)
+  3. Docker must be available (docker-compose required for local mode only)
 
 Output:
   Benchmark results (text output and nsys profiles) are automatically saved to the specified output directory via Docker volume mounts.
@@ -139,6 +142,15 @@ parse_args() {
           exit 1
         fi
         ;;
+      --image)
+        if [[ -n "${2:-}" ]]; then
+          DOCKER_IMAGE="$2"
+          shift 2
+        else
+          echo "ERROR: --image requires a Docker image argument" >&2
+          exit 1
+        fi
+        ;;
       -h|--help)
         print_help
         exit 0
@@ -167,13 +179,26 @@ parse_args() {
 
 }
 
-# Helper function to run commands in the Velox benchmark container
+# Helper function to run commands in the Velox benchmark container.
+# When DOCKER_IMAGE is set, uses docker run directly (CI mode).
+# Otherwise, uses docker compose (local dev mode).
 run_in_container() {
   local cmd="$1"
 
-  docker compose -f "$COMPOSE_FILE" --env-file "${SCRIPT_DIR}/.env" run --rm \
-    --cap-add=SYS_ADMIN \
-    "$CONTAINER_NAME" bash -c "$cmd"
+  if [[ -n "${DOCKER_IMAGE}" ]]; then
+    docker run --rm --gpus all \
+      --cap-add=SYS_ADMIN \
+      -e USER_ID="$(id -u)" \
+      -e GROUP_ID="$(id -g)" \
+      -v "$(realpath "$DATA_DIR"):/workspace/velox/velox-benchmark-data:ro" \
+      -v "$(realpath "$BENCHMARK_RESULTS_OUTPUT"):/workspace/velox/benchmark_results" \
+      -w /workspace/velox \
+      "${DOCKER_IMAGE}" bash -c "$cmd"
+  else
+    docker compose -f "$COMPOSE_FILE" --env-file "${SCRIPT_DIR}/.env" run --rm \
+      --cap-add=SYS_ADMIN \
+      "$CONTAINER_NAME" bash -c "$cmd"
+  fi
 }
 
 
@@ -260,13 +285,12 @@ run_benchmark() {
   # Run all query/device combinations
   for query_number in $queries; do
     for device in $device_type; do
-      # Dispatch to benchmark-specific implementation
       local exit_code=0
 
       case "$benchmark_type" in
         "tpch")
           run_tpch_single_benchmark "$query_number" "$device" "$profile" "run_in_container" "$NUM_REPEATS"
-          local exit_code=$?
+          exit_code=$?
           ;;
         *)
           echo "ERROR: Unknown benchmark type: $benchmark_type" >&2
@@ -293,20 +317,22 @@ echo "Benchmark type: $BENCHMARK_TYPE"
 echo "Results output: $BENCHMARK_RESULTS_OUTPUT"
 echo ""
 
-# Validate repo layout
-"${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../velox"
-
-# Create environment file for Docker Compose
-create_docker_env_file
-
-# Get BUILD_TYPE from container environment
-export BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
-
-# Check benchmark data
+# Check benchmark data before creating Docker env file (realpath requires the directory to exist)
 check_benchmark_data
 
-# Check Velox build
-check_velox_build
+if [[ -n "${DOCKER_IMAGE}" ]]; then
+  echo "Using pre-built image: ${DOCKER_IMAGE}"
+  docker pull "${DOCKER_IMAGE}"
+  BUILD_TYPE="release"
+  export BUILD_TYPE
+else
+  # Local dev mode: validate sibling velox checkout and docker compose setup
+  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../velox"
+  create_docker_env_file
+  BUILD_TYPE=$(run_in_container "echo \$BUILD_TYPE")
+  export BUILD_TYPE
+  check_velox_build
+fi
 
 # Prepare benchmark results directory
 prepare_benchmark_results_dir "$BENCHMARK_RESULTS_OUTPUT"
