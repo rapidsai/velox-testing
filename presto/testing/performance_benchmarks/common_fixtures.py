@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +11,7 @@ import pytest
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.cache_utils import cache_setup_per_iteration
 
+from ..common.test_utils import get_table_external_location
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
@@ -69,7 +69,26 @@ def presto_cursor(request):
 
 @pytest.fixture(scope="session")
 def benchmark_data_dir(request):
-    return os.environ["PRESTO_DATA_DIR"]
+    hostname = request.config.getoption("--hostname")
+    port = request.config.getoption("--port")
+    user = request.config.getoption("--user")
+    schema_name = request.config.getoption("--schema-name")
+
+    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema_name)
+    cursor = conn.cursor()
+    try:
+        tables = cursor.execute(f"SHOW TABLES IN {schema_name}").fetchall()
+        if not tables:
+            raise RuntimeError(f"No tables found in schema '{schema_name}'")
+        table = tables[0][0]
+        location = get_table_external_location(schema_name, table, cursor)
+        # location is e.g. ${PRESTO_DATA_DIR}/tpch/sf1k_v2_float/lineitem
+        # parent gives us  ${PRESTO_DATA_DIR}/tpch/sf1k_v2_float
+        data_dir = str(Path(location).parent)
+        return data_dir
+    finally:
+        cursor.close()
+        conn.close()
 
 
 @pytest.fixture(scope="module")
