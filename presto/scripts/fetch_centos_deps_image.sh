@@ -9,7 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${SCRIPT_DIR}/../../scripts/fetch_docker_image_from_s3.sh"
 
-IMAGE_NAME="presto/prestissimo-dependency:centos9"
+IMAGE_NAME="presto/prestissimo-dependency:centos9-${USER:-latest}"
+S3_IMAGE_NAME="presto/prestissimo-dependency:centos9"
 
 ARCH=$(uname -m)
 BUCKET_SUBDIR="presto-docker-images"
@@ -27,13 +28,12 @@ echo "Presto dependencies/run-time container image not found"
 # try to pull container image from our S3 bucket
 #
 
-fetch_docker_image_from_s3 ${IMAGE_NAME} ${BUCKET_SUBDIR} ${IMAGE_FILE}
+fetch_docker_image_from_s3 ${S3_IMAGE_NAME} ${BUCKET_SUBDIR} ${IMAGE_FILE}
 
 # tag with the user-specific name to avoid conflicts between multiple users on the same host
-USER_IMAGE_NAME="presto/prestissimo-dependency:centos9-${USER:-latest}"
-if [[ "${USER_IMAGE_NAME}" != "${IMAGE_NAME}" ]]; then
-  echo "Tagging image as ${USER_IMAGE_NAME}..."
-  docker tag ${IMAGE_NAME} ${USER_IMAGE_NAME}
+if [[ "${IMAGE_NAME}" != "${S3_IMAGE_NAME}" ]]; then
+  echo "Tagging image as ${IMAGE_NAME}..."
+  docker tag ${S3_IMAGE_NAME} ${IMAGE_NAME}
 fi
 
 echo "Failed to fetch pre-built Presto dependencies/run-time container image"
