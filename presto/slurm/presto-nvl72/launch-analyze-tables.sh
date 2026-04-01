@@ -16,10 +16,10 @@
 #   ./launch-analyze-tables.sh -s 100
 #
 #   # SF3000, 2 nodes, custom data directory
-#   ./launch-analyze-tables.sh -s 3000 -n 2 -d /scratch/prestouser/tpch-rs-float-no-delta
+#   ./launch-analyze-tables.sh -s 3000 -n 2 -d /scratch/$USER/my-workspace/tpch-rs-float-no-delta
 #
 #   # Override wall-clock limit for very large scale factors
-#   ./launch-analyze-tables.sh -s 3000 -n 4 -d /scratch/prestouser/tpch-rs-float-no-delta --time=12:00:00
+#   ./launch-analyze-tables.sh -s 3000 -n 4 -d /scratch/$USER/my-workspace/tpch-rs-float-no-delta --time=12:00:00
 # ==============================================================================
 
 set -e

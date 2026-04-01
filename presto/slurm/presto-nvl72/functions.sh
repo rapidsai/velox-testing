@@ -79,9 +79,12 @@ function run_coord_image {
     # miniforge at that same absolute path inside the container so shebangs
     # resolve correctly regardless of where /workspace points.
     local miniforge_dir="${VT_ROOT}/miniforge3"
-    local miniforge_mount=""
+    local extra_mounts=""
     if [ -d "${miniforge_dir}" ]; then
-        miniforge_mount=",${miniforge_dir}:${miniforge_dir}"
+        extra_mounts=",${miniforge_dir}:${miniforge_dir}"
+    fi
+    if [ -d "/scratch" ]; then
+        extra_mounts="${extra_mounts},/scratch:/scratch"
     fi
 
     # Coordinator runs as a background process, whereas we want to wait for cli
@@ -101,7 +104,7 @@ ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.propertie
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${miniforge_mount} \
+${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
@@ -117,7 +120,7 @@ ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.propertie
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${miniforge_mount} \
+${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
     fi
 }
@@ -237,7 +240,7 @@ fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 function copy_hive_metastore {
-    cp -r /mnt/data/tpch-rs/HIVE-METASTORE-MG-260313 ${VT_ROOT}/.hive_metastore
+    cp -r "${HIVE_METASTORE_SOURCE:-/mnt/data/tpch-rs/HIVE-METASTORE-MG-260313}" ${VT_ROOT}/.hive_metastore
 }
 
 #./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
@@ -271,15 +274,22 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
+    source "${SCRIPT_DIR}/defaults.env"
     # We currently skip dropping cache because it requires docker (not available on the cluster).
     run_coord_image "export PORT=$PORT; \
     export HOSTNAME=$COORD; \
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
-    export MINIFORGE_HOME=${VT_ROOT}/miniforge3; \
+    export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} \
-        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
+        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache; \
+    echo 'Validating query results...'; \
+    MINIFORGE_HOME=/workspace/miniforge3 /workspace/scripts/run_py_script.sh \
+        -p /workspace/benchmark_reporting_tools/validate_results.py \
+        /workspace/presto/slurm/presto-nvl72/result_dir/query_results \
+        --expected-dir ${EXPECTED_RESULTS_BASE}/scale-${scale_factor} \
+        || echo 'Warning: result validation reported failures'" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.

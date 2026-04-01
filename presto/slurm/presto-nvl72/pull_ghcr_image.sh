@@ -12,15 +12,17 @@
 #
 # Examples:
 #   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:latest
-#   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:v1.2.3 --output /scratch/prestouser/images/presto/worker.sqsh
+#   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:v1.2.3 --output /scratch/$USER/images/presto/worker.sqsh
 
 set -e
+
+source "$(dirname "${BASH_SOURCE[0]}")/defaults.env"
 
 usage() {
     echo "Usage: $0 <ghcr.io/org/image:tag> [--output <path/to/image.sqsh>]"
     echo ""
     echo "Environment variables:"
-    echo "  IMAGES_DIR  Output directory when --output is not specified (default: \$HOME/Misiu/Images)"
+    echo "  IMAGES_DIR  Output directory when --output is not specified (default: \$HOME/\$VT_WORKSPACE/images)"
     exit 1
 }
 
@@ -60,7 +62,8 @@ ENROOT_URI="docker://${IMAGE_REF/ghcr.io\//ghcr.io#}"
 
 # Derive default output path from image name and tag
 if [[ -z "$OUTPUT_PATH" ]]; then
-    IMAGES_DIR="${IMAGES_DIR:-$HOME/Misiu/Images}"
+    # IMAGES_DIR is set by defaults.env; fall back just in case
+    IMAGES_DIR="${IMAGES_DIR:-$HOME/${VT_WORKSPACE:-velox-testing}/images}"
     mkdir -p "$IMAGES_DIR"
 
     # Extract image name and tag: ghcr.io/org/image:tag -> image-tag
@@ -75,7 +78,9 @@ echo "Output: $OUTPUT_PATH"
 echo ""
 
 if [[ -f "$OUTPUT_PATH" ]]; then
-    echo "Warning: output file already exists and will be overwritten: $OUTPUT_PATH"
+    echo "Image already exists: $OUTPUT_PATH ($(ls -lh "$OUTPUT_PATH" | awk '{print $5}'))"
+    echo "Skipping pull. Use --output with a different path, or delete the file to re-pull."
+    exit 0
 fi
 
 # Run enroot import directly as the job so it inherits ENROOT_GZIP_PROGRAM.

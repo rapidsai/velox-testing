@@ -1,1 +1,23 @@
-srun --nodes=1 --nodelist=presto-gb200-gcn-10 --ntasks-per-node=1 --gres=gpu:4 --exclusive --time=01:00:00 --container-image=/scratch/prestouser/images/mg-polars-tpch-nvl72-2026-03-04-arm64-cuda-13-1-ucxthrottling-nvcr.sqsh --container-mounts=${HOME}:${HOME},/scratch:/scratch --container-remap-root --container-writable --pty bash
+#!/bin/bash
+# Interactive shell on a compute node with a container image.
+# Override IMAGE, NODELIST, GRES, or TIME_LIMIT via environment variables.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/defaults.env"
+
+: "${IMAGE:=${IMAGE_DIR}/presto-native-worker-gpu.sqsh}"
+: "${NODELIST:=${DEFAULT_SINGLE_NODE}}"
+: "${GRES:=gpu:4}"
+: "${TIME_LIMIT:=01:00:00}"
+
+srun --nodes=1 \
+     --nodelist="${NODELIST}" \
+     --ntasks-per-node=1 \
+     --gres="${GRES}" \
+     --exclusive \
+     --time="${TIME_LIMIT}" \
+     --container-image="${IMAGE}" \
+     --container-mounts="${HOME}:${HOME},/scratch:/scratch" \
+     --container-remap-root \
+     --container-writable \
+     --pty bash

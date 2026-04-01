@@ -15,6 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+source "${SCRIPT_DIR}/defaults.env"
 
 # ------------------------------------------------------------------------------
 # Sweep configuration — edit these arrays to change what gets benchmarked
@@ -53,7 +54,7 @@ run=0
 for SF in "${SCALE_FACTORS[@]}"; do
     for N in "${NODE_COUNTS[@]}"; do
         run=$(( run + 1 ))
-        OUTPUT_DIR="${HOME}/Misiu/result_sf${SF}_n${N}"
+        OUTPUT_DIR="${RESULTS_BASE}/result_sf${SF}_n${N}"
 
         echo "========================================"
         echo "Run ${run}/${total}: nodes=${N} scale_factor=${SF}"

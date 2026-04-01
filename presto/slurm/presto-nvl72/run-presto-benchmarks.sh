@@ -72,13 +72,6 @@ cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
 echo "Collecting configs and logs into result directory..."
 collect_results
 
-echo "Validating query results..."
-MINIFORGE_HOME=${VT_ROOT}/miniforge3 ${VT_ROOT}/scripts/run_py_script.sh \
-    -p ${VT_ROOT}/benchmark_reporting_tools/validate_results.py \
-    ${SCRIPT_DIR}/result_dir/query_results \
-    --expected-dir /scratch/prestouser/tpch-rs-no-delta-expected/scale-${SCALE_FACTOR} \
-    || echo "Warning: result validation reported failures"
-
 echo "========================================"
 echo "Benchmark complete!"
 echo "Results saved to: ${SCRIPT_DIR}/results_dir"

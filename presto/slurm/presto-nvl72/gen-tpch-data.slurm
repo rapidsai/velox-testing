@@ -25,7 +25,9 @@
 # Defaults
 # ==============================================================================
 : "${SCALE_FACTOR:=100}"
-: "${OUTPUT_DIR:=/scratch/prestouser/tpch-rs-float/scale-100-no-delta}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/defaults.env"
+: "${OUTPUT_DIR:=/scratch/${USER}/${VT_WORKSPACE}/tpch-rs-float/scale-100-no-delta}"
 : "${PARALLELISM:=100}"
 : "${IMAGE:=ghcr.io/tomaugspurger/tpchgen-rs:tom-sync-upstream-clean}"
 : "${EXTRA_ARGS:=--no-delta-length-byte-array --use-float-type}"

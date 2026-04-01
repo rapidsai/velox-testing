@@ -71,7 +71,7 @@ echo "Registering TPC-H tables and running ANALYZE TABLE for tpchsf${SCALE_FACTO
 # Miniforge is installed at ${VT_ROOT}/miniforge3, which is mounted as
 # /workspace/miniforge3 inside the container.
 run_coord_image "export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
-    export MINIFORGE_HOME=${VT_ROOT}/miniforge3; \
+    export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
     ./setup_benchmark_tables.sh \

@@ -19,6 +19,8 @@ set -e
 # Change to script directory
 cd "$(dirname "$0")"
 
+source ./defaults.env
+
 # Clean up old output files — use rm -rf so subdirectories (e.g. query_results/)
 # are fully removed and stale benchmark_result.json cannot survive a cancelled run.
 rm -rf result_dir logs 2>/dev/null || true
@@ -154,7 +156,7 @@ ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j
 SCRIPT_DIR="$PWD"
 JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
 # Node 5 has known issues; nodes above 10 are not yet functional.
-NODELIST="presto-gb200-gcn-[01-04,06-10]"
+NODELIST="${NODELIST:-${DEFAULT_NODELIST}}"
 GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NODE}" || echo "")
 JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" --nodelist="${NODELIST}" \
 --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE},USE_NUMA=${USE_NUMA},VARIANT_TYPE=${VARIANT_TYPE}" \

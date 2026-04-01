@@ -38,8 +38,9 @@ export COORD_IMAGE
 
 # Assumes the repo root is four steps up from the script directory.  This should refer to velox-testing.
 export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
-export DATA=/scratch/prestouser/tpch-rs-float-no-delta
-export IMAGE_DIR=/scratch/prestouser/images/presto
+source "${SCRIPT_DIR}/defaults.env"
+export DATA
+export IMAGE_DIR
 export LOGS=$SCRIPT_DIR/logs
 export VARIANT_TYPE=${VARIANT_TYPE:-gpu}
 export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE

@@ -19,11 +19,13 @@ cd "$(dirname "$0")"
 
 module load slurm 2>/dev/null || true
 
+source "$(dirname "$0")/defaults.env"
+
 SCALE_FACTOR="100"
-OUTPUT_DIR="/scratch/prestouser/tpch-rs-float/scale-100-no-delta"
+OUTPUT_DIR="${OUTPUT_DIR:-/scratch/${USER}/${VT_WORKSPACE}/tpch-rs-float/scale-100-no-delta}"
 PARALLELISM="100"
 # Default to a single node from the functional range (01-10)
-NODELIST="presto-gb200-gcn-01"
+NODELIST="${NODELIST:-${DEFAULT_SINGLE_NODE}}"
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do

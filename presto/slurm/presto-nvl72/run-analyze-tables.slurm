@@ -56,15 +56,15 @@ export NUM_GPUS_PER_NODE
 # Paths - overriding defaults to use /scratch mount (only available on compute nodes)
 # ==============================================================================
 export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
-# Allow DATA to be overridden via --export (e.g. for non-default data paths)
-: "${DATA:=/scratch/prestouser/tpch-rs-float}"
+source "${SCRIPT_DIR}/defaults.env"
 export DATA
 # Dataset subdirectory name under DATA (defaults to scale-<SF> if not set)
 : "${DATASET_NAME:=scale-${SCALE_FACTOR}}"
 export DATASET_NAME
-export IMAGE_DIR=/scratch/prestouser/images/presto
+export IMAGE_DIR
 export LOGS=$SCRIPT_DIR/logs
 export VARIANT_TYPE=gpu
+export USE_NUMA=${USE_NUMA:-0}
 export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE
 
 # ==============================================================================
