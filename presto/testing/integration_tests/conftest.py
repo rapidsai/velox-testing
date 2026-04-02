@@ -8,6 +8,7 @@ from .common_fixtures import presto_cursor, setup_and_teardown  # noqa: F401
 
 def pytest_addoption(parser):
     parser.addoption("--queries")  # default is all queries for the benchmark type
+    parser.addoption("--queries-file")  # path to a custom JSON file containing query definitions
     parser.addoption("--keep-tables", action="store_true", default=False)
     parser.addoption("--hostname", default="localhost")
     parser.addoption("--port", default=8080, type=int)

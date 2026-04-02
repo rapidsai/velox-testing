@@ -9,7 +9,8 @@ from . import test_utils
 
 @pytest.fixture(scope="module")
 def tpch_queries(request, presto_cursor):
-    queries = test_utils.get_queries(request.node.obj.BENCHMARK_TYPE)
+    queries_file = request.config.getoption("--queries-file")
+    queries = test_utils.get_queries(request.node.obj.BENCHMARK_TYPE, queries_file)
 
     # The "fraction" portion of Q11 is a value that depends on scale factor
     # (it should be 0.0001 / scale_factor), whereas our query is currently hard-coded as 0.0001.
@@ -23,4 +24,5 @@ def tpch_queries(request, presto_cursor):
 
 @pytest.fixture(scope="module")
 def tpcds_queries(request):
-    return test_utils.get_queries(request.node.obj.BENCHMARK_TYPE)
+    queries_file = request.config.getoption("--queries-file")
+    return test_utils.get_queries(request.node.obj.BENCHMARK_TYPE, queries_file)
