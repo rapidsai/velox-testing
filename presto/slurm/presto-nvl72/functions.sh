@@ -179,7 +179,7 @@ function run_worker {
 
     local gpu_id=$1 image=$2 node=$3 worker_id=$4
     # Assign NUMA node based on GPU ID: GPUs 0-3 → node 0, GPUs 4-7 → node 1, etc.
-    local numa_node=$((gpu_id / 4))
+    local numa_node=$((gpu_id / 2))
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id} numa_node ${numa_node}"
 
     local worker_image="${IMAGE_DIR}/${image}.sqsh"
