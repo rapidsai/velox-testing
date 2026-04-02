@@ -199,6 +199,51 @@ function run_worker {
     mkdir -p ${worker_data}/hive/data/user_data
     mkdir -p ${VT_ROOT}/.hive_metastore
 
+    local vt_cufile_log_dir="/var/log/cufile"
+    local vt_cufile_log="${vt_cufile_log_dir}/cufile_worker_${worker_id}.log"
+
+    local gds_mounts=""
+    local gds_env_args=""
+
+    function add_gds_sys_path {
+        local path="${1:?Path argument missing}"
+        local read_only="${2:-0}"
+
+        # System file path must exist
+        if [[ ! -e ${path} ]]; then
+            echo "${path} required by GDS does not exist"
+            exit 1
+        fi
+
+        # If gds_mounts is not empty, append a comma
+        [[ -n "${gds_mounts}" ]] && gds_mounts+=","
+
+        # Append path
+        if [[ "${read_only}" == "1" ]]; then
+            gds_mounts+="${path}:${path}:ro"
+        else
+            gds_mounts+="${path}"
+        fi
+    }
+
+    if [[ "${ENABLE_GDS}" == "1" ]]; then
+        # Add GDS-required system paths
+        add_gds_sys_path "/run/udev" 1
+        add_gds_sys_path "/dev/infiniband"
+        add_gds_sys_path "/etc/cufile.json" 1
+        for dev in /dev/nvidia-fs*; do
+            # If file exists, append the path, otherwise, exit the loop
+            [[ -e "${dev}" ]] || continue
+            add_gds_sys_path "${dev}"
+        done
+
+        # Add the log directory
+        gds_mounts+=",${LOGS}:${vt_cufile_log_dir}"
+
+        # Add GDS-related env vars
+        gds_env_args="--container-env=KVIKIO_COMPAT_MODE=OFF --container-env=CUFILE_LOGFILE_PATH=${vt_cufile_log}"
+    fi
+
     # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
     # capabilities are already set up for the job cgroup.  Do NOT use --gres=gpu:1
     # on the step: it restricts the step's cgroup to one GPU and then nvidia-container-cli
@@ -225,7 +270,9 @@ ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 /usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
-/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1 \
+/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1\
+${gds_mounts:+,${gds_mounts}} \
+${gds_env_args} \
 --container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
 --container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
 --container-env=GLOG_logtostderr=1 \
