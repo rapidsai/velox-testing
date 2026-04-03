@@ -1562,24 +1562,13 @@ examples:
   GH_HTTP_TIMEOUT=180 GH_RETRIES=8 python %(prog)s
 """,
     )
+    p.add_argument("--print-logs", action="store_true", default=False, help="print failed log tails for each failure")
     p.add_argument(
-        "--print-logs",
-        action="store_true",
-        default=False,
-        help="print failed log tails for each failure (default: disabled)",
+        "--no-cause", action="store_true", default=False, help="disable AI cause analysis (enabled by default)"
     )
     p.add_argument(
-        "--slack", action="store_true", default=True, help="output in Slack mrkdwn format (default: enabled)"
+        "--no-fix", action="store_true", default=False, help="disable AI fix suggestions (enabled by default)"
     )
-    p.add_argument(
-        "--cause", action="store_true", default=None, help="use AI to determine failure cause (default: enabled)"
-    )
-    p.add_argument("--no-cause", action="store_true", default=False, help="disable AI cause analysis")
-    p.add_argument(
-        "--fix", action="store_true", default=None, help="use AI to suggest a fix, implies --cause (default: enabled)"
-    )
-    p.add_argument("--no-fix", action="store_true", default=False, help="disable AI fix suggestions")
-    p.add_argument("--claude", action="store_true", default=None, help="use Claude CLI for analysis (default: enabled)")
     p.add_argument(
         "--no-claude", action="store_true", default=False, help="use NVIDIA LLM instead of Claude for analysis"
     )
@@ -1623,7 +1612,7 @@ def _detect_repo() -> str:
 def init_config(args: argparse.Namespace):
     """Populate CFG from args and environment."""
     CFG.print_logs = args.print_logs
-    CFG.slack_format = args.slack
+    CFG.slack_format = True
 
     CFG.analyze_cause = True
     CFG.analyze_fix = True
@@ -1632,17 +1621,10 @@ def init_config(args: argparse.Namespace):
     if args.no_cause:
         CFG.analyze_cause = False
         CFG.analyze_fix = False
-    if args.cause:
-        CFG.analyze_cause = True
     if args.no_fix:
         CFG.analyze_fix = False
-    if args.fix:
-        CFG.analyze_fix = True
-        CFG.analyze_cause = True
     if args.no_claude:
         CFG.use_claude = False
-    if args.claude:
-        CFG.use_claude = True
 
     CFG.repo = os.environ.get("REPO", "") or _detect_repo()
     if not CFG.repo:
