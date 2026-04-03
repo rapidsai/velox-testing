@@ -247,6 +247,8 @@ function run_worker {
     # compat library with the host driver so cudaMallocAsync works.
     # CUDA_VISIBLE_DEVICES=${gpu_id} inside the container restricts each worker to
     # its assigned GPU while still allowing the CUDA driver to enumerate all devices.
+    # export GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3
+    # export GLOG_logtostderr=1
     srun -N1 -w $node --ntasks=1 --overlap \
 --container-image=${worker_image} \
 --container-remap-root \
@@ -264,11 +266,10 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 ${gds_mounts:+,${gds_mounts}} \
 -- /bin/bash -c "
 export LD_LIBRARY_PATH=\"${CUDF_LIB}:${LD_LIBRARY_PATH}\"
-export GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3
-export GLOG_logtostderr=1
 if [[ '${ENABLE_GDS}' == '1' ]]; then
     export KVIKIO_COMPAT_MODE=OFF
     export CUFILE_LOGFILE_PATH=${vt_cufile_log}
+    export CUFILE_LOGGING_LEVEL=INFO
 fi
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
 echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
