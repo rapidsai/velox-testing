@@ -94,9 +94,7 @@ function run_coord_image {
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
 --container-remap-root \
---export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
+--export=ALL \
 --container-mounts=${VT_ROOT}:/workspace,\
 ${coord_data}:/var/lib/presto/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
@@ -110,9 +108,7 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
         srun -w $COORD --ntasks=1 --overlap \
 --container-remap-root \
 --container-image=${coord_image} \
---export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
+--export=ALL \
 --container-mounts=${VT_ROOT}:/workspace,\
 ${coord_data}:/var/lib/presto/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
@@ -203,8 +199,6 @@ function run_worker {
     local vt_cufile_log="${vt_cufile_log_dir}/cufile_worker_${worker_id}.log"
 
     local gds_mounts=""
-    local gds_env_args=""
-
     function add_gds_sys_path {
         local path="${1:?Path argument missing}"
         local read_only="${2:-0}"
@@ -219,10 +213,9 @@ function run_worker {
         [[ -n "${gds_mounts}" ]] && gds_mounts+=","
 
         # Append path
+        gds_mounts+="${path}:${path}"
         if [[ "${read_only}" == "1" ]]; then
-            gds_mounts+="${path}:${path}:ro"
-        else
-            gds_mounts+="${path}"
+            gds_mounts+=":ro"
         fi
     }
 
@@ -239,9 +232,6 @@ function run_worker {
 
         # Add the log directory
         gds_mounts+=",${LOGS}:${vt_cufile_log_dir}"
-
-        # Add GDS-related env vars
-        gds_env_args="--container-env=KVIKIO_COMPAT_MODE=OFF --container-env=CUFILE_LOGFILE_PATH=${vt_cufile_log}"
     fi
 
     # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
@@ -272,13 +262,19 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 /usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
 /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1\
 ${gds_mounts:+,${gds_mounts}} \
-${gds_env_args} \
---container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
---container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
---container-env=GLOG_logtostderr=1 \
 -- /bin/bash -c "
+export LD_LIBRARY_PATH=\"${CUDF_LIB}:${LD_LIBRARY_PATH}\"
+export GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3
+export GLOG_logtostderr=1
+if [[ '${ENABLE_GDS}' == '1' ]]; then
+    export KVIKIO_COMPAT_MODE=OFF
+    export CUFILE_LOGFILE_PATH=${vt_cufile_log}
+fi
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
 echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
+echo \"Worker ${worker_id}: ENABLE_GDS=\${ENABLE_GDS:-unset}\"
+echo \"Worker ${worker_id}: KVIKIO_COMPAT_MODE=\${KVIKIO_COMPAT_MODE:-unset}\"
+echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
 if [[ '${USE_NUMA}' == '1' ]]; then
     numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
 else
