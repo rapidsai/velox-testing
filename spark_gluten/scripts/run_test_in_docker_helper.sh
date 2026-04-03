@@ -44,6 +44,11 @@ TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
 if [[ ! -d "${VENV_DIR}" || "${REUSE_VENV}" != "true" ]]; then
   init_python_virtual_env "${VENV_DIR}"
   pip install --disable-pip-version-check -q -r "${TEST_DIR}/requirements.txt"
+  # Allow overriding PySpark version (e.g. for Spark 3.4 JAR compatibility).
+  if [[ -n "${PYSPARK_VERSION}" ]]; then
+    echo "Overriding PySpark to version ${PYSPARK_VERSION}"
+    pip install --disable-pip-version-check -q "pyspark==${PYSPARK_VERSION}"
+  fi
 else
   activate_python_virtual_env "${VENV_DIR}"
 fi
