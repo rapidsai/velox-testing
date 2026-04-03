@@ -5,10 +5,6 @@ on:
     - cron: '0 11 * * *'  # daily at 11:00 UTC (after all nightlies finish)
   workflow_dispatch:
     inputs:
-      date:
-        description: 'Report date (YYYY-MM-DD, default: auto-detect from last nightly run)'
-        type: string
-        required: false
       skip_rca:
         description: 'Skip upstream RCA search'
         type: boolean
@@ -62,12 +58,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           STATUS_FILE: status.txt
-        run: |
-          DATE_ARG=""
-          if [[ -n "${{ inputs.date }}" ]]; then
-            DATE_ARG="--date ${{ inputs.date }}"
-          fi
-          python3 scripts/nightly_status/check_nightly_status.py ${DATE_ARG}
+        run: python3 scripts/nightly_status/check_nightly_status.py
 
       - name: Generate upstream RCA report
         if: ${{ inputs.skip_rca != true }}

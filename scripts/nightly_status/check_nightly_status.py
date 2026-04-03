@@ -1593,7 +1593,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-fix", action="store_true", default=False)
     p.add_argument("--claude", action="store_true", default=None)
     p.add_argument("--no-claude", action="store_true", default=False)
-    p.add_argument("--date", type=str, default=None)
     return p.parse_args()
 
 
@@ -1663,10 +1662,7 @@ def init_config(args: argparse.Namespace):
         )
         sys.exit(2)
 
-    if args.date:
-        CFG.today_utc = args.date
-    else:
-        CFG.today_utc = os.environ.get("TODAY_UTC", "") or _get_last_nightly_run_date()
+    CFG.today_utc = os.environ.get("TODAY_UTC", "") or _get_last_nightly_run_date()
 
     try:
         dt = datetime.strptime(CFG.today_utc, "%Y-%m-%d")
