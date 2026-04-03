@@ -2,53 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Nightly workflow status helper (Python port of check_nightly_status.sh).
-
-Uses ThreadPoolExecutor for concurrent GitHub API calls and AI analysis
-to significantly reduce wall-clock time vs the sequential bash version.
-
-Requirements:
-  - gh (GitHub CLI) authenticated (e.g. `gh auth login`)
-  - Python 3.8+
-
-Usage:
-  python scripts/check_nightly_status.py [OPTIONS]
-
-Options:
-  --print-logs    Print failed log tails for each failure (default: disabled)
-  --slack         Output in Slack-formatted style with mrkdwn
-  --cause         Use AI to analyze logs and determine failure cause (default: enabled)
-  --no-cause      Disable AI cause analysis
-  --fix           Use AI to suggest a fix, implies --cause (default: enabled)
-  --no-fix        Disable AI fix suggestions
-  --claude        Use Claude CLI for analysis (default: enabled)
-  --no-claude     Use NVIDIA LLM instead of Claude for analysis
-  --date YYYY-MM-DD  Fetch nightly status for a specific date (default: today UTC)
-  -h, --help      Show this help message
-
-If your network is slow, run:
-  GH_HTTP_TIMEOUT=180 GH_RETRIES=8 python scripts/check_nightly_status.py
-
-Optional env:
-  REPO=owner/repo              (default: current gh repo)
-  TODAY_UTC=YYYY-MM-DD         (default: today's UTC date)
-  LOG_TAIL_LINES=N             (default: 150)
-  STATUS_FILE=path/to/file     (default: status.txt)
-  GH_RETRIES=N                 (default: 5)
-  GH_RETRY_SLEEP_SECONDS=N     (default: 2, exponential backoff)
-  GH_HTTP_TIMEOUT=N            (default: 60)
-
-AI-powered cause/fix analysis (requires --cause or --fix):
-  LLM_API_KEY or NVIDIA_API_KEY
-  LLM_API_URL                  (ex: https://integrate.api.nvidia.com/v1/chat/completions)
-  LLM_MODEL                    (ex: nvdev/nvidia/llama-3.3-nemotron-super-49b-v1)
-  LLM_TIMEOUT                  (default: 30)
-
-Claude AI analysis (requires --cause or --fix with --claude):
-  CLAUDE_BIN                   (default: claude)
-  CLAUDE_MODEL                 (default: opus)
-"""
+"""Nightly workflow status helper — generates a status report for CI nightly runs."""
 
 from __future__ import annotations
 
@@ -1581,18 +1535,54 @@ def print_plain_table_row(row_no: int, pipeline: str, phase: str, up_cell: str, 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Nightly workflow status helper",
+        description="Nightly workflow status helper — generates a status report for CI nightly runs.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
+        epilog="""\
+environment variables:
+  REPO=owner/repo              repo to query (default: auto-detect via gh)
+  TODAY_UTC=YYYY-MM-DD         report date (default: last nightly run date)
+  LOG_TAIL_LINES=N             log tail lines per failure (default: 150)
+  STATUS_FILE=path/to/file     output file path (default: status.txt)
+  GH_RETRIES=N                 gh CLI retry count (default: 5)
+  GH_RETRY_SLEEP_SECONDS=N     initial retry backoff in seconds (default: 2)
+  GH_HTTP_TIMEOUT=N            gh HTTP timeout in seconds (default: 60)
+
+  LLM_API_KEY or NVIDIA_API_KEY  API key for NVIDIA LLM analysis
+  LLM_API_URL                    NVIDIA LLM endpoint URL
+  LLM_MODEL                     NVIDIA LLM model name
+  LLM_TIMEOUT                   NVIDIA LLM timeout in seconds (default: 30)
+
+  CLAUDE_BIN                   Claude CLI binary (default: claude)
+  CLAUDE_MODEL                 Claude model to use (default: opus)
+  ANTHROPIC_API_KEY            API key for Claude analysis
+
+examples:
+  python %(prog)s
+  python %(prog)s --no-cause --no-fix
+  GH_HTTP_TIMEOUT=180 GH_RETRIES=8 python %(prog)s
+""",
     )
-    p.add_argument("--print-logs", action="store_true", default=False)
-    p.add_argument("--slack", action="store_true", default=True)
-    p.add_argument("--cause", action="store_true", default=None)
-    p.add_argument("--no-cause", action="store_true", default=False)
-    p.add_argument("--fix", action="store_true", default=None)
-    p.add_argument("--no-fix", action="store_true", default=False)
-    p.add_argument("--claude", action="store_true", default=None)
-    p.add_argument("--no-claude", action="store_true", default=False)
+    p.add_argument(
+        "--print-logs",
+        action="store_true",
+        default=False,
+        help="print failed log tails for each failure (default: disabled)",
+    )
+    p.add_argument(
+        "--slack", action="store_true", default=True, help="output in Slack mrkdwn format (default: enabled)"
+    )
+    p.add_argument(
+        "--cause", action="store_true", default=None, help="use AI to determine failure cause (default: enabled)"
+    )
+    p.add_argument("--no-cause", action="store_true", default=False, help="disable AI cause analysis")
+    p.add_argument(
+        "--fix", action="store_true", default=None, help="use AI to suggest a fix, implies --cause (default: enabled)"
+    )
+    p.add_argument("--no-fix", action="store_true", default=False, help="disable AI fix suggestions")
+    p.add_argument("--claude", action="store_true", default=None, help="use Claude CLI for analysis (default: enabled)")
+    p.add_argument(
+        "--no-claude", action="store_true", default=False, help="use NVIDIA LLM instead of Claude for analysis"
+    )
     return p.parse_args()
 
 
@@ -1736,11 +1726,11 @@ def _print_inprog_section(entries: List[Dict[str, Any]], slack: bool):
 
 
 def main():
+    args = parse_args()
+
     if not shutil.which("gh"):
         print("ERROR: missing required command: gh", file=sys.stderr)
         sys.exit(2)
-
-    args = parse_args()
     init_config(args)
 
     # ----- Phase 1: Fetch nightly workflow runs concurrently -----

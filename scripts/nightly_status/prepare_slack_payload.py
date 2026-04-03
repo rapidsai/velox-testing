@@ -2,17 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Convert a Slack-formatted report file into a JSON payload file suitable for
-slackapi/slack-github-action with payload-file-path + incoming webhook.
-
-Sections are delimited by lines containing only '---'.
-Within each section, code-fenced blocks (```) are split into separate Slack
-blocks so that mrkdwn formatting is never broken by mid-block chunking.
-
-Usage:
-  python scripts/nightly_status/prepare_slack_payload.py --file status.txt --output payload.json
-"""
+"""Convert a Slack-formatted report file into a JSON payload for slackapi/slack-github-action."""
 
 from __future__ import annotations
 
@@ -140,10 +130,24 @@ def build_payload(sections: list[str]) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert report to Slack JSON payload for slackapi/slack-github-action"
+        description=(
+            "Convert a Slack-formatted report file into a JSON payload "
+            "suitable for slackapi/slack-github-action with "
+            "payload-file-path + incoming webhook."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Sections in the input file are delimited by lines containing only '---'.
+Code-fenced blocks (```) are split into separate Slack blocks so that
+mrkdwn formatting is never broken by mid-block chunking.
+
+examples:
+  python %(prog)s --file status.txt --output status-payload.json
+  python %(prog)s --file rca-report.txt --output rca-payload.json
+""",
     )
-    parser.add_argument("--file", required=True, help="Path to the report file")
-    parser.add_argument("--output", required=True, help="Path to write the JSON payload")
+    parser.add_argument("--file", required=True, help="path to the report file")
+    parser.add_argument("--output", required=True, help="path to write the JSON payload")
     args = parser.parse_args()
 
     try:
