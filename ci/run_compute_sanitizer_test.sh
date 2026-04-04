@@ -63,11 +63,16 @@ fi
 
 CS_EXCLUDE_NAMES="kns=nvcomp,kns=zstd,kns=_no_sanitize,kns=_no_${TOOL_NAME}"
 
+TOOL_OPTIONS=()
+if [ "${TOOL_NAME}" = "memcheck" ]; then
+  TOOL_OPTIONS+=(--track-stream-ordered-races all)
+fi
+
 compute-sanitizer \
   --tool "${TOOL_NAME}" \
   --force-blocking-launches \
   --kernel-name-exclude "${CS_EXCLUDE_NAMES}" \
-  --track-stream-ordered-races all \
+  "${TOOL_OPTIONS[@]}" \
   --error-exitcode=1 \
   "${TEST_EXECUTABLE}" \
   "$@"
