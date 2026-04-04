@@ -32,6 +32,7 @@ from .common_fixtures import (
 
 def pytest_addoption(parser):
     parser.addoption("--queries")
+    parser.addoption("--queries-file")  # path to a custom JSON file containing query definitions
     parser.addoption("--schema-name", required=True)
     parser.addoption("--scale-factor")
     parser.addoption("--hostname", default="localhost")

@@ -3,7 +3,7 @@ FROM presto/prestissimo-dependency:centos9
 
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
     dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
-    dnf install -y nsight-systems-cli-2025.5.1
+    dnf install -y nsight-systems-cli-2025.5.1 numactl
 
 ARG GPU=ON
 ARG BUILD_TYPE=release
@@ -25,8 +25,15 @@ ARG SCCACHE_RECACHE
 ARG SCCACHE_NO_CACHE
 ARG SCCACHE_NO_DIST_COMPILE
 
+# Override ARM_BUILD_TARGET to prevent get_cxx_flags() in Velox's
+# setup-helper-functions.sh from reading the MIDR_EL1 register and emitting
+# -mcpu=neoverse-v1. Build runners (Neoverse V1) and test runners (e.g. Neoverse N1)
+# may differ; the fallback -march=armv8-a+crc+crypto is safe on all ARMv8-A hardware.
+# Must be a non-empty value: the script uses ${ARM_BUILD_TARGET:-"local"}, so an
+# empty string is treated the same as unset and falls back to "local".
 ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     CXX=/opt/rh/gcc-toolset-14/root/bin/g++ \
+    ARM_BUILD_TARGET="generic" \
     CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} \
     EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS} \
     NUM_THREADS=${NUM_THREADS} \

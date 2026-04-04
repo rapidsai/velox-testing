@@ -5,8 +5,12 @@ import json
 import os
 
 
-def get_queries(benchmark_type):
-    with open(get_abs_file_path(__file__, f"./queries/{benchmark_type}/queries.json"), "r") as file:
+def get_queries(benchmark_type, queries_file=None):
+    if queries_file:
+        path = queries_file if os.path.isabs(queries_file) else os.path.abspath(queries_file)
+    else:
+        path = get_abs_file_path(__file__, f"./queries/{benchmark_type}/queries.json")
+    with open(path, "r") as file:
         return json.load(file)
 
 
