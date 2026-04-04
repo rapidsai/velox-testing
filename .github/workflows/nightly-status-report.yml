@@ -3,13 +3,7 @@ name: Nightly Status Report
 on:
   schedule:
     - cron: '0 11 * * *'  # daily at 11:00 UTC (after all nightlies finish)
-  workflow_dispatch:
-    inputs:
-      skip_rca:
-        description: 'Skip upstream RCA search'
-        type: boolean
-        default: false
-
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -54,17 +48,35 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           claude --version
 
-      - name: Generate nightly status report
+      - name: Discover latest nightly run IDs
+        id: runs
+        run: |
+          VELOX_RUN=$(gh run list -R "$REPO" --workflow velox-nightly.yml --limit 1 --json databaseId -q '.[0].databaseId')
+          PRESTO_RUN=$(gh run list -R "$REPO" --workflow presto-nightly.yml --limit 1 --json databaseId -q '.[0].databaseId')
+          echo "velox_run=${VELOX_RUN}" >> "$GITHUB_OUTPUT"
+          echo "presto_run=${PRESTO_RUN}" >> "$GITHUB_OUTPUT"
+          echo "Velox nightly run ID: ${VELOX_RUN:-none}"
+          echo "Presto nightly run ID: ${PRESTO_RUN:-none}"
+
+      - name: Analyse velox nightly run
+        if: ${{ steps.runs.outputs.velox_run != '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python3 scripts/nightly_status/check_nightly_status.py
-
-      - name: Generate upstream RCA report
-        if: ${{ inputs.skip_rca != true }}
         run: |
-          python3 scripts/nightly_status/search_upstream_issues.py \
-            -i status-payload.json \
-            -o rca-payload.json
+          python3 scripts/workflow_status/workflow_status.py \
+            --run-id ${{ steps.runs.outputs.velox_run }} \
+            --repo "$REPO" \
+            --output velox-status-payload.json
+
+      - name: Analyse presto nightly run
+        if: ${{ steps.runs.outputs.presto_run != '' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python3 scripts/workflow_status/workflow_status.py \
+            --run-id ${{ steps.runs.outputs.presto_run }} \
+            --repo "$REPO" \
+            --output presto-status-payload.json
 
       - name: Upload reports as artifacts
         if: always()
@@ -72,21 +84,21 @@ jobs:
         with:
           name: nightly-reports
           path: |
-            status-payload.json
-            rca-payload.json
+            velox-status-payload.json
+            presto-status-payload.json
 
-      - name: Send nightly status to Slack
-        if: ${{ always() && hashFiles('status-payload.json') != '' }}
+      - name: Send velox status to Slack
+        if: ${{ always() && hashFiles('velox-status-payload.json') != '' }}
         uses: slackapi/slack-github-action@v2.1.1
         with:
-          payload-file-path: status-payload.json
+          payload-file-path: velox-status-payload.json
           webhook: ${{ secrets.SLACK_WEBHOOK_NIGHTLY_STATUS_URL }}
           webhook-type: incoming-webhook
 
-      - name: Send RCA report to Slack
-        if: ${{ always() && inputs.skip_rca != true && hashFiles('rca-payload.json') != '' }}
+      - name: Send presto status to Slack
+        if: ${{ always() && hashFiles('presto-status-payload.json') != '' }}
         uses: slackapi/slack-github-action@v2.1.1
         with:
-          payload-file-path: rca-payload.json
+          payload-file-path: presto-status-payload.json
           webhook: ${{ secrets.SLACK_WEBHOOK_NIGHTLY_STATUS_URL }}
           webhook-type: incoming-webhook
