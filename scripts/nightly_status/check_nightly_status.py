@@ -44,7 +44,6 @@ MAX_AI_WORKERS = 4
 
 class Config:
     print_logs: bool = False
-    slack_format: bool = True
     analyze_cause: bool = True
     analyze_fix: bool = True
     use_claude: bool = True
@@ -52,7 +51,7 @@ class Config:
     today_utc: str = ""
     display_date: str = ""
     log_tail_lines: int = 150
-    status_file: str = "status.txt"
+    status_file: str = "status-payload.json"
     gh_retries: int = 5
     gh_retry_sleep: int = 2
     gh_http_timeout: int = 60
@@ -516,8 +515,10 @@ def _extract_gtest_blocks(lines: List[str]) -> str:
 
         if _GTEST_FAILED.match(line):
             m = _GTEST_FAILED_NAME.match(line)
-            tname = m.group(1) if m else ""
-            if tname and tname in seen_tests:
+            if not m:
+                continue
+            tname = m.group(1)
+            if tname in seen_tests:
                 continue
             result_parts.append(line)
             result_parts.append(BLOCK_SEP)
@@ -959,8 +960,99 @@ def compute_failure_signature(run_id: int, job_filter: str, variant: str = "") -
 # ---------------------------------------------------------------------------
 
 
+SLACK_BLOCK_TEXT_LIMIT = 3000
+
+
+def _split_mrkdwn_sections(content: str) -> List[str]:
+    """Split mrkdwn content on '---' lines into individual sections."""
+    sections: List[str] = []
+    current: List[str] = []
+    for line in content.splitlines(keepends=True):
+        if re.match(r"^\s*---\s*$", line):
+            text = "".join(current).strip()
+            if text:
+                sections.append(text)
+            current = []
+        else:
+            current.append(line)
+    trailing = "".join(current).strip()
+    if trailing:
+        sections.append(trailing)
+    return sections
+
+
+def _split_code_blocks(section: str) -> List[str]:
+    """Split a section into alternating text and code-fenced fragments."""
+    fragments: List[str] = []
+    current: List[str] = []
+    in_code = False
+    for line in section.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if in_code:
+                current.append(line)
+                fragments.append("".join(current).strip())
+                current = []
+                in_code = False
+            else:
+                text_before = "".join(current).strip()
+                if text_before:
+                    fragments.append(text_before)
+                current = [line]
+                in_code = True
+        else:
+            current.append(line)
+    trailing = "".join(current).strip()
+    if trailing:
+        if in_code:
+            trailing += "\n```"
+        fragments.append(trailing)
+    return [f for f in fragments if f]
+
+
+def _chunk_text(text: str, max_len: int = SLACK_BLOCK_TEXT_LIMIT) -> List[str]:
+    """Split text into chunks that fit within Slack's block text limit."""
+    if len(text) <= max_len:
+        return [text]
+    is_code = text.lstrip().startswith("```")
+    chunks: List[str] = []
+    lines = text.splitlines(keepends=True)
+    current: List[str] = []
+    current_len = 0
+    for line in lines:
+        if current_len + len(line) > max_len and current:
+            chunk = "".join(current).rstrip()
+            if is_code and not chunk.rstrip().endswith("```"):
+                chunk += "\n```"
+            chunks.append(chunk)
+            current = []
+            current_len = 0
+            if is_code:
+                current.append("```\n")
+                current_len = 4
+        current.append(line)
+        current_len += len(line)
+    if current:
+        chunks.append("".join(current).rstrip())
+    return chunks
+
+
+def _build_slack_payload(mrkdwn_text: str) -> dict:
+    """Convert mrkdwn text (with --- separators) into a Slack Block Kit payload."""
+    sections = _split_mrkdwn_sections(mrkdwn_text)
+    blocks: List[dict] = []
+    for i, section in enumerate(sections):
+        if i > 0:
+            blocks.append({"type": "divider"})
+        for fragment in _split_code_blocks(section):
+            for chunk in _chunk_text(fragment):
+                blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunk}})
+    fallback = sections[0][:200] if sections else ""
+    return {"text": fallback, "blocks": blocks}
+
+
 class OutputBuffer:
-    """Collects output lines; written to stdout + file at the end."""
+    """Collects mrkdwn output lines; writes Slack Block Kit JSON at the end."""
 
     def __init__(self):
         self._lines: List[str] = []
@@ -976,11 +1068,14 @@ class OutputBuffer:
         return "".join(self._lines)
 
     def flush_to(self, path: str):
-        full = self.text()
-        sys.stdout.write(full)
+        mrkdwn = self.text()
+        sys.stdout.write(mrkdwn)
         sys.stdout.flush()
+        payload = _build_slack_payload(mrkdwn)
         with open(path, "w", encoding="utf-8") as f:
-            f.write(full)
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        block_count = len(payload.get("blocks", []))
+        print(f"Wrote {path} ({block_count} Slack blocks)", file=sys.stderr)
 
 
 OUT = OutputBuffer()
@@ -1180,11 +1275,54 @@ def _error_similarity(a: frozenset, b: frozenset) -> float:
     return len(a & b) / min(len(a), len(b))
 
 
+def _group_similar_blocks(blocks: List[str]) -> List[List[int]]:
+    """Group log blocks by error similarity, returning lists of block indices.
+
+    Each group shares a similar root cause.  Only the representative (first
+    index in each group) needs AI analysis; the rest are listed as duplicates.
+    """
+    if not blocks:
+        return []
+    token_sets = [_compute_error_tokens(b) for b in blocks]
+    groups: List[List[int]] = []
+    for i, tokens in enumerate(token_sets):
+        placed = False
+        for grp in groups:
+            if _error_similarity(tokens, token_sets[grp[0]]) >= _ERROR_SIMILARITY_THRESHOLD:
+                grp.append(i)
+                placed = True
+                break
+        if not placed:
+            groups.append([i])
+    return groups
+
+
+_BLOCK_TEST_NAME_RE = re.compile(
+    r"(?:^\[\s*(?:RUN|FAILED)\s*\]\s*|^Value of:\s*)(\S+)",
+    re.MULTILINE,
+)
+
+
+def _extract_block_test_names(blocks: List[str], indices: List[int]) -> List[str]:
+    """Extract GTest test names from the given block indices."""
+    names: List[str] = []
+    seen: set = set()
+    for idx in indices:
+        if idx >= len(blocks):
+            continue
+        m = _GTEST_FAILED_NAME.search(blocks[idx])
+        if m:
+            name = m.group(1)
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+    return names
+
+
 def _process_single_failure(
     label: str,
     run: dict,
     job_filter: str,
-    slack: bool,
     idx: int,
     extra_affects: str = "",
     variant: str = "",
@@ -1205,27 +1343,19 @@ def _process_single_failure(
     except Exception:
         since_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    if slack:
-        local_out.print()
-        local_out.print(f"*{idx}. {label}*")
-        local_out.print(f"\u2022 *Workflow:* {wf_name}")
-        local_out.print(f"\u2022 *Run:* {run_url}")
-        if extra_affects:
-            parts = []
-            for line in extra_affects.strip().splitlines():
-                cols = line.split("\t", 1)
-                if len(cols) == 2:
-                    parts.append(f"{cols[0]} ({cols[1]})")
-            if parts:
-                local_out.print(f"\u2022 *Also fails in:* {', '.join(parts)}")
-        local_out.print(f"\u2022 *Conclusion:* {conclusion}")
-    else:
-        local_out.print()
-        local_out.print(f"### {label}")
-        local_out.print(f"- Workflow: {wf_name}")
-        local_out.print(f"- Run: {run_url}")
-        local_out.print(f"- Title: {run.get('displayTitle', '')}")
-        local_out.print(f"- Conclusion: {conclusion}")
+    local_out.print()
+    local_out.print(f"*{idx}. {label}*")
+    local_out.print(f"\u2022 *Workflow:* {wf_name}")
+    local_out.print(f"\u2022 *Run:* {run_url}")
+    if extra_affects:
+        parts = []
+        for line in extra_affects.strip().splitlines():
+            cols = line.split("\t", 1)
+            if len(cols) == 2:
+                parts.append(f"{cols[0]} ({cols[1]})")
+        if parts:
+            local_out.print(f"\u2022 *Also fails in:* {', '.join(parts)}")
+    local_out.print(f"\u2022 *Conclusion:* {conclusion}")
 
     # Fetch log and jobs concurrently
     log_out: Optional[str] = None
@@ -1264,12 +1394,7 @@ def _process_single_failure(
         )
 
     if not jobs_data:
-        if slack:
-            local_out.print(
-                "  \u25e6 _WARN: failed to fetch job/step details (network/API timeout). See run link above._"
-            )
-        else:
-            local_out.print("  - WARN: failed to fetch job/step details (network/API timeout). See run link above.")
+        local_out.print("  \u25e6 _WARN: failed to fetch job/step details (network/API timeout). See run link above._")
         return local_out.text()
 
     failed_jobs = _get_failed_jobs(jobs_data, job_filter, variant)
@@ -1296,9 +1421,9 @@ def _process_single_failure(
         if not placed:
             error_groups.append([i])
 
-    st_label = "*Stacktrace" if slack else "- Stacktrace"
-    cause_label = "*Cause:*" if slack else "- Cause:"
-    fix_label = "*Fix:*" if slack else "- Fix:"
+    st_label = "*Stacktrace"
+    cause_label = "*Cause:*"
+    fix_label = "*Fix:*"
 
     for member_indices in error_groups:
         rep_idx = member_indices[0]
@@ -1309,19 +1434,14 @@ def _process_single_failure(
         job_conclusion = job.get("conclusion", "unknown")
         failed_steps = _get_failed_steps(job)
 
-        if slack:
-            local_out.print(f"  \u25e6 Job: `{job_name}` ({job_conclusion})")
-            for s in failed_steps:
-                local_out.print(f"    \u25aa\ufe0e Step: {s.get('name', '?')} ({s.get('conclusion', 'unknown')})")
-        else:
-            local_out.print(f"  - Job: {job_name} ({job_conclusion})")
-            for s in failed_steps:
-                local_out.print(f"    - Step: {s.get('name', '?')} ({s.get('conclusion', 'unknown')})")
+        local_out.print(f"  \u25e6 Job: `{job_name}` ({job_conclusion})")
+        for s in failed_steps:
+            local_out.print(f"    \u25aa\ufe0e Step: {s.get('name', '?')} ({s.get('conclusion', 'unknown')})")
 
         related_items = ""
         if CFG.analyze_cause:
             repo = upstream_repo_for_label(label)
-            prefix_str = "    \u2022 " if slack else "    - "
+            prefix_str = "    \u2022 "
             related_items = find_related_github_items(repo, job_log_content, since_date, prefix_str)
 
         if not job_log_content.strip():
@@ -1332,14 +1452,16 @@ def _process_single_failure(
                     local_out.print(f"    {fix_label} _Check the run link above for details_")
         else:
             blocks = _split_into_blocks(job_log_content)
-            n_blocks = len(blocks)
 
+            block_groups = _group_similar_blocks(blocks)
+
+            rep_indices = [grp[0] for grp in block_groups]
             ai_results: Dict[int, Tuple[str, str, str]] = {}
-            if CFG.analyze_cause and blocks:
+            if CFG.analyze_cause and rep_indices:
                 with ThreadPoolExecutor(max_workers=MAX_AI_WORKERS) as ai_pool:
                     futs = {
-                        ai_pool.submit(_analyze_block, b, job_name, wf_name, related_items): bidx
-                        for bidx, b in enumerate(blocks)
+                        ai_pool.submit(_analyze_block, blocks[bidx], job_name, wf_name, related_items): bidx
+                        for bidx in rep_indices
                     }
                     for fut in as_completed(futs):
                         bidx = futs[fut]
@@ -1352,15 +1474,15 @@ def _process_single_failure(
                                 "Pending investigation",
                             )
 
-            for bidx, block in enumerate(blocks):
-                suffix = f" {bidx + 1}/{n_blocks}" if n_blocks > 1 else ""
-                ai_st, cause, fix = ai_results.get(bidx, ("", "", ""))
-                display_st = ai_st if ai_st else "\n".join(ln for ln in block.splitlines() if ln.strip())[:5]
+            n_groups = len(block_groups)
+            for gidx, grp in enumerate(block_groups):
+                rep_bidx = grp[0]
+                block = blocks[rep_bidx]
+                suffix = f" {gidx + 1}/{n_groups}" if n_groups > 1 else ""
+                ai_st, cause, fix = ai_results.get(rep_bidx, ("", "", ""))
+                display_st = ai_st if ai_st else "\n".join([ln for ln in block.splitlines() if ln.strip()][:5])
 
-                if slack:
-                    local_out.print(f"    {st_label}{suffix}:*")
-                else:
-                    local_out.print(f"    {st_label}{suffix}:")
+                local_out.print(f"    {st_label}{suffix}:*")
                 local_out.print("```")
                 for line in display_st.splitlines()[:5]:
                     if line.strip():
@@ -1372,56 +1494,43 @@ def _process_single_failure(
                     if CFG.analyze_fix:
                         local_out.print(f"    {fix_label} _{fix or 'Pending investigation'}_")
 
+                if len(grp) > 1:
+                    dup_names = _extract_block_test_names(blocks, grp[1:])
+                    TOKEN_TRACKER.record_dedup_skip(len(grp) - 1)
+                    if dup_names:
+                        local_out.print(
+                            f"    _Same error in {len(grp) - 1} more test(s):_ {', '.join(f'`{n}`' for n in dup_names)}"
+                        )
+
         if related_items:
             local_out.print()
-            if slack:
-                local_out.print("    *Related issues/PRs (last 7 days):*")
-            else:
-                local_out.print("  Related issues/PRs (last 7 days):")
+            local_out.print("    *Related issues/PRs (last 7 days):*")
             local_out.print(related_items)
 
         if dup_indices:
             TOKEN_TRACKER.record_dedup_skip(len(dup_indices))
             local_out.print()
-            if slack:
-                local_out.print("  _Same error also appears in:_")
-            else:
-                local_out.print("  Same error also appears in:")
+            local_out.print("  _Same error also appears in:_")
             for di in dup_indices:
                 dup_job, _ = job_info[di]
                 dup_name = dup_job.get("name", "unknown")
                 dup_job_id = dup_job.get("databaseId", "")
                 if dup_job_id:
                     dup_url = f"{run_url}/job/{dup_job_id}"
-                    if slack:
-                        local_out.print(f"  \u2022 `{dup_name}` \u2192 {dup_url}")
-                    else:
-                        local_out.print(f"  - {dup_name} -> {dup_url}")
+                    local_out.print(f"  \u2022 `{dup_name}` \u2192 {dup_url}")
                 else:
-                    if slack:
-                        local_out.print(f"  \u2022 `{dup_name}`")
-                    else:
-                        local_out.print(f"  - {dup_name}")
+                    local_out.print(f"  \u2022 `{dup_name}`")
 
-    # Combined logs
     if CFG.print_logs:
         local_out.print()
-        if slack:
-            local_out.print("*Failed test stacktraces:*")
-        else:
-            local_out.print("  Failed test stacktraces:")
+        local_out.print("*Failed test stacktraces:*")
         if log_out:
             content = extract_relevant_failures(log_out)
-            if slack:
-                local_out.print("```")
-                local_out.print(content)
-                local_out.print("```")
-            else:
-                for line in content.splitlines():
-                    local_out.print(f"    {line}")
+            local_out.print("```")
+            local_out.print(content)
+            local_out.print("```")
         else:
-            msg = "Unable to fetch logs (network/API timeout). Open the run link above for full logs."
-            local_out.print(f"_({msg})_" if slack else f"    (WARN) {msg}")
+            local_out.print("_(Unable to fetch logs (network/API timeout). Open the run link above for full logs.)_")
 
     return local_out.text()
 
@@ -1430,7 +1539,6 @@ def _process_in_progress(
     label: str,
     workflow_file: str,
     run: dict,
-    slack: bool,
     idx: int,
 ) -> str:
     local_out = OutputBuffer()
@@ -1440,19 +1548,11 @@ def _process_in_progress(
     attempt = run.get("attempt", 1)
     run_number = run.get("number")
 
-    if slack:
-        local_out.print()
-        local_out.print(f"*{idx}. {label} (in progress)*")
-        local_out.print(f"\u2022 *Workflow:* {wf_name}")
-        local_out.print(f"\u2022 *Run:* {run_url}")
-        local_out.print(f"\u2022 *Status:* {status} (attempt: {attempt})")
-    else:
-        local_out.print()
-        local_out.print(f"### {label} (in progress)")
-        local_out.print(f"- Workflow: {wf_name}")
-        local_out.print(f"- Run: {run_url}")
-        local_out.print(f"- Title: {run.get('displayTitle', '')}")
-        local_out.print(f"- Status: {status} (attempt: {attempt})")
+    local_out.print()
+    local_out.print(f"*{idx}. {label} (in progress)*")
+    local_out.print(f"\u2022 *Workflow:* {wf_name}")
+    local_out.print(f"\u2022 *Run:* {run_url}")
+    local_out.print(f"\u2022 *Status:* {status} (attempt: {attempt})")
 
     if attempt > 1 and run_number:
         first = get_first_attempt_for_run_number(workflow_file, run_number)
@@ -1461,18 +1561,11 @@ def _process_in_progress(
             first_conclusion = first.get("conclusion", "")
             first_url = first.get("url", "")
             first_id = first.get("databaseId")
-            if slack:
-                local_out.print()
-                local_out.print("  _First attempt details:_")
-                local_out.print(f"  \u2022 *Run:* {first_url}")
-                local_out.print(f"  \u2022 *Status:* {first_status}")
-                local_out.print(f"  \u2022 *Conclusion:* {first_conclusion or 'n/a'}")
-            else:
-                local_out.print()
-                local_out.print("  First attempt details:")
-                local_out.print(f"  - Run: {first_url}")
-                local_out.print(f"  - Status: {first_status}")
-                local_out.print(f"  - Conclusion: {first_conclusion or 'n/a'}")
+            local_out.print()
+            local_out.print("  _First attempt details:_")
+            local_out.print(f"  \u2022 *Run:* {first_url}")
+            local_out.print(f"  \u2022 *Status:* {first_status}")
+            local_out.print(f"  \u2022 *Conclusion:* {first_conclusion or 'n/a'}")
 
             if first_status == "completed" and first_conclusion != "success" and CFG.print_logs:
                 log_out = run_gh_safe(
@@ -1483,49 +1576,17 @@ def _process_in_progress(
                     str(first_id),
                     "--log-failed",
                 )
-                if slack:
-                    local_out.print()
-                    local_out.print("*First attempt failed test stacktraces:*")
-                else:
-                    local_out.print()
-                    local_out.print("  First attempt failed test stacktraces:")
+                local_out.print()
+                local_out.print("*First attempt failed test stacktraces:*")
                 if log_out:
                     content = extract_relevant_failures(log_out)
-                    if slack:
-                        local_out.print("```")
-                        local_out.print(content)
-                        local_out.print("```")
-                    else:
-                        for line in content.splitlines():
-                            local_out.print(f"    {line}")
+                    local_out.print("```")
+                    local_out.print(content)
+                    local_out.print("```")
                 else:
-                    msg = "Unable to fetch logs. Open the run link above for full logs."
-                    local_out.print(f"_{msg}_" if slack else f"    (WARN) {msg}")
+                    local_out.print("_(Unable to fetch logs. Open the run link above for full logs.)_")
 
     return local_out.text()
-
-
-# ---------------------------------------------------------------------------
-# Plain format helpers
-# ---------------------------------------------------------------------------
-
-
-def print_plain_header():
-    try:
-        dt = datetime.strptime(CFG.today_utc, "%Y-%m-%d")
-        dd = dt.strftime("%m-%d-%Y")
-    except Exception:
-        dd = CFG.today_utc
-    OUT.print(f"1. Nightly Jobs Status Table - current date ({dd})")
-    OUT.print()
-    OUT.print(f"{'SNO':<4} | {'Pipeline':<8} | {'Phase':<20} | {'Upstream':<8} | {'Staging':<8} | {'Pinned':<8}")
-    OUT.print(
-        f"{'----':<4}-|-{'--------':<8}-|-{'--------------------':<20}-|-{'--------':<8}-|-{'--------':<8}-|-{'--------':<8}"
-    )
-
-
-def print_plain_table_row(row_no: int, pipeline: str, phase: str, up_cell: str, st_cell: str, pn_cell: str):
-    OUT.print(f"{row_no:<4} | {pipeline:<8} | {phase:<20} | {up_cell:<8} | {st_cell:<8} | {pn_cell:<8}")
 
 
 # ---------------------------------------------------------------------------
@@ -1542,7 +1603,7 @@ environment variables:
   REPO=owner/repo              repo to query (default: auto-detect via gh)
   TODAY_UTC=YYYY-MM-DD         report date (default: last nightly run date)
   LOG_TAIL_LINES=N             log tail lines per failure (default: 150)
-  STATUS_FILE=path/to/file     output file path (default: status.txt)
+  STATUS_FILE=path/to/file     output file path (default: status-payload.json)
   GH_RETRIES=N                 gh CLI retry count (default: 5)
   GH_RETRY_SLEEP_SECONDS=N     initial retry backoff in seconds (default: 2)
   GH_HTTP_TIMEOUT=N            gh HTTP timeout in seconds (default: 60)
@@ -1612,8 +1673,6 @@ def _detect_repo() -> str:
 def init_config(args: argparse.Namespace):
     """Populate CFG from args and environment."""
     CFG.print_logs = args.print_logs
-    CFG.slack_format = True
-
     CFG.analyze_cause = True
     CFG.analyze_fix = True
     CFG.use_claude = True
@@ -1643,7 +1702,7 @@ def init_config(args: argparse.Namespace):
         CFG.display_date = CFG.today_utc
 
     CFG.log_tail_lines = int(os.environ.get("LOG_TAIL_LINES", "150"))
-    CFG.status_file = os.environ.get("STATUS_FILE", "status.txt")
+    CFG.status_file = os.environ.get("STATUS_FILE", "status-payload.json")
     CFG.gh_retries = int(os.environ.get("GH_RETRIES", "5"))
     CFG.gh_retry_sleep = int(os.environ.get("GH_RETRY_SLEEP_SECONDS", "2"))
     CFG.gh_http_timeout = int(os.environ.get("GH_HTTP_TIMEOUT", "60"))
@@ -1667,7 +1726,7 @@ def init_config(args: argparse.Namespace):
 # ---------------------------------------------------------------------------
 
 
-def _print_inprog_section(entries: List[Dict[str, Any]], slack: bool):
+def _print_inprog_section(entries: List[Dict[str, Any]]):
     """Print in-progress details, deduped by (run_id, variant)."""
     if not entries:
         return
@@ -1679,14 +1738,10 @@ def _print_inprog_section(entries: List[Dict[str, Any]], slack: bool):
             seen.add(key)
             deduped.append(entry)
 
-    if slack:
-        OUT.print()
-        OUT.print("---")
-        OUT.print()
-        OUT.print("*\u23f3 In-Progress Details:*")
-    else:
-        OUT.print()
-        OUT.print("In-progress Details:")
+    OUT.print()
+    OUT.print("---")
+    OUT.print()
+    OUT.print("*\u23f3 In-Progress Details:*")
 
     with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
         ip_futs = {}
@@ -1696,7 +1751,6 @@ def _print_inprog_section(entries: List[Dict[str, Any]], slack: bool):
                 entry["label"],
                 entry["wf"],
                 entry["run"],
-                slack,
                 ip_idx,
             )
             ip_futs[fut] = ip_idx
@@ -1728,20 +1782,17 @@ def main():
     _prefetch_jobs_for_runs(all_runs)
 
     # ----- Phase 3: Build status table -----
-    if CFG.slack_format:
-        print_slack_header()
-        for _pipeline, wf_file in NIGHTLY_WORKFLOWS.items():
-            run = run_map.get(wf_file)
-            if run:
-                emoji = cell_for_run(run)
-                OUT.print(f"\u2022 *{wf_file}:* {run['url']} {emoji}")
-            else:
-                OUT.print(f"\u2022 *{wf_file}:* _no run found for {CFG.today_utc}_")
-        OUT.print()
-        OUT.print("```")
-        print_slack_table_header()
-    else:
-        print_plain_header()
+    print_slack_header()
+    for _pipeline, wf_file in NIGHTLY_WORKFLOWS.items():
+        run = run_map.get(wf_file)
+        if run:
+            emoji = cell_for_run(run)
+            OUT.print(f"\u2022 *{wf_file}:* {run['url']} {emoji}")
+        else:
+            OUT.print(f"\u2022 *{wf_file}:* _no run found for {CFG.today_utc}_")
+    OUT.print()
+    OUT.print("```")
+    print_slack_table_header()
 
     fail_entries: List[Dict[str, Any]] = []
     inprog_entries: List[Dict[str, Any]] = []
@@ -1762,12 +1813,7 @@ def main():
                 cells[variant] = EMOJI_DASH
 
         if prev_pipeline and pipeline != prev_pipeline:
-            if CFG.slack_format:
-                OUT.print("|------|----------|----------------------|------------|-----------|----------|")
-            else:
-                OUT.print(
-                    f"{'----':<4}-|-{'--------':<8}-|-{'--------------------':<20}-|-{'--------':<8}-|-{'--------':<8}-|-{'--------':<8}"
-                )
+            OUT.print("|------|----------|----------------------|------------|-----------|----------|")
         prev_pipeline = pipeline
 
         row_no += 1
@@ -1775,10 +1821,7 @@ def main():
         st_cell = cells["staging"]
         pn_cell = cells["pinned"]
 
-        if CFG.slack_format:
-            print_slack_table_row(row_no, pipeline.title(), row["display"], up_cell, st_cell, pn_cell)
-        else:
-            print_plain_table_row(row_no, pipeline.title(), row["display"], up_cell, st_cell, pn_cell)
+        print_slack_table_row(row_no, pipeline.title(), row["display"], up_cell, st_cell, pn_cell)
 
         for variant in variants:
             cell = cells[variant]
@@ -1796,113 +1839,72 @@ def main():
             elif cell == EMOJI_HOURGLASS:
                 inprog_entries.append(entry)
 
-    if CFG.slack_format:
-        OUT.print("```")
+    OUT.print("```")
 
     # ----- Phase 4: Failure details -----
-    if CFG.slack_format:
-        OUT.print()
-        OUT.print("---")
-        OUT.print()
-        OUT.print("*\U0001f534 Failure Details:*")
+    OUT.print()
+    OUT.print("---")
+    OUT.print()
+    OUT.print("*\U0001f534 Failure Details:*")
 
-        if not fail_entries:
+    if not fail_entries:
+        OUT.print()
+        OUT.print(f"_No failures detected for {CFG.today_utc}._")
+        _print_inprog_section(inprog_entries)
+        OUT.flush_to(CFG.status_file)
+        return
+
+    sigs: List[str] = []
+    for entry in fail_entries:
+        rid = entry["run"]["databaseId"]
+        sig = compute_failure_signature(rid, entry["filter"], entry.get("variant", ""))
+        sigs.append(sig)
+
+    seen_sigs: set = set()
+    ordered_failures: List[Tuple[int, str]] = []
+    for i, sig in enumerate(sigs):
+        if sig in seen_sigs:
+            continue
+        seen_sigs.add(sig)
+        extra_parts = []
+        for j, sig2 in enumerate(sigs):
+            if j != i and sig2 == sig:
+                e = fail_entries[j]
+                extra_parts.append(f"{e['label']}\t{e['run']['url']}")
+        ordered_failures.append((i, "\n".join(extra_parts)))
+
+    with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
+        fut_map = {}
+        for display_idx, (orig_i, extra) in enumerate(ordered_failures, 1):
+            e = fail_entries[orig_i]
+            fut = pool.submit(
+                _process_single_failure,
+                e["label"],
+                e["run"],
+                e["filter"],
+                display_idx,
+                extra,
+                e.get("variant", ""),
+            )
+            fut_map[fut] = display_idx
+
+        results_by_idx: Dict[int, str] = {}
+        for fut in as_completed(fut_map):
+            didx = fut_map[fut]
+            try:
+                results_by_idx[didx] = fut.result()
+            except Exception as exc:
+                results_by_idx[didx] = f"\n*{didx}. (error processing failure: {exc})*\n"
+
+    first = True
+    for didx in sorted(results_by_idx):
+        if not first:
             OUT.print()
-            OUT.print(f"_No failures detected for {CFG.today_utc}._")
-            _print_inprog_section(inprog_entries, slack=True)
-            OUT.flush_to(CFG.status_file)
-            return
+            OUT.print("---")
+        first = False
+        OUT.print(results_by_idx[didx], end="")
 
-        sigs: List[str] = []
-        for entry in fail_entries:
-            rid = entry["run"]["databaseId"]
-            sig = compute_failure_signature(rid, entry["filter"], entry.get("variant", ""))
-            sigs.append(sig)
-
-        seen_sigs: set = set()
-        ordered_failures: List[Tuple[int, str]] = []
-        for i, sig in enumerate(sigs):
-            if sig in seen_sigs:
-                continue
-            seen_sigs.add(sig)
-            extra_parts = []
-            for j, sig2 in enumerate(sigs):
-                if j != i and sig2 == sig:
-                    e = fail_entries[j]
-                    extra_parts.append(f"{e['label']}\t{e['run']['url']}")
-            ordered_failures.append((i, "\n".join(extra_parts)))
-
-        with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
-            fut_map = {}
-            for display_idx, (orig_i, extra) in enumerate(ordered_failures, 1):
-                e = fail_entries[orig_i]
-                fut = pool.submit(
-                    _process_single_failure,
-                    e["label"],
-                    e["run"],
-                    e["filter"],
-                    True,
-                    display_idx,
-                    extra,
-                    e.get("variant", ""),
-                )
-                fut_map[fut] = display_idx
-
-            results_by_idx: Dict[int, str] = {}
-            for fut in as_completed(fut_map):
-                didx = fut_map[fut]
-                try:
-                    results_by_idx[didx] = fut.result()
-                except Exception as exc:
-                    results_by_idx[didx] = f"\n*{didx}. (error processing failure: {exc})*\n"
-
-        first = True
-        for didx in sorted(results_by_idx):
-            if not first:
-                OUT.print()
-                OUT.print("---")
-            first = False
-            OUT.print(results_by_idx[didx], end="")
-
-        _print_inprog_section(inprog_entries, slack=True)
-
-    else:
-        OUT.print()
-        OUT.print("2. Failure Details:")
-
-        if not fail_entries:
-            OUT.print()
-            OUT.print(f"(No failures detected for {CFG.today_utc}.)")
-            _print_inprog_section(inprog_entries, slack=False)
-            OUT.flush_to(CFG.status_file)
-            return
-
-        with ThreadPoolExecutor(max_workers=MAX_GH_WORKERS) as pool:
-            fut_map = {}
-            for fi, entry in enumerate(fail_entries, 1):
-                fut = pool.submit(
-                    _process_single_failure,
-                    entry["label"],
-                    entry["run"],
-                    entry["filter"],
-                    False,
-                    fi,
-                    "",
-                    entry.get("variant", ""),
-                )
-                fut_map[fut] = fi
-            results_by_idx: Dict[int, str] = {}
-            for fut in as_completed(fut_map):
-                fi = fut_map[fut]
-                try:
-                    results_by_idx[fi] = fut.result()
-                except Exception as exc:
-                    results_by_idx[fi] = f"\n### (error processing failure: {exc})\n"
-
-        for fi in sorted(results_by_idx):
-            OUT.print(results_by_idx[fi], end="")
-
-        _print_inprog_section(inprog_entries, slack=False)
+    _print_inprog_section(inprog_entries)
 
     OUT.flush_to(CFG.status_file)
 

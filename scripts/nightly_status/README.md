@@ -7,10 +7,10 @@ Automated nightly CI status reporting system that generates failure reports with
 ### Workflow: `.github/workflows/nightly-status-report.yml`
 
 - Runs daily at 11:00 UTC (after all nightly jobs complete) or manually via `workflow_dispatch`
-- Supports optional `date` and `skip_rca` inputs
+- Supports optional `skip_rca` input
 - Installs `gh` CLI and Claude CLI without `sudo` (distro-agnostic)
-- Generates a nightly status report and upstream RCA report
-- Prepares Slack Block Kit payloads and posts to separate channels via incoming webhooks
+- Generates a nightly status report and upstream RCA report as Slack Block Kit JSON payloads
+- Posts payloads to Slack via incoming webhooks
 
 ### Scripts
 
@@ -22,7 +22,7 @@ Fetches all nightly workflow runs from GitHub, builds a status summary table, an
 - Uses Claude CLI (or NVIDIA LLM) to identify the root cause and suggest fixes
 - AI extracts the 3-5 most relevant stacktrace lines (not the full log)
 - Searches upstream repos for related issues/PRs
-- Outputs Slack-formatted `mrkdwn` with the status table in a code block
+- Outputs a Slack Block Kit JSON payload directly
 
 **Usage:**
 
@@ -30,16 +30,14 @@ Fetches all nightly workflow runs from GitHub, builds a status summary table, an
 python scripts/nightly_status/check_nightly_status.py [OPTIONS]
 ```
 
-Generates `status.txt` (configurable via `STATUS_FILE` env var) containing the status summary table and failure details with AI-analyzed stacktraces, causes, and fixes.
+Generates `status-payload.json` (configurable via `STATUS_FILE` env var) — a Slack Block Kit JSON payload containing the status summary table and failure details with AI-analyzed stacktraces, causes, and fixes.
 
 | Option | Description |
 |---|---|
-| `--slack` | Output in Slack-formatted style with mrkdwn |
-| `--cause` / `--no-cause` | Enable/disable AI cause analysis |
-| `--fix` / `--no-fix` | Enable/disable AI fix suggestions |
-| `--claude` / `--no-claude` | Use Claude CLI or NVIDIA LLM for analysis |
+| `--no-cause` | Disable AI cause analysis (enabled by default) |
+| `--no-fix` | Disable AI fix suggestions (enabled by default) |
+| `--no-claude` | Use NVIDIA LLM instead of Claude for analysis |
 | `--print-logs` | Print full failed log tails |
-| `--date YYYY-MM-DD` | Fetch status for a specific date (default: auto-detect) |
 
 **Environment variables:**
 
@@ -50,7 +48,7 @@ Generates `status.txt` (configurable via `STATUS_FILE` env var) containing the s
 | `NVIDIA_API_KEY` / `LLM_API_KEY` | API key for NVIDIA LLM |
 | `LLM_MODEL` | LLM model name |
 | `LLM_API_URL` | LLM API endpoint |
-| `STATUS_FILE` | Output file path (default: `status.txt`) |
+| `STATUS_FILE` | Output file path (default: `status-payload.json`) |
 | `GH_RETRIES` | Number of retries for GitHub API calls (default: 5) |
 | `GH_HTTP_TIMEOUT` | HTTP timeout for GitHub API calls (default: 60) |
 
@@ -61,35 +59,21 @@ Parses the status report, extracts error-specific search queries (test names, sy
 - **Presto failures** → searches `prestodb/presto` + `facebookincubator/velox`
 - **Velox failures** → searches `facebookincubator/velox` only
 - Filters results to the last 30 days only
-- Outputs a Slack-formatted RCA report
+- Outputs a Slack Block Kit JSON payload with the RCA report
 
 **Usage:**
 
 ```bash
-python scripts/nightly_status/search_upstream_issues.py -i status.txt -o rca-report.txt
+python scripts/nightly_status/search_upstream_issues.py -i status-payload.json -o rca-payload.json
 ```
 
 | Option | Description |
 |---|---|
-| `-i`, `--input` | Path to status.txt (default: `status.txt`) |
-| `-o`, `--output` | Path to write the RCA report (default: `rca-report.txt`) |
+| `-i`, `--input` | Path to status payload JSON (default: `status-payload.json`) |
+| `-o`, `--output` | Path to write the RCA payload JSON (default: `rca-payload.json`) |
 | `--days N` | Search issues/PRs created within the last N days (default: 30) |
 | `--max-results N` | Max results per search query per repo (default: 5) |
 | `--repos REPO [...]` | Additional repos to search |
-
-#### `prepare_slack_payload.py`
-
-Converts report files into Slack Block Kit JSON payloads suitable for `slackapi/slack-github-action` with `payload-file-path` and incoming webhooks.
-
-- Splits on `---` section delimiters
-- Separates code-fenced blocks (`` ``` ``) into standalone Slack blocks
-- Chunks long content to stay within Slack's 3000-character block text limit
-
-**Usage:**
-
-```bash
-python scripts/nightly_status/prepare_slack_payload.py --file status.txt --output status-payload.json
-```
 
 ## Required GitHub Secrets
 
@@ -103,9 +87,6 @@ python scripts/nightly_status/prepare_slack_payload.py --file status.txt --outpu
 ```bash
 # Run with defaults
 gh workflow run "Nightly Status Report" --ref nightly-status
-
-# Run for a specific date
-gh workflow run "Nightly Status Report" --ref nightly-status -f date=2026-03-12
 
 # Skip upstream RCA search
 gh workflow run "Nightly Status Report" --ref nightly-status -f skip_rca=true

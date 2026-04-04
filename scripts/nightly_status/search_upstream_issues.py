@@ -2,7 +2,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Nightly failure root cause analysis — searches upstream repos for related issues/PRs."""
+"""Nightly failure root cause analysis — searches upstream repos for related issues/PRs.
+
+Reads a Slack Block Kit JSON payload (from check_nightly_status.py) and
+outputs a Slack Block Kit JSON payload with the RCA report.
+"""
 
 from __future__ import annotations
 
@@ -53,7 +57,7 @@ class SearchResult:
 
 
 # ---------------------------------------------------------------------------
-# Status.txt parser
+# Status payload parser
 # ---------------------------------------------------------------------------
 
 _FAILURE_HEADING = re.compile(r"^\*(\d+)\.\s+(.+)\*$")
@@ -69,11 +73,24 @@ _CAUSE_RE = re.compile(r"^\s*\*Cause:\*\s*_(.+?)_?\s*$")
 _FIX_RE = re.compile(r"^\s*\*Fix:\*\s*_(.+?)_?\s*$")
 
 
-def parse_status_file(path: str) -> list[Failure]:
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
+def _extract_mrkdwn_from_payload(payload: dict) -> str:
+    """Reconstruct mrkdwn text from a Slack Block Kit payload.
 
-    # Split on `---` separator lines
+    Section blocks contribute their text content; divider blocks become
+    '---' separators — matching the format originally parsed from status.txt.
+    """
+    parts: list[str] = []
+    for block in payload.get("blocks", []):
+        if block.get("type") == "divider":
+            parts.append("---")
+        elif block.get("type") == "section":
+            text_obj = block.get("text", {})
+            parts.append(text_obj.get("text", ""))
+    return "\n".join(parts)
+
+
+def _parse_mrkdwn(text: str) -> list[Failure]:
+    """Parse failure entries from mrkdwn text (with --- separators)."""
     sections = re.split(r"^---\s*$", text, flags=re.MULTILINE)
     failures: list[Failure] = []
 
@@ -110,20 +127,13 @@ def parse_status_file(path: str) -> list[Failure]:
 
         in_stacktrace = False
         stacktrace_lines: list[str] = []
-        current_cause = ""
-        current_fix = ""
 
         for line in lines[1:]:
             stripped = line.strip()
 
-            # Check for code fence
             if stripped.startswith("```"):
                 if in_stacktrace:
-                    fail.stacktraces.append(
-                        Stacktrace(
-                            text="\n".join(stacktrace_lines),
-                        )
-                    )
+                    fail.stacktraces.append(Stacktrace(text="\n".join(stacktrace_lines)))
                     stacktrace_lines = []
                     in_stacktrace = False
                 else:
@@ -134,7 +144,6 @@ def parse_status_file(path: str) -> list[Failure]:
                 stacktrace_lines.append(line)
                 continue
 
-            # Parse metadata
             for key, pattern in _METADATA_RE.items():
                 m = pattern.match(stripped)
                 if m:
@@ -153,22 +162,32 @@ def parse_status_file(path: str) -> list[Failure]:
 
             m = _CAUSE_RE.match(stripped)
             if m:
-                current_cause = m.group(1)
                 if fail.stacktraces:
-                    fail.stacktraces[-1].cause = current_cause
+                    fail.stacktraces[-1].cause = m.group(1)
                 continue
 
             m = _FIX_RE.match(stripped)
             if m:
-                current_fix = m.group(1)
                 if fail.stacktraces:
-                    fail.stacktraces[-1].fix = current_fix
+                    fail.stacktraces[-1].fix = m.group(1)
                 continue
 
         if fail.stacktraces or fail.title:
             failures.append(fail)
 
     return failures
+
+
+def parse_status_file(path: str) -> list[Failure]:
+    """Parse failures from a Slack Block Kit JSON payload file."""
+    with open(path, encoding="utf-8") as f:
+        raw = f.read()
+    try:
+        payload = json.loads(raw)
+        text = _extract_mrkdwn_from_payload(payload)
+    except (json.JSONDecodeError, KeyError):
+        text = raw
+    return _parse_mrkdwn(text)
 
 
 # ---------------------------------------------------------------------------
@@ -568,6 +587,97 @@ def format_rca_report(
     return "\n".join(lines)
 
 
+SLACK_BLOCK_TEXT_LIMIT = 3000
+
+
+def _split_mrkdwn_sections(content: str) -> list[str]:
+    """Split mrkdwn content on '---' lines into individual sections."""
+    sections: list[str] = []
+    current: list[str] = []
+    for line in content.splitlines(keepends=True):
+        if re.match(r"^\s*---\s*$", line):
+            text = "".join(current).strip()
+            if text:
+                sections.append(text)
+            current = []
+        else:
+            current.append(line)
+    trailing = "".join(current).strip()
+    if trailing:
+        sections.append(trailing)
+    return sections
+
+
+def _split_code_blocks(section: str) -> list[str]:
+    """Split a section into alternating text and code-fenced fragments."""
+    fragments: list[str] = []
+    current: list[str] = []
+    in_code = False
+    for line in section.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if in_code:
+                current.append(line)
+                fragments.append("".join(current).strip())
+                current = []
+                in_code = False
+            else:
+                text_before = "".join(current).strip()
+                if text_before:
+                    fragments.append(text_before)
+                current = [line]
+                in_code = True
+        else:
+            current.append(line)
+    trailing = "".join(current).strip()
+    if trailing:
+        if in_code:
+            trailing += "\n```"
+        fragments.append(trailing)
+    return [f for f in fragments if f]
+
+
+def _chunk_text(text: str, max_len: int = SLACK_BLOCK_TEXT_LIMIT) -> list[str]:
+    """Split text into chunks that fit within Slack's block text limit."""
+    if len(text) <= max_len:
+        return [text]
+    is_code = text.lstrip().startswith("```")
+    chunks: list[str] = []
+    lines = text.splitlines(keepends=True)
+    current: list[str] = []
+    current_len = 0
+    for line in lines:
+        if current_len + len(line) > max_len and current:
+            chunk = "".join(current).rstrip()
+            if is_code and not chunk.rstrip().endswith("```"):
+                chunk += "\n```"
+            chunks.append(chunk)
+            current = []
+            current_len = 0
+            if is_code:
+                current.append("```\n")
+                current_len = 4
+        current.append(line)
+        current_len += len(line)
+    if current:
+        chunks.append("".join(current).rstrip())
+    return chunks
+
+
+def _build_slack_payload(mrkdwn_text: str) -> dict:
+    """Convert mrkdwn text (with --- separators) into a Slack Block Kit payload."""
+    sections = _split_mrkdwn_sections(mrkdwn_text)
+    blocks: list[dict] = []
+    for i, section in enumerate(sections):
+        if i > 0:
+            blocks.append({"type": "divider"})
+        for fragment in _split_code_blocks(section):
+            for chunk in _chunk_text(fragment):
+                blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunk}})
+    fallback = sections[0][:200] if sections else ""
+    return {"text": fallback, "blocks": blocks}
+
+
 def _build_error_summary(fail: Failure) -> str:
     """Build a one-line error summary from the stacktraces."""
     summaries: list[str] = []
@@ -621,9 +731,10 @@ def _build_error_summary(fail: Failure) -> str:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "Nightly failure root cause analysis — parses a status.txt report "
-            "(from check_nightly_status.py), extracts error signatures, and "
-            "searches upstream GitHub repos for related issues/PRs."
+            "Nightly failure root cause analysis — parses a Slack Block Kit "
+            "JSON payload (from check_nightly_status.py), extracts error "
+            "signatures, and searches upstream GitHub repos for related issues/PRs. "
+            "Outputs a Slack Block Kit JSON payload."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -637,7 +748,7 @@ requirements:
   Python 3.9+
 
 examples:
-  python %(prog)s -i status.txt -o rca-report.txt
+  python %(prog)s -i status-payload.json -o rca-payload.json
   python %(prog)s --days 14 --max-results 3
   python %(prog)s --repos rapidsai/cudf facebookincubator/velox
 """,
@@ -645,14 +756,14 @@ examples:
     p.add_argument(
         "-i",
         "--input",
-        default="status.txt",
-        help="Path to the nightly status.txt file (default: status.txt)",
+        default="status-payload.json",
+        help="path to the status payload JSON (default: status-payload.json)",
     )
     p.add_argument(
         "-o",
         "--output",
-        default="rca-report.txt",
-        help="Path to write the RCA report (default: stdout only)",
+        default="rca-payload.json",
+        help="path to write the RCA payload JSON (default: rca-payload.json)",
     )
     p.add_argument(
         "--days",
@@ -713,13 +824,16 @@ def main():
         results_by_failure[fail.number] = results
         print(f"      → {len(results)} result(s)", file=sys.stderr)
 
-    report = format_rca_report(failures, results_by_failure, date_str)
+    report_mrkdwn = format_rca_report(failures, results_by_failure, date_str)
 
-    print(report)
+    print(report_mrkdwn)
+
+    payload = _build_slack_payload(report_mrkdwn)
     if args.output and args.output != "-":
         with open(args.output, "w", encoding="utf-8") as f:
-            f.write(report)
-        print(f"\nReport written to {args.output}", file=sys.stderr)
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        block_count = len(payload.get("blocks", []))
+        print(f"\nWrote {args.output} ({block_count} Slack blocks)", file=sys.stderr)
 
 
 if __name__ == "__main__":

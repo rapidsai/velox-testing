@@ -57,15 +57,14 @@ jobs:
       - name: Generate nightly status report
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          STATUS_FILE: status.txt
         run: python3 scripts/nightly_status/check_nightly_status.py
 
       - name: Generate upstream RCA report
         if: ${{ inputs.skip_rca != true }}
         run: |
           python3 scripts/nightly_status/search_upstream_issues.py \
-            -i status.txt \
-            -o rca-report.txt
+            -i status-payload.json \
+            -o rca-payload.json
 
       - name: Upload reports as artifacts
         if: always()
@@ -73,18 +72,8 @@ jobs:
         with:
           name: nightly-reports
           path: |
-            status.txt
-            rca-report.txt
-
-      - name: Prepare Slack payloads
-        if: always()
-        run: |
-          if [[ -f status.txt ]]; then
-            python3 scripts/nightly_status/prepare_slack_payload.py --file status.txt --output status-payload.json
-          fi
-          if [[ -f rca-report.txt ]]; then
-            python3 scripts/nightly_status/prepare_slack_payload.py --file rca-report.txt --output rca-payload.json
-          fi
+            status-payload.json
+            rca-payload.json
 
       - name: Send nightly status to Slack
         if: ${{ always() && hashFiles('status-payload.json') != '' }}
