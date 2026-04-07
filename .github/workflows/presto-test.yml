@@ -159,6 +159,17 @@ jobs:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
+      - name: Generate benchmark data
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install -q -r benchmark_data_tools/requirements.txt
+          python benchmark_data_tools/generate_data_files.py \
+            --benchmark-type ${{ matrix.test_type }} \
+            --data-dir-path common/testing/integration_tests/data/${{ matrix.test_type }} \
+            --scale-factor 10 \
+            --convert-decimals-to-floats
+
       - &login_ghcr
         name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0

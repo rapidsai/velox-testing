@@ -117,7 +117,7 @@ jobs:
           python benchmark_data_tools/generate_data_files.py \
             --benchmark-type tpch \
             --data-dir-path "${TPCH_DATA_DIR}" \
-            --scale-factor 0.01 \
+            --scale-factor 10 \
             --convert-decimals-to-floats
 
       - name: Run TPC-H GPU benchmarks
