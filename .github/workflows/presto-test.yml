@@ -63,7 +63,7 @@ jobs:
           date: ${{ inputs.date }}
 
   test-presto-integration:
-    name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
+    name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
     needs: [resolve-inputs]
     permissions:
       contents: read
@@ -71,12 +71,90 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
-        cuda_version:
-          - &cuda12 '12.9'
-          - &cuda13 '13.1'
-        test_type: [tpch, tpcds]
-    runs-on: linux-${{ matrix.arch }}-gpu-l4-latest-1
+        include:
+          # amd64
+          - arch: amd64
+            cuda_version: '12.9'
+            gpu: l4
+            test_type: tpch
+          - arch: amd64
+            cuda_version: '12.9'
+            gpu: l4
+            test_type: tpcds
+          - arch: amd64
+            cuda_version: '12.9'
+            gpu: a100
+            test_type: tpch
+          - arch: amd64
+            cuda_version: '12.9'
+            gpu: a100
+            test_type: tpcds
+          - arch: amd64
+            cuda_version: '12.9'
+            gpu: h100
+            test_type: tpch
+          - arch: amd64
+            cuda_version: '12.9'
+            gpu: h100
+            test_type: tpcds
+          - arch: amd64
+            cuda_version: '13.1'
+            gpu: l4
+            test_type: tpch
+          - arch: amd64
+            cuda_version: '13.1'
+            gpu: l4
+            test_type: tpcds
+          - arch: amd64
+            cuda_version: '13.1'
+            gpu: a100
+            test_type: tpch
+          - arch: amd64
+            cuda_version: '13.1'
+            gpu: a100
+            test_type: tpcds
+          - arch: amd64
+            cuda_version: '13.1'
+            gpu: h100
+            test_type: tpch
+          - arch: amd64
+            cuda_version: '13.1'
+            gpu: h100
+            test_type: tpcds
+          # arm64
+          - arch: arm64
+            cuda_version: '12.9'
+            gpu: l4
+            test_type: tpch
+          - arch: arm64
+            cuda_version: '12.9'
+            gpu: l4
+            test_type: tpcds
+          - arch: arm64
+            cuda_version: '12.9'
+            gpu: a100
+            test_type: tpch
+          - arch: arm64
+            cuda_version: '12.9'
+            gpu: a100
+            test_type: tpcds
+          - arch: arm64
+            cuda_version: '13.1'
+            gpu: l4
+            test_type: tpch
+          - arch: arm64
+            cuda_version: '13.1'
+            gpu: l4
+            test_type: tpcds
+          - arch: arm64
+            cuda_version: '13.1'
+            gpu: a100
+            test_type: tpch
+          - arch: arm64
+            cuda_version: '13.1'
+            gpu: a100
+            test_type: tpcds
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2

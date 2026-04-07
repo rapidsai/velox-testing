@@ -52,7 +52,7 @@ jobs:
           date: ${{ inputs.date }}
 
   benchmark-velox-gpu:
-    name: benchmark-velox-gpu (tpch, cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
+    name: benchmark-velox-gpu (tpch, cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
     needs: [resolve-inputs]
     permissions:
       contents: read
@@ -61,18 +61,38 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # amd64
           - arch: amd64
             cuda_version: '12.9'
             gpu: l4
           - arch: amd64
+            cuda_version: '12.9'
+            gpu: a100
+          - arch: amd64
+            cuda_version: '12.9'
+            gpu: h100
+          - arch: amd64
             cuda_version: '13.1'
             gpu: l4
+          - arch: amd64
+            cuda_version: '13.1'
+            gpu: a100
+          - arch: amd64
+            cuda_version: '13.1'
+            gpu: h100
+          # arm64
           - arch: arm64
             cuda_version: '12.9'
             gpu: l4
           - arch: arm64
+            cuda_version: '12.9'
+            gpu: a100
+          - arch: arm64
             cuda_version: '13.1'
             gpu: l4
+          - arch: arm64
+            cuda_version: '13.1'
+            gpu: a100
     runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     env:
       TPCH_DATA_DIR: ${{ github.workspace }}/benchmark-data/tpch
@@ -120,7 +140,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}-${{ needs.resolve-inputs.outputs.velox_short_sha }}-${{ needs.resolve-inputs.outputs.date }}"
+          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.gpu }}-${{ matrix.arch }}-${{ needs.resolve-inputs.outputs.velox_short_sha }}-${{ needs.resolve-inputs.outputs.date }}"
           path: benchmark-results
           if-no-files-found: error
           retention-days: 14
