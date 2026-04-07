@@ -65,7 +65,7 @@ jobs:
           ref: ${{ inputs.velox_sha }}
           path: velox
 
-      # TODO: Remove this workaround once https://github.com/facebookincubator/velox/pull/XXXX is merged.
+      # TODO: Remove this workaround once https://github.com/facebookincubator/velox/pull/17060 is merged.
       - &patch_arm_build_target
         name: Patch ARM_BUILD_TARGET default to generic
         run: |
