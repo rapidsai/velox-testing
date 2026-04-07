@@ -12,35 +12,41 @@ mkdir -p "${LOGS_DIR}"
 
 ETC_BASE="/opt/presto-server/etc"
 
-# Resolve the NUMA node closest to a GPU and launch presto_server pinned to it.
+# Resolve the NUMA node closest to a GPU (if available) and launch presto_server pinned to it.
 #   $1 — GPU ID
 #   $2 — etc-dir path for this instance
 launch_worker() {
   local gpu_id=$1 etc_dir=$2
-  echo "Launching on GPU $gpu_id (config: $etc_dir)"
-
-  local topo
-  topo=$(nvidia-smi topo -C -M -i "$gpu_id")
-  echo "$topo"
-
-  local cpu_numa mem_numa
-  cpu_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest CPU/{ gsub(/ /,"",$2); print $2 }')
-  mem_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest memory/{ gsub(/ /,"",$2); print $2 }')
+  echo "Launching worker $gpu_id (config: $etc_dir)"
 
   local launcher=()
-  if [[ $cpu_numa =~ ^[0-9]+$ ]]; then
-    launcher=(numactl --cpunodebind="$cpu_numa")
-    if [[ $mem_numa =~ ^[0-9]+$ ]]; then
-      launcher+=(--membind="$mem_numa")
-    else
-      launcher+=(--membind="$cpu_numa")
+  local cuda_env=()
+
+  if command -v nvidia-smi &> /dev/null; then
+    local topo
+    topo=$(nvidia-smi topo -C -M -i "$gpu_id")
+    echo "$topo"
+
+    local cpu_numa mem_numa
+    cpu_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest CPU/{ gsub(/ /,"",$2); print $2 }')
+    mem_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest memory/{ gsub(/ /,"",$2); print $2 }')
+
+    if [[ $cpu_numa =~ ^[0-9]+$ ]]; then
+      launcher=(numactl --cpunodebind="$cpu_numa")
+      if [[ $mem_numa =~ ^[0-9]+$ ]]; then
+        launcher+=(--membind="$mem_numa")
+      else
+        launcher+=(--membind="$cpu_numa")
+      fi
     fi
+
+    cuda_env=("CUDA_VISIBLE_DEVICES=$gpu_id")
+    gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i "$gpu_id")"
   fi
 
   log_file="${LOGS_DIR}/worker_${gpu_id}_${SERVER_START_TIMESTAMP}.log"
-  gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i $gpu_id)"
   echo "GPU Name: ${gpu_name:-unknown}" > "${log_file}"
-  CUDA_VISIBLE_DEVICES="$gpu_id" "${launcher[@]}" presto_server --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &
+  env "${cuda_env[@]}" "${launcher[@]}" presto_server --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &
 }
 
 # No args → single worker using CUDA_VISIBLE_DEVICES (default 0), shared config dir.
