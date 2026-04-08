@@ -31,7 +31,8 @@ jobs:
       - name: delete old versions
         env:
           GH_TOKEN: ${{ github.token }}
+          DAYS_TO_RETAIN: ${{ inputs.days-to-retain-versions || 30 }}
         run: |
           ci/delete-old-images.sh \
             "velox-testing-images" \
-            "${{ inputs.days-to-retain-versions || 30 }}"
+            "${DAYS_TO_RETAIN}"

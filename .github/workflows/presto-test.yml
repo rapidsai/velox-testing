@@ -160,13 +160,15 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Generate benchmark data
+        env:
+          TEST_TYPE: ${{ matrix.test_type }}
         run: |
           python3 -m venv .venv
           source .venv/bin/activate
           pip install -q -r benchmark_data_tools/requirements.txt
           python benchmark_data_tools/generate_data_files.py \
-            --benchmark-type ${{ matrix.test_type }} \
-            --data-dir-path common/testing/integration_tests/data/${{ matrix.test_type }} \
+            --benchmark-type "${TEST_TYPE}" \
+            --data-dir-path "common/testing/integration_tests/data/${TEST_TYPE}" \
             --scale-factor 10 \
             --convert-decimals-to-floats
 
