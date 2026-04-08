@@ -41,3 +41,12 @@ devstate*
 
 spark-gluten-install/
 build_artifacts
+
+# Spark Experimental build configuration
+spark_gpu_exp_builder/config/
+# Spark Experimental build output
+spark_gpu_exp_builder/target/
+# Temporary files for Spark Experimental build
+spark_gpu_exp_builder/tmp/
+# Staged Maven settings for Spark Experimental build
+spark_gpu_exp_builder/.docker-maven-settings/
