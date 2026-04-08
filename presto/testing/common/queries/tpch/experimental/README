@@ -2,7 +2,7 @@ This directory contains alternate queries for the TPCH benchmark.
 
 ### Polars derived queries
 These queries were derived by translating polars plans back into SQL.
-The source polars plans are found here 
+The source polars plans are found here
 https://github.com/pola-rs/polars-benchmark/tree/8975df5acb720c520dfdeb888d3668ba151f41df/queries/polars
 The file queries_polars.json contains the translated queries.
 
