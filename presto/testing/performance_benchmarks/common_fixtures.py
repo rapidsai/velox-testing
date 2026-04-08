@@ -9,7 +9,9 @@ import prestodb
 import pytest
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
+from common.testing.performance_benchmarks.cache_utils import cache_setup_per_iteration
 
+from ..common.test_utils import get_table_external_location
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
@@ -65,8 +67,32 @@ def presto_cursor(request):
     return conn.cursor()
 
 
+@pytest.fixture(scope="session")
+def benchmark_data_dir(request):
+    hostname = request.config.getoption("--hostname")
+    port = request.config.getoption("--port")
+    user = request.config.getoption("--user")
+    schema_name = request.config.getoption("--schema-name")
+
+    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema_name)
+    cursor = conn.cursor()
+    try:
+        tables = cursor.execute(f"SHOW TABLES IN {schema_name}").fetchall()
+        if not tables:
+            raise RuntimeError(f"No tables found in schema '{schema_name}'")
+        table = tables[0][0]
+        location = get_table_external_location(schema_name, table, cursor)
+        # location is e.g. ${PRESTO_DATA_DIR}/tpch/sf1k_v2_float/lineitem
+        # parent gives us  ${PRESTO_DATA_DIR}/tpch/sf1k_v2_float
+        data_dir = str(Path(location).parent)
+        return data_dir
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @pytest.fixture(scope="module")
-def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_collector):
+def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_collector, benchmark_data_dir):
     iterations = request.config.getoption("--iterations")
     profile = request.config.getoption("--profile")
     profile_script_path = request.config.getoption("--profile-script-path")
@@ -75,6 +101,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     bench_output_dir = request.config.getoption("--output-dir")
     hostname = request.config.getoption("--hostname")
     port = request.config.getoption("--port")
+    cache_mode = request.config.getoption("--cache-mode")
 
     if profile:
         assert profile_script_path is not None
@@ -93,15 +120,28 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     failed_queries_dict = benchmark_dict[BenchmarkKeys.FAILED_QUERIES_KEY]
     assert failed_queries_dict == {}
 
+    def cache_setup_per_query(cache_mode, query_id):
+        # Warmup for hot cache mode: execute the query once (untimed) to populate page cache
+        # before the timed iterations begin.
+        if cache_mode == "hot":
+            warmup_cursor = presto_cursor.execute(
+                "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
+            )
+            warmup_cursor.fetchall()  # Drain results to complete the query
+
     def benchmark_query_function(query_id):
         profile_output_file_path = None
         try:
+            cache_setup_per_query(cache_mode, query_id)
+
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
             for iteration_num in range(iterations):
+                cache_setup_per_iteration(cache_mode, benchmark_data_dir)
+
                 cursor = presto_cursor.execute(
                     "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
                 )

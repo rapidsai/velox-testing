@@ -41,7 +41,12 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
-    --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
+    -c, --cache-mode        Cache mode for benchmark queries. Controls page cache state between query iterations.
+                            Supported modes:
+                            default  - Drop cache once at benchmark start, then let cache warm naturally across iterations and queries.
+                            cold     - Drop cache before each query iteration.
+                            hot      - Run an untimed warmup execution before timing each query.
+                            none     - Do not manage page cache at all.
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
     -v, --verbose           Print debug logs for worker/engine detection
@@ -170,9 +175,14 @@ parse_args() {
         PROFILE=true
         shift
         ;;
-      --skip-drop-cache)
-        SKIP_DROP_CACHE=true
-        shift
+      -c|--cache-mode)
+        if [[ -n $2 ]]; then
+            CACHE_MODE=$2
+            shift 2
+        else
+            echo "Error: --cache-mode requires a value"
+            exit 1
+        fi
         ;;
       -m|--metrics)
         METRICS=true
@@ -201,6 +211,12 @@ fi
 
 if [[ -z ${SCHEMA_NAME} ]]; then
   echo "Error: A schema name must be set. Use the -s or --schema-name argument."
+  print_help
+  exit 1
+fi
+
+if [[ -n ${CACHE_MODE} && ! ${CACHE_MODE} =~ ^(hot|cold|default|none)$ ]]; then
+  echo "Error: Invalid --cache-mode value '${CACHE_MODE}'. Must be one of: hot, cold, default, none."
   print_help
   exit 1
 fi
@@ -258,8 +274,8 @@ if [[ "${METRICS}" == "true" ]]; then
   PYTEST_ARGS+=("--metrics")
 fi
 
-if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
-  PYTEST_ARGS+=("--skip-drop-cache")
+if [[ -n ${CACHE_MODE} ]]; then
+  PYTEST_ARGS+=("--cache-mode ${CACHE_MODE}")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
