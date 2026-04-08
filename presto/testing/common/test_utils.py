@@ -14,7 +14,7 @@ from common.testing.test_utils import (
 
 
 def get_table_external_location(schema_name, table, presto_cursor):
-    create_table_text = presto_cursor.execute(f"SHOW CREATE TABLE hive.{schema_name}.{table}").fetchone()
+    create_table_text = presto_cursor.cursor().execute(f"SHOW CREATE TABLE hive.{schema_name}.{table}").fetchone()
     test_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/integration_test/(.*)'"
     user_pattern = r"external_location = 'file:/var/lib/presto/data/hive/data/user_data/(.*)'"
     assert len(create_table_text) == 1
@@ -46,7 +46,7 @@ def get_scale_factor(request, presto_cursor):
     if bool(schema_name):
         # If a schema name is specified, get the scale factor from the metadata file located
         # where the table are fetching data from.
-        table = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchone()[0]
+        table = presto_cursor.cursor().execute(f"SHOW TABLES in {schema_name}").fetchone()[0]
         location = get_table_external_location(schema_name, table, presto_cursor)
         repository_path = os.path.dirname(location)
     else:
