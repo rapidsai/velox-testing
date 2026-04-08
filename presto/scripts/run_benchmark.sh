@@ -8,6 +8,10 @@ set -e
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# LOGS_DIR points to the directory where server log files (including nvidia-smi
+# output) are written so that run_context.py can parse GPU info.
+export LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
+
 source "${SCRIPT_DIR}/presto_connection_defaults.sh"
 
 print_help() {
@@ -22,6 +26,8 @@ OPTIONS:
     -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
+    --queries-file          Path to a custom JSON file containing query definitions. When specified, queries are loaded
+                            from this file instead of the default queries_best.json.
     -H, --hostname          Hostname of the Presto coordinator.
     --port                  Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
@@ -38,6 +44,9 @@ OPTIONS:
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
+    -v, --verbose           Print debug logs for worker/engine detection
+                            (e.g. node URIs, cluster-tag, GPU model).
+                            Use when engine is misdetected or the run fails.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -46,7 +55,7 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
     $0 -b tpch -s bench_sf100 --metrics
-    $0 -h
+    $0 -b tpch -s bench_sf100 --verbose
 
 EOF
 }
@@ -73,6 +82,15 @@ parse_args() {
           shift 2
         else
           echo "Error: --queries requires a value"
+          exit 1
+        fi
+        ;;
+      --queries-file)
+        if [[ -n $2 ]]; then
+          QUERIES_FILE=$2
+          shift 2
+        else
+          echo "Error: --queries-file requires a value"
           exit 1
         fi
         ;;
@@ -160,6 +178,10 @@ parse_args() {
         METRICS=true
         shift
         ;;
+      -v|--verbose)
+        export PRESTO_BENCHMARK_DEBUG=1
+        shift
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -195,6 +217,10 @@ if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
 fi
 
+if [[ -n ${QUERIES_FILE} ]]; then
+  PYTEST_ARGS+=("--queries-file ${QUERIES_FILE}")
+fi
+
 if [[ -n ${HOST_NAME} ]]; then
   PYTEST_ARGS+=("--hostname ${HOST_NAME}")
 fi
@@ -225,7 +251,7 @@ if [[ -n ${TAG} ]]; then
 fi
 
 if [[ "${PROFILE}" == "true" ]]; then
-  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
+  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f "${SCRIPT_DIR}/profiler_functions.sh")")
 fi
 
 if [[ "${METRICS}" == "true" ]]; then

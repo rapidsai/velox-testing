@@ -168,6 +168,13 @@ elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
+  FIRST_GPU_ID=0
+  if [[ -n $GPU_IDS ]]; then
+    FIRST_GPU_ID=$(echo $GPU_IDS | cut -d',' -f1)
+  fi
+  if [[ -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 && "$SINGLE_CONTAINER" == "false" ]]; then
+    GPU_WORKER_SERVICE="presto-native-worker-gpu-${FIRST_GPU_ID}"
+  fi
   conditionally_add_build_target $GPU_WORKER_IMAGE $GPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu-dev" ]]; then
   # Use the same Jinja template as the gpu variant, but render it in dev mode and
@@ -260,9 +267,23 @@ else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
 
+# Set up LOGS_DIR before any docker compose commands (stop, build, or up)
+# since docker-compose.common.yml requires it via ${LOGS_DIR:?...}.
+LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
+[ -L "${LOGS_DIR}" ] && rm -f "${LOGS_DIR}"
+mkdir -p "${LOGS_DIR}"
+if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
+  mkdir -p "${LOGS_DIR}/archive"
+  mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
+fi
+export SERVER_START_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
+export LOGS_DIR
+
 "${SCRIPT_DIR}/stop_presto.sh"
 
-"${SCRIPT_DIR}/generate_presto_config.sh"
+if [[ "${SKIP_GENERATE_CONFIG:-false}" != "true" ]]; then
+  "${SCRIPT_DIR}/generate_presto_config.sh"
+fi
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""

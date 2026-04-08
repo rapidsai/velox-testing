@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +13,30 @@ from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
 from .profiler_utils import start_profiler, stop_profiler
+from .run_context import gather_run_context
+
+
+@pytest.fixture(scope="session", autouse=True)
+def run_context_collector(request):
+    """Gather Presto-specific run context and attach it to the session.
+
+    The common pytest_sessionfinish merges session.run_context into the
+    benchmark_result.json context section.
+    """
+    hostname = request.config.getoption("--hostname")
+    port = request.config.getoption("--port")
+    user = request.config.getoption("--user")
+    schema_name = request.config.getoption("--schema-name")
+
+    ctx = gather_run_context(
+        hostname=hostname,
+        port=port,
+        user=user,
+        schema_name=schema_name,
+    )
+    ctx["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    yield ctx
+    request.session.run_context = ctx
 
 
 @pytest.fixture(scope="session", autouse=True)

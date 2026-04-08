@@ -34,6 +34,8 @@ OPTIONS:
                          This will override the default arguments.
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
     -s, --skip-server    (gpu-dev only) Keep the dev worker container running but do not start presto_server.
+    --logs-dir           Directory for server log files (default: <script_dir>/presto_logs).
+                         Old log files are archived to an archive/ subdirectory on each startup.
     --sccache            Enable sccache distributed compilation caching (requires auth files
                          in ~/.sccache-auth/). Run scripts/sccache/setup_sccache_auth.sh first.
     --sccache-version    Install a specific version of rapidsai/sccache, e.g. "0.12.0-rapids.1"
@@ -66,10 +68,12 @@ BUILD_TYPE=release
 ALL_CUDA_ARCHS=false
 export SINGLE_CONTAINER=false
 export OVERWRITE_CONFIG=false
+SKIP_GENERATE_CONFIG=false
 export PROFILE=OFF
 export NUM_WORKERS=1
 export KVIKIO_THREADS=8
 export VCPU_PER_WORKER=""
+LOGS_DIR=""
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
@@ -177,6 +181,19 @@ parse_args() {
       -s|--skip-server)
         export PRESTO_SKIP_SERVER=1
         shift
+        ;;
+      --skip-generate-config)
+        SKIP_GENERATE_CONFIG=true
+        shift
+        ;;
+      --logs-dir)
+        if [[ -n $2 ]]; then
+          LOGS_DIR=$2
+          shift 2
+        else
+          echo "Error: --logs-dir requires a value"
+          exit 1
+        fi
         ;;
       --sccache)
         ENABLE_SCCACHE=true

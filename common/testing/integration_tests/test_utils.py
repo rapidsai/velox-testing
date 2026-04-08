@@ -205,10 +205,23 @@ def assert_rows_equal(rows_1, rows_2, types):
 
 def initialize_output_dir(config, query_engine):
     output_dir = Path(config.getoption("--output-dir"))
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=False)
+    user_reference_results_dir = config.getoption("--reference-results-dir")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     if config.getoption(f"--store-{query_engine}-results"):
-        Path(f"{output_dir}/{query_engine}_results").mkdir(exist_ok=False)
+        query_engine_results_dir = Path(f"{output_dir}/{query_engine}_results")
+        if query_engine_results_dir.exists():
+            shutil.rmtree(query_engine_results_dir)
+        query_engine_results_dir.mkdir(exist_ok=False)
+
     if config.getoption("--store-reference-results"):
-        Path(f"{output_dir}/reference_results").mkdir(exist_ok=False)
+        # Only manage the reference results directory if it's not being overridden by the user
+        reference_results_dir = Path(f"{output_dir}/reference_results")
+        if reference_results_dir.exists():
+            if not user_reference_results_dir or Path(user_reference_results_dir) != reference_results_dir:
+                shutil.rmtree(reference_results_dir)
+            else:
+                raise Exception(
+                    "Reference results directory and store-reference-results should not be set at the same time"
+                )
+        reference_results_dir.mkdir(exist_ok=False)

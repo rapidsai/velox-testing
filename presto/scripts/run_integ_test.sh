@@ -22,6 +22,8 @@ OPTIONS:
     -b, --benchmark-type             Type of benchmark to run tests for. Only "tpch" and "tpcds" are currently supported.
     -q, --queries                    Set of benchmark queries to run. This should be a comma separate list of query numbers.
                                      By default, all benchmark queries are run.
+    --queries-file                   Path to a custom JSON file containing query definitions. When specified, queries
+                                     are loaded from this file instead of the default queries_best.json.
     -k, --keep-tables                If this argument is specified, created benchmark tables will not be dropped.
     -H, --hostname                   Hostname of the Presto coordinator.
     -p, --port                       Port number of the Presto coordinator.
@@ -44,6 +46,8 @@ OPTIONS:
     --preview-rows-count             Number of rows to include in the preview i.e. when --show-presto-result-preview or
                                      --show-reference-result-preview is specified.
     --skip-reference-comparison      Skip Presto rows comparison against a reference set of rows.
+    -e, --explain                    Run queries with EXPLAIN prefix. Requires --skip-reference-comparison.
+    --explain-analyze                Run queries with EXPLAIN ANALYZE prefix. Requires --skip-reference-comparison.
     --reuse-venv                     If this argument is specified, reuse the existing Python virtual environment if one exists
                                      and skip dependency installation.
 
@@ -59,6 +63,8 @@ EXAMPLES:
     $0 -b tpch -q "1,2" -s my_sf1_schema --store-reference-results
     $0 -b tpch -q "1,2" -s my_sf1_schema --show-presto-result-preview --show-reference-result-preview --preview-rows-count 5
     $0 -b tpch -q "1,2" -s my_sf1_schema --store-presto-results --skip-reference-comparison
+    $0 -b tpch -q "1,2" -s my_sf1_schema --skip-reference-comparison --explain
+    $0 -b tpch -q "1,2" -s my_sf1_schema --skip-reference-comparison --explain-analyze
     $0 -h
 
 EOF
@@ -88,6 +94,15 @@ parse_args() {
           shift 2
         else
           echo "Error: --queries requires a value"
+          exit 1
+        fi
+        ;;
+      --queries-file)
+        if [[ -n $2 ]]; then
+          QUERIES_FILE=$2
+          shift 2
+        else
+          echo "Error: --queries-file requires a value"
           exit 1
         fi
         ;;
@@ -178,6 +193,14 @@ parse_args() {
         SKIP_REFERENCE_COMPARISON=true
         shift
         ;;
+      -e|--explain)
+        EXPLAIN=true
+        shift
+        ;;
+      --explain-analyze)
+        EXPLAIN_ANALYZE=true
+        shift
+        ;;
       --reuse-venv)
         REUSE_VENV=true
         shift
@@ -199,6 +222,12 @@ if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   exit 1
 fi
 
+if [[ "${EXPLAIN}" == "true" || "${EXPLAIN_ANALYZE}" == "true" ]] && [[ "${SKIP_REFERENCE_COMPARISON}" != "true" ]]; then
+  echo "Error: --explain and --explain-analyze require --skip-reference-comparison to also be specified."
+  print_help
+  exit 1
+fi
+
 set_presto_coordinator_defaults
 
 PYTEST_ARGS=()
@@ -209,6 +238,10 @@ fi
 
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
+fi
+
+if [[ -n ${QUERIES_FILE} ]]; then
+  PYTEST_ARGS+=("--queries-file ${QUERIES_FILE}")
 fi
 
 if [[ -n ${HOST_NAME} ]]; then
@@ -257,6 +290,16 @@ fi
 
 if [[ -n ${SKIP_REFERENCE_COMPARISON} ]]; then
   PYTEST_ARGS+=("--skip-reference-comparison")
+fi
+
+if [[ "${EXPLAIN}" == "true" ]]; then
+  PYTEST_ARGS+=("--explain")
+  PYTEST_ARGS+=("--store-presto-results")
+fi
+
+if [[ "${EXPLAIN_ANALYZE}" == "true" ]]; then
+  PYTEST_ARGS+=("--explain-analyze")
+  PYTEST_ARGS+=("--store-presto-results")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
