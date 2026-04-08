@@ -36,6 +36,9 @@ presto/slurm/presto-nvl72/result_dir/
 presto/slurm/presto-nvl72/kept_results/
 presto/slurm/presto-nvl72/worker_data*
 
+# Presto/Velox source
+presto/docker/docker-compose/generated*/
+
 devstate*
 **/.env
 
