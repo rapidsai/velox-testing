@@ -23,14 +23,9 @@ def _load_prompt_template() -> str:
 
 
 class TokenTracker:
-    """Thread-safe accumulator for AI token usage and cost estimation."""
+    """Thread-safe accumulator for AI token consumption."""
 
     def __init__(self) -> None:
-        self._pricing: dict[str, tuple[float, float]] = {
-            "opus": (15.0, 75.0),
-            "sonnet": (3.0, 15.0),
-            "haiku": (0.25, 1.25),
-        }
         self._lock = threading.Lock()
         self.api_calls = 0
         self.input_tokens = 0
@@ -57,19 +52,13 @@ class TokenTracker:
     def summary(self, config: Config) -> str:
         if self.api_calls == 0 and self.skipped_by_dedup == 0:
             return ""
-        model = config.claude_model
-        inp_price, out_price = self._pricing.get(model, (3.0, 15.0))
-        cost_input = self.input_tokens * inp_price / 1_000_000
-        cost_output = self.output_tokens * out_price / 1_000_000
-        total = cost_input + cost_output
         lines = [
-            "AI Token Usage Summary:",
-            f"  Model:            {model}",
+            "AI Token Usage:",
+            f"  Model:            {config.claude_model}",
             f"  API calls:        {self.api_calls}",
             f"  Skipped (dedup):  {self.skipped_by_dedup}",
             f"  Input tokens:     ~{self.input_tokens:,}",
             f"  Output tokens:    ~{self.output_tokens:,}",
-            f"  Est. cost:        ~${total:.4f} (input ${cost_input:.4f} + output ${cost_output:.4f})",
         ]
         return "\n".join(lines)
 
