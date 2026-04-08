@@ -11,6 +11,11 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
+      variant_label:
+        description: 'Variant label to disambiguate artifacts (e.g. upstream, staging)'
+        type: string
+        required: false
+        default: ''
 
   workflow_dispatch:
     inputs:
@@ -26,6 +31,11 @@ on:
         default: ''
       date:
         description: 'Build date YYYYMMDD (ignored if velox_image is set)'
+        type: string
+        required: false
+        default: ''
+      variant_label:
+        description: 'Variant label to disambiguate artifacts (e.g. upstream, staging)'
         type: string
         required: false
         default: ''
@@ -120,7 +130,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}-${{ needs.resolve-inputs.outputs.velox_short_sha }}-${{ needs.resolve-inputs.outputs.date }}"
+          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}-${{ needs.resolve-inputs.outputs.velox_short_sha }}-${{ needs.resolve-inputs.outputs.date }}${{ inputs.variant_label && format('-{0}', inputs.variant_label) || '' }}"
           path: benchmark-results
           if-no-files-found: error
           retention-days: 14
