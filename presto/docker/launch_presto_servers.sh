@@ -12,8 +12,10 @@ mkdir -p "${LOGS_DIR}"
 
 ETC_BASE="/opt/presto-server/etc"
 
-# Resolve the NUMA node closest to a GPU (if available) and launch presto_server pinned to it.
-#   $1 — GPU ID
+# Resolve the NUMA node for a worker and launch presto_server pinned to it.
+# For GPU workers: pins to the NUMA node closest to the GPU via nvidia-smi topology.
+# For CPU workers: interleaves memory across all NUMA nodes via numactl (requires SYS_NICE).
+#   $1 — GPU ID (or 0 for CPU single-worker)
 #   $2 — etc-dir path for this instance
 launch_worker() {
   local gpu_id=$1 etc_dir=$2
@@ -42,6 +44,15 @@ launch_worker() {
 
     cuda_env=("CUDA_VISIBLE_DEVICES=$gpu_id")
     gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i "$gpu_id")"
+  # No GPU: fall back to NUMA interleaving across all nodes for CPU workers.
+  # Requires SYS_NICE capability in the container (set via cap_add in docker-compose).
+  elif command -v numactl &> /dev/null; then
+    local num_nodes
+    num_nodes=$(numactl --hardware 2>/dev/null | grep -c "node [0-9]* cpus:" || echo 0)
+    if [[ $num_nodes -gt 1 ]]; then
+      echo "No GPU detected; found $num_nodes NUMA nodes -- launching with --interleave=all"
+      launcher=(numactl --interleave=all)
+    fi
   fi
 
   log_file="${LOGS_DIR}/worker_${gpu_id}_${SERVER_START_TIMESTAMP}.log"
