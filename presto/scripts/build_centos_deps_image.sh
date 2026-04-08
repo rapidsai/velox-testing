@@ -4,6 +4,7 @@ set -e
 
 IMAGE_NAME='presto/prestissimo-dependency:centos9'
 NO_CACHE_ARG=''
+CUDA_VERSION=''
 
 print_help() {
   cat << EOF
@@ -20,6 +21,7 @@ OPTIONS:
     -h, --help           Show this help message
     -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9)
     -n, --no-cache       Do not use Docker build cache (default: use cache)
+    --cuda-version       CUDA version to install (major.minor, like 12.9)
 
 EOF
 }
@@ -43,6 +45,15 @@ parse_args() {
       -n|--no-cache)
         NO_CACHE_ARG="--no-cache"
         shift
+        ;;
+      --cuda-version)
+        if [[ -n $2 ]]; then
+          CUDA_VERSION=$2
+          shift 2
+        else
+          echo "Error: --cuda-version requires a value"
+          exit 1
+        fi
         ;;
       *)
         echo "Error: Unknown argument $1"
@@ -94,7 +105,11 @@ cp -r ../../velox/CMake velox
 
 # now build
 echo "Building..."
-docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
+CUDA_VERSION_ARG=""
+if [[ -n "${CUDA_VERSION}" ]]; then
+  CUDA_VERSION_ARG="--build-arg CUDA_VERSION=${CUDA_VERSION}"
+fi
+docker compose --progress plain build ${NO_CACHE_ARG} ${CUDA_VERSION_ARG} centos-native-dependency
 
 # done (will cleanup on exit)
 echo "Presto dependencies/run-time container image built!"
