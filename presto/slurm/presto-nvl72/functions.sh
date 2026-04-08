@@ -229,9 +229,27 @@ function run_worker {
             [[ -e "${dev}" ]] || continue
             add_gds_sys_path "${dev}"
         done
+    fi
 
-        # Add the log directory
-        gds_mounts+=",${LOGS}:${vt_cufile_log_dir}"
+    local nsys_bin=""
+    local nsys_opts=""
+    local vt_nsys_report_dir="/var/log/nsys"
+    if [[ "${ENABLE_NSYS}" == "1" && "${NSYS_WORKER_ID}" == "${worker_id}" ]]; then
+        nsys_bin="/opt/nvidia/nsight-systems-cli/2026.2.1/bin/nsys"
+        nsys_opts="profile \
+        -o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
+        -t cuda,nvtx \
+        -f true \
+        --sample=none \
+        --cpuctxsw=none \
+        --cuda-memory-usage=true \
+        --nvtx-domain-exclude=CCCL"
+        # nsys_opts="profile \
+        # -o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
+        # -t cuda,ucx,nvtx,osrt \
+        # -f true \
+        # --cuda-memory-usage=true \
+        # --nvtx-domain-exclude=CCCL"
     fi
 
     # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
@@ -261,6 +279,8 @@ ${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
+${LOGS}:${vt_cufile_log_dir},\
+${LOGS}:${vt_nsys_report_dir},\
 /usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
 /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1\
 ${gds_mounts:+,${gds_mounts}} \
@@ -274,12 +294,18 @@ fi
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
 echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
 echo \"Worker ${worker_id}: ENABLE_GDS=\${ENABLE_GDS:-unset}\"
+echo \"Worker ${worker_id}: ENABLE_NSYS=\${ENABLE_NSYS:-unset}\"
 echo \"Worker ${worker_id}: KVIKIO_COMPAT_MODE=\${KVIKIO_COMPAT_MODE:-unset}\"
 echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
+
+if [[ -n '${nsys_bin}' ]]; then
+    echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"
+fi
+
 if [[ '${USE_NUMA}' == '1' ]]; then
-    numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    numactl --cpubind=${numa_node} --membind=${numa_node} ${nsys_bin} ${nsys_opts} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
 else
-    /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    ${nsys_bin} ${nsys_opts} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
 fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
