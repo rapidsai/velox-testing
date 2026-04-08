@@ -26,6 +26,8 @@ OPTIONS:
     -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
+    --queries-file          Path to a custom JSON file containing query definitions. When specified, queries are loaded
+                            from this file instead of the default queries_best.json.
     -H, --hostname          Hostname of the Presto coordinator.
     --port                  Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
@@ -87,6 +89,15 @@ parse_args() {
           shift 2
         else
           echo "Error: --queries requires a value"
+          exit 1
+        fi
+        ;;
+      --queries-file)
+        if [[ -n $2 ]]; then
+          QUERIES_FILE=$2
+          shift 2
+        else
+          echo "Error: --queries-file requires a value"
           exit 1
         fi
         ;;
@@ -208,6 +219,10 @@ PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
+fi
+
+if [[ -n ${QUERIES_FILE} ]]; then
+  PYTEST_ARGS+=("--queries-file ${QUERIES_FILE}")
 fi
 
 if [[ -n ${HOST_NAME} ]]; then

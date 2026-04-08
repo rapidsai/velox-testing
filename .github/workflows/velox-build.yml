@@ -65,6 +65,12 @@ jobs:
           ref: ${{ inputs.velox_sha }}
           path: velox
 
+      # TODO: Remove this workaround once https://github.com/facebookincubator/velox/pull/17060 is merged.
+      - &patch_arm_build_target
+        name: Patch ARM_BUILD_TARGET default to generic
+        run: |
+          sed -i 's/ARM_BUILD_TARGET:-"local"/ARM_BUILD_TARGET:-"generic"/' velox/scripts/setup-helper-functions.sh
+
       - &setup_proxy_cache
         name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
@@ -102,6 +108,7 @@ jobs:
           file: velox/scripts/docker/centos-multi.dockerfile
           target: adapters
           build-args: |
+            ARM_BUILD_TARGET=generic
             CUDA_VERSION=${{ matrix.cuda_version }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-velox-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-velox-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }},mode=max

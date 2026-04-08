@@ -69,7 +69,8 @@ ARG SCCACHE_NO_CACHE
 ARG SCCACHE_NO_DIST_COMPILE
 
 # Environment mirroring upstream CI defaults and incorporating build args
-ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
+ENV ARM_BUILD_TARGET="generic" \
+    VELOX_DEPENDENCY_SOURCE=SYSTEM \
     GTest_SOURCE=BUNDLED \
     cudf_SOURCE=BUNDLED \
     faiss_SOURCE=BUNDLED \
