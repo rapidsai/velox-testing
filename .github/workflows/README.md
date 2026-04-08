@@ -23,6 +23,9 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `velox-benchmark.yml` | Reusable workflow for Velox GPU benchmarks | TPC-H benchmarks against pre-built CI images; supports `workflow_dispatch` |
 | `presto-test.yml` | Reusable workflow for Presto CI image tests | Smoke + integration tests; supports `workflow_dispatch` for test-only runs |
 | `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
+| **Compute Sanitizer** |||
+| `velox-compute-sanitizer-trigger.yaml` | Discovers cuDF tests and runs compute-sanitizer tools | Weekly (Saturdays) + manual dispatch |
+| `velox-compute-sanitizer-run.yaml` | Reusable workflow to run a sanitizer tool on a matrix of tests | Called by trigger; also supports `workflow_dispatch` |
 
 ---
 
@@ -225,6 +228,11 @@ CI IMAGES (PRESTO)
 presto-nightly.yml ──► presto.yml ──► presto-build.yml ──► presto-test.yml
 
 presto-test.yml (workflow_dispatch) ──► [resolve-inputs] ──► [test pre-built images]
+
+COMPUTE SANITIZER
+─────────────────
+velox-compute-sanitizer-trigger.yaml ──► [discover cuda_driver tests] ──► velox-compute-sanitizer-run.yaml (racecheck)
+                                                                      └─► velox-compute-sanitizer-run.yaml (synccheck)
 
 CLEANUP
 ───────

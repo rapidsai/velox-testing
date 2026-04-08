@@ -33,6 +33,8 @@ services:
     build:
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
+      args:
+        - BASE_IMAGE=${DEPS_IMAGE:-presto/prestissimo-dependency:centos9-${USER}}
     environment:
       - GLOG_logtostderr=1
       - SERVER_START_TIMESTAMP=${SERVER_START_TIMESTAMP:-}
