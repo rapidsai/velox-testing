@@ -72,88 +72,88 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # amd64
-          - arch: amd64
+          # tpch
+          - test_type: tpch
+            arch: amd64
             cuda_version: '12.9'
             gpu: l4
-            test_type: tpch
-          - arch: amd64
-            cuda_version: '12.9'
-            gpu: l4
-            test_type: tpcds
-          - arch: amd64
+          - test_type: tpch
+            arch: amd64
             cuda_version: '12.9'
             gpu: a100
-            test_type: tpch
-          - arch: amd64
-            cuda_version: '12.9'
-            gpu: a100
-            test_type: tpcds
-          - arch: amd64
+          - test_type: tpch
+            arch: amd64
             cuda_version: '12.9'
             gpu: h100
-            test_type: tpch
-          - arch: amd64
-            cuda_version: '12.9'
-            gpu: h100
-            test_type: tpcds
-          - arch: amd64
+          - test_type: tpch
+            arch: amd64
             cuda_version: '13.1'
             gpu: l4
-            test_type: tpch
-          - arch: amd64
-            cuda_version: '13.1'
-            gpu: l4
-            test_type: tpcds
-          - arch: amd64
+          - test_type: tpch
+            arch: amd64
             cuda_version: '13.1'
             gpu: a100
-            test_type: tpch
-          - arch: amd64
-            cuda_version: '13.1'
-            gpu: a100
-            test_type: tpcds
-          - arch: amd64
+          - test_type: tpch
+            arch: amd64
             cuda_version: '13.1'
             gpu: h100
-            test_type: tpch
-          - arch: amd64
+          - test_type: tpch
+            arch: arm64
+            cuda_version: '12.9'
+            gpu: l4
+          - test_type: tpch
+            arch: arm64
+            cuda_version: '12.9'
+            gpu: a100
+          - test_type: tpch
+            arch: arm64
+            cuda_version: '13.1'
+            gpu: l4
+          - test_type: tpch
+            arch: arm64
+            cuda_version: '13.1'
+            gpu: a100
+          # tpcds
+          - test_type: tpcds
+            arch: amd64
+            cuda_version: '12.9'
+            gpu: l4
+          - test_type: tpcds
+            arch: amd64
+            cuda_version: '12.9'
+            gpu: a100
+          - test_type: tpcds
+            arch: amd64
+            cuda_version: '12.9'
+            gpu: h100
+          - test_type: tpcds
+            arch: amd64
+            cuda_version: '13.1'
+            gpu: l4
+          - test_type: tpcds
+            arch: amd64
+            cuda_version: '13.1'
+            gpu: a100
+          - test_type: tpcds
+            arch: amd64
             cuda_version: '13.1'
             gpu: h100
-            test_type: tpcds
-          # arm64
-          - arch: arm64
+          - test_type: tpcds
+            arch: arm64
             cuda_version: '12.9'
             gpu: l4
-            test_type: tpch
-          - arch: arm64
-            cuda_version: '12.9'
-            gpu: l4
-            test_type: tpcds
-          - arch: arm64
+          - test_type: tpcds
+            arch: arm64
             cuda_version: '12.9'
             gpu: a100
-            test_type: tpch
-          - arch: arm64
-            cuda_version: '12.9'
-            gpu: a100
-            test_type: tpcds
-          - arch: arm64
+          - test_type: tpcds
+            arch: arm64
             cuda_version: '13.1'
             gpu: l4
-            test_type: tpch
-          - arch: arm64
-            cuda_version: '13.1'
-            gpu: l4
-            test_type: tpcds
-          - arch: arm64
+          - test_type: tpcds
+            arch: arm64
             cuda_version: '13.1'
             gpu: a100
-            test_type: tpch
-          - arch: arm64
-            cuda_version: '13.1'
-            gpu: a100
-            test_type: tpcds
     runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     steps:
       - name: Checkout velox-testing
