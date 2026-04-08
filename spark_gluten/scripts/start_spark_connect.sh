@@ -167,6 +167,8 @@ WORKSPACE_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/start_spark_connect_helper.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/spark_connect_functions.sh"
 
 # Stop any previously running Spark Connect server.
 "${SCRIPT_DIR}/stop_spark_connect.sh"
@@ -249,3 +251,5 @@ docker logs -f "${CONTAINER_ID}" > "${LOG_FILE}" 2>&1 &
 
 echo "Container: ${CONTAINER_ID}"
 echo "Logs: ${LOG_FILE}"
+
+wait_for_spark_connect_server "localhost" "${PORT}"

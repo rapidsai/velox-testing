@@ -27,7 +27,7 @@ GLUTEN_JAR="${GLUTEN_JARS}"
 
 PROFILE_CMD=""
 if [[ "${PROFILE}" == "ON" ]]; then
-  mkdir -p /presto_profiles
+  mkdir -p /spark_profiles
 
   if [[ -z "${PROFILE_ARGS}" ]]; then
     PROFILE_ARGS="-t nvtx,cuda"

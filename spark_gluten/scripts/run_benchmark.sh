@@ -168,6 +168,18 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/spark_connect_functions.sh"
+
+SERVER_HOST="${HOST_NAME:-localhost}"
+SERVER_PORT="${PORT:-15002}"
+
+if ! check_spark_connect_server "${SERVER_HOST}" "${SERVER_PORT}"; then
+  echo "Error: Spark Connect server is not running at ${SERVER_HOST}:${SERVER_PORT}."
+  echo "Start the server with start_spark_connect.sh before running benchmarks."
+  exit 1
+fi
+
 PYTEST_ARGS=("--dataset-name" "${DATASET_NAME}")
 
 if [[ -n ${QUERIES} ]]; then
@@ -195,8 +207,8 @@ if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
 fi
 
-PYTEST_ARGS+=("--hostname" "${HOST_NAME:-localhost}")
-PYTEST_ARGS+=("--port" "${PORT:-15002}")
+PYTEST_ARGS+=("--hostname" "${SERVER_HOST}")
+PYTEST_ARGS+=("--port" "${SERVER_PORT}")
 
 if [[ "${PROFILE}" == "true" ]]; then
   PYTEST_ARGS+=("--profile" "--profile-script-path" \

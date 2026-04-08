@@ -20,3 +20,5 @@ for container_id in $(docker ps -aq \
   --filter "label=com.nvidia.spark-connect.user=${USER}" 2>/dev/null); do
   docker rm -f "${container_id}" 2>/dev/null || true
 done
+
+rm -f "${SCRIPT_DIR}/.temp-spark-connect.conf"

@@ -9,15 +9,14 @@
 # Builds a merged Spark config by layering:
 #   default.conf [+ gpu_default.conf if GPU] [+ user overlay]
 #
-# Prints the path to the merged temp file. The caller is responsible for
-# cleaning it up (e.g. via trap).
+# Writes the merged config to a fixed path (.temp-spark-connect.conf) in
+# SCRIPT_DIR. Cleaned up by stop_spark_connect.sh.
 merge_config_files() {
   local -r device_type="$1"
   local user_config_file="$2"
   local -r config_dir="${REPO_ROOT}/spark_gluten/testing/config"
 
-  local merged
-  merged="$(mktemp)"
+  local -r merged="${SCRIPT_DIR}/.temp-spark-connect.conf"
 
   if [[ -f "${config_dir}/default.conf" ]]; then
     cp "${config_dir}/default.conf" "${merged}"
