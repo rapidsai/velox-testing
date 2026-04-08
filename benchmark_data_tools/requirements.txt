@@ -7,6 +7,6 @@ presto-python-client==0.8.4
 requests==2.32.4
 six==1.17.0
 urllib3==2.5.0
-tpchgen-cli==2.0.1
+tpchgen-cli @ git+https://github.com/TomAugspurger/tpchgen-rs@tom/sync-upstream-clean#subdirectory=tpchgen-cli
 pyarrow==21.0.0
 pytest==9.0.2
