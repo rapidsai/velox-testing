@@ -46,6 +46,8 @@ x-presto-native-worker-gpu: &gpu_worker_base
     - presto-coordinator
   privileged: true
   volumes:
+  # required for GDS
+    - /run/udev:/run/udev:ro
   # required for numa
     - /sys/devices/system/node:/sys/devices/system/node
     - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
@@ -85,8 +87,12 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      KVIKIO_COMPAT_MODE: {{ kvikio_compat_mode }}
+      KVIKIO_AUTO_DIRECT_IO_READ: {{ kvikio_auto_direct_io_read }}
+      KVIKIO_AUTO_DIRECT_IO_READ_OVERREAD: {{ kvikio_auto_direct_io_read_overread }}
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
     volumes:
+      - /run/udev:/run/udev:ro # required for GDS
       - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc/config.properties
@@ -113,6 +119,9 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      KVIKIO_COMPAT_MODE: {{ kvikio_compat_mode }}
+      KVIKIO_AUTO_DIRECT_IO_READ: {{ kvikio_auto_direct_io_read }}
+      KVIKIO_AUTO_DIRECT_IO_READ_OVERREAD: {{ kvikio_auto_direct_io_read_overread }}
       CUDA_VISIBLE_DEVICES: "{% for id in workers %}{{ id }}{% if not loop.last %},{% endif %}{% endfor %}"
 {% else %}
     environment:
@@ -129,9 +138,13 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      KVIKIO_COMPAT_MODE: {{ kvikio_compat_mode }}
+      KVIKIO_AUTO_DIRECT_IO_READ: {{ kvikio_auto_direct_io_read }}
+      KVIKIO_AUTO_DIRECT_IO_READ_OVERREAD: {{ kvikio_auto_direct_io_read_overread }}
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
     volumes:
+      - /run/udev:/run/udev:ro # required for GDS
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}

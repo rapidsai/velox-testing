@@ -45,6 +45,43 @@ def parse_args():
         help="Number of KvikIO threads (optional).",
     )
     parser.add_argument(
+        "--kvikio-compat-mode",
+        type=str,
+        default="AUTO",
+        dest="kvikio_compat_mode",
+        required=False,
+        help=(
+            "KvikIO I/O backend selection. "
+            "ON: POSIX (compatibility mode). "
+            "OFF: cuFile (GPUDirect Storage). "
+            "AUTO: let KvikIO decide based on runtime environment (default: AUTO)."
+        ),
+    )
+    parser.add_argument(
+        "--kvikio-auto-direct-io-read",
+        type=str_to_bool,
+        default=False,
+        dest="kvikio_auto_direct_io_read",
+        required=False,
+        help=(
+            "Enable automatic direct I/O for reads. When enabled, aligned segments "
+            "use O_DIRECT and unaligned segments fall back to buffered I/O "
+            "(default: false)."
+        ),
+    )
+    parser.add_argument(
+        "--kvikio-auto-direct-io-read-overread",
+        type=str_to_bool,
+        default=False,
+        dest="kvikio_auto_direct_io_read_overread",
+        required=False,
+        help=(
+            "Force all reads to use O_DIRECT by rounding offsets down and sizes up "
+            "to page boundaries. Requires --kvikio-auto-direct-io-read to be enabled. "
+            "May read extra bytes beyond the requested range (default: false)."
+        ),
+    )
+    parser.add_argument(
         "--sccache",
         type=str_to_bool,
         default=False,
@@ -93,6 +130,9 @@ def main() -> int:
         workers=workers,
         single_container=parsed_args.single_container,
         kvikio_threads=parsed_args.kvikio_threads,
+        kvikio_compat_mode=parsed_args.kvikio_compat_mode,
+        kvikio_auto_direct_io_read=parsed_args.kvikio_auto_direct_io_read,
+        kvikio_auto_direct_io_read_overread=parsed_args.kvikio_auto_direct_io_read_overread,
         sccache=parsed_args.sccache,
     )
 
