@@ -35,7 +35,6 @@ class DataGenArgs:
 @pytest.fixture
 def setup_and_teardown():
     test_data_dir_path = os.path.abspath("./tpch_test")
-    orig_test_data_dir_path = f"{test_data_dir_path}-temp"
     try:
         args = DataGenArgs(
             benchmark_type="tpch",
@@ -52,9 +51,9 @@ def setup_and_teardown():
             approx_row_group_bytes=128 * 1024 * 1024,
         )
         drop_benchmark_tables()
-        yield orig_test_data_dir_path, test_data_dir_path, args
+        yield test_data_dir_path, args
     finally:
-        delete_directories([test_data_dir_path, orig_test_data_dir_path])
+        delete_directories([test_data_dir_path])
 
 
 def get_all_parquet_relative_file_paths(dir_path):
