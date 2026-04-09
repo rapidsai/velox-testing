@@ -548,6 +548,9 @@ async def upload_log_files(
         List of asset IDs from the uploaded files
     """
     log_files = sorted(benchmark_dir.glob("*.log"))
+    metrics_dir = benchmark_dir / "metrics"
+    if metrics_dir.is_dir():
+        log_files.extend(sorted(metrics_dir.glob("*.json")))
     if not log_files:
         return []
 
@@ -560,10 +563,11 @@ async def upload_log_files(
             async with semaphore:
                 print(f"    Uploading {log_file.name}...", file=sys.stderr)
                 content = log_file.read_bytes()
+                media_type = "application/json" if log_file.suffix == ".json" else "text/plain"
                 response = await client.post(
                     "/api/assets/upload/",
-                    files={"file": (log_file.name, content, "text/plain")},
-                    data={"title": log_file.name, "media_type": "text/plain"},
+                    files={"file": (log_file.name, content, media_type)},
+                    data={"title": log_file.name, "media_type": media_type},
                 )
                 if response.status_code >= 400:
                     raise RuntimeError(f"Failed to upload {log_file.name}: {response.status_code} {response.text}")
@@ -738,6 +742,9 @@ async def process_benchmark_dir(
     if upload_logs:
         if dry_run:
             log_files = sorted(benchmark_dir.glob("*.log"))
+            metrics_dir = benchmark_dir / "metrics"
+            if metrics_dir.is_dir():
+                log_files.extend(sorted(metrics_dir.glob("*.json")))
             print(
                 f"  [DRY RUN] Would upload {len(log_files)} log file(s): {[f.name for f in log_files]}", file=sys.stderr
             )
