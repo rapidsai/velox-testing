@@ -344,6 +344,9 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
+    local metrics_flag=""
+    [[ "${ENABLE_METRICS}" == "1" ]] && metrics_flag="-m"
+
     source "${SCRIPT_DIR}/defaults.env"
     # We currently skip dropping cache because it requires docker (not available on the cluster).
     run_coord_image "export PORT=$PORT; \
@@ -352,7 +355,7 @@ function run_queries {
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
-    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} \
+    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${metrics_flag} \
         --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache; \
     echo 'Validating query results...'; \
     MINIFORGE_HOME=/workspace/miniforge3 /workspace/scripts/run_py_script.sh \
