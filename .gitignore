@@ -8,6 +8,8 @@
 __pycache__/
 # emacs backup files
 *~
+# vscode folder
+.vscode
 
 # Hive metastore
 .hive_metastore/
@@ -37,7 +39,10 @@ presto/slurm/presto-nvl72/kept_results/
 presto/slurm/presto-nvl72/worker_data*
 
 devstate*
+**/.env
 
 spark-gluten-install/
-
 build_artifacts
+
+# Locally built tool binaries
+.local_installs/

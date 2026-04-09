@@ -59,6 +59,10 @@ def generate_data_files(args):
 
 
 def generate_data_files_with_tpchgen(args):
+    local_installs_bin = Path(__file__).resolve().parent / ".local_installs" / "bin"
+    if local_installs_bin.exists():
+        os.environ["PATH"] = os.pathsep.join([str(local_installs_bin), os.environ["PATH"]])
+
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
 
     if args.convert_decimals_to_floats:
