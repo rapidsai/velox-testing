@@ -18,20 +18,6 @@ from pathlib import Path  # noqa: E402
 from duckdb_utils import drop_benchmark_tables  # noqa: E402
 
 
-def ensure_tpchgen_cli_available():
-    # Ensure that the tpchgen-cli executable can be found.
-    # venv_bin_dir = f"{benchmark_data_tools_dir}/.venv/bin"
-    venv_bin_dir = Path(benchmark_data_tools_dir) / ".venv" / "bin"
-    if venv_bin_dir.exists():
-        os.environ["PATH"] = os.pathsep.join([os.environ["PATH"], str(venv_bin_dir)])
-
-    tpchgen_path = shutil.which("tpchgen-cli")
-    if tpchgen_path is None:
-        raise FileNotFoundError(
-            f"tpchgen-cli not found. Expected {venv_bin_dir} or an active venv with tpchgen-cli on PATH."
-        ) from None
-
-
 @dataclass
 class DataGenArgs:
     benchmark_type: str
