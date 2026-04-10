@@ -163,11 +163,8 @@ jobs:
         env:
           TEST_TYPE: ${{ matrix.test_type }}
         run: |
-          python3 -m venv .venv
-          source .venv/bin/activate
-          pip install -q -r benchmark_data_tools/requirements.txt
           DATA_DIR="common/testing/integration_tests/data/${TEST_TYPE}"
-          python benchmark_data_tools/generate_data_files.py \
+          benchmark_data_tools/scripts/generate_dataset.sh \
             --benchmark-type "${TEST_TYPE}" \
             --data-dir-path "${DATA_DIR}" \
             --scale-factor 10 \
