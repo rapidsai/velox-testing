@@ -125,7 +125,9 @@ def validate(
             query_results[query_id] = {"status": "failed", "message": msg}
             failed += 1
 
-    print(f"[VALIDATION] Results: {passed} passed, {failed} failed, {expected_failures} expected-failure, {not_validated} skipped")
+    print(
+        f"[VALIDATION] Results: {passed} passed, {failed} failed, {expected_failures} expected-failure, {not_validated} skipped"
+    )
 
     if failed > 0:
         overall: ValidationStatus = "failed"

@@ -48,9 +48,7 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 # ---------------------------------------------------------------------------
 
 
-def get_orderby_info(
-    query_sql: str, column_names: list[str]
-) -> tuple[list[tuple[str, bool]], bool]:
+def get_orderby_info(query_sql: str, column_names: list[str]) -> tuple[list[tuple[str, bool]], bool]:
     """
     Extract ORDER BY information from SQL using sqlglot.
 
@@ -136,9 +134,7 @@ def _reconcile_col_names(actual: pd.DataFrame, expected: pd.DataFrame) -> pd.Dat
     if len(actual.columns) != len(expected.columns):
         return actual
     renames = {
-        res: exp
-        for res, exp in zip(actual.columns, expected.columns)
-        if re.fullmatch(r"_col\d+", res) and res != exp
+        res: exp for res, exp in zip(actual.columns, expected.columns) if re.fullmatch(r"_col\d+", res) and res != exp
     }
     return actual.rename(columns=renames) if renames else actual
 
@@ -309,9 +305,7 @@ def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
                 diff = abs(fv1 - fv2)
                 tol = ABS_TOL + REL_TOL * max(abs(fv1), abs(fv2))
                 if diff > tol:
-                    mismatches.append(
-                        f"Row {row_idx}, col '{col}': {fv1} vs {fv2} (diff={diff:.2e}, tol={tol:.2e})"
-                    )
+                    mismatches.append(f"Row {row_idx}, col '{col}': {fv1} vs {fv2} (diff={diff:.2e}, tol={tol:.2e})")
             elif v1 != v2:
                 # Safety net: compare as Timestamps when one side is a date
                 # string (e.g. Presto '1995-03-05') and the other is a
@@ -330,9 +324,7 @@ def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
 
     if mismatches:
         truncated = f" (showing first {MAX_MISMATCHES})" if len(mismatches) >= MAX_MISMATCHES else ""
-        raise AssertionError(
-            f"Found {len(mismatches)} mismatch(es){truncated}:\n  " + "\n  ".join(mismatches)
-        )
+        raise AssertionError(f"Found {len(mismatches)} mismatch(es){truncated}:\n  " + "\n  ".join(mismatches))
 
 
 def _validate_sort_order(
@@ -346,16 +338,12 @@ def _validate_sort_order(
     ascending = [not d for d in descending]
     na_position = "last" if nulls_last else "first"
     expected_order = (
-        df[sort_cols]
-        .sort_values(by=sort_cols, ascending=ascending, na_position=na_position)
-        .reset_index(drop=True)
+        df[sort_cols].sort_values(by=sort_cols, ascending=ascending, na_position=na_position).reset_index(drop=True)
     )
     actual_order = df[sort_cols].reset_index(drop=True)
     if not actual_order.equals(expected_order):
         directions = ["DESC" if d else "ASC" for d in descending]
-        raise AssertionError(
-            f"{side} result is not sorted by {list(zip(sort_cols, directions))}"
-        )
+        raise AssertionError(f"{side} result is not sorted by {list(zip(sort_cols, directions))}")
 
 
 def _build_non_tie_mask(
@@ -422,16 +410,14 @@ def compare_result_frames(
 
     # 4. Row count
     if len(actual) != len(expected):
-        raise AssertionError(
-            f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)"
-        )
+        raise AssertionError(f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)")
 
     # 5. Parse ORDER BY / LIMIT
     sort_by, nulls_last = get_orderby_info(query_sql, list(actual.columns))
     limit = get_limit(query_sql)
 
     if not sort_by:
-        # No ORDER BY (or unparseable) — sort both sides and compare
+        # No ORDER BY (or unparsable) — sort both sides and compare
         _assert_frames_equal(_sort_for_comparison(actual), _sort_for_comparison(expected))
         return
 
@@ -450,10 +436,7 @@ def compare_result_frames(
     # 7. ORDER BY + LIMIT: split into non-ties and boundary ties
     ascending = [not d for d in descending]
     na_position = "last" if nulls_last else "first"
-    boundary = (
-        actual.sort_values(by=sort_cols, ascending=ascending, na_position=na_position)
-        .iloc[-1][sort_cols]
-    )
+    boundary = actual.sort_values(by=sort_cols, ascending=ascending, na_position=na_position).iloc[-1][sort_cols]
 
     actual_non_tie_mask = _build_non_tie_mask(actual, sort_cols, descending, boundary)
     expected_non_tie_mask = _build_non_tie_mask(expected, sort_cols, descending, boundary)
