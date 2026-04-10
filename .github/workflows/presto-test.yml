@@ -72,85 +72,105 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # tpch
+          # tpch (SF 100)
           - test_type: tpch
+            scale_factor: 100
             arch: amd64
             cuda_version: '12.9'
             gpu: l4
           - test_type: tpch
+            scale_factor: 100
             arch: amd64
             cuda_version: '12.9'
             gpu: a100
           - test_type: tpch
+            scale_factor: 100
             arch: amd64
             cuda_version: '12.9'
             gpu: h100
           - test_type: tpch
+            scale_factor: 100
             arch: amd64
             cuda_version: '13.1'
             gpu: l4
           - test_type: tpch
+            scale_factor: 100
             arch: amd64
             cuda_version: '13.1'
             gpu: a100
           - test_type: tpch
+            scale_factor: 100
             arch: amd64
             cuda_version: '13.1'
             gpu: h100
           - test_type: tpch
+            scale_factor: 100
             arch: arm64
             cuda_version: '12.9'
             gpu: l4
           - test_type: tpch
+            scale_factor: 100
             arch: arm64
             cuda_version: '12.9'
             gpu: a100
           - test_type: tpch
+            scale_factor: 100
             arch: arm64
             cuda_version: '13.1'
             gpu: l4
           - test_type: tpch
+            scale_factor: 100
             arch: arm64
             cuda_version: '13.1'
             gpu: a100
-          # tpcds
+          # tpcds (SF 10)
           - test_type: tpcds
+            scale_factor: 10
             arch: amd64
             cuda_version: '12.9'
             gpu: l4
           - test_type: tpcds
+            scale_factor: 10
             arch: amd64
             cuda_version: '12.9'
             gpu: a100
           - test_type: tpcds
+            scale_factor: 10
             arch: amd64
             cuda_version: '12.9'
             gpu: h100
           - test_type: tpcds
+            scale_factor: 10
             arch: amd64
             cuda_version: '13.1'
             gpu: l4
           - test_type: tpcds
+            scale_factor: 10
             arch: amd64
             cuda_version: '13.1'
             gpu: a100
           - test_type: tpcds
+            scale_factor: 10
             arch: amd64
             cuda_version: '13.1'
             gpu: h100
           - test_type: tpcds
+            scale_factor: 10
             arch: arm64
             cuda_version: '12.9'
             gpu: l4
           - test_type: tpcds
+            scale_factor: 10
             arch: arm64
             cuda_version: '12.9'
             gpu: a100
           - test_type: tpcds
+            scale_factor: 10
             arch: arm64
             cuda_version: '13.1'
             gpu: l4
           - test_type: tpcds
+            scale_factor: 10
             arch: arm64
             cuda_version: '13.1'
             gpu: a100
@@ -162,12 +182,13 @@ jobs:
       - name: Generate benchmark data
         env:
           TEST_TYPE: ${{ matrix.test_type }}
+          SCALE_FACTOR: ${{ matrix.scale_factor }}
         run: |
           DATA_DIR="${GITHUB_WORKSPACE}/common/testing/integration_tests/data/${TEST_TYPE}"
           benchmark_data_tools/scripts/generate_dataset.sh \
             --benchmark-type "${TEST_TYPE}" \
             --data-dir-path "${DATA_DIR}" \
-            --scale-factor 10 \
+            --scale-factor "${SCALE_FACTOR}" \
             --convert-decimals-to-floats
           echo "--- metadata ---"
           cat "${DATA_DIR}/metadata.json"
