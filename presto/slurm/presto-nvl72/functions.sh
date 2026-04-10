@@ -231,19 +231,19 @@ function run_worker {
         done
     fi
 
+    # -o ${vt_nsys_report_dir}/nsys_worker_${worker_id}
+    # --cpuctxsw=none
+    # --nvtx-domain-exclude=CCCL
     local nsys_bin=""
     local nsys_opts=""
-    local vt_nsys_report_dir="/var/log/nsys"
-    if [[ "${ENABLE_NSYS}" == "1" && "${NSYS_WORKER_ID}" == "${worker_id}" ]]; then
+    if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]]; then
         nsys_bin="/opt/nvidia/nsight-systems-cli/2026.2.1/bin/nsys"
-        nsys_opts="profile \
-        -o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
-        -t cuda,nvtx \
-        -f true \
-        --sample=none \
-        --cpuctxsw=none \
+        nsys_opts="launch \
+        -t nvtx,cuda,osrt,ucx \
         --cuda-memory-usage=true \
-        --nvtx-domain-exclude=CCCL"
+        --cuda-um-cpu-page-faults=true \
+        --cuda-um-gpu-page-faults=true \
+        --cudabacktrace=true"
         # nsys_opts="profile \
         # -o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
         # -t cuda,ucx,nvtx,osrt \
@@ -280,7 +280,6 @@ ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 ${LOGS}:${vt_cufile_log_dir},\
-${LOGS}:${vt_nsys_report_dir},\
 /usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
 /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1\
 ${gds_mounts:+,${gds_mounts}} \
@@ -346,6 +345,8 @@ function run_queries {
     local scale_factor=$2
     local metrics_flag=""
     [[ "${ENABLE_METRICS}" == "1" ]] && metrics_flag="-m"
+    local profile_flag=""
+    [[ "${ENABLE_NSYS}" == "1" ]] && profile_flag="-p --profile-script-path $(readlink -f ./profiler_functions.sh)"
 
     source "${SCRIPT_DIR}/defaults.env"
     # We currently skip dropping cache because it requires docker (not available on the cluster).
@@ -355,7 +356,7 @@ function run_queries {
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
-    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${metrics_flag} \
+    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${metrics_flag} ${profile_flag} -q 1 \
         --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache; \
     echo 'Validating query results...'; \
     MINIFORGE_HOME=/workspace/miniforge3 /workspace/scripts/run_py_script.sh \
