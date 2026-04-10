@@ -5,338 +5,63 @@
 # /// script
 # requires-python = ">=3.9"
 # dependencies = [
-#     "polars",
+#     "pandas",
+#     "pyarrow",
+#     "sqlglot",
 # ]
 # ///
 """
-Validate TPC-H query results against expected parquet files.
+Validate TPC-H/TPC-DS query results against expected parquet files.
 
-Validation logic is ported from cudf_polars's assert_tpch_result_equal
-(cudf_polars/experimental/benchmarks/asserts.py) so that both engines use
-identical comparison semantics.  We intentionally do not reuse
-common/testing/integration_tests/test_utils.py here: that module operates on
-raw rows via pandas/duckdb and is designed for integration tests, whereas this
-script works with pre-written parquet files using polars and applies the same
-float-tolerant, sort-aware comparison logic as cudf-polars.  When fixing bugs
-in the comparison logic, remember to apply the same fix in
-cudf_polars/experimental/benchmarks/asserts.py.
-
-Per-query sort_by / limit configuration is taken from
-cudf_polars/experimental/benchmarks/pdsh.py.
-
-Key behaviours
---------------
-- Column names, row count, and dtypes are all checked.
-- Decimal columns are cast to Float64 before comparison (same as polars).
-- Narrow integer columns (Int8/Int16/Int32) are widened to Int64; Presto
-  upcasts all integer types to Int64 while DuckDB may use narrower types.
-- String columns in the actual result are cast to the expected temporal type
-  when the expected column is temporal (Presto may write dates as strings).
-- Floating-point values are compared with rel_tol=1e-5, abs_tol=1e-8.
-- For queries with ORDER BY (sort_by non-empty):
-    - We verify that the actual result is sorted by the sort_by columns,
-      respecting the nulls_last setting (default True, matching DuckDB ASC).
-    - Tie-breaking is resolved by sorting both frames on all *non-float*
-      columns, to avoid floating-point sort instability.
-- For queries with ORDER BY + LIMIT, rows at the limit boundary (ties on
-  the last sort key) are compared only on the sort_by columns, not the
-  full row.
+Comparison logic lives in common/testing/result_comparison.py and is shared
+with the integration test path so that both paths use identical semantics.
 """
 
 import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Literal, NotRequired, TypedDict
 
-import polars as pl
-import polars.testing
+import pandas as pd
 
-# Status values used throughout this module and consumed by post_results.py
-ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validated"]
+# Allow importing from the repo root (common/testing/result_comparison)
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-
-# ---------------------------------------------------------------------------
-# Per-query configuration (sort_by, limit) — from pdsh.py
-# sort_by entries: (column_name, descending)
-# ---------------------------------------------------------------------------
-
-
-class SortLimit(TypedDict):
-    sort_by: list[tuple[str, bool]]
-    limit: int | None
-    nulls_last: NotRequired[bool]
-    xfail_if_empty: NotRequired[bool]
-
-
-QUERY_CONFIG: dict[str, SortLimit] = {
-    "q1": {"sort_by": [("l_returnflag", False), ("l_linestatus", False)], "limit": None},
-    "q2": {"sort_by": [("s_acctbal", True), ("n_name", False), ("s_name", False), ("p_partkey", False)], "limit": 100},
-    "q3": {"sort_by": [("revenue", True), ("o_orderdate", False)], "limit": 10},
-    "q4": {"sort_by": [("o_orderpriority", False)], "limit": None},
-    "q5": {"sort_by": [("revenue", True)], "limit": None},
-    "q6": {"sort_by": [], "limit": None},
-    "q7": {"sort_by": [("supp_nation", False), ("cust_nation", False), ("l_year", False)], "limit": None},
-    "q8": {"sort_by": [("o_year", False)], "limit": None},
-    "q9": {"sort_by": [("nation", False), ("o_year", True)], "limit": None},
-    "q10": {"sort_by": [("revenue", True)], "limit": 20},
-    "q11": {"sort_by": [("value", True)], "limit": None},
-    "q12": {"sort_by": [("l_shipmode", False)], "limit": None},
-    "q13": {"sort_by": [("custdist", True), ("c_count", True)], "limit": None},
-    "q14": {"sort_by": [], "limit": None},
-    "q15": {"sort_by": [("s_suppkey", False)], "limit": None, "xfail_if_empty": True},
-    "q16": {
-        "sort_by": [("supplier_cnt", True), ("p_brand", False), ("p_type", False), ("p_size", False)],
-        "limit": None,
-    },
-    "q17": {"sort_by": [], "limit": None},
-    "q18": {"sort_by": [("o_totalprice", True), ("o_orderdate", False)], "limit": 100},
-    "q19": {"sort_by": [], "limit": None},
-    "q20": {"sort_by": [("s_name", False)], "limit": None},
-    "q21": {"sort_by": [("numwait", True), ("s_name", False)], "limit": 100},
-    "q22": {"sort_by": [("cntrycode", False)], "limit": None},
-}
-
-REL_TOL = 1e-5
-ABS_TOL = 1e-8
-
-
-# ---------------------------------------------------------------------------
-# Assertion logic — ported from cudf_polars/experimental/benchmarks/asserts.py
-# ---------------------------------------------------------------------------
-
-
-def _polars_assert_frame_equal(left: pl.DataFrame, right: pl.DataFrame, **kwargs: Any) -> None:
-    """Call polars.testing.assert_frame_equal, handling rel_tol/abs_tol API differences."""
-    try:
-        # Polars >= 1.32.3 uses rel_tol / abs_tol
-        polars.testing.assert_frame_equal(left, right, **kwargs)
-    except TypeError:
-        # Older polars uses rtol / atol
-        renamed = dict(kwargs)
-        renamed["rtol"] = renamed.pop("rel_tol", REL_TOL)
-        renamed["atol"] = renamed.pop("abs_tol", ABS_TOL)
-        polars.testing.assert_frame_equal(left, right, **renamed)
-
-
-def _reconcile_presto_col_names(result: pl.DataFrame, expected: pl.DataFrame) -> pl.DataFrame:
-    """
-    Rename Presto's anonymous aggregate columns (_col0, _col1, ...) to match
-    the expected column names, using positional matching.
-
-    Presto names unaliased aggregate expressions `_colN`; other engines (polars,
-    DuckDB) use the expression text (e.g. `sum(l_quantity)`).  We only rename
-    a column when:
-      - it matches `_col\\d+` in the result, AND
-      - the expected column at the same position has a different name.
-    Non-anonymous columns are left untouched so real name mismatches still fail.
-    """
-    import re
-
-    renames = {}
-    for i, (res_col, exp_col) in enumerate(zip(result.columns, expected.columns)):
-        if re.fullmatch(r"_col\d+", res_col) and res_col != exp_col:
-            renames[res_col] = exp_col
-    if renames:
-        result = result.rename(renames)
-    return result
-
-
-def assert_tpch_result_equal(
-    left: pl.DataFrame,
-    right: pl.DataFrame,
-    *,
-    sort_by: list[tuple[str, bool]],
-    nulls_last: bool = True,
-    limit: int | None = None,
-) -> None:
-    """
-    Validate computed result against expected answer using the same logic as
-    cudf_polars's assert_tpch_result_equal.
-
-    Raises AssertionError (with a descriptive message) on mismatch.
-    """
-    polars_kwargs: dict[str, Any] = {
-        "check_row_order": True,
-        "check_column_order": True,
-        "check_dtypes": True,
-        "check_exact": False,
-        "rel_tol": REL_TOL,
-        "abs_tol": ABS_TOL,
-        "categorical_as_str": False,
-    }
-
-    # 1. Column names — reconcile Presto _colN names before checking
-    if len(left.columns) == len(right.columns):
-        left = _reconcile_presto_col_names(left, right)
-
-    if left.columns != right.columns:
-        extra = set(left.columns) - set(right.columns)
-        missing = set(right.columns) - set(left.columns)
-        raise AssertionError(
-            f"Column names mismatch — extra: {extra}, missing: {missing}\n"
-            f"  result columns:   {left.columns}\n"
-            f"  expected columns: {right.columns}"
-        )
-
-    # 2. Cast Decimal → Float64 (avoids off-by-~1% from different Decimal impls).
-    # Check both sides so that check_dtypes=True sees matching Float64 on each.
-    float_casts = [
-        pl.col(col).cast(pl.Float64())
-        for col in left.columns
-        if left.schema[col].is_decimal() or right.schema.get(col, pl.Null).is_decimal()
-    ]
-    if float_casts:
-        left = left.with_columns(*float_casts)
-        right = right.with_columns(*float_casts)
-
-    # 2b. Cast narrow integers (Int8/Int16/Int32) → Int64.
-    # Presto upcasts all integer columns to Int64; DuckDB may use narrower types.
-    _NARROW_INT = (pl.Int8, pl.Int16, pl.Int32)
-    int_casts = [
-        pl.col(col).cast(pl.Int64())
-        for col in left.columns
-        if left.schema[col] in _NARROW_INT or right.schema.get(col) in _NARROW_INT
-    ]
-    if int_casts:
-        left = left.with_columns(*int_casts)
-        right = right.with_columns(*int_casts)
-
-    # 2c. Normalize temporal columns: Presto writes dates as strings; cast to match expected.
-    temporal_casts = [
-        pl.col(col).cast(right.schema[col])
-        for col in left.columns
-        if left.schema[col] == pl.String and right.schema[col].is_temporal()
-    ]
-    if temporal_casts:
-        left = left.with_columns(*temporal_casts)
-
-    if not sort_by:
-        # No ORDER BY — straight comparison (row order doesn't matter so sort all cols)
-        non_float = [c for c in left.columns if left.schema[c] not in (pl.Float32, pl.Float64)]
-        _polars_assert_frame_equal(left.sort(non_float), right.sort(non_float), **polars_kwargs)
-        return
-
-    by, descending = zip(*sort_by, strict=True)
-    by = list(by)
-    descending = list(descending)
-
-    # 3. Verify each frame is sorted on the sort_by columns
-    for side, df in [("result", left), ("expected", right)]:
-        try:
-            polars.testing.assert_frame_equal(
-                df.select(by),
-                df.select(by).sort(by=by, descending=descending, maintain_order=True, nulls_last=nulls_last),
-            )
-        except AssertionError as e:
-            raise AssertionError(f"{side} frame is not sorted by {sort_by}: {e}") from e
-
-    # 4. Sort both frames by non-float columns to resolve ties deterministically
-    non_float_columns = [col for col in left.columns if left.schema[col] not in (pl.Float32, pl.Float64)]
-    left_sorted = left.sort(by=non_float_columns)
-    right_sorted = right.sort(by=non_float_columns)
-
-    if limit is None:
-        _polars_assert_frame_equal(left_sorted, right_sorted, **polars_kwargs)
-        return
-
-    # 5. Handle ORDER BY + LIMIT: split into "non-ties" and "ties at boundary"
-    (split_at,) = left.select(by).sort(by=by, descending=descending).tail(1).to_dicts()
-
-    exprs = []
-    for (col, val), desc in zip(split_at.items(), descending, strict=True):
-        if isinstance(val, float):
-            exprs.append(pl.col(col).lt(val - 2 * ABS_TOL) | pl.col(col).gt(val + 2 * ABS_TOL))
-        else:
-            op = pl.col(col).gt if desc else pl.col(col).lt
-            exprs.append(op(val))
-
-    expr = pl.Expr.or_(*exprs)
-
-    result_first = left.filter(expr)
-    expected_first = right.filter(expr)
-    result_ties = left.filter(~expr)
-    expected_ties = right.filter(~expr)
-
-    # Non-ties: full comparison
-    _polars_assert_frame_equal(
-        result_first.sort(by=non_float_columns),
-        expected_first.sort(by=non_float_columns),
-        **polars_kwargs,
-    )
-
-    # Ties: only compare the sort_by columns (other cols may legitimately differ)
-    _polars_assert_frame_equal(
-        result_ties.sort(non_float_columns).select(by),
-        expected_ties.sort(non_float_columns).select(by),
-        **polars_kwargs,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Per-query validation
-# ---------------------------------------------------------------------------
-
-
-def compare_query(
-    query_id: str,
-    actual: pl.DataFrame,
-    expected: pl.DataFrame,
-) -> tuple[ValidationStatus, str | None]:
-    """
-    Compare actual vs expected for one TPC-H query.
-
-    Returns (status, message) where status is a ValidationStatus literal.
-    """
-    cfg = QUERY_CONFIG.get(query_id)
-    if cfg is None:
-        return "not-validated", f"no config for {query_id}"
-
-    # Detect known expected failures before running the full comparison.
-    if cfg.get("xfail_if_empty", False) and actual.is_empty():
-        return "expected-failure", (
-            f"{query_id.upper()} returned no rows: known float calculation mismatch "
-            "in MAX(total_revenue) subquery causes empty result with float data"
-        )
-
-    try:
-        assert_tpch_result_equal(
-            actual,
-            expected,
-            sort_by=cfg["sort_by"],
-            nulls_last=cfg.get("nulls_last", True),
-            limit=cfg["limit"],
-        )
-        return "passed", None
-    except Exception as e:
-        return "failed", f"{type(e).__name__}: {e}"[:500]
-
+from common.testing.result_comparison import ValidationStatus, validate_query_result
+from common.testing.test_utils import get_queries
 
 # ---------------------------------------------------------------------------
 # Main validation loop
 # ---------------------------------------------------------------------------
 
 
-def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = None) -> dict:
+def validate(
+    results_dir: Path,
+    expected_dir: Path,
+    queries: dict[str, str],
+    query_numbers: list[int] | None = None,
+) -> dict:
     """Run validation and return a results dict.
 
     Args:
-        results_dir: Directory containing q1.parquet ... q22.parquet result files.
-        expected_dir: Directory containing expected parquet files.
-        queries: Optional list of query numbers to validate.  When provided, only
-                 those queries are checked; others in results_dir are ignored.
+        results_dir:    Directory containing q1.parquet ... q22.parquet result files.
+        expected_dir:   Directory containing expected parquet files.
+        queries:        Dict mapping query IDs (e.g. "Q1") to SQL strings.
+        query_numbers:  Optional list of query numbers to validate.  When provided,
+                        only those queries are checked.
 
     Returns a dict with keys:
-      overall_status: "passed" | "failed" | "xfail" | "not-validated"
+      overall_status: "passed" | "failed" | "expected-failure" | "not-validated"
       queries: { "q1": {"status": ..., "message": ...}, ... }
     """
     query_results: dict[str, dict] = {}
     passed = failed = not_validated = expected_failures = 0
 
-    if queries is not None:
-        result_files = sorted(f for q in queries for f in [results_dir / f"q{q}.parquet"] if f.exists())
+    if query_numbers is not None:
+        result_files = sorted(f for q in query_numbers for f in [results_dir / f"q{q}.parquet"] if f.exists())
     else:
         result_files = sorted(results_dir.glob("q*.parquet"))
+
     if not result_files:
         print(f"No result parquet files found in {results_dir}", file=sys.stderr)
         return {"overall_status": "not-validated", "queries": {}}
@@ -344,6 +69,7 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
     for result_file in result_files:
         query_id = result_file.stem  # e.g. "q1"
         q_num = int(query_id.lstrip("q"))
+
         # Accepted naming conventions for expected files (tried in order):
         #   q01.parquet  (q-prefixed, zero-padded)
         #   q1.parquet   (q-prefixed, no zero-padding)
@@ -358,7 +84,6 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
         )
 
         if not expected_file.exists():
-            print(f"  {query_id.upper():4s}: SKIP     expected file not found: {expected_file}")
             query_results[query_id] = {
                 "status": "not-validated",
                 "message": f"expected file not found: {expected_file.name}",
@@ -366,39 +91,41 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
             not_validated += 1
             continue
 
-        actual = pl.read_parquet(result_file)
-        expected = pl.read_parquet(expected_file)
+        actual = pd.read_parquet(result_file)
+        expected = pd.read_parquet(expected_file)
 
-        if expected.height == 0 and all(t == pl.Null for t in expected.dtypes):
+        if expected.empty and all(t is object for t in expected.dtypes):
             msg = f"expected file is empty (no schema): {expected_file.name}"
-            print(f"  {query_id.upper():4s}: SKIP     {msg}")
             query_results[query_id] = {"status": "not-validated", "message": msg}
             not_validated += 1
             continue
 
-        status, msg = compare_query(query_id, actual, expected)
+        # Look up the SQL for this query (keys are "Q1", "Q2", etc.)
+        query_sql = queries.get(query_id.upper())
+        if query_sql is None:
+            msg = f"no SQL found for {query_id}"
+            query_results[query_id] = {"status": "not-validated", "message": msg}
+            not_validated += 1
+            continue
+
+        status, msg = validate_query_result(query_id, actual, expected, query_sql)
 
         if status == "not-validated":
-            print(f"  {query_id.upper():4s}: SKIP     ({msg})")
             query_results[query_id] = {"status": "not-validated", "message": msg}
             not_validated += 1
         elif status == "passed":
-            cfg = QUERY_CONFIG.get(query_id, {})
-            info = f"sort_by={cfg.get('sort_by', [])}, limit={cfg.get('limit')}"
-            print(f"  {query_id.upper():4s}: PASS     [{info}]")
             query_results[query_id] = {"status": "passed", "message": None}
             passed += 1
         elif status == "expected-failure":
-            print(f"  {query_id.upper():4s}: XFAIL    {msg}")
+            print(f"[VALIDATION] {query_id.upper():4s}: XFAIL    {msg}")
             query_results[query_id] = {"status": "expected-failure", "message": msg}
             expected_failures += 1
         else:
-            print(f"  {query_id.upper():4s}: FAIL     {msg}")
+            print(f"[VALIDATION] {query_id.upper():4s}: FAIL     {msg}")
             query_results[query_id] = {"status": "failed", "message": msg}
             failed += 1
 
-    print()
-    print(f"Results: {passed} passed, {failed} failed, {expected_failures} expected-failure, {not_validated} skipped")
+    print(f"[VALIDATION] Results: {passed} passed, {failed} failed, {expected_failures} expected-failure, {not_validated} skipped")
 
     if failed > 0:
         overall: ValidationStatus = "failed"
@@ -421,7 +148,7 @@ def validate(results_dir: Path, expected_dir: Path, queries: list[int] | None = 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Validate TPC-H query results against expected parquet files.",
+        description="Validate TPC-H/TPC-DS query results against expected parquet files.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -433,9 +160,14 @@ def parse_args() -> argparse.Namespace:
         "--reference-results-dir",
         required=False,
         default=None,
-        help="Directory containing reference (expected) parquet files "
-        "(e.g. /scratch/prestouser/tpch-rs-no-delta-expected/scale-10000). "
+        help="Directory containing reference (expected) parquet files. "
         "If omitted, validation is skipped and overall_status is 'not-validated'.",
+    )
+    parser.add_argument(
+        "--benchmark-type",
+        default="tpch",
+        choices=["tpch", "tpcds"],
+        help="Benchmark type used to load the canonical SQL queries (default: tpch).",
     )
     parser.add_argument(
         "--queries",
@@ -448,11 +180,11 @@ def parse_args() -> argparse.Namespace:
 
 def _write_not_validated(results_dir: Path, reason: str) -> None:
     """Write a not-validated sentinel JSON and print the reason."""
-    print(reason)
+    print(f"[VALIDATION] {reason}")
     results = {"overall_status": "not-validated", "queries": {}}
     output_path = results_dir.parent / "validation_results.json"
     output_path.write_text(json.dumps(results, indent=2))
-    print(f"Validation results written to {output_path}")
+    print(f"[VALIDATION] Results written to {output_path}")
 
 
 def _auto_detect_reference_dir(benchmark_result_json: Path) -> Path | None:
@@ -504,19 +236,22 @@ if __name__ == "__main__":
         print(f"Error: reference results directory not found: {expected_dir}", file=sys.stderr)
         sys.exit(1)
 
-    queries = [int(q.strip()) for q in args.queries.split(",")] if args.queries else None
+    # Load canonical SQL queries for the benchmark type
+    queries = get_queries(args.benchmark_type)
 
-    print(f"Validating: {results_dir}")
-    print(f"Expected:   {expected_dir}")
-    if queries is not None:
-        print(f"Queries:    {queries}")
-    print()
+    query_numbers = [int(q.strip()) for q in args.queries.split(",")] if args.queries else None
 
-    results = validate(results_dir, expected_dir, queries=queries)
+    print(f"[VALIDATION] Validating: {results_dir}")
+    print(f"[VALIDATION] Expected:   {expected_dir}")
+    print(f"[VALIDATION] Benchmark:  {args.benchmark_type}")
+    if query_numbers is not None:
+        print(f"[VALIDATION] Queries:    {query_numbers}")
+
+    results = validate(results_dir, expected_dir, queries, query_numbers=query_numbers)
 
     # Write validation_results.json next to the query_results/ dir
     output_path = results_dir.parent / "validation_results.json"
     output_path.write_text(json.dumps(results, indent=2))
-    print(f"Validation results written to {output_path}")
+    print(f"[VALIDATION] Results written to {output_path}")
 
     sys.exit(0 if results["overall_status"] != "failed" else 1)

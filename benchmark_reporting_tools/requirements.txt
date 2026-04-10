@@ -1,2 +1,4 @@
 httpx>=0.28.1
-polars>=1.0
+pandas>=2.0
+pyarrow>=10.0
+sqlglot

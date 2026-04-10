@@ -47,10 +47,16 @@ OPTIONS:
                             Query results are always validated after the benchmark run using
                             validate_results.py, and validation_results.json is written next
                             to benchmark_result.json (picked up automatically by post_results.py).
-                            If --reference-results-dir is not provided, the path is auto-detected
-                            as <data_dir>_expected where data_dir is the source data directory
-                            recorded in benchmark_result.json by run_context.py.  If the
-                            auto-detected directory does not exist the result is "not-validated".
+                            Overrides the PRESTO_EXPECTED_RESULTS_DIR environment variable.
+                            If neither --reference-results-dir nor PRESTO_EXPECTED_RESULTS_DIR
+                            is provided, validation falls back to auto-detection via
+                            benchmark_result.json; if nothing is found the result is "not-validated".
+                            Error if the explicitly provided directory does not exist.
+    PRESTO_EXPECTED_RESULTS_DIR
+                            Environment variable alternative to --reference-results-dir.
+                            Set to the full host path of the expected results directory
+                            (e.g. PRESTO_EXPECTED_RESULTS_DIR=/data/sf100_expected).
+                            Warning (not error) if set but the directory does not exist.
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
                             Use when engine is misdetected or the run fails.
@@ -178,7 +184,8 @@ parse_args() {
         ;;
       --reference-results-dir)
         if [[ -n $2 ]]; then
-          REFERENCE_RESULTS_DIR=$2
+          PRESTO_EXPECTED_RESULTS_DIR=$2
+          EXPLICIT_REFERENCE_DIR=true
           shift 2
         else
           echo "Error: --reference-results-dir requires a value"
@@ -209,6 +216,12 @@ fi
 if [[ -z ${SCHEMA_NAME} ]]; then
   echo "Error: A schema name must be set. Use the -s or --schema-name argument."
   print_help
+  exit 1
+fi
+
+# Fail fast if an explicit --reference-results-dir was given but doesn't exist.
+if [[ ${EXPLICIT_REFERENCE_DIR} == true && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+  echo "[VALIDATION] Error: --reference-results-dir not found: ${PRESTO_EXPECTED_RESULTS_DIR}" >&2
   exit 1
 fi
 
@@ -297,15 +310,23 @@ fi
 RESULTS_DIR="${ACTUAL_OUTPUT_DIR}/query_results"
 VALIDATE_SCRIPT="${SCRIPT_DIR}/../../benchmark_reporting_tools/validate_results.py"
 
+# Resolve reference results directory.
+# PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
+# Explicit --reference-results-dir was already validated before the benchmark ran.
+if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+  echo "[VALIDATION] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
+  unset PRESTO_EXPECTED_RESULTS_DIR
+fi
+
 VALIDATE_ARGS=("${RESULTS_DIR}")
-if [[ -n ${REFERENCE_RESULTS_DIR} ]]; then
-  VALIDATE_ARGS+=(--reference-results-dir "${REFERENCE_RESULTS_DIR}")
+if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+  VALIDATE_ARGS+=(--reference-results-dir "${PRESTO_EXPECTED_RESULTS_DIR}")
 fi
 if [[ -n ${QUERIES} ]]; then
   VALIDATE_ARGS+=(--queries "${QUERIES}")
 fi
 
 VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../../benchmark_reporting_tools/requirements.txt"
-echo "Running validation: ${RESULTS_DIR} vs ${REFERENCE_RESULTS_DIR:-<auto-detect>}"
+echo "[VALIDATION] Running validation: ${RESULTS_DIR} vs ${PRESTO_EXPECTED_RESULTS_DIR:-<auto-detect>}"
 pip install -q -r "${VALIDATE_REQUIREMENTS}"
 python "${VALIDATE_SCRIPT}" "${VALIDATE_ARGS[@]}"
