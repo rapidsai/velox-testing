@@ -35,7 +35,6 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
-    --profile-script-path   Path to a custom profiler functions script. Defaults to ./profiler_functions.sh.
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
@@ -155,15 +154,6 @@ parse_args() {
         PROFILE=true
         shift
         ;;
-      --profile-script-path)
-        if [[ -n $2 ]]; then
-          PROFILE_SCRIPT_PATH=$2
-          shift 2
-        else
-          echo "Error: --profile-script-path requires a value"
-          exit 1
-        fi
-        ;;
       --skip-drop-cache)
         SKIP_DROP_CACHE=true
         shift
@@ -246,10 +236,7 @@ if [[ -n ${TAG} ]]; then
 fi
 
 if [[ "${PROFILE}" == "true" ]]; then
-  if [[ -z "${PROFILE_SCRIPT_PATH}" ]]; then
-    PROFILE_SCRIPT_PATH="$(readlink -f ./profiler_functions.sh)"
-  fi
-  PYTEST_ARGS+=("--profile --profile-script-path ${PROFILE_SCRIPT_PATH}")
+  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
 fi
 
 if [[ "${METRICS}" == "true" ]]; then

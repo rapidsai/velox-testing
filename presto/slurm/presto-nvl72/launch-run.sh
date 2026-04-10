@@ -41,7 +41,8 @@ USE_NUMA="1"
 VARIANT_TYPE="gpu"
 # WORKER_IMAGE="presto-native-worker-gpu"
 WORKER_IMAGE="presto-native-worker-gpu-karth-Mar11-with-nsys"
-COORD_IMAGE="presto-coordinator-karth-Mar11"
+# COORD_IMAGE="presto-coordinator-karth-Mar11"
+COORD_IMAGE="presto-coordinator-karth-Mar11-with-nsys"
 #COORD_IMAGE="presto-coordinator-ibm-03-11"
 #WORKER_IMAGE="presto-native-worker-gpu-ibm-03-11"
 #WORKER_IMAGE="velox-testing-images-presto-471cf1a-velox-1a2f63f-gpu-cuda13.1-20260312-arm64"
@@ -174,14 +175,6 @@ JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
 # Node 5 has known issues; nodes above 10 are not yet functional.
 NODELIST="${NODELIST:-${DEFAULT_NODELIST}}"
 GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NODE}" || echo "")
-
-export NSYS_BIN="/opt/nvidia/nsight-systems-cli/2026.2.1/bin/nsys"
-export NSYS_OPTS="launch \
--t nvtx,cuda,osrt,ucx \
---cuda-memory-usage=true \
---cuda-um-cpu-page-faults=true \
---cuda-um-gpu-page-faults=true \
---cudabacktrace=true"
 
 EXPORT_VARS="ALL"
 EXPORT_VARS+=",SCALE_FACTOR=${SCALE_FACTOR}"

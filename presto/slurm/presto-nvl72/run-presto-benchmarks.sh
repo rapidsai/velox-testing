@@ -38,10 +38,17 @@ wait_until_coordinator_is_running
 echo "Starting ${NUM_WORKERS} Presto workers across ${NUM_NODES} nodes..."
 
 worker_id=0
+nsys_worker_pid=""
 for node in $(scontrol show hostnames "$SLURM_JOB_NODELIST"); do
     for gpu_id in $(seq 0 $((NUM_GPUS_PER_NODE - 1))); do
         echo "  Starting worker ${worker_id} on node ${node} GPU ${gpu_id}"
         run_worker "${gpu_id}" "$WORKER_IMAGE" "${node}" "$worker_id"
+
+        if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]]; then
+            nsys_worker_pid=$!
+            echo "profiled worker PID ${nsys_worker_pid}"
+        fi
+
         worker_id=$((worker_id + 1))
     done
 done
@@ -71,6 +78,16 @@ cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
 
 echo "Collecting configs and logs into result directory..."
 collect_results
+
+if [[ -n "${nsys_worker_pid}" ]]; then
+    echo "Sending SIGINT to profiled worker PID ${nsys_worker_pid}..."
+    # Send the interrupt signal to the nsys process
+    # If the process has already terminated, `kill` will have an error, hence `|| true`
+    kill -TERM "${nsys_worker_pid}" 2>/dev/null || true
+    echo "Waiting for nsys to finalize report..."
+    # Wait for the nsys process to finalize the report and store to disk
+    wait "${nsys_worker_pid}" 2>/dev/null || true
+fi
 
 echo "========================================"
 echo "Benchmark complete!"
