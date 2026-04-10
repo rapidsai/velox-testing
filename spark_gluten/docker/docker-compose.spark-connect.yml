@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  spark-connect:
+    image: ${DOCKER_IMAGE}
+    labels:
+      com.nvidia.spark-connect.user: ${SPARK_CONNECT_USER}
+    ports:
+      - "${CONNECT_PORT:-15002}:${CONNECT_PORT:-15002}"
+      - "${UI_PORT:-4040}:${UI_PORT:-4040}"
+    volumes:
+      - ${WORKSPACE_ROOT}:${WORKSPACE_ROOT}
+    working_dir: ${WORKSPACE_ROOT}/velox-testing/spark_gluten/scripts
+    command: /opt/spark/launch_spark_connect_server.sh ${CONNECT_PORT:-15002} ${UI_PORT:-4040} ${SPARK_CONFIG_PATH:-}
+
+  spark-connect-gpu:
+    extends:
+      service: spark-connect
+    cap_add:
+      - SYS_ADMIN
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

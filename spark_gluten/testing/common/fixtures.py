@@ -1,30 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
-import glob
 from pathlib import Path
 
 import pytest
 from pyspark.sql import SparkSession
 
-from common.testing.test_utils import get_abs_file_path, get_queries
+from common.testing.test_utils import get_queries
 
 from . import test_utils
-
-DEFAULT_CONFIG_PATH = get_abs_file_path(__file__, "../config/default.conf")
-
-
-def load_spark_config(config_path):
-    configs = {}
-    with open(config_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split(None, 1)
-            if len(parts) == 2:
-                configs[parts[0]] = parts[1]
-    return configs
 
 
 @pytest.fixture(scope="module")
@@ -47,58 +31,15 @@ def tpcds_queries(request):
 @pytest.fixture(scope="module")
 def spark_session(request):
     benchmark_type = request.node.obj.BENCHMARK_TYPE
-    gluten_jar_path = get_gluten_jar_path(request.config)
+    hostname = request.config.getoption("--hostname")
+    port = request.config.getoption("--port")
+    spark_remote = f"sc://{hostname}:{port}"
 
-    # JVM options to allow access to internal APIs required by Gluten/Netty
-    # These are needed for DirectByteBuffer and sun.misc.Unsafe access in Java 9+
-    # Netty requires access to DirectByteBuffer constructor and sun.misc.Unsafe
-    # The error "sun.misc.Unsafe or java.nio.DirectByteBuffer.<init>(long, int) not available"
-    # indicates both need to be accessible.
-    java_opts = "-Dio.netty.tryReflectionSetAccessible=true"
-
-    # Load default Spark configurations from the default config file, then
-    # override with any values from a user-supplied config file (--config).
-    spark_configs = load_spark_config(DEFAULT_CONFIG_PATH)
-    config_path = request.config.getoption("--spark-config")
-    if config_path:
-        spark_configs.update(load_spark_config(config_path))
-
-    builder = (
-        SparkSession.builder.appName(f"{benchmark_type} Test")
-        .master("local[*]")
-        .config("spark.jars", gluten_jar_path)
-        .config("spark.plugins", "org.apache.gluten.GlutenPlugin")
-        .config("spark.driver.extraJavaOptions", java_opts)
-        .config("spark.executor.extraJavaOptions", java_opts)
-    )
-
-    for key, value in spark_configs.items():
-        builder = builder.config(key, value)
-
-    spark = builder.getOrCreate()
+    spark = SparkSession.builder.remote(spark_remote).appName(f"{benchmark_type} Test").getOrCreate()
 
     yield spark
 
     spark.stop()
-
-
-def get_gluten_jar_path(config):
-    jar_path_option = "--gluten-jar-path"
-    jar_path = config.getoption(jar_path_option)
-    if jar_path is None:
-        default_install_dir = get_abs_file_path(__file__, "../spark-gluten-install")
-        search_path = f"{default_install_dir}/gluten-*.jar"
-        installed_file_paths = glob.glob(search_path)
-        if len(installed_file_paths) == 0:
-            raise Exception(
-                f"Could not find the Gluten JAR file (searched '{search_path}'). Either specify the Gluten JAR file path using the '{jar_path_option}' option or store the Gluten JAR file in the '{default_install_dir}' directory."
-            )
-        if len(installed_file_paths) > 1:
-            raise Exception(
-                f"More than one Gluten JAR file found in the '{default_install_dir}' directory. Only one Gluten JAR file is expected for autodetection to work correctly."
-            )
-        jar_path = installed_file_paths[0]
-    return jar_path
 
 
 @pytest.fixture(scope="module")
@@ -117,7 +58,7 @@ def base_setup_and_teardown(request, spark_session):
 
     for table in tables:
         try:
-            spark_session.catalog.dropTable(table)
+            spark_session.catalog.dropTempView(table)
         except Exception:
             pass
 
