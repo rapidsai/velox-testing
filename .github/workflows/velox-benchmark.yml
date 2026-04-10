@@ -126,6 +126,10 @@ jobs:
             --data-dir-path "${TPCH_DATA_DIR}" \
             --scale-factor 10 \
             --convert-decimals-to-floats
+          echo "--- metadata ---"
+          cat "${TPCH_DATA_DIR}/metadata.json"
+          echo "--- generated files ---"
+          find "${TPCH_DATA_DIR}" -type f -exec ls -lh {} + | awk '{print $5, $NF}' | sort -k2
 
       - name: Run TPC-H GPU benchmarks
         env:

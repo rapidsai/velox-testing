@@ -166,11 +166,16 @@ jobs:
           python3 -m venv .venv
           source .venv/bin/activate
           pip install -q -r benchmark_data_tools/requirements.txt
+          DATA_DIR="common/testing/integration_tests/data/${TEST_TYPE}"
           python benchmark_data_tools/generate_data_files.py \
             --benchmark-type "${TEST_TYPE}" \
-            --data-dir-path "common/testing/integration_tests/data/${TEST_TYPE}" \
+            --data-dir-path "${DATA_DIR}" \
             --scale-factor 10 \
             --convert-decimals-to-floats
+          echo "--- metadata ---"
+          cat "${DATA_DIR}/metadata.json"
+          echo "--- generated files ---"
+          find "${DATA_DIR}" -type f -exec ls -lh {} + | awk '{print $5, $NF}' | sort -k2
 
       - &login_ghcr
         name: Log in to the Container registry
