@@ -117,16 +117,16 @@ def validate(
             query_results[query_id] = {"status": "passed", "message": None}
             passed += 1
         elif status == "expected-failure":
-            print(f"[VALIDATION] {query_id.upper():4s}: XFAIL    {msg}")
+            print(f"[Validation] {query_id.upper():4s}: XFAIL    {msg}")
             query_results[query_id] = {"status": "expected-failure", "message": msg}
             expected_failures += 1
         else:
-            print(f"[VALIDATION] {query_id.upper():4s}: FAIL     {msg}")
+            print(f"[Validation] {query_id.upper():4s}: FAIL     {msg}")
             query_results[query_id] = {"status": "failed", "message": msg}
             failed += 1
 
     print(
-        f"[VALIDATION] Results: {passed} passed, {failed} failed, {expected_failures} expected-failure, {not_validated} skipped"
+        f"[Validation] Results: {passed} passed, {failed} failed, {expected_failures} expected-failure, {not_validated} skipped"
     )
 
     if failed > 0:
@@ -182,29 +182,11 @@ def parse_args() -> argparse.Namespace:
 
 def _write_not_validated(results_dir: Path, reason: str) -> None:
     """Write a not-validated sentinel JSON and print the reason."""
-    print(f"[VALIDATION] {reason}")
+    print(f"[Validation] {reason}")
     results = {"overall_status": "not-validated", "queries": {}}
     output_path = results_dir.parent / "validation_results.json"
     output_path.write_text(json.dumps(results, indent=2))
-    print(f"[VALIDATION] Results written to {output_path}")
-
-
-def _auto_detect_reference_dir(benchmark_result_json: Path) -> Path | None:
-    """Derive the reference results directory from a benchmark_result.json.
-
-    Reads context.data_dir (the source data directory recorded by run_context.py)
-    and appends "_expected".  Returns None if the field is absent or the JSON
-    cannot be read.
-    """
-    try:
-        with open(benchmark_result_json) as fh:
-            d = json.load(fh)
-        data_dir = d.get("context", {}).get("data_dir")
-        if data_dir is not None:
-            return Path(data_dir + "_expected")
-    except Exception:
-        pass
-    return None
+    print(f"[Validation] Results written to {output_path}")
 
 
 if __name__ == "__main__":
@@ -215,26 +197,13 @@ if __name__ == "__main__":
         print(f"Error: results directory not found: {results_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # Resolve the reference results directory: explicit flag takes priority,
-    # otherwise attempt auto-detection from the benchmark_result.json.
-    auto_detection_mode = False
-    if args.reference_results_dir is not None:
-        expected_dir: Path | None = Path(args.reference_results_dir)
-    else:
-        auto_detection_mode = True
-        expected_dir = _auto_detect_reference_dir(results_dir.parent / "benchmark_result.json")
-
-    if expected_dir is None:
+    if args.reference_results_dir is None:
         _write_not_validated(results_dir, "No reference results directory provided; validation skipped.")
         sys.exit(0)
 
+    expected_dir = Path(args.reference_results_dir)
+
     if not expected_dir.is_dir():
-        if auto_detection_mode:
-            _write_not_validated(
-                results_dir,
-                f"Reference results directory not found: {expected_dir}; validation skipped.",
-            )
-            sys.exit(0)
         print(f"Error: reference results directory not found: {expected_dir}", file=sys.stderr)
         sys.exit(1)
 
@@ -243,15 +212,15 @@ if __name__ == "__main__":
 
     query_numbers = [int(q.strip()) for q in args.queries.split(",")] if args.queries else None
 
-    print(f"[VALIDATION] Benchmark:  {args.benchmark_type}")
+    print(f"[Validation] Benchmark:  {args.benchmark_type}")
     if query_numbers is not None:
-        print(f"[VALIDATION] Queries:    {query_numbers}")
+        print(f"[Validation] Queries:    {query_numbers}")
 
     results = validate(results_dir, expected_dir, queries, query_numbers=query_numbers)
 
     # Write validation_results.json next to the query_results/ dir
     output_path = results_dir.parent / "validation_results.json"
     output_path.write_text(json.dumps(results, indent=2))
-    print(f"[VALIDATION] Results written to {output_path}")
+    print(f"[Validation] Results written to {output_path}")
 
     sys.exit(0 if results["overall_status"] != "failed" else 1)

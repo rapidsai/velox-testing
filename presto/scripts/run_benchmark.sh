@@ -49,9 +49,7 @@ OPTIONS:
                             validate_results.py, and validation_results.json is written next
                             to benchmark_result.json (picked up automatically by post_results.py).
                             Overrides the PRESTO_EXPECTED_RESULTS_DIR environment variable.
-                            If neither --reference-results-dir nor PRESTO_EXPECTED_RESULTS_DIR
-                            is provided, validation falls back to auto-detection via
-                            benchmark_result.json; if nothing is found the result is "not-validated".
+                            If neither is provided, validation is skipped ("not-validated").
                             Error if the explicitly provided directory does not exist.
     PRESTO_EXPECTED_RESULTS_DIR
                             Environment variable alternative to --reference-results-dir.
@@ -226,7 +224,7 @@ fi
 
 # Fail fast if an explicit --reference-results-dir was given but doesn't exist.
 if [[ ${EXPLICIT_REFERENCE_DIR} == true && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
-  echo "[VALIDATION] Error: --reference-results-dir not found: ${PRESTO_EXPECTED_RESULTS_DIR}" >&2
+  echo "[Validation] Error: --reference-results-dir not found: ${PRESTO_EXPECTED_RESULTS_DIR}" >&2
   exit 1
 fi
 
@@ -323,7 +321,7 @@ VALIDATE_SCRIPT="${SCRIPT_DIR}/../../benchmark_reporting_tools/validate_results.
 # PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
 # Explicit --reference-results-dir was already validated before the benchmark ran.
 if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
-  echo "[VALIDATION] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
+  echo "[Validation] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
   unset PRESTO_EXPECTED_RESULTS_DIR
 fi
 
@@ -336,6 +334,6 @@ if [[ -n ${QUERIES} ]]; then
 fi
 
 VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../../benchmark_reporting_tools/requirements.txt"
-echo "[VALIDATION] Running validation: ${RESULTS_DIR} vs ${PRESTO_EXPECTED_RESULTS_DIR:-<auto-detect>}"
+echo "[Validation] Running validation: ${RESULTS_DIR} vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
 pip install -q -r "${VALIDATE_REQUIREMENTS}"
 python "${VALIDATE_SCRIPT}" "${VALIDATE_ARGS[@]}"
