@@ -163,7 +163,7 @@ jobs:
         env:
           TEST_TYPE: ${{ matrix.test_type }}
         run: |
-          DATA_DIR="common/testing/integration_tests/data/${TEST_TYPE}"
+          DATA_DIR="${GITHUB_WORKSPACE}/common/testing/integration_tests/data/${TEST_TYPE}"
           benchmark_data_tools/scripts/generate_dataset.sh \
             --benchmark-type "${TEST_TYPE}" \
             --data-dir-path "${DATA_DIR}" \
