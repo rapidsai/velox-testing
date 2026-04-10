@@ -241,8 +241,6 @@ if __name__ == "__main__":
 
     query_numbers = [int(q.strip()) for q in args.queries.split(",")] if args.queries else None
 
-    print(f"[VALIDATION] Validating: {results_dir}")
-    print(f"[VALIDATION] Expected:   {expected_dir}")
     print(f"[VALIDATION] Benchmark:  {args.benchmark_type}")
     if query_numbers is not None:
         print(f"[VALIDATION] Queries:    {query_numbers}")
