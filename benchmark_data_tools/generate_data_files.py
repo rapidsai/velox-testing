@@ -12,10 +12,18 @@ from pathlib import Path
 
 import duckdb
 from duckdb_utils import init_benchmark_tables, is_decimal_column
-from rewrite_parquet import process_dir
 
 
-def generate_partition(table, partition, raw_data_path, scale_factor, num_partitions, verbose, approx_row_group_bytes):
+def generate_partition(
+    table,
+    partition,
+    raw_data_path,
+    scale_factor,
+    num_partitions,
+    verbose,
+    approx_row_group_bytes,
+    convert_decimals_to_floats,
+):
     if verbose:
         print(f"Generating '{table}' partition: {partition}")
     Path(f"{raw_data_path}/part-{partition}").mkdir(parents=True, exist_ok=True)
@@ -36,6 +44,10 @@ def generate_partition(table, partition, raw_data_path, scale_factor, num_partit
         "--parquet-row-group-bytes",
         str(approx_row_group_bytes),
     ]
+
+    if convert_decimals_to_floats:
+        command.extend(["--decimal-column-type", "f64"])
+
     try:
         subprocess.run(command, check=True)
     except subprocess.CalledProcessError as e:
@@ -64,13 +76,7 @@ def generate_data_files_with_tpchgen(args):
         os.environ["PATH"] = os.pathsep.join([str(local_installs_bin), os.environ["PATH"]])
 
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
-
-    if args.convert_decimals_to_floats:
-        raw_data_path = args.data_dir_path + "-temp"
-        if os.path.exists(raw_data_path):
-            shutil.rmtree(raw_data_path)
-    else:
-        raw_data_path = args.data_dir_path
+    raw_data_path = args.data_dir_path
 
     max_partitions = 1
     with ThreadPoolExecutor(args.num_threads) as executor:
@@ -90,6 +96,7 @@ def generate_data_files_with_tpchgen(args):
                         num_partitions,
                         args.verbose,
                         args.approx_row_group_bytes,
+                        args.convert_decimals_to_floats,
                     )
                 )
             max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
@@ -101,11 +108,6 @@ def generate_data_files_with_tpchgen(args):
 
     if args.verbose:
         print(f"Raw data created at: {raw_data_path}")
-
-    if args.convert_decimals_to_floats:
-        process_dir(raw_data_path, args.data_dir_path, args.num_threads, args.verbose, args.convert_decimals_to_floats)
-        if not args.keep_original_dataset:
-            shutil.rmtree(raw_data_path)
 
     write_metadata(args)
 
@@ -247,14 +249,6 @@ if __name__ == "__main__":
         required=False,
         default=100_000_000,
         help="Limit number of rows in each file (creates more partitions)",
-    )
-    parser.add_argument(
-        "-k",
-        "--keep-original-dataset",
-        action="store_true",
-        required=False,
-        default=False,
-        help="Keep the original dataset that was generated before transformations",
     )
     parser.add_argument(
         "--approx-row-group-bytes",
