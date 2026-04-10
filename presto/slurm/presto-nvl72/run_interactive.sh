@@ -5,7 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/defaults.env"
 
-: "${IMAGE:=${IMAGE_DIR}/presto-native-worker-gpu.sqsh}"
+: "${IMAGE:=${IMAGE_DIR}/presto-native-worker-gpu-karth-Mar11-with-nsys.sqsh}"
 : "${NODELIST:=${DEFAULT_SINGLE_NODE}}"
 : "${GRES:=gpu:4}"
 : "${TIME_LIMIT:=01:00:00}"
@@ -17,7 +17,7 @@ srun --nodes=1 \
      --exclusive \
      --time="${TIME_LIMIT}" \
      --container-image="${IMAGE}" \
-     --container-mounts="${HOME}:${HOME},/scratch:/scratch" \
+     --container-mounts="/scratch:/scratch" \
      --container-remap-root \
      --container-writable \
      --pty bash

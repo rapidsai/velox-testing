@@ -74,7 +74,6 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
-                print(f">>> profile_script_path: {profile_script_path}, profile_output_file_path: {profile_output_file_path}")
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
             for iteration_num in range(iterations):

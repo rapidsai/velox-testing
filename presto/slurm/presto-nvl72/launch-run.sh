@@ -175,6 +175,14 @@ JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
 NODELIST="${NODELIST:-${DEFAULT_NODELIST}}"
 GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NODE}" || echo "")
 
+export NSYS_BIN="/opt/nvidia/nsight-systems-cli/2026.2.1/bin/nsys"
+export NSYS_OPTS="launch \
+-t nvtx,cuda,osrt,ucx \
+--cuda-memory-usage=true \
+--cuda-um-cpu-page-faults=true \
+--cuda-um-gpu-page-faults=true \
+--cudabacktrace=true"
+
 EXPORT_VARS="ALL"
 EXPORT_VARS+=",SCALE_FACTOR=${SCALE_FACTOR}"
 EXPORT_VARS+=",NUM_ITERATIONS=${NUM_ITERATIONS}"

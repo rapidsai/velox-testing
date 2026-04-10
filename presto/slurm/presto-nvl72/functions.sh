@@ -231,26 +231,26 @@ function run_worker {
         done
     fi
 
+    local nsys_args=""
+    [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]] && nsys_args="${NSYS_BIN} ${NSYS_OPTS}"
     # -o ${vt_nsys_report_dir}/nsys_worker_${worker_id}
     # --cpuctxsw=none
     # --nvtx-domain-exclude=CCCL
-    local nsys_bin=""
-    local nsys_opts=""
-    if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]]; then
-        nsys_bin="/opt/nvidia/nsight-systems-cli/2026.2.1/bin/nsys"
-        nsys_opts="launch \
-        -t nvtx,cuda,osrt,ucx \
-        --cuda-memory-usage=true \
-        --cuda-um-cpu-page-faults=true \
-        --cuda-um-gpu-page-faults=true \
-        --cudabacktrace=true"
-        # nsys_opts="profile \
-        # -o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
-        # -t cuda,ucx,nvtx,osrt \
-        # -f true \
-        # --cuda-memory-usage=true \
-        # --nvtx-domain-exclude=CCCL"
-    fi
+    # if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]]; then
+    #     nsys_bin="/opt/nvidia/nsight-systems-cli/2026.2.1/bin/nsys"
+    #     nsys_opts="launch \
+    #     -t nvtx,cuda,osrt,ucx \
+    #     --cuda-memory-usage=true \
+    #     --cuda-um-cpu-page-faults=true \
+    #     --cuda-um-gpu-page-faults=true \
+    #     --cudabacktrace=true"
+    #     nsys_opts="profile \
+    #     -o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
+    #     -t cuda,ucx,nvtx,osrt \
+    #     -f true \
+    #     --cuda-memory-usage=true \
+    #     --nvtx-domain-exclude=CCCL"
+    # fi
 
     # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
     # capabilities are already set up for the job cgroup.  Do NOT use --gres=gpu:1
@@ -297,14 +297,15 @@ echo \"Worker ${worker_id}: ENABLE_NSYS=\${ENABLE_NSYS:-unset}\"
 echo \"Worker ${worker_id}: KVIKIO_COMPAT_MODE=\${KVIKIO_COMPAT_MODE:-unset}\"
 echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
 
-if [[ -n '${nsys_bin}' ]]; then
-    echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"
+if [[ -n '${nsys_args}' ]]; then
+    echo \"Worker ${worker_id}: Nsight System program at ${NSYS_BIN}\"
+    ls ${NSYS_BIN}
 fi
 
 if [[ '${USE_NUMA}' == '1' ]]; then
-    numactl --cpubind=${numa_node} --membind=${numa_node} ${nsys_bin} ${nsys_opts} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    numactl --cpubind=${numa_node} --membind=${numa_node} ${nsys_args} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
 else
-    ${nsys_bin} ${nsys_opts} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    ${nsys_args} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
 fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
@@ -346,7 +347,7 @@ function run_queries {
     local metrics_flag=""
     [[ "${ENABLE_METRICS}" == "1" ]] && metrics_flag="-m"
     local profile_flag=""
-    [[ "${ENABLE_NSYS}" == "1" ]] && profile_flag="-p --profile-script-path $(readlink -f ./profiler_functions.sh)"
+    [[ "${ENABLE_NSYS}" == "1" ]] && profile_flag="-p --profile-script-path /workspace/presto/slurm/presto-nvl72/profiler_functions.sh"
 
     source "${SCRIPT_DIR}/defaults.env"
     # We currently skip dropping cache because it requires docker (not available on the cluster).
