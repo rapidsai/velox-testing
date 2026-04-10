@@ -27,19 +27,22 @@ VELOX_TESTING_REPO="rapidsai/velox-testing"
 IMAGE_BASE="${REGISTRY}/${PACKAGE_REPO}/${PACKAGE_NAME}"
 LOCAL_TAG="${USER:-latest}"
 BRANCH="ibm-research-preview-2026-03-31"
+CUDA_VERSION=""
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--branch BRANCH]
+Usage: $(basename "$0") [--branch BRANCH] [--cuda-version VERSION]
 
 Fetches the latest Presto images built from a given branch and tags them locally.
 Queries the presto.yml CI pipeline to resolve which presto/velox commit SHAs
 correspond to that branch, then finds matching images in GHCR.
 
 Options:
-  --branch BRANCH   Presto branch to filter images by
-                    (default: ibm-research-preview-2026-03-31)
-  -h, --help        Show this help
+  --branch BRANCH         Presto branch to filter images by
+                          (default: ibm-research-preview-2026-03-31)
+  --cuda-version VERSION  CUDA version for the GPU worker image (e.g. 13.1, 12.9)
+                          If omitted, the latest available CUDA version is used
+  -h, --help              Show this help
 
 Local tags created:
   presto-coordinator:\$USER
@@ -50,7 +53,8 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --branch) BRANCH="$2"; shift 2 ;;
+    --branch)       BRANCH="$2";       shift 2 ;;
+    --cuda-version) CUDA_VERSION="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -144,9 +148,15 @@ fi
 echo "  cpu worker  : ${CPU_TAG}"
 
 # gpu worker: presto-<presto-sha>-velox-<velox-sha>-gpu-cuda<ver>-<YYYYMMDD>
-GPU_TAG=$(find_latest_tag "^presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda[0-9.]+-[0-9]{8}$")
+# If --cuda-version was given, anchor to that exact version; otherwise match any.
+CUDA_PAT="${CUDA_VERSION:-[0-9.]+}"
+GPU_TAG=$(find_latest_tag "^presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_PAT}-[0-9]{8}$")
 if [[ -z "${GPU_TAG}" ]]; then
-  echo "ERROR: No GPU worker image found for presto SHA ${PRESTO_SHORT_SHA}, velox SHA ${VELOX_SHORT_SHA}" >&2
+  if [[ -n "${CUDA_VERSION}" ]]; then
+    echo "ERROR: No GPU worker image found for presto SHA ${PRESTO_SHORT_SHA}, velox SHA ${VELOX_SHORT_SHA}, CUDA ${CUDA_VERSION}" >&2
+  else
+    echo "ERROR: No GPU worker image found for presto SHA ${PRESTO_SHORT_SHA}, velox SHA ${VELOX_SHORT_SHA}" >&2
+  fi
   exit 1
 fi
 echo "  gpu worker  : ${GPU_TAG}"
