@@ -60,7 +60,10 @@ wait_for_workers_to_register $NUM_WORKERS
 # Run Queries
 # ==============================================================================
 echo "Running TPC-H queries (${NUM_ITERATIONS} iterations, scale factor ${SCALE_FACTOR})..."
+
+touch "${LOGS}/.nsys_start_token"
 run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
+touch "${LOGS}/.nsys_stop_token"
 
 # ==============================================================================
 # Process Results
@@ -71,6 +74,25 @@ cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
 
 echo "Collecting configs and logs into result directory..."
 collect_results
+
+# rm "${LOGS}/.nsys_start_token" "${LOGS}/.nsys_stop_token"
+echo "Waiting for nsys report generation..."
+prev_size=0
+stable_count=0
+for i in {1..120}; do
+    cur_size=$(stat -c%s "${LOGS}/nsys_worker_0.nsys-rep" 2>/dev/null || echo 0)
+    if (( cur_size > 0 && cur_size == prev_size )); then
+        stable_count=$((stable_count + 1))
+        if (( stable_count >= 3 )); then
+            echo "nsys report complete: ${cur_size} bytes"
+            break
+        fi
+    else
+        stable_count=0
+    fi
+    prev_size=$cur_size
+    sleep 5
+done
 
 echo "========================================"
 echo "Benchmark complete!"

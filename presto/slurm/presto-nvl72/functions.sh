@@ -94,9 +94,7 @@ function run_coord_image {
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
 --container-remap-root \
---export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
+--export=ALL \
 --container-mounts=${VT_ROOT}:/workspace,\
 ${coord_data}:/var/lib/presto/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
@@ -110,9 +108,7 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
         srun -w $COORD --ntasks=1 --overlap \
 --container-remap-root \
 --container-image=${coord_image} \
---export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
+--export=ALL \
 --container-mounts=${VT_ROOT}:/workspace,\
 ${coord_data}:/var/lib/presto/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
@@ -178,8 +174,8 @@ function run_worker {
     validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD CUDF_LIB DATA
 
     local gpu_id=$1 image=$2 node=$3 worker_id=$4
-    # Assign NUMA node based on GPU ID: GPUs 0-3 → node 0, GPUs 4-7 → node 1, etc.
-    local numa_node=$((gpu_id / 4))
+    # Assign NUMA node based on GPU ID: GPUs 0-1 → node 0, GPUs 2-3 → node 1, etc.
+    local numa_node=$((gpu_id / 2))
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id} numa_node ${numa_node}"
 
     local worker_image="${IMAGE_DIR}/${image}.sqsh"
@@ -199,6 +195,59 @@ function run_worker {
     mkdir -p ${worker_data}/hive/data/user_data
     mkdir -p ${VT_ROOT}/.hive_metastore
 
+    local vt_cufile_log_dir="/var/log/cufile"
+    local vt_cufile_log="${vt_cufile_log_dir}/cufile_worker_${worker_id}.log"
+
+    local gds_mounts=""
+    function add_gds_sys_path {
+        local path="${1:?Path argument missing}"
+        local read_only="${2:-0}"
+
+        # System file path must exist
+        if [[ ! -e ${path} ]]; then
+            echo "${path} required by GDS does not exist"
+            exit 1
+        fi
+
+        # If gds_mounts is not empty, append a comma
+        [[ -n "${gds_mounts}" ]] && gds_mounts+=","
+
+        # Append path
+        gds_mounts+="${path}:${path}"
+        if [[ "${read_only}" == "1" ]]; then
+            gds_mounts+=":ro"
+        fi
+    }
+
+    if [[ "${ENABLE_GDS}" == "1" ]]; then
+        # Add GDS-required system paths
+        add_gds_sys_path "/run/udev" 1
+        add_gds_sys_path "/dev/infiniband"
+        add_gds_sys_path "/etc/cufile.json" 1
+        for dev in /dev/nvidia-fs*; do
+            # If file exists, append the path, otherwise, exit the loop
+            [[ -e "${dev}" ]] || continue
+            add_gds_sys_path "${dev}"
+        done
+    fi
+
+    # --nvtx-domain-exclude=CCCL
+    # --cpuctxsw=none
+    # --sample=none
+    local nsys_bin=""
+    local nsys_launch_opts=""
+    local nsys_start_opts=""
+    local vt_nsys_report_dir="/var/log/nsys"
+    if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]]; then
+        nsys_bin="/opt/nvidia/nsight-systems-cli/2026.2.1/bin/nsys"
+        nsys_launch_opts="-t nvtx,cuda,osrt,ucx \
+        --cuda-memory-usage=true \
+        --cuda-um-cpu-page-faults=true \
+        --cuda-um-gpu-page-faults=true"
+        nsys_start_opts="-o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
+        -f true"
+    fi
+
     # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
     # capabilities are already set up for the job cgroup.  Do NOT use --gres=gpu:1
     # on the step: it restricts the step's cgroup to one GPU and then nvidia-container-cli
@@ -212,6 +261,8 @@ function run_worker {
     # compat library with the host driver so cudaMallocAsync works.
     # CUDA_VISIBLE_DEVICES=${gpu_id} inside the container restricts each worker to
     # its assigned GPU while still allowing the CUDA driver to enumerate all devices.
+    # export GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3
+    # export GLOG_logtostderr=1
     srun -N1 -w $node --ntasks=1 --overlap \
 --container-image=${worker_image} \
 --container-remap-root \
@@ -224,19 +275,55 @@ ${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
+${LOGS}:${vt_cufile_log_dir},\
+${LOGS}:${vt_nsys_report_dir},\
 /usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
-/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1 \
---container-env=LD_LIBRARY_PATH="$CUDF_LIB:$LD_LIBRARY_PATH" \
---container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
---container-env=GLOG_logtostderr=1 \
+/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1\
+${gds_mounts:+,${gds_mounts}} \
 -- /bin/bash -c "
+export LD_LIBRARY_PATH=\"${CUDF_LIB}:${LD_LIBRARY_PATH}\"
+if [[ '${ENABLE_GDS}' == '1' ]]; then
+    export KVIKIO_COMPAT_MODE=OFF
+    export CUFILE_LOGFILE_PATH=${vt_cufile_log}
+    export CUFILE_LOGGING_LEVEL=INFO
+fi
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
 echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
-if [[ '${USE_NUMA}' == '1' ]]; then
-    numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+echo \"Worker ${worker_id}: ENABLE_GDS=\${ENABLE_GDS:-unset}\"
+echo \"Worker ${worker_id}: ENABLE_NSYS=\${ENABLE_NSYS:-unset}\"
+echo \"Worker ${worker_id}: KVIKIO_COMPAT_MODE=\${KVIKIO_COMPAT_MODE:-unset}\"
+echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
+
+if [[ -n '${nsys_bin}' ]]; then
+    (
+        echo \"Worker ${worker_id}: nsys subshell started, waiting for start token\"
+        while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token ]]; do
+            read -t 2 -r _ <<< '' || true
+        done
+        echo \"Worker ${worker_id}: start token found, running nsys start\"
+        ${nsys_bin} start ${nsys_start_opts}
+        echo \"Worker ${worker_id}: nsys start exit code: \$?\"
+        while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token ]]; do
+            read -t 2 -r _ <<< '' || true
+        done
+        echo \"Worker ${worker_id}: stop token found, running nsys stop\"
+        ${nsys_bin} stop
+        echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
+    ) &
+
+    echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"
+    echo \"Worker ${worker_id}: running nsys launch\"
+    ${nsys_bin} launch ${nsys_launch_opts} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    echo \"Worker ${worker_id}: nsys launch exited with code: \$?\"
 else
-    /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
-fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+    if [[ '${USE_NUMA}' == '1' ]]; then
+        numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    else
+        /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    fi
+fi
+
+" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 function copy_hive_metastore {
@@ -274,6 +361,9 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
+    local metrics_flag=""
+    [[ "${ENABLE_METRICS}" == "1" ]] && metrics_flag="-m"
+
     source "${SCRIPT_DIR}/defaults.env"
     # We currently skip dropping cache because it requires docker (not available on the cluster).
     run_coord_image "export PORT=$PORT; \
@@ -282,7 +372,7 @@ function run_queries {
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
-    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} \
+    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${metrics_flag} -q 1 \
         --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache; \
     echo 'Validating query results...'; \
     MINIFORGE_HOME=/workspace/miniforge3 /workspace/scripts/run_py_script.sh \

@@ -39,14 +39,19 @@ EXTRA_ARGS=()
 NUM_GPUS_PER_NODE="4"
 USE_NUMA="1"
 VARIANT_TYPE="gpu"
-#WORKER_IMAGE="presto-native-worker-gpu"
-COORD_IMAGE="presto-coordinator-karth-Mar11"
-WORKER_IMAGE="presto-native-worker-gpu-karth-Mar11"
+# WORKER_IMAGE="presto-native-worker-gpu"
+WORKER_IMAGE="presto-native-worker-gpu-karth-Mar11-with-nsys"
+# COORD_IMAGE="presto-coordinator-karth-Mar11"
+COORD_IMAGE="presto-coordinator-karth-Mar11-with-nsys"
 #COORD_IMAGE="presto-coordinator-ibm-03-11"
 #WORKER_IMAGE="presto-native-worker-gpu-ibm-03-11"
 #WORKER_IMAGE="velox-testing-images-presto-471cf1a-velox-1a2f63f-gpu-cuda13.1-20260312-arm64"
 #COORD_IMAGE="presto-coordinator"
 OUTPUT_PATH=""
+ENABLE_GDS=1
+ENABLE_METRICS=0
+ENABLE_NSYS=0
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -n|--nodes)
@@ -79,7 +84,7 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
-	-g|--num-gpus-per-node)
+	    -g|--num-gpus-per-node)
             if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
                 NUM_GPUS_PER_NODE="$2"
                 shift 2
@@ -89,7 +94,7 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
-	-w|--worker-image)
+	    -w|--worker-image)
             if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
                 WORKER_IMAGE="$2"
                 shift 2
@@ -99,7 +104,7 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
-	-c|--coord-image)
+	    -c|--coord-image)
             if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
                 COORD_IMAGE="$2"
                 shift 2
@@ -127,6 +132,18 @@ while [[ $# -gt 0 ]]; do
                 echo "Error: -o|--output-path requires a value"
                 exit 1
             fi
+            ;;
+        --disable-gds)
+            ENABLE_GDS=0
+            shift
+            ;;
+        -m|--metrics)
+            ENABLE_METRICS=1
+            shift
+            ;;
+        -p|--profile)
+            ENABLE_NSYS=1
+            shift
             ;;
         --)
             shift
@@ -158,8 +175,22 @@ JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
 # Node 5 has known issues; nodes above 10 are not yet functional.
 NODELIST="${NODELIST:-${DEFAULT_NODELIST}}"
 GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NODE}" || echo "")
+
+EXPORT_VARS="ALL"
+EXPORT_VARS+=",SCALE_FACTOR=${SCALE_FACTOR}"
+EXPORT_VARS+=",NUM_ITERATIONS=${NUM_ITERATIONS}"
+EXPORT_VARS+=",SCRIPT_DIR=${SCRIPT_DIR}"
+EXPORT_VARS+=",NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE}"
+EXPORT_VARS+=",WORKER_IMAGE=${WORKER_IMAGE}"
+EXPORT_VARS+=",COORD_IMAGE=${COORD_IMAGE}"
+EXPORT_VARS+=",USE_NUMA=${USE_NUMA}"
+EXPORT_VARS+=",VARIANT_TYPE=${VARIANT_TYPE}"
+EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS}"
+EXPORT_VARS+=",ENABLE_METRICS=${ENABLE_METRICS}"
+EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
+
 JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" --nodelist="${NODELIST}" \
---export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE},USE_NUMA=${USE_NUMA},VARIANT_TYPE=${VARIANT_TYPE}" \
+--export="${EXPORT_VARS}" \
 --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" ${GRES_OPT} \
 run-presto-benchmarks.slurm | awk '{print $NF}')
 OUT_FILE="${OUT_FMT//%j/${JOB_ID}}"
