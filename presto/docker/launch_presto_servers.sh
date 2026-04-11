@@ -12,35 +12,52 @@ mkdir -p "${LOGS_DIR}"
 
 ETC_BASE="/opt/presto-server/etc"
 
-# Resolve the NUMA node closest to a GPU and launch presto_server pinned to it.
-#   $1 — GPU ID
+# Resolve the NUMA node for a worker and launch presto_server pinned to it.
+# For GPU workers: pins to the NUMA node closest to the GPU via nvidia-smi topology.
+# For CPU workers: interleaves memory across all NUMA nodes via numactl (requires SYS_NICE).
+#   $1 — GPU ID (or 0 for CPU single-worker)
 #   $2 — etc-dir path for this instance
 launch_worker() {
   local gpu_id=$1 etc_dir=$2
-  echo "Launching on GPU $gpu_id (config: $etc_dir)"
-
-  local topo
-  topo=$(nvidia-smi topo -C -M -i "$gpu_id")
-  echo "$topo"
-
-  local cpu_numa mem_numa
-  cpu_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest CPU/{ gsub(/ /,"",$2); print $2 }')
-  mem_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest memory/{ gsub(/ /,"",$2); print $2 }')
+  echo "Launching worker $gpu_id (config: $etc_dir)"
 
   local launcher=()
-  if [[ $cpu_numa =~ ^[0-9]+$ ]]; then
-    launcher=(numactl --cpunodebind="$cpu_numa")
-    if [[ $mem_numa =~ ^[0-9]+$ ]]; then
-      launcher+=(--membind="$mem_numa")
-    else
-      launcher+=(--membind="$cpu_numa")
+  local cuda_env=()
+
+  if command -v nvidia-smi &> /dev/null; then
+    local topo
+    topo=$(nvidia-smi topo -C -M -i "$gpu_id")
+    echo "$topo"
+
+    local cpu_numa mem_numa
+    cpu_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest CPU/{ gsub(/ /,"",$2); print $2 }')
+    mem_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest memory/{ gsub(/ /,"",$2); print $2 }')
+
+    if [[ $cpu_numa =~ ^[0-9]+$ ]]; then
+      launcher=(numactl --cpunodebind="$cpu_numa")
+      if [[ $mem_numa =~ ^[0-9]+$ ]]; then
+        launcher+=(--membind="$mem_numa")
+      else
+        launcher+=(--membind="$cpu_numa")
+      fi
+    fi
+
+    cuda_env=("CUDA_VISIBLE_DEVICES=$gpu_id")
+    gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i "$gpu_id")"
+  # No GPU: fall back to NUMA interleaving across all nodes for CPU workers.
+  # Requires SYS_NICE capability in the container (set via cap_add in docker-compose).
+  elif command -v numactl &> /dev/null; then
+    local num_nodes
+    num_nodes=$(numactl --hardware 2>/dev/null | grep -c "node [0-9]* cpus:" || echo 0)
+    if [[ $num_nodes -gt 1 ]]; then
+      echo "No GPU detected; found $num_nodes NUMA nodes -- launching with --interleave=all"
+      launcher=(numactl --interleave=all)
     fi
   fi
 
   log_file="${LOGS_DIR}/worker_${gpu_id}_${SERVER_START_TIMESTAMP}.log"
-  gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i $gpu_id)"
   echo "GPU Name: ${gpu_name:-unknown}" > "${log_file}"
-  CUDA_VISIBLE_DEVICES="$gpu_id" "${launcher[@]}" presto_server --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &
+  env "${cuda_env[@]}" "${launcher[@]}" presto_server --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &
 }
 
 # No args → single worker using CUDA_VISIBLE_DEVICES (default 0), shared config dir.
