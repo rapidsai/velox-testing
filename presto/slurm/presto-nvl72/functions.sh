@@ -231,23 +231,21 @@ function run_worker {
         done
     fi
 
+    # --nvtx-domain-exclude=CCCL
+    # --cpuctxsw=none
+    # --sample=none
     local nsys_bin=""
-    local nsys_opts=""
-    local nsys_args=""
+    local nsys_launch_opts=""
+    local nsys_start_opts=""
     local vt_nsys_report_dir="/var/log/nsys"
     if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]]; then
         nsys_bin="/opt/nvidia/nsight-systems-cli/2026.2.1/bin/nsys"
-        nsys_opts="profile \
-        -o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
-        -t nvtx,cuda,osrt,ucx \
-        -f true \
-        --sample=none \
-        --cpuctxsw=none \
+        nsys_launch_opts="-t nvtx,cuda,osrt,ucx \
         --cuda-memory-usage=true \
         --cuda-um-cpu-page-faults=true \
-        --cuda-um-gpu-page-faults=true \
-        --nvtx-domain-exclude=CCCL"
-        nsys_args="${nsys_bin} ${nsys_opts}"
+        --cuda-um-gpu-page-faults=true"
+        nsys_start_opts="-o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
+        -f true"
     fi
 
     # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
@@ -296,15 +294,36 @@ echo \"Worker ${worker_id}: ENABLE_NSYS=\${ENABLE_NSYS:-unset}\"
 echo \"Worker ${worker_id}: KVIKIO_COMPAT_MODE=\${KVIKIO_COMPAT_MODE:-unset}\"
 echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
 
-if [[ -n '${nsys_args}' ]]; then
+if [[ -n '${nsys_bin}' ]]; then
+    (
+        echo \"Worker ${worker_id}: nsys subshell started, waiting for start token\"
+        while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token ]]; do
+            read -t 2 -r _ <<< '' || true
+        done
+        echo \"Worker ${worker_id}: start token found, running nsys start\"
+        ${nsys_bin} start ${nsys_start_opts}
+        echo \"Worker ${worker_id}: nsys start exit code: \$?\"
+        while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token ]]; do
+            read -t 2 -r _ <<< '' || true
+        done
+        echo \"Worker ${worker_id}: stop token found, running nsys stop\"
+        ${nsys_bin} stop
+        echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
+    ) &
+
     echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"
+    echo \"Worker ${worker_id}: running nsys launch\"
+    ${nsys_bin} launch ${nsys_launch_opts} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    echo \"Worker ${worker_id}: nsys launch exited with code: \$?\"
+else
+    if [[ '${USE_NUMA}' == '1' ]]; then
+        numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    else
+        /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    fi
 fi
 
-if [[ '${USE_NUMA}' == '1' ]]; then
-    numactl --cpubind=${numa_node} --membind=${numa_node} ${nsys_args} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
-else
-    ${nsys_args} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
-fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 function copy_hive_metastore {
