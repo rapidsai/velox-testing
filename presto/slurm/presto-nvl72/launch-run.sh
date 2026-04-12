@@ -51,6 +51,7 @@ OUTPUT_PATH=""
 ENABLE_GDS=1
 ENABLE_METRICS=0
 ENABLE_NSYS=0
+QUERIES=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -145,7 +146,16 @@ while [[ $# -gt 0 ]]; do
             ENABLE_NSYS=1
             shift
             ;;
-        --)
+        -q|--queries)
+          if [[ -n $2 ]]; then
+            QUERIES=$2
+            shift 2
+          else
+            echo "Error: --queries requires a value"
+            exit 1
+          fi
+          ;;
+          --)
             shift
             break
             ;;
@@ -188,6 +198,9 @@ EXPORT_VARS+=",VARIANT_TYPE=${VARIANT_TYPE}"
 EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS}"
 EXPORT_VARS+=",ENABLE_METRICS=${ENABLE_METRICS}"
 EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
+if [[ -n "${QUERIES}" ]]; then
+    EXPORT_VARS+=",QUERIES='${QUERIES}'"
+fi
 
 JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" --nodelist="${NODELIST}" \
 --export="${EXPORT_VARS}" \

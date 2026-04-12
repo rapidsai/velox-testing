@@ -60,10 +60,7 @@ wait_for_workers_to_register $NUM_WORKERS
 # Run Queries
 # ==============================================================================
 echo "Running TPC-H queries (${NUM_ITERATIONS} iterations, scale factor ${SCALE_FACTOR})..."
-
-touch "${LOGS}/.nsys_start_token"
 run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
-touch "${LOGS}/.nsys_stop_token"
 
 # ==============================================================================
 # Process Results
@@ -75,24 +72,37 @@ cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
 echo "Collecting configs and logs into result directory..."
 collect_results
 
-# rm "${LOGS}/.nsys_start_token" "${LOGS}/.nsys_stop_token"
-echo "Waiting for nsys report generation..."
-prev_size=0
-stable_count=0
-for i in {1..120}; do
-    cur_size=$(stat -c%s "${LOGS}/nsys_worker_0.nsys-rep" 2>/dev/null || echo 0)
-    if (( cur_size > 0 && cur_size == prev_size )); then
-        stable_count=$((stable_count + 1))
-        if (( stable_count >= 3 )); then
-            echo "nsys report complete: ${cur_size} bytes"
-            break
+echo "--> QUERIES: ${QUERIES:-UNDEFINED}"
+
+if [[ "${ENABLE_NSYS}" == "1" ]]; then
+    echo "Waiting for nsys report generation..."
+    stable_count=0
+    declare -A prev_sizes
+    for i in {1..120}; do
+        all_stable=true
+        found_any=false
+        for f in "${LOGS}"/nsys_worker_*.nsys-rep; do
+            [[ -f "$f" ]] || continue
+            found_any=true
+            cur_size=$(stat -c%s "$f" 2>/dev/null || echo 0)
+            prev=${prev_sizes["$f"]:-0}
+            if (( cur_size == 0 || cur_size != prev )); then
+                all_stable=false
+            fi
+            prev_sizes["$f"]=$cur_size
+        done
+        if $all_stable && $found_any; then
+            stable_count=$((stable_count + 1))
+            if (( stable_count >= 3 )); then
+                echo "All ${#prev_sizes[@]} nsys reports stable."
+                break
+            fi
+        else
+            stable_count=0
         fi
-    else
-        stable_count=0
-    fi
-    prev_size=$cur_size
-    sleep 5
-done
+        sleep 5
+    done
+fi
 
 echo "========================================"
 echo "Benchmark complete!"

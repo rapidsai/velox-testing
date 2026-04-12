@@ -236,7 +236,6 @@ function run_worker {
     # --sample=none
     local nsys_bin=""
     local nsys_launch_opts=""
-    local nsys_start_opts=""
     local vt_nsys_report_dir="/var/log/nsys"
     if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]]; then
         nsys_bin="/opt/nvidia/nsight-systems-cli/2026.2.1/bin/nsys"
@@ -244,8 +243,6 @@ function run_worker {
         --cuda-memory-usage=true \
         --cuda-um-cpu-page-faults=true \
         --cuda-um-gpu-page-faults=true"
-        nsys_start_opts="-o ${vt_nsys_report_dir}/nsys_worker_${worker_id} \
-        -f true"
     fi
 
     # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
@@ -296,19 +293,30 @@ echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
 
 if [[ -n '${nsys_bin}' ]]; then
     (
-        echo \"Worker ${worker_id}: nsys subshell started, waiting for start token\"
-        while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token ]]; do
-            read -t 2 -r _ <<< '' || true
+        echo \"Worker ${worker_id}: nsys subshell started\"
+        while true; do
+            # Wait for any start token
+            start_token=''
+            while [[ -z \"\${start_token}\" ]]; do
+                for f in ${vt_nsys_report_dir}/.nsys_start_token_Q*; do
+                    [[ -f \"\$f\" ]] && start_token=\"\$f\" && break
+                done
+                [[ -z \"\${start_token}\" ]] && { read -t 2 -r _ <<< '' || true; }
+            done
+            query_id=\${start_token##*_token_}
+            echo \"Worker ${worker_id}: start token found for \${query_id}, running nsys start\"
+            rm \"\${start_token}\"
+            ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_${worker_id}_\${query_id} -f true
+            echo \"Worker ${worker_id}: nsys start exit code: \$?\"
+
+            # Wait for corresponding stop token
+            while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token_\${query_id} ]]; do
+                read -t 2 -r _ <<< '' || true
+            done
+            echo \"Worker ${worker_id}: stop token found for \${query_id}, running nsys stop\"
+            rm ${vt_nsys_report_dir}/.nsys_stop_token_\${query_id}
+            ${nsys_bin} stop; echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
         done
-        echo \"Worker ${worker_id}: start token found, running nsys start\"
-        ${nsys_bin} start ${nsys_start_opts}
-        echo \"Worker ${worker_id}: nsys start exit code: \$?\"
-        while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token ]]; do
-            read -t 2 -r _ <<< '' || true
-        done
-        echo \"Worker ${worker_id}: stop token found, running nsys stop\"
-        ${nsys_bin} stop
-        echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
     ) &
 
     echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"
@@ -361,8 +369,10 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
-    local metrics_flag=""
-    [[ "${ENABLE_METRICS}" == "1" ]] && metrics_flag="-m"
+    local extra_args=()
+    [[ "${ENABLE_METRICS}" == "1" ]] && extra_args+=("-m")
+    [[ "${ENABLE_NSYS}" == "1" ]] && extra_args+=("-p" "--profile-script-path" "/workspace/presto/slurm/presto-nvl72/profiler_functions.sh")
+    [[ -n "${QUERIES:-}" ]] && extra_args+=("-q" "${QUERIES}")
 
     source "${SCRIPT_DIR}/defaults.env"
     # We currently skip dropping cache because it requires docker (not available on the cluster).
@@ -372,7 +382,7 @@ function run_queries {
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
-    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${metrics_flag} -q 1 \
+    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${extra_args[*]} \
         --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache; \
     echo 'Validating query results...'; \
     MINIFORGE_HOME=/workspace/miniforge3 /workspace/scripts/run_py_script.sh \
