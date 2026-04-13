@@ -7,11 +7,17 @@ set -e
 function start_profiler() {
     local -r profile_output_file_path=$1
     local -r query_id=$(basename ${profile_output_file_path})
-    touch "/workspace/presto/slurm/presto-nvl72/logs/.nsys_start_token_${query_id}"
+    local -r logs_dir="/workspace/presto/slurm/presto-nvl72/logs"
+    touch "${logs_dir}/.nsys_start_token_${query_id}"
+    while [[ ! -f "${logs_dir}/.nsys_started_token_${query_id}" ]]; do
+        read -t 2 -r _ <<< '' || true
+    done
+    rm "${logs_dir}/.nsys_started_token_${query_id}"
 }
 
 function stop_profiler() {
     local -r profile_output_file_path=$1
     local -r query_id=$(basename ${profile_output_file_path})
-    touch "/workspace/presto/slurm/presto-nvl72/logs/.nsys_stop_token_${query_id}"
+    local -r logs_dir="/workspace/presto/slurm/presto-nvl72/logs"
+    touch "${logs_dir}/.nsys_stop_token_${query_id}"
 }

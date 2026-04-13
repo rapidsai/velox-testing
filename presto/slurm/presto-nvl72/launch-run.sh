@@ -199,7 +199,10 @@ EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS}"
 EXPORT_VARS+=",ENABLE_METRICS=${ENABLE_METRICS}"
 EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
 if [[ -n "${QUERIES}" ]]; then
-    EXPORT_VARS+=",QUERIES='${QUERIES}'"
+    # Do not append to EXPORT_VARS since comma seprator is ambiguous.
+    # Single quote causes further issue down the line.
+    # So using env var directly is the simplest correct approach.
+    export QUERIES
 fi
 
 JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" --nodelist="${NODELIST}" \

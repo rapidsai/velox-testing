@@ -294,29 +294,30 @@ echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
 if [[ -n '${nsys_bin}' ]]; then
     (
         echo \"Worker ${worker_id}: nsys subshell started\"
-        while true; do
-            # Wait for any start token
-            start_token=''
-            while [[ -z \"\${start_token}\" ]]; do
-                for f in ${vt_nsys_report_dir}/.nsys_start_token_Q*; do
-                    [[ -f \"\$f\" ]] && start_token=\"\$f\" && break
-                done
-                [[ -z \"\${start_token}\" ]] && { read -t 2 -r _ <<< '' || true; }
-            done
-            query_id=\${start_token##*_token_}
-            echo \"Worker ${worker_id}: start token found for \${query_id}, running nsys start\"
-            rm \"\${start_token}\"
-            ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_${worker_id}_\${query_id} -f true
-            echo \"Worker ${worker_id}: nsys start exit code: \$?\"
-
-            # Wait for corresponding stop token
-            while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token_\${query_id} ]]; do
+        if [[ -n '${QUERIES:-}' ]]; then
+            IFS=',' read -ra qlist <<< '${QUERIES}'
+        else
+            qlist=({1..22})
+        fi
+        for qnum in \"\${qlist[@]}\"; do
+            qid=\"Q\${qnum}\"
+            while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token_\${qid} ]]; do
                 read -t 2 -r _ <<< '' || true
             done
-            echo \"Worker ${worker_id}: stop token found for \${query_id}, running nsys stop\"
-            rm ${vt_nsys_report_dir}/.nsys_stop_token_\${query_id}
+            echo \"Worker ${worker_id}: start token found for \${qid}\"
+            rm ${vt_nsys_report_dir}/.nsys_start_token_\${qid}
+            ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_${worker_id}_\${qid} -f true; echo \"Worker ${worker_id}: nsys start exit code: \$?\"
+            echo \"Worker ${worker_id}: post-start token created for \${qid}\"
+            touch ${vt_nsys_report_dir}/.nsys_started_token_\${qid}
+
+            while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token_\${qid} ]]; do
+                read -t 2 -r _ <<< '' || true
+            done
+            echo \"Worker ${worker_id}: stop token found for \${qid}\"
+            rm ${vt_nsys_report_dir}/.nsys_stop_token_\${qid}
             ${nsys_bin} stop; echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
         done
+        echo \"Worker ${worker_id}: nsys subshell done, all queries profiled\"
     ) &
 
     echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"

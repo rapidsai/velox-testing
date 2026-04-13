@@ -76,25 +76,41 @@ echo "--> QUERIES: ${QUERIES:-UNDEFINED}"
 
 if [[ "${ENABLE_NSYS}" == "1" ]]; then
     echo "Waiting for nsys report generation..."
-    stable_count=0
+    if [[ -n "${QUERIES:-}" ]]; then
+        IFS=',' read -ra qlist <<< "${QUERIES}"
+    else
+        qlist=({1..22})
+    fi
+
     declare -A prev_sizes
+    stable_count=0
     for i in {1..120}; do
         all_stable=true
-        found_any=false
-        for f in "${LOGS}"/nsys_worker_*.nsys-rep; do
-            [[ -f "$f" ]] || continue
-            found_any=true
-            cur_size=$(stat -c%s "$f" 2>/dev/null || echo 0)
-            prev=${prev_sizes["$f"]:-0}
+        for qnum in "${qlist[@]}"; do
+            report="${LOGS}/nsys_worker_0_Q${qnum}.nsys-rep"
+            fallback="${LOGS}/nsys_worker_0_Q${qnum}.qdstrm"
+            if [[ -f "$report" ]]; then
+                target="$report"
+            elif [[ -f "$fallback" ]]; then
+                target="$fallback"
+            else
+                echo "    Q${qnum}: no file yet"
+                all_stable=false
+                continue
+            fi
+            cur_size=$(stat -c%s "$target" 2>/dev/null || echo 0)
+            prev=${prev_sizes["$target"]:-0}
+            echo "    Q${qnum}: cur=${cur_size} prev=${prev}"
             if (( cur_size == 0 || cur_size != prev )); then
                 all_stable=false
             fi
-            prev_sizes["$f"]=$cur_size
+            prev_sizes["$target"]=$cur_size
         done
-        if $all_stable && $found_any; then
+        echo "  all_stable=${all_stable} stable_count=${stable_count}"
+        if $all_stable; then
             stable_count=$((stable_count + 1))
             if (( stable_count >= 3 )); then
-                echo "All ${#prev_sizes[@]} nsys reports stable."
+                echo "All ${#qlist[@]} nsys reports stable."
                 break
             fi
         else
