@@ -548,6 +548,7 @@ async def upload_log_files(
         List of asset IDs from the uploaded files
     """
     log_files = sorted(benchmark_dir.glob("*.log"))
+    log_files.extend(sorted(benchmark_dir.glob("*.nsys-rep")))
     metrics_dir = benchmark_dir / "metrics"
     if metrics_dir.is_dir():
         log_files.extend(sorted(metrics_dir.glob("*.json")))
@@ -563,7 +564,12 @@ async def upload_log_files(
             async with semaphore:
                 print(f"    Uploading {log_file.name}...", file=sys.stderr)
                 content = log_file.read_bytes()
-                media_type = "application/json" if log_file.suffix == ".json" else "text/plain"
+                if log_file.suffix == ".json":
+                    media_type = "application/json"
+                elif log_file.suffix == ".nsys-rep":
+                    media_type = "application/octet-stream"
+                else:
+                    media_type = "text/plain"
                 response = await client.post(
                     "/api/assets/upload/",
                     files={"file": (log_file.name, content, media_type)},
@@ -742,6 +748,7 @@ async def process_benchmark_dir(
     if upload_logs:
         if dry_run:
             log_files = sorted(benchmark_dir.glob("*.log"))
+            log_files.extend(sorted(benchmark_dir.glob("*.nsys-rep")))
             metrics_dir = benchmark_dir / "metrics"
             if metrics_dir.is_dir():
                 log_files.extend(sorted(metrics_dir.glob("*.json")))

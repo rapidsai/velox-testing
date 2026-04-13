@@ -231,9 +231,6 @@ function run_worker {
         done
     fi
 
-    # --nvtx-domain-exclude=CCCL
-    # --cpuctxsw=none
-    # --sample=none
     local nsys_bin=""
     local nsys_launch_opts=""
     local vt_nsys_report_dir="/var/log/nsys"
@@ -498,6 +495,11 @@ function collect_results {
 
     echo "Copying logs to ${result_dir}/..."
     cp "${LOGS}"/*.log "${result_dir}/"
+
+    if [[ "${ENABLE_NSYS}" == "1" ]]; then
+        echo "Copying nsys reports to ${result_dir}/..."
+        cp "${LOGS}"/*.nsys-rep "${result_dir}/"
+    fi
 }
 
 function inject_benchmark_metadata {

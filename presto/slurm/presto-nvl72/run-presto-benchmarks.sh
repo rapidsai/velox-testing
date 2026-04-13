@@ -72,8 +72,6 @@ cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
 echo "Collecting configs and logs into result directory..."
 collect_results
 
-echo "--> QUERIES: ${QUERIES:-UNDEFINED}"
-
 if [[ "${ENABLE_NSYS}" == "1" ]]; then
     echo "Waiting for nsys report generation..."
     if [[ -n "${QUERIES:-}" ]]; then
