@@ -117,8 +117,8 @@ if [[ "${ENABLE_NSYS}" == "1" ]]; then
         sleep 5
     done
 
-    echo "Copying nsys reports to ${result_dir}/..."
-    cp "${LOGS}"/*.nsys-rep "${result_dir}/"
+    echo "Copying nsys reports to ${SCRIPT_DIR}/result_dir/..."
+    cp "${LOGS}"/*.nsys-rep "${SCRIPT_DIR}/result_dir/"
 fi
 
 echo "========================================"
