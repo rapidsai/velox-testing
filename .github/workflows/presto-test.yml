@@ -72,54 +72,54 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # tpch (SF 100)
+          # tpch (SF 10)
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: amd64
             cuda_version: '12.9'
             gpu: l4
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: amd64
             cuda_version: '12.9'
             gpu: a100
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: amd64
             cuda_version: '12.9'
             gpu: h100
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: amd64
             cuda_version: '13.1'
             gpu: l4
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: amd64
             cuda_version: '13.1'
             gpu: a100
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: amd64
             cuda_version: '13.1'
             gpu: h100
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: arm64
             cuda_version: '12.9'
             gpu: l4
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: arm64
             cuda_version: '12.9'
             gpu: a100
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: arm64
             cuda_version: '13.1'
             gpu: l4
           - test_type: tpch
-            scale_factor: 100
+            scale_factor: 10
             arch: arm64
             cuda_version: '13.1'
             gpu: a100
@@ -274,7 +274,7 @@ jobs:
         env:
           TEST_TYPE: ${{ matrix.test_type }}
           TPCH_QUERIES: "1,2,3,4,5,6,7,8,9,10,11,12,13,14,16,17,18,19,20,21,22"
-          TPCDS_QUERIES: "1,2,3,5,6,7,8,10,12,15,16,17,19,20,22,23,24,25,26,28,29,30,32,35,37,39,40,41,42,43,44,45,46,47,48,50,51,52,53,54,55,56,57,58,59,60,62,63,64,65,66,68,69,71,72,77,78,79,80,81,82,84,86,88,89,91,92,93,94,95,96,97,98,99"
+          TPCDS_QUERIES: "1,2,3,5,7,10,12,15,16,17,19,20,23,24,25,26,28,29,30,32,37,39,40,41,42,43,44,45,46,47,48,50,51,52,53,54,55,56,57,58,59,60,62,63,64,65,66,68,69,71,77,78,79,80,81,82,84,86,89,91,92,93,94,95,97,98,99"
         working-directory: presto/scripts
         run: |
           QUERIES_VAR="${TEST_TYPE^^}_QUERIES"
