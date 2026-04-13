@@ -495,11 +495,6 @@ function collect_results {
 
     echo "Copying logs to ${result_dir}/..."
     cp "${LOGS}"/*.log "${result_dir}/"
-
-    if [[ "${ENABLE_NSYS}" == "1" ]]; then
-        echo "Copying nsys reports to ${result_dir}/..."
-        cp "${LOGS}"/*.nsys-rep "${result_dir}/"
-    fi
 }
 
 function inject_benchmark_metadata {
