@@ -8,7 +8,7 @@ set -euo pipefail
 BUILD_TYPE="${BUILD_TYPE:-release}"
 NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
-CUDA_ARCH="${CUDA_ARCH:-}"
+CUDAARCHS="${CUDAARCHS:-}"
 
 usage() {
     cat <<EOF
@@ -29,7 +29,7 @@ Options:
 Environment variables:
   BUILD_TYPE        release or debug
   NUM_THREADS       Number of parallel jobs
-  CUDA_ARCH         CUDA compute capability
+  CUDAARCHS         CUDA compute capability
   BUILD_BASE_DIR    Base directory for build output (default: /opt/velox-build)
 EOF
 }
@@ -42,7 +42,7 @@ while [[ $# -gt 0 ]]; do
         --debug) BUILD_TYPE="debug"; shift ;;
         -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
         -j*) NUM_THREADS="${1#-j}"; shift ;;
-        --cuda-arch) CUDA_ARCH="$2"; shift 2 ;;
+        --cuda-arch) CUDAARCHS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         -D*) CMAKE_PASSTHROUGH+=("$1"); shift ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
@@ -60,8 +60,8 @@ fi
 
 # Run configuration — forward -D flags to configure-velox
 CONFIGURE_ARGS=("--${BUILD_TYPE}")
-if [[ -n "${CUDA_ARCH}" ]]; then
-    CONFIGURE_ARGS+=("--cuda-arch" "${CUDA_ARCH}")
+if [[ -n "${CUDAARCHS}" ]]; then
+    CONFIGURE_ARGS+=("--cuda-arch" "${CUDAARCHS}")
 fi
 CONFIGURE_ARGS+=("${CMAKE_PASSTHROUGH[@]+"${CMAKE_PASSTHROUGH[@]}"}")
 BUILD_BASE_DIR="${BUILD_BASE_DIR}" configure-velox "${CONFIGURE_ARGS[@]}"
