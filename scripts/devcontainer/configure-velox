@@ -23,6 +23,7 @@ Any -D flags are passed through to CMake, e.g.:
 Options:
   --release         Configure for release build (default)
   --debug           Configure for debug build
+  --cuda-arch ARCH  CUDA architectures (default: RAPIDS)
   -h, --help        Show this help message
 
 Environment variables:
@@ -38,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) BUILD_TYPE="release"; shift ;;
         --debug) BUILD_TYPE="debug"; shift ;;
+        --cuda-arch) CUDAARCHS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         -D*) CMAKE_PASSTHROUGH+=("$1"); shift ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
