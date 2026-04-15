@@ -45,9 +45,9 @@ OPTIONS:
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
     --reference-results-dir Path to a directory containing reference (expected) parquet files.
-                            Query results are always validated after the benchmark run using
-                            validate_results.py, and validation_results.json is written next
-                            to benchmark_result.json (picked up automatically by post_results.py).
+                            After the benchmark, common/testing/validate_results.py compares
+                            actual outputs against these files and writes validation_results.json
+                            next to benchmark_result.json (picked up by post_results.py).
                             Overrides the PRESTO_EXPECTED_RESULTS_DIR environment variable.
                             If neither is provided, validation is skipped ("not-validated").
                             Error if the explicitly provided directory does not exist.
@@ -308,32 +308,31 @@ echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
 
-# Compute the actual output directory (mirrors pytest's --output-dir / --tag logic).
-ACTUAL_OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/benchmark_output}"
-if [[ -n ${TAG} ]]; then
-  ACTUAL_OUTPUT_DIR="${ACTUAL_OUTPUT_DIR}/${TAG}"
-fi
-
-RESULTS_DIR="${ACTUAL_OUTPUT_DIR}/query_results"
-VALIDATE_SCRIPT="${SCRIPT_DIR}/../../benchmark_reporting_tools/validate_results.py"
+VALIDATE_SCRIPT="${SCRIPT_DIR}/../../common/testing/validate_results.py"
+VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../../common/testing/requirements.txt"
 
 # Resolve reference results directory.
 # PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
 # Explicit --reference-results-dir was already validated before the benchmark ran.
 if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
   echo "[Validation] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
-  unset PRESTO_EXPECTED_RESULTS_DIR
-fi
+else
+  VALIDATE_ARGS=(--output-dir "${OUTPUT_DIR:-$(pwd)/benchmark_output}" --benchmark-type "${BENCHMARK_TYPE}")
+  if [[ -n ${TAG} ]]; then
+    VALIDATE_ARGS+=(--tag "${TAG}")
+  fi
+  if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+    VALIDATE_ARGS+=(--reference-results-dir "${PRESTO_EXPECTED_RESULTS_DIR}")
+  fi
+  if [[ -n ${QUERIES} ]]; then
+    VALIDATE_ARGS+=(--queries "${QUERIES}")
+  fi
 
-VALIDATE_ARGS=("${RESULTS_DIR}")
-if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
-  VALIDATE_ARGS+=(--reference-results-dir "${PRESTO_EXPECTED_RESULTS_DIR}")
+  ACTUAL_OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/benchmark_output}"
+  [[ -n ${TAG} ]] && ACTUAL_OUTPUT_DIR="${ACTUAL_OUTPUT_DIR}/${TAG}"
+  echo "[Validation] Running validation: ${ACTUAL_OUTPUT_DIR}/query_results vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
+  "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet \
+    -p "${VALIDATE_SCRIPT}" \
+    -r "${VALIDATE_REQUIREMENTS}" \
+    -- "${VALIDATE_ARGS[@]}"
 fi
-if [[ -n ${QUERIES} ]]; then
-  VALIDATE_ARGS+=(--queries "${QUERIES}")
-fi
-
-VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../../benchmark_reporting_tools/requirements.txt"
-echo "[Validation] Running validation: ${RESULTS_DIR} vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
-pip install -q -r "${VALIDATE_REQUIREMENTS}"
-python "${VALIDATE_SCRIPT}" "${VALIDATE_ARGS[@]}"

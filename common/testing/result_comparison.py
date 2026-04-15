@@ -4,23 +4,9 @@
 """
 Shared result comparison logic for TPC-H/TPC-DS query validation.
 
-Used by both integration tests (comparing live query engine results against a
-DuckDB reference) and benchmark validation (comparing result parquet files
-against expected parquet files).
-
-Comparison behaviour
---------------------
-- Column names are validated; Presto _colN anonymous aggregate columns are
-  renamed to match the expected column names positionally.
-- Decimal columns are cast to float64; narrow integers (int8/int16/int32) are
-  widened to int64; string columns are cast to temporal when the expected
-  column is temporal (Presto may write dates as strings).
-- Floating-point values are compared with rel_tol=1e-5, abs_tol=1e-8.
-- ORDER BY is extracted dynamically from the SQL using sqlglot:
-    - Validates that both frames are sorted by the ORDER BY columns.
-    - Tie-breaking is resolved by sorting on all non-float columns.
-- For queries with ORDER BY + LIMIT, rows at the limit boundary are compared
-  only on the sort columns (other columns may legitimately differ for ties).
+Used by both the integration test path (live query engine results vs DuckDB
+reference) and the benchmark validation path (result parquet files vs expected
+parquet files). See compare_result_frames for full comparison semantics.
 """
 
 import datetime
@@ -188,62 +174,85 @@ def _is_temporal_like(series: pd.Series) -> bool:
     return False
 
 
-def _normalize_dtypes(actual: pd.DataFrame, expected: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _normalize_df(df: pd.DataFrame, ref: pd.DataFrame) -> pd.DataFrame:
     """
-    Normalize column dtypes for fair comparison:
+    Normalize df's column dtypes for comparison, using ref only for dtype detection
+    (ref is never modified):
       - Decimal (object or ArrowDtype) → float64
       - int8/int16/int32 (numpy or pandas nullable) → int64
-      - object string → temporal when the expected column is temporal-like
-        (handles numpy datetime64, ArrowDtype date/timestamp, and tz-aware dtypes)
-    Applied symmetrically where both sides need it.
+      - Temporal: convert to datetime64 if either df or ref column is temporal-like.
+        Covers: object-strings ↔ datetime64, StringDtype ↔ datetime.date,
+        ArrowDtype ↔ datetime64, datetime.date ↔ datetime64.
     """
-    actual = actual.copy()
-    expected = expected.copy()
+    df = df.copy()
+    _NARROW = (np.dtype("int8"), np.dtype("int16"), np.dtype("int32"))
+    _NARROW_NULLABLE = ("Int8", "Int16", "Int32")
 
-    for col in actual.columns:
-        if col not in expected.columns:
+    for col in df.columns:
+        if col not in ref.columns:
             continue
 
         # Decimal → float64
-        if _is_decimal_like(actual[col]):
-            actual[col] = pd.to_numeric(actual[col], errors="coerce")
-        if _is_decimal_like(expected[col]):
-            expected[col] = pd.to_numeric(expected[col], errors="coerce")
+        if _is_decimal_like(df[col]):
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
         # Narrow int → int64 (numpy dtypes)
-        _NARROW = (np.dtype("int8"), np.dtype("int16"), np.dtype("int32"))
-        if actual[col].dtype in _NARROW:
-            actual[col] = actual[col].astype("int64")
-        if expected[col].dtype in _NARROW:
-            expected[col] = expected[col].astype("int64")
+        if df[col].dtype in _NARROW:
+            df[col] = df[col].astype("int64")
 
         # Narrow int → Int64 (pandas nullable integer types)
-        _NARROW_NULLABLE = ("Int8", "Int16", "Int32")
-        if str(actual[col].dtype) in _NARROW_NULLABLE:
-            actual[col] = actual[col].astype("Int64")
-        if str(expected[col].dtype) in _NARROW_NULLABLE:
-            expected[col] = expected[col].astype("Int64")
+        if str(df[col].dtype) in _NARROW_NULLABLE:
+            df[col] = df[col].astype("Int64")
 
-        # Temporal normalization: if either side is temporal-like, convert both
-        # to numpy datetime64.  This covers all combinations:
-        #   object-strings ↔ datetime64       (Presto live vs DuckDB)
-        #   StringDtype    ↔ datetime.date    (parquet read in pandas 3.0)
-        #   ArrowDtype     ↔ datetime64       (DuckDB 1.3+ with pyarrow)
-        #   datetime.date  ↔ datetime64       (mixed parquet sources)
-        if _is_temporal_like(actual[col]) or _is_temporal_like(expected[col]):
-            _already_dt64 = lambda s: isinstance(s.dtype, np.dtype) and np.issubdtype(s.dtype, np.datetime64)  # noqa: E731
-            if not _already_dt64(actual[col]):
+        # Temporal normalization: convert if either side is temporal-like
+        if _is_temporal_like(df[col]) or _is_temporal_like(ref[col]):
+            if not (isinstance(df[col].dtype, np.dtype) and np.issubdtype(df[col].dtype, np.datetime64)):
                 try:
-                    actual[col] = pd.to_datetime(actual[col])
-                except Exception:
-                    pass
-            if not _already_dt64(expected[col]):
-                try:
-                    expected[col] = pd.to_datetime(expected[col])
+                    df[col] = pd.to_datetime(df[col])
                 except Exception:
                     pass
 
-    return actual, expected
+    return df
+
+
+def _check_dtype_compatibility(actual: pd.DataFrame, expected: pd.DataFrame) -> None:
+    """
+    Raise AssertionError if any column pair has incompatible dtypes after normalization.
+
+    Normalization uses try/except and errors='coerce', so incompatible types can
+    silently survive, producing confusing value-comparison errors. This check catches
+    them early with a clear message.
+
+    Compatible combinations (no error raised):
+      - exact dtype match
+      - both numeric (float or int of any width)
+      - both datetime (any datetime64 variant)
+      - both object / string (value comparison will handle semantics)
+    """
+    mismatches = []
+    for col in actual.columns:
+        if col not in expected.columns:
+            continue
+        a_dtype = actual[col].dtype
+        e_dtype = expected[col].dtype
+        if a_dtype == e_dtype:
+            continue
+        # Both numeric
+        a_num = pd.api.types.is_numeric_dtype(a_dtype)
+        e_num = pd.api.types.is_numeric_dtype(e_dtype)
+        if a_num and e_num:
+            continue
+        # Both datetime
+        if pd.api.types.is_datetime64_any_dtype(a_dtype) and pd.api.types.is_datetime64_any_dtype(e_dtype):
+            continue
+        # Both string/object
+        a_str = pd.api.types.is_string_dtype(a_dtype) or pd.api.types.is_object_dtype(a_dtype)
+        e_str = pd.api.types.is_string_dtype(e_dtype) or pd.api.types.is_object_dtype(e_dtype)
+        if a_str and e_str:
+            continue
+        mismatches.append(f"  '{col}': actual {a_dtype} vs expected {e_dtype}")
+    if mismatches:
+        raise AssertionError("dtype mismatch after normalization:\n" + "\n".join(mismatches))
 
 
 # ---------------------------------------------------------------------------
@@ -405,8 +414,10 @@ def compare_result_frames(
             f"  expected: {list(expected.columns)}"
         )
 
-    # 3. Normalize dtypes
-    actual, expected = _normalize_dtypes(actual, expected)
+    # 3. Normalize dtypes then verify compatibility
+    actual = _normalize_df(actual, ref=expected)
+    expected = _normalize_df(expected, ref=actual)
+    _check_dtype_compatibility(actual, expected)
 
     # 4. Row count
     if len(actual) != len(expected):

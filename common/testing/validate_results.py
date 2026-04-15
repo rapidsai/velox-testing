@@ -2,14 +2,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# /// script
-# requires-python = ">=3.9"
-# dependencies = [
-#     "pandas",
-#     "pyarrow",
-#     "sqlglot",
-# ]
-# ///
 """
 Validate TPC-H/TPC-DS query results against expected parquet files.
 
@@ -25,7 +17,7 @@ from pathlib import Path
 import pandas as pd
 
 # Allow importing from the repo root (common/testing/result_comparison)
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from common.testing.result_comparison import ValidationStatus, validate_query_result
 from common.testing.test_utils import get_queries
@@ -84,11 +76,12 @@ def validate(
         )
 
         if not expected_file.exists():
+            print(f"[Validation] {query_id.upper():4s}: FAIL     expected file not found: {expected_file.name}")
             query_results[query_id] = {
-                "status": "not-validated",
+                "status": "failed",
                 "message": f"expected file not found: {expected_file.name}",
             }
-            not_validated += 1
+            failed += 1
             continue
 
         actual = pd.read_parquet(result_file)
@@ -155,8 +148,14 @@ def parse_args() -> argparse.Namespace:
         epilog=__doc__,
     )
     parser.add_argument(
-        "results_dir",
-        help="Directory containing q1.parquet ... q22.parquet result files",
+        "--output-dir",
+        required=True,
+        help="Benchmark output directory (same as pytest --output-dir).",
+    )
+    parser.add_argument(
+        "--tag",
+        default=None,
+        help="Optional tag subdirectory (same as pytest --tag).",
     )
     parser.add_argument(
         "--reference-results-dir",
@@ -191,7 +190,9 @@ def _write_not_validated(results_dir: Path, reason: str) -> None:
 
 if __name__ == "__main__":
     args = parse_args()
-    results_dir = Path(args.results_dir)
+
+    output_dir = Path(args.output_dir)
+    results_dir = output_dir / args.tag / "query_results" if args.tag else output_dir / "query_results"
 
     if not results_dir.is_dir():
         print(f"Error: results directory not found: {results_dir}", file=sys.stderr)
@@ -211,10 +212,6 @@ if __name__ == "__main__":
     queries = get_queries(args.benchmark_type)
 
     query_numbers = [int(q.strip()) for q in args.queries.split(",")] if args.queries else None
-
-    print(f"[Validation] Benchmark:  {args.benchmark_type}")
-    if query_numbers is not None:
-        print(f"[Validation] Queries:    {query_numbers}")
 
     results = validate(results_dir, expected_dir, queries, query_numbers=query_numbers)
 
