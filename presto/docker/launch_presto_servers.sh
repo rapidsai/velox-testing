@@ -18,15 +18,15 @@ ETC_BASE="/opt/presto-server/etc"
 #   $1 — GPU ID (or 0 for CPU single-worker)
 #   $2 — etc-dir path for this instance
 launch_worker() {
-  local gpu_id=$1 etc_dir=$2
-  echo "Launching worker $gpu_id (config: $etc_dir)"
+  local worker_id=$1 etc_dir=$2
+  echo "Launching worker $worker_id (config: $etc_dir)"
 
   local launcher=()
   local cuda_env=()
 
   if command -v nvidia-smi &> /dev/null; then
     local topo
-    topo=$(nvidia-smi topo -C -M -i "$gpu_id")
+    topo=$(nvidia-smi topo -C -M -i "$worker_id")
     echo "$topo"
 
     local cpu_numa mem_numa
@@ -42,8 +42,8 @@ launch_worker() {
       fi
     fi
 
-    cuda_env=("CUDA_VISIBLE_DEVICES=$gpu_id")
-    gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i "$gpu_id")"
+    cuda_env=("CUDA_VISIBLE_DEVICES=$worker_id")
+    gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i "$worker_id")"
   # No GPU: fall back to NUMA interleaving across all nodes for CPU workers.
   # Requires SYS_NICE capability in the container (set via cap_add in docker-compose).
   elif command -v numactl &> /dev/null; then
@@ -55,7 +55,7 @@ launch_worker() {
     fi
   fi
 
-  log_file="${LOGS_DIR}/worker_${gpu_id}_${SERVER_START_TIMESTAMP}.log"
+  log_file="${LOGS_DIR}/worker_${worker_id}_${SERVER_START_TIMESTAMP}.log"
   echo "GPU Name: ${gpu_name:-unknown}" > "${log_file}"
   env "${cuda_env[@]}" "${launcher[@]}" presto_server --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &
 }
