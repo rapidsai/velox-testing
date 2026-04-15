@@ -295,6 +295,13 @@ def _parse_args() -> argparse.Namespace:
         help="Upload *.log files from the benchmark directory as assets (default: True). Use --no-upload-logs to skip.",
     )
     parser.add_argument(
+        "--upload-metrics",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Upload *.presto_metrics.json files from the metrics/ subdirectory as assets (default: True). "
+        "Use --no-upload-metrics to skip.",
+    )
+    parser.add_argument(
         "--benchmark-name",
         help="Benchmark definition name",
         required=True,
@@ -483,17 +490,21 @@ def _build_http_client(api_url: str, api_key: str, timeout: float) -> httpx.Asyn
     )
 
 
-async def _upload_log_files(
-    benchmark_dir: Path,
+async def _upload_files(
+    directory: Path,
+    glob_pattern: str,
+    media_type: str,
     api_url: str,
     api_key: str,
     timeout: float,
     max_concurrency: int = 5,
 ) -> list[int]:
-    """Upload all *.log files from benchmark_dir as assets, in parallel.
+    """Upload all files matching glob_pattern from directory as assets, in parallel.
 
     Args:
-        benchmark_dir: Directory to glob for *.log files
+        directory: Directory to glob for files
+        glob_pattern: Glob pattern to match files (e.g. "*.log")
+        media_type: MIME type to set on uploaded assets (e.g. "text/plain")
         api_url: Base API URL
         api_key: API bearer token
         timeout: Request timeout in seconds
@@ -502,34 +513,59 @@ async def _upload_log_files(
     Returns:
         List of asset IDs from the uploaded files
     """
-    log_files = sorted(benchmark_dir.glob("*.log"))
-    if not log_files:
+    files = sorted(directory.glob(glob_pattern))
+    if not files:
         return []
 
-    print(f"  Uploading {len(log_files)} log file(s) (max {max_concurrency} concurrent)...", file=sys.stderr)
+    print(f"  Uploading {len(files)} file(s) from {directory} (max {max_concurrency} concurrent)...", file=sys.stderr)
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async with _build_http_client(api_url, api_key, timeout) as client:
 
-        async def _upload_one(log_file: Path) -> int:
+        async def _upload_one(file: Path) -> int:
             async with semaphore:
-                print(f"    Uploading {log_file.name}...", file=sys.stderr)
-                content = log_file.read_bytes()
+                print(f"    Uploading {file.name}...", file=sys.stderr)
+                content = file.read_bytes()
                 response = await client.post(
                     "/api/assets/upload/",
-                    files={"file": (log_file.name, content, "text/plain")},
-                    data={"title": log_file.name, "media_type": "text/plain"},
+                    files={"file": (file.name, content, media_type)},
+                    data={"title": file.name, "media_type": media_type},
                 )
                 if response.status_code >= 400:
-                    raise RuntimeError(f"Failed to upload {log_file.name}: {response.status_code} {response.text}")
+                    raise RuntimeError(f"Failed to upload {file.name}: {response.status_code} {response.text}")
                 result = response.json()
                 asset_id = result["asset_id"]
-                print(f"    Uploaded {log_file.name} (asset_id={asset_id})", file=sys.stderr)
+                print(f"    Uploaded {file.name} (asset_id={asset_id})", file=sys.stderr)
                 return asset_id
 
-        asset_ids = await asyncio.gather(*[_upload_one(f) for f in log_files])
+        asset_ids = await asyncio.gather(*[_upload_one(f) for f in files])
 
     return list(asset_ids)
+
+
+async def _upload_log_files(
+    logs_dir: Path,
+    api_url: str,
+    api_key: str,
+    timeout: float,
+    max_concurrency: int = 5,
+) -> list[int]:
+    return await _upload_files(logs_dir, "*.log", "text/plain", api_url, api_key, timeout, max_concurrency)
+
+
+async def _upload_metrics_files(
+    benchmark_dir: Path,
+    api_url: str,
+    api_key: str,
+    timeout: float,
+    max_concurrency: int = 5,
+) -> list[int]:
+    metrics_dir = benchmark_dir / "metrics"
+    if not metrics_dir.is_dir():
+        return []
+    return await _upload_files(
+        metrics_dir, "*.presto_metrics.json", "application/json", api_url, api_key, timeout, max_concurrency
+    )
 
 
 async def _post_submission(api_url: str, api_key: str, payload: dict, timeout: float) -> tuple[int, str]:
@@ -559,6 +595,7 @@ async def _process_benchmark_dir(
     api_key: str,
     timeout: float,
     upload_logs: bool = True,
+    upload_metrics: bool = True,
     benchmark_definition_name: str,
     concurrency_streams: int = 1,
     config_dir: Path | None = None,
@@ -623,7 +660,7 @@ async def _process_benchmark_dir(
         if effective_logs_dir:
             print(f"  Auto-detected logs dir: {effective_logs_dir}", file=sys.stderr)
 
-    asset_ids = None
+    all_asset_ids: list[int] = []
     if upload_logs and effective_logs_dir and effective_logs_dir.exists():
         if dry_run:
             log_files = sorted(effective_logs_dir.glob("*.log"))
@@ -634,12 +671,32 @@ async def _process_benchmark_dir(
             )
         else:
             try:
-                asset_ids = await _upload_log_files(effective_logs_dir, api_url, api_key, timeout)
+                all_asset_ids.extend(await _upload_log_files(effective_logs_dir, api_url, api_key, timeout))
             except (RuntimeError, httpx.RequestError) as e:
                 print(f"  Error uploading logs: {e}", file=sys.stderr)
                 return 1
     elif upload_logs:
         print("  No logs directory found; skipping log upload.", file=sys.stderr)
+
+    metrics_dir = benchmark_dir / "metrics"
+    if upload_metrics and metrics_dir.is_dir():
+        if dry_run:
+            metrics_files = sorted(metrics_dir.glob("*.presto_metrics.json"))
+            print(
+                f"  [DRY RUN] Would upload {len(metrics_files)} metrics file(s) from {metrics_dir}: "
+                f"{[f.name for f in metrics_files]}",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                all_asset_ids.extend(await _upload_metrics_files(benchmark_dir, api_url, api_key, timeout))
+            except (RuntimeError, httpx.RequestError) as e:
+                print(f"  Error uploading metrics: {e}", file=sys.stderr)
+                return 1
+    elif upload_metrics:
+        print("  No metrics directory found; skipping metrics upload.", file=sys.stderr)
+
+    asset_ids = all_asset_ids or None
 
     # Process each benchmark type found in the result file.
     overall_result = 0
@@ -743,6 +800,7 @@ async def main() -> int:
         api_key=api_key,
         timeout=args.timeout,
         upload_logs=args.upload_logs,
+        upload_metrics=args.upload_metrics,
         benchmark_definition_name=args.benchmark_name,
         concurrency_streams=args.concurrency_streams,
         config_dir=Path(args.config_dir) if args.config_dir else None,

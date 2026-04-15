@@ -282,6 +282,15 @@ pip install -q -r ${TEST_DIR}/requirements.txt
 
 source "${SCRIPT_DIR}/common_functions.sh"
 
+EFFECTIVE_OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/benchmark_output}"
+if [[ -n ${TAG} ]]; then
+  EFFECTIVE_OUTPUT_DIR="${EFFECTIVE_OUTPUT_DIR}/${TAG}"
+fi
+if [[ -d "${EFFECTIVE_OUTPUT_DIR}" ]]; then
+  echo "Clearing previous benchmark output: ${EFFECTIVE_OUTPUT_DIR}"
+  rm -rf "${EFFECTIVE_OUTPUT_DIR}"
+fi
+
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
 echo "Running bench"
