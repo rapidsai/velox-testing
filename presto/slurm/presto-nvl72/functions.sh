@@ -276,7 +276,7 @@ ${LOGS}:${vt_nsys_report_dir},\
 /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1\
 ${gds_mounts:+,${gds_mounts}} \
 -- /bin/bash -c "
-export LD_LIBRARY_PATH=\"${CUDF_LIB}:${LD_LIBRARY_PATH}\"
+export LD_LIBRARY_PATH=\"${CUDF_LIB}\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}\"
 if [[ '${ENABLE_GDS}' == '1' ]]; then
     export KVIKIO_COMPAT_MODE=OFF
     export CUFILE_LOGFILE_PATH=${vt_cufile_log}
@@ -293,7 +293,7 @@ if [[ -n '${nsys_bin}' ]]; then
     (
         echo \"Worker ${worker_id}: nsys subshell started\"
         if [[ -n '${QUERIES:-}' ]]; then
-            IFS=',' read -ra qlist <<< '${QUERIES}'
+            IFS=',' read -ra qlist <<< '${QUERIES:-}'
         else
             qlist=({1..22})
         fi
