@@ -2,7 +2,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
   extends:
     file: ../../docker-compose.common.yml
     service: presto-base-native-worker
-  image: presto-native-worker-gpu:${PRESTO_IMAGE_TAG}
+  image: presto-native-worker-gpu:${PRESTO_IMAGE_TAG:-}
   build:
     args:
       - GPU=ON
@@ -73,8 +73,8 @@ services:
     environment:
       WORKER_ID: {{ gpu_id }}
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
@@ -101,8 +101,8 @@ services:
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
@@ -117,8 +117,8 @@ services:
 {% else %}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
