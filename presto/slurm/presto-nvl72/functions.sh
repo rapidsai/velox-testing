@@ -236,10 +236,11 @@ function run_worker {
     local vt_nsys_report_dir="/var/log/nsys"
     if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]]; then
         nsys_bin="/opt/nvidia/nsight-systems-cli/2025.5.1/bin/nsys"
-        nsys_launch_opts="-t nvtx,cuda,osrt,ucx \
-        --cuda-memory-usage=true \
-        --cuda-um-cpu-page-faults=true \
-        --cuda-um-gpu-page-faults=true"
+        nsys_launch_opts="-t nvtx,cuda"
+        # nsys_launch_opts="-t nvtx,cuda,osrt,ucx \
+        # --cuda-memory-usage=true \
+        # --cuda-um-cpu-page-faults=true \
+        # --cuda-um-gpu-page-faults=true"
     fi
 
     # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
