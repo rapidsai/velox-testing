@@ -287,8 +287,13 @@ if [[ -n ${TAG} ]]; then
   EFFECTIVE_OUTPUT_DIR="${EFFECTIVE_OUTPUT_DIR}/${TAG}"
 fi
 if [[ -d "${EFFECTIVE_OUTPUT_DIR}" ]]; then
-  echo "Clearing previous benchmark output: ${EFFECTIVE_OUTPUT_DIR}"
-  rm -rf "${EFFECTIVE_OUTPUT_DIR}"
+  BACKUP_NUM=1
+  while [[ -d "${EFFECTIVE_OUTPUT_DIR}_${BACKUP_NUM}" ]]; do
+    (( BACKUP_NUM++ ))
+  done
+  BACKUP_DIR="${EFFECTIVE_OUTPUT_DIR}_${BACKUP_NUM}"
+  echo "Moving previous benchmark output to: ${BACKUP_DIR}"
+  mv "${EFFECTIVE_OUTPUT_DIR}" "${BACKUP_DIR}"
 fi
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
