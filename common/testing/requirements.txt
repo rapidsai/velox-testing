@@ -1,3 +1,0 @@
-pandas>=2.0
-pyarrow>=10.0
-sqlglot

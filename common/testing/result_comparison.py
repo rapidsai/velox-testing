@@ -11,7 +11,6 @@ parquet files). See compare_result_frames for full comparison semantics.
 
 import datetime
 import decimal
-import re
 from typing import Literal
 
 import numpy as np
@@ -113,15 +112,14 @@ def get_limit(query_sql: str) -> int | None:
 
 def _reconcile_col_names(actual: pd.DataFrame, expected: pd.DataFrame) -> pd.DataFrame:
     """
-    Rename Presto _colN anonymous aggregate columns to match expected column
-    names positionally.  Only renames when the actual column matches _colN
-    and the expected column at the same position has a different name.
+    Rename actual columns to match expected column names positionally.
+
+    TPC-H does not require column headings (spec §2.1.3.4), and anonymous
+    aggregates (e.g. sum(l_quantity) in Q18) produce engine-defined names that
+    legitimately differ between engines. Always aligning by position avoids
+    false failures on name differences while preserving correct value comparison.
     """
-    if len(actual.columns) != len(expected.columns):
-        return actual
-    renames = {
-        res: exp for res, exp in zip(actual.columns, expected.columns) if re.fullmatch(r"_col\d+", res) and res != exp
-    }
+    renames = {res: exp for res, exp in zip(actual.columns, expected.columns) if res != exp}
     return actual.rename(columns=renames) if renames else actual
 
 
@@ -394,8 +392,8 @@ def compare_result_frames(
     Full comparison pipeline. Raises AssertionError on any mismatch.
 
     Steps:
-      1. Reconcile Presto _colN column names.
-      2. Validate column name match.
+      1. Validate column count.
+      2. Reconcile column names positionally (actual renamed to match expected).
       3. Normalize dtypes.
       4. Validate row count.
       5. Parse ORDER BY / LIMIT from SQL via sqlglot.
@@ -403,16 +401,14 @@ def compare_result_frames(
       7. If ORDER BY + LIMIT: handle boundary ties.
       8. Sort by non-float columns; compare value-by-value with tolerance.
     """
-    # 1 & 2. Column reconciliation and validation
-    actual = _reconcile_col_names(actual, expected)
-    if list(actual.columns) != list(expected.columns):
-        extra = set(actual.columns) - set(expected.columns)
-        missing = set(expected.columns) - set(actual.columns)
+    # 1 & 2. Column count check, then positional name reconciliation
+    if len(actual.columns) != len(expected.columns):
         raise AssertionError(
-            f"Column name mismatch — extra: {extra}, missing: {missing}\n"
+            f"Column count mismatch: {len(actual.columns)} (actual) vs {len(expected.columns)} (expected)\n"
             f"  actual:   {list(actual.columns)}\n"
             f"  expected: {list(expected.columns)}"
         )
+    actual = _reconcile_col_names(actual, expected)
 
     # 3. Normalize dtypes then verify compatibility
     actual = _normalize_df(actual, ref=expected)

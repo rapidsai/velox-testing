@@ -309,7 +309,7 @@ BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
 
 VALIDATE_SCRIPT="${SCRIPT_DIR}/../../common/testing/validate_results.py"
-VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../../common/testing/requirements.txt"
+VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../testing/requirements.txt"
 
 # Resolve reference results directory.
 # PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
