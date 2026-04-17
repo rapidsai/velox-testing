@@ -49,7 +49,7 @@ if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
   done < "${CONFIG_FILE}"
 fi
 
-$PROFILE_CMD $SPARK_HOME/bin/spark-submit \
+$PROFILE_CMD "$SPARK_HOME"/bin/spark-submit \
     --class org.apache.spark.sql.connect.service.SparkConnectServer \
     --master "local[*]" \
     --jars "${GLUTEN_JAR}" \
