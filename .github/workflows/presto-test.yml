@@ -63,7 +63,7 @@ jobs:
           date: ${{ inputs.date }}
 
   test-presto-integration:
-    name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }})
+    name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
     needs: [resolve-inputs]
     permissions:
       contents: read
@@ -71,15 +71,129 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
-        cuda_version:
-          - &cuda12 '12.9'
-          - &cuda13 '13.1'
-        test_type: [tpch, tpcds]
-    runs-on: linux-${{ matrix.arch }}-gpu-l4-latest-1
+        include:
+          # tpch (SF 10)
+          - test_type: tpch
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '12.9'
+            gpu: l4
+          - test_type: tpch
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '12.9'
+            gpu: a100
+          - test_type: tpch
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '12.9'
+            gpu: h100
+          - test_type: tpch
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '13.1'
+            gpu: l4
+          - test_type: tpch
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '13.1'
+            gpu: a100
+          - test_type: tpch
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '13.1'
+            gpu: h100
+          - test_type: tpch
+            scale_factor: 10
+            arch: arm64
+            cuda_version: '12.9'
+            gpu: l4
+          - test_type: tpch
+            scale_factor: 10
+            arch: arm64
+            cuda_version: '12.9'
+            gpu: a100
+          - test_type: tpch
+            scale_factor: 10
+            arch: arm64
+            cuda_version: '13.1'
+            gpu: l4
+          - test_type: tpch
+            scale_factor: 10
+            arch: arm64
+            cuda_version: '13.1'
+            gpu: a100
+          # tpcds (SF 10)
+          - test_type: tpcds
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '12.9'
+            gpu: l4
+          - test_type: tpcds
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '12.9'
+            gpu: a100
+          - test_type: tpcds
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '12.9'
+            gpu: h100
+          - test_type: tpcds
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '13.1'
+            gpu: l4
+          - test_type: tpcds
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '13.1'
+            gpu: a100
+          - test_type: tpcds
+            scale_factor: 10
+            arch: amd64
+            cuda_version: '13.1'
+            gpu: h100
+          - test_type: tpcds
+            scale_factor: 10
+            arch: arm64
+            cuda_version: '12.9'
+            gpu: l4
+          - test_type: tpcds
+            scale_factor: 10
+            arch: arm64
+            cuda_version: '12.9'
+            gpu: a100
+          - test_type: tpcds
+            scale_factor: 10
+            arch: arm64
+            cuda_version: '13.1'
+            gpu: l4
+          - test_type: tpcds
+            scale_factor: 10
+            arch: arm64
+            cuda_version: '13.1'
+            gpu: a100
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Generate benchmark data
+        env:
+          TEST_TYPE: ${{ matrix.test_type }}
+          SCALE_FACTOR: ${{ matrix.scale_factor }}
+        run: |
+          DATA_DIR="${GITHUB_WORKSPACE}/common/testing/integration_tests/data/${TEST_TYPE}"
+          benchmark_data_tools/scripts/generate_dataset.sh \
+            --benchmark-type "${TEST_TYPE}" \
+            --data-dir-path "${DATA_DIR}" \
+            --scale-factor "${SCALE_FACTOR}" \
+            --convert-decimals-to-floats
+          echo "--- metadata ---"
+          cat "${DATA_DIR}/metadata.json"
+          echo "--- generated files ---"
+          find "${DATA_DIR}" -type f -exec ls -lh {} + | awk '{print $5, $NF}' | sort -k2
 
       - &login_ghcr
         name: Log in to the Container registry
@@ -156,18 +270,15 @@ jobs:
         working-directory: presto/scripts
         run: ./start_native_gpu_presto.sh --num-workers 1 --skip-generate-config
 
-      - name: Run TPC-H integration tests
-        if: matrix.test_type == 'tpch'
+      - name: Run ${{ matrix.test_type }} integration tests
+        env:
+          TEST_TYPE: ${{ matrix.test_type }}
+          TPCH_QUERIES: "1,2,3,4,5,6,7,8,9,10,11,12,13,14,16,17,18,19,20,21,22"
+          TPCDS_QUERIES: "1,2,3,5,7,10,12,15,16,17,19,20,23,24,25,26,28,29,30,32,37,39,40,41,42,43,44,45,46,47,48,50,51,52,53,54,55,56,57,58,59,60,62,63,64,65,66,68,69,71,77,78,79,80,81,82,84,89,91,92,93,94,95,97,98,99"
         working-directory: presto/scripts
         run: |
-          ./run_integ_test.sh -b tpch -q "1,2,3,4,5,6,7,8,9,10,11,12,13,14,16,17,18,19,20,21,22"
-
-      - name: Run TPC-DS integration tests
-        if: matrix.test_type == 'tpcds'
-        working-directory: presto/scripts
-        run: |
-          # Currently supported subset of TPC-DS queries for presto-gpu. Update as more queries gain support.
-          ./run_integ_test.sh -b tpcds -q "1,2,3,5,6,7,8,10,12,15,16,17,19,20,22,23,24,25,26,28,29,30,32,35,37,39,40,41,42,43,44,45,46,47,48,50,51,52,53,54,55,56,57,58,59,60,62,63,64,65,66,68,69,71,72,77,78,79,80,81,82,84,86,88,89,91,92,93,94,95,96,97,98,99"
+          QUERIES_VAR="${TEST_TYPE^^}_QUERIES"
+          ./run_integ_test.sh -b "${TEST_TYPE}" -q "${!QUERIES_VAR}"
 
       - name: Stop Presto cluster
         if: always()

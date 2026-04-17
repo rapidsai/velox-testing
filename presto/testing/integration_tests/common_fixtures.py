@@ -32,12 +32,11 @@ def setup_and_teardown(request, presto_cursor):
         data_sub_directory = f"integration_test/{benchmark_type}"
         create_hive_tables.create_tables(presto_cursor, schema_name, schemas_dir, data_sub_directory)
 
-    if not request.config.getoption("--reference-results-dir"):
-        # duckdb will need to know the name of each table in a hive schema,
-        # as well as the path to the parquet directory they are based on.
-        tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
-        for (table,) in tables:
-            location = get_table_external_location(schema_name, table, presto_cursor)
+    tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
+    for (table,) in tables:
+        location = get_table_external_location(schema_name, table, presto_cursor)
+        print(f"  {schema_name}.{table}: location={location}")
+        if not request.config.getoption("--reference-results-dir"):
             test_utils.create_duckdb_table(table, location)
 
     test_utils.initialize_output_dir(request.config, "presto")
