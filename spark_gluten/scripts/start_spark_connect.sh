@@ -16,9 +16,9 @@ This script starts a Spark Connect server in a Docker container.
 
 OPTIONS:
     -h, --help                      Show this help message.
-    --image-tag                     Tag of the docker image to use for the server launch. The full 
-                                    image reference is "apache/gluten:{image-tag}". Default value 
-                                    is "dynamic_gpu_\${USER:-latest}". Cannot be used with 
+    --image-tag                     Tag of the docker image to use for the server launch. The full
+                                    image reference is "apache/gluten:{image-tag}". Default value
+                                    is "dynamic_gpu_\${USER:-latest}". Cannot be used with
                                     --static-gluten-jar-path.
     --static-gluten-jar-path        Path to a statically-linked Gluten JAR file on the host.
                                     Cannot be used with --image-tag.
