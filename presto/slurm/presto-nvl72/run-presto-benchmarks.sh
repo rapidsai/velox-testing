@@ -72,6 +72,55 @@ cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
 echo "Collecting configs and logs into result directory..."
 collect_results
 
+if [[ "${ENABLE_NSYS}" == "1" ]]; then
+    echo "Waiting for nsys report generation..."
+    if [[ -n "${QUERIES:-}" ]]; then
+        IFS=',' read -ra qlist <<< "${QUERIES}"
+    else
+        qlist=({1..22})
+    fi
+
+    declare -A prev_sizes
+    stable_count=0
+    for i in {1..120}; do
+        all_stable=true
+        for qnum in "${qlist[@]}"; do
+            report="${LOGS}/nsys_worker_0_Q${qnum}.nsys-rep"
+            fallback="${LOGS}/nsys_worker_0_Q${qnum}.qdstrm"
+            if [[ -f "$report" ]]; then
+                target="$report"
+            elif [[ -f "$fallback" ]]; then
+                target="$fallback"
+            else
+                echo "    Q${qnum}: no file yet"
+                all_stable=false
+                continue
+            fi
+            cur_size=$(stat -c%s "$target" 2>/dev/null || echo 0)
+            prev=${prev_sizes["$target"]:-0}
+            echo "    Q${qnum}: cur=${cur_size} prev=${prev}"
+            if (( cur_size == 0 || cur_size != prev )); then
+                all_stable=false
+            fi
+            prev_sizes["$target"]=$cur_size
+        done
+        echo "  all_stable=${all_stable} stable_count=${stable_count}"
+        if $all_stable; then
+            stable_count=$((stable_count + 1))
+            if (( stable_count >= 3 )); then
+                echo "All ${#qlist[@]} nsys reports stable."
+                break
+            fi
+        else
+            stable_count=0
+        fi
+        sleep 5
+    done
+
+    echo "Copying nsys reports to ${SCRIPT_DIR}/result_dir/..."
+    cp "${LOGS}"/*.nsys-rep "${SCRIPT_DIR}/result_dir/"
+fi
+
 echo "========================================"
 echo "Benchmark complete!"
 echo "Results saved to: ${SCRIPT_DIR}/results_dir"
