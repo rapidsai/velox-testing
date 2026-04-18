@@ -277,6 +277,7 @@ ${LOGS}:${vt_nsys_report_dir},\
 ${gds_mounts:+,${gds_mounts}} \
 -- /bin/bash -c "
 export LD_LIBRARY_PATH=\"${CUDF_LIB}\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}\"
+export KVIKIO_TASK_SIZE=\$((16*1024*1024))
 if [[ '${ENABLE_GDS}' == '1' ]]; then
     export KVIKIO_COMPAT_MODE=OFF
     export CUFILE_LOGFILE_PATH=${vt_cufile_log}
@@ -288,6 +289,7 @@ echo \"Worker ${worker_id}: ENABLE_GDS=\${ENABLE_GDS:-unset}\"
 echo \"Worker ${worker_id}: ENABLE_NSYS=\${ENABLE_NSYS:-unset}\"
 echo \"Worker ${worker_id}: KVIKIO_COMPAT_MODE=\${KVIKIO_COMPAT_MODE:-unset}\"
 echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
+echo \"Worker ${worker_id}: KVIKIO_TASK_SIZE=\${KVIKIO_TASK_SIZE:-unset}\"
 
 if [[ -n '${nsys_bin}' ]]; then
     (
