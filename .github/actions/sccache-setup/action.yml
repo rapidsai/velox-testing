@@ -29,8 +29,10 @@ runs:
     - name: Check if OIDC configuration is available
       id: check-config
       shell: bash
+      env:
+        ROLE_TO_ASSUME: ${{ inputs.role-to-assume }}
       run: |
-        if [[ -z "${{ inputs.role-to-assume }}" ]]; then
+        if [[ -z "${ROLE_TO_ASSUME}" ]]; then
           echo "::warning::No AWS role ARN provided, sccache will be disabled"
           echo "available=false" >> "$GITHUB_OUTPUT"
         else
@@ -51,8 +53,12 @@ runs:
     - name: Create sccache auth files
       id: finalize
       shell: bash
+      env:
+        OIDC_AVAILABLE: ${{ steps.check-config.outputs.available }}
+        AWS_CREDS_OUTCOME: ${{ steps.aws-creds.outcome }}
+        ENABLE_DIST: ${{ inputs.enable-dist }}
       run: |
-        if [[ "${{ steps.check-config.outputs.available }}" != "true" || "${{ steps.aws-creds.outcome }}" != "success" ]]; then
+        if [[ "${OIDC_AVAILABLE}" != "true" || "${AWS_CREDS_OUTCOME}" != "success" ]]; then
           echo "::warning::sccache setup failed or OIDC not available. Building without sccache."
           echo "enabled=false" >> "$GITHUB_OUTPUT"
           exit 0
@@ -74,7 +80,7 @@ runs:
 
         # Write github_token for dist compile auth (real token or placeholder)
         DIST_ENABLED="false"
-        if [[ "${{ inputs.enable-dist }}" == "true" ]]; then
+        if [[ "${ENABLE_DIST}" == "true" ]]; then
           curl -fsSL -H "Authorization: Bearer $(                                   \
             curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
               "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=token.rapids.nvidia.com"  \

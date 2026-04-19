@@ -274,33 +274,71 @@ cd velox-testing/spark_gluten/scripts
 ./download_gluten.sh  # Downloads Gluten JAR to testing/spark-gluten-install/
 ```
 
+### Starting the Spark Connect Server
+Integration tests and benchmarks connect to a Spark Connect server running in a Docker container. The server is managed by `start_spark_connect.sh` and `stop_spark_connect.sh` in the `velox-testing/spark_gluten/scripts` directory. Execute `./start_spark_connect.sh --help` to get more details about script options.
+
+```bash
+cd velox-testing/spark_gluten/scripts
+
+# Start with the default GPU dynamic image (apache/gluten:dynamic_gpu_${USER})
+./start_spark_connect.sh
+
+# Start with a specific image tag
+./start_spark_connect.sh --image-tag dynamic_cpu_${USER}
+
+# Start with a statically-linked JAR (builds a lightweight test image automatically)
+./start_spark_connect.sh --static-gluten-jar-path /path/to/gluten.jar
+
+# Start with custom Spark configuration overlay
+./start_spark_connect.sh --spark-config custom_overrides.conf
+
+# Start with profiling enabled (for GPU benchmarking with nsys)
+./start_spark_connect.sh -p
+
+# Start with custom profiling arguments
+./start_spark_connect.sh -p --profile-args "-t cuda"
+
+# Custom ports
+./start_spark_connect.sh --port 15002 --ui-port 4040
+
+# Stop the server
+./stop_spark_connect.sh
+```
+
+The server runs in detached mode. Logs are written to timestamped files under `spark_gluten/scripts/spark_logs/` by default, with a `spark_connect.log` symlink always pointing to the latest log file. Use `--logs-dir` to specify a custom log directory.
+
+For GPU images, the server automatically applies GPU-specific Spark configuration (`gpu_default.conf`) and environment variables (`gpu_default.env`) on top of the base `default.conf`.
+
+### Configuration Files
+Default Spark configuration and GPU-specific overrides are provided under `spark_gluten/testing/config/`:
+
+| File | Purpose |
+|------|---------|
+| `default.conf` | Base Spark configuration (memory, shuffle, Gluten settings). Applied to all server starts. |
+| `gpu_default.conf` | GPU-specific overrides (cuDF acceleration, GPU table scan, GPU shuffle). Applied automatically for GPU images. |
+| `gpu_default.env` | GPU environment variables (pinned memory pools, device selection). Applied automatically for GPU images. |
+
+Custom `--spark-config` files overlay settings on top of the defaults. Custom `--env-file` values override the default GPU environment variables.
+
 ### Running Integration Tests
-The Spark Gluten integration tests can be executed using the `run_integ_test.sh` script from within the `velox-testing/spark_gluten/scripts` directory. Tests run inside a Docker container using either a dynamically-built image or a statically-linked JAR. Execute `./run_integ_test.sh --help` to get more details about script options.
+The Spark Gluten integration tests can be executed using the `run_integ_test.sh` script from within the `velox-testing/spark_gluten/scripts` directory. Tests run on the host and connect to a running Spark Connect server via gRPC. The Spark Connect server must be started before running the tests (see [Starting the Spark Connect Server](#starting-the-spark-connect-server)). Execute `./run_integ_test.sh --help` to get more details about script options.
 
 #### Basic Examples:
 ```bash
 cd velox-testing/spark_gluten/scripts
 
-# Run all TPC-H integration tests (uses the default dynamic GPU image)
+# Run all TPC-H integration tests
 ./run_integ_test.sh -b tpch
 
 # Run specific queries
 ./run_integ_test.sh -b tpch -q "1,2,3"
 
-# Run with a CPU dynamic image
-./run_integ_test.sh -b tpch --image-tag dynamic_cpu_${USER}
-
-# Run with a statically-linked JAR
-./run_integ_test.sh -b tpch --static-gluten-jar-path /path/to/gluten.jar
-
 # Run with a custom dataset (requires SPARK_DATA_DIR environment variable)
 export SPARK_DATA_DIR=/path/to/your/benchmark/data
 ./run_integ_test.sh -b tpch -d my_dataset_name
 
-# Run GPU tests with GPU-specific Spark configuration and environment variables
-./run_integ_test.sh -b tpch \
-  --spark-config spark_gluten/testing/config/gpu_default.conf \
-  --env-file spark_gluten/testing/config/gpu_default.env
+# Connect to a server on a different host or port
+./run_integ_test.sh -b tpch --hostname myhost --port 15002
 
 # Store Spark results for later comparison
 ./run_integ_test.sh -b tpch --store-spark-results
@@ -310,6 +348,9 @@ export SPARK_DATA_DIR=/path/to/your/benchmark/data
 
 # Use custom reference results
 ./run_integ_test.sh -b tpch -r /path/to/reference/results
+
+# Delete and recreate the Python virtual environment
+./run_integ_test.sh -b tpch --reset-venv
 ```
 
 If `--dataset-name` is not specified, the default test dataset from `common/testing/integration_tests/data/` is used.
@@ -317,23 +358,13 @@ If `--dataset-name` is not specified, the default test dataset from `common/test
 > [!TIP]
 > Add `export SPARK_DATA_DIR={path to directory that will contain datasets}` to your `~/.bashrc` file. This avoids having to always set the `SPARK_DATA_DIR` environment variable when executing tests with custom datasets.
 
-### Configuration Files
-Default Spark configuration and GPU-specific overrides are provided under `spark_gluten/testing/config/`:
-
-| File | Purpose |
-|------|---------|
-| `default.conf` | Base Spark configuration (memory, shuffle, Gluten settings). Applied to all runs. |
-| `gpu_default.conf` | GPU-specific overrides (cuDF acceleration, GPU table scan, GPU shuffle). Use with `--spark-config`. |
-| `gpu_default.env` | GPU environment variables (pinned memory pools, device selection). Use with `--env-file`. |
-
-The `--spark-config` file overlays settings on top of `default.conf`. The `--env-file` sets environment variables inside the container (e.g. `CUDA_VISIBLE_DEVICES`, cuDF memory pool sizes, etc.).
-
 ## Spark Gluten Benchmarking
 The Spark Gluten benchmarks are implemented using the [pytest](https://docs.pytest.org/en/stable/) framework and build on top of the infrastructure implemented for Spark Gluten testing. The benchmarks measure query execution time across multiple iterations and can be used to compare CPU vs GPU performance, different configurations, or track performance over time.
 
 ### Prerequisites
 The benchmarking infrastructure requires:
 - A built Gluten image (see [Building Gluten](#building-gluten)) or a statically-linked JAR.
+- A running Spark Connect server (see [Starting the Spark Connect Server](#starting-the-spark-connect-server)).
 - Benchmark data organized in Hive-style directory layouts.
 - The `SPARK_DATA_DIR` environment variable set to a directory containing your benchmark datasets.
 
@@ -345,7 +376,7 @@ The Spark Gluten benchmarks can be executed using the `run_benchmark.sh` script 
 cd velox-testing/spark_gluten/scripts
 export SPARK_DATA_DIR=/path/to/your/benchmark/data
 
-# Run all TPC-H queries with the default GPU dynamic image
+# Run all TPC-H queries
 ./run_benchmark.sh -b tpch -d sf10_64mb
 
 # Run specific queries
@@ -354,26 +385,31 @@ export SPARK_DATA_DIR=/path/to/your/benchmark/data
 # Run with 10 iterations
 ./run_benchmark.sh -b tpch -d sf10_64mb -i 10
 
-# Run with a CPU dynamic image
-./run_benchmark.sh -b tpch -d sf10_64mb --image-tag dynamic_cpu_${USER} -t cpu_dynamic
-
-# Run with a statically-linked JAR
-./run_benchmark.sh -b tpch -d sf10_64mb --static-gluten-jar-path /path/to/gluten.jar -t cpu_static
-
-# Run GPU benchmarks with GPU-specific configuration
-./run_benchmark.sh -b tpch -d sf10_64mb \
-  --spark-config spark_gluten/testing/config/gpu_default.conf \
-  --env-file spark_gluten/testing/config/gpu_default.env \
-  -t gpu_dynamic
+# Tag benchmark results
+./run_benchmark.sh -b tpch -d sf10_64mb -t gh200_gpu_sf10
 
 # Custom output directory
 ./run_benchmark.sh -b tpch -d sf10_64mb -o ~/benchmark_results
 
 # Skip dropping system caches (caches are dropped by default)
 ./run_benchmark.sh -b tpch -d sf10_64mb --skip-drop-cache
+
+# Run with GPU profiling (server must be started with -p)
+./run_benchmark.sh -b tpch -d sf10_64mb -p
+
+# Delete and recreate the Python virtual environment
+./run_benchmark.sh -b tpch -d sf10_64mb --reset-venv
 ```
 
 Benchmark results are written in JSON and text formats to the specified output directory (default: `benchmark_output/`). Spark/Velox warnings and stderr are redirected to a `spark_warnings.log` file in the output directory.
+
+### GPU Profiling
+GPU profiling uses NVIDIA Nsight Systems (`nsys`) to capture GPU kernel activity during benchmark execution. The profiling workflow has two parts:
+
+1. **Start the server with profiling enabled**: `./start_spark_connect.sh -p` instruments the Spark Connect server JVM process with `nsys launch`.
+2. **Run benchmarks with profiling**: `./run_benchmark.sh -b tpch -d sf10_64mb -p` triggers `nsys start`/`nsys stop` around each query, collecting GPU metrics and saving `.nsys-rep` profile files.
+
+Profile files are saved to a `profiles/` subdirectory under the benchmark output directory.
 
 > [!TIP]
 > Add `export SPARK_DATA_DIR={path to directory that will contain datasets}` to your `~/.bashrc` file. This avoids having to always set the `SPARK_DATA_DIR` environment variable when executing benchmarks.

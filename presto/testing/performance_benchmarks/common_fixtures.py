@@ -9,10 +9,10 @@ import prestodb
 import pytest
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
+from common.testing.performance_benchmarks.profiler_utils import start_profiler, stop_profiler
 
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
-from .profiler_utils import start_profiler, stop_profiler
 from .run_context import gather_run_context
 
 
