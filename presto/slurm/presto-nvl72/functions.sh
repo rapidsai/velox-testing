@@ -275,21 +275,43 @@ function run_queries {
     local num_iterations=$1
     local scale_factor=$2
     source "${SCRIPT_DIR}/defaults.env"
-    # We currently skip dropping cache because it requires docker (not available on the cluster).
-    run_coord_image "export PORT=$PORT; \
+
+    # The upstream coordinator image ships without jq, which
+    # run_benchmark.sh's wait_for_worker_node_registration requires.
+    # yum/dnf cannot install it at runtime because the container root is
+    # a read-only squashfs (/var/cache/dnf is read-only).  Stage a
+    # statically-linked jq under VT_ROOT (which is bind-mounted into the
+    # container as /workspace) and prepend that to PATH.  The download
+    # is cached across runs so the cost is paid once.
+    local jq_cache="${VT_ROOT}/.cache/bin"
+    local jq_arch
+    case "$(uname -m)" in
+        aarch64|arm64) jq_arch="arm64" ;;
+        x86_64|amd64)  jq_arch="amd64" ;;
+        *) echo_error "unsupported arch for jq download: $(uname -m)" ;;
+    esac
+    if [ ! -x "${jq_cache}/jq" ]; then
+        echo "Staging static jq (${jq_arch}) at ${jq_cache}/jq"
+        mkdir -p "${jq_cache}"
+        curl -sSL "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${jq_arch}" \
+            -o "${jq_cache}/jq"
+        chmod +x "${jq_cache}/jq"
+    fi
+
+    # Result validation is intentionally not wired here yet: that belongs
+    # to PR #275 (upstream validate_results.py) and will be hooked up
+    # after the PR merges and this branch is rebased.
+    # Cache-drop is skipped because it requires docker (not available on
+    # the cluster).
+    run_coord_image "export PATH=/workspace/.cache/bin:\$PATH; \
+    export PORT=$PORT; \
     export HOSTNAME=$COORD; \
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} \
-        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache; \
-    echo 'Validating query results...'; \
-    MINIFORGE_HOME=/workspace/miniforge3 /workspace/scripts/run_py_script.sh \
-        -p /workspace/benchmark_reporting_tools/validate_results.py \
-        /workspace/presto/slurm/presto-nvl72/result_dir/query_results \
-        --expected-dir ${EXPECTED_RESULTS_BASE}/scale-${scale_factor} \
-        || echo 'Warning: result validation reported failures'" "cli"
+        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.
