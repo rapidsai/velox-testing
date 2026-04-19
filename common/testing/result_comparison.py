@@ -33,47 +33,36 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 # ---------------------------------------------------------------------------
 
 
-def get_orderby_info(query_sql: str, column_names: list[str]) -> tuple[list[tuple[str, bool]], bool]:
+def get_orderby_info(query_sql: str, column_names: list[str]) -> tuple[list[str], list[bool]]:
     """
     Extract ORDER BY information from SQL using sqlglot.
 
     Returns:
-        (sort_by, nulls_last) where sort_by is [(col_name, descending), ...]
-        and nulls_last reflects the first sort column's setting (defaulting to
-        True for ASC, matching DuckDB's default).
+        (sort_cols, descending) where sort_cols is a list of column names and
+        descending is a parallel list of booleans.
 
-    Returns ([], True) when there is no ORDER BY, or when any ORDER BY
-    expression is too complex to map to a result column (CASE, aggregate, etc.).
+    Returns ([], []) when there is no ORDER BY, or when any ORDER BY expression
+    is too complex to map to a result column (CASE, aggregate, etc.).
     """
     expr = sqlglot.parse_one(query_sql)
     order = next((e for e in expr.find_all(sqlglot.exp.Order)), None)
     if not order:
-        return [], True
+        return [], []
 
-    sort_by = []
-    nulls_last = True  # DuckDB default for ASC
+    sort_cols: list[str] = []
+    descending: list[bool] = []
 
-    for i, ordered in enumerate(order.expressions):
+    for ordered in order.expressions:
         key = ordered.this
-        descending = bool(ordered.args.get("desc", False))
-
-        # Determine nulls handling for this column.
-        # DuckDB defaults: ASC → NULLS LAST, DESC → NULLS FIRST.
-        nulls_arg = ordered.args.get("nulls")
-        if nulls_arg is not None:
-            col_nulls_last = not isinstance(nulls_arg, sqlglot.exp.NullsFirst)
-        else:
-            col_nulls_last = not descending
-
-        if i == 0:
-            nulls_last = col_nulls_last
+        desc = bool(ordered.args.get("desc", False))
 
         # Resolve key → column name via numeric literal or column reference.
         if isinstance(key, sqlglot.exp.Literal):
             try:
                 col_num = int(key.this)
                 if 1 <= col_num <= len(column_names):
-                    sort_by.append((column_names[col_num - 1], descending))
+                    sort_cols.append(column_names[col_num - 1])
+                    descending.append(desc)
                     continue
             except (ValueError, TypeError):
                 pass
@@ -81,13 +70,14 @@ def get_orderby_info(query_sql: str, column_names: list[str]) -> tuple[list[tupl
         if isinstance(key, sqlglot.exp.Column):
             name = key.name
             if name in column_names:
-                sort_by.append((name, descending))
+                sort_cols.append(name)
+                descending.append(desc)
                 continue
 
         # Complex expression — skip ORDER BY validation entirely.
-        return [], True
+        return [], []
 
-    return sort_by, nulls_last
+    return sort_cols, descending
 
 
 def get_limit(query_sql: str) -> int | None:
@@ -338,14 +328,12 @@ def _validate_sort_order(
     df: pd.DataFrame,
     sort_cols: list[str],
     descending: list[bool],
-    nulls_last: bool,
     side: str,
 ) -> None:
     """Assert that df is already sorted by the specified columns."""
     ascending = [not d for d in descending]
-    na_position = "last" if nulls_last else "first"
     expected_order = (
-        df[sort_cols].sort_values(by=sort_cols, ascending=ascending, na_position=na_position).reset_index(drop=True)
+        df[sort_cols].sort_values(by=sort_cols, ascending=ascending, na_position="last").reset_index(drop=True)
     )
     actual_order = df[sort_cols].reset_index(drop=True)
     if not actual_order.equals(expected_order):
@@ -420,20 +408,17 @@ def compare_result_frames(
         raise AssertionError(f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)")
 
     # 5. Parse ORDER BY / LIMIT
-    sort_by, nulls_last = get_orderby_info(query_sql, list(actual.columns))
+    sort_cols, descending = get_orderby_info(query_sql, list(actual.columns))
     limit = get_limit(query_sql)
 
-    if not sort_by:
+    if not sort_cols:
         # No ORDER BY (or unparsable) — sort both sides and compare
         _assert_frames_equal(_sort_for_comparison(actual), _sort_for_comparison(expected))
         return
 
-    sort_cols = [col for col, _ in sort_by]
-    descending = [d for _, d in sort_by]
-
     # 6. Validate sort order
-    _validate_sort_order(actual, sort_cols, descending, nulls_last, "actual")
-    _validate_sort_order(expected, sort_cols, descending, nulls_last, "expected")
+    _validate_sort_order(actual, sort_cols, descending, "actual")
+    _validate_sort_order(expected, sort_cols, descending, "expected")
 
     if limit is None:
         # ORDER BY, no LIMIT — sort by non-float cols for tie-breaking
@@ -442,8 +427,7 @@ def compare_result_frames(
 
     # 7. ORDER BY + LIMIT: split into non-ties and boundary ties
     ascending = [not d for d in descending]
-    na_position = "last" if nulls_last else "first"
-    boundary = actual.sort_values(by=sort_cols, ascending=ascending, na_position=na_position).iloc[-1][sort_cols]
+    boundary = actual.sort_values(by=sort_cols, ascending=ascending, na_position="last").iloc[-1][sort_cols]
 
     actual_non_tie_mask = _build_non_tie_mask(actual, sort_cols, descending, boundary)
     expected_non_tie_mask = _build_non_tie_mask(expected, sort_cols, descending, boundary)
