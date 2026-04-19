@@ -41,6 +41,7 @@ export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 source "${SCRIPT_DIR}/defaults.env"
 export DATA
 export IMAGE_DIR
+export HIVE_METASTORE_SHARED_ROOT HIVE_METASTORE_VERSION
 export LOGS=$SCRIPT_DIR/logs
 export VARIANT_TYPE=${VARIANT_TYPE:-gpu}
 export CONFIGS=$VT_ROOT/presto/docker/config/generated/$VARIANT_TYPE

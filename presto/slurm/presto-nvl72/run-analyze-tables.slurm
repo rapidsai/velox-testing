@@ -58,6 +58,7 @@ export NUM_GPUS_PER_NODE
 export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
 source "${SCRIPT_DIR}/defaults.env"
 export DATA
+export HIVE_METASTORE_SHARED_ROOT HIVE_METASTORE_VERSION
 # Dataset subdirectory name under DATA (defaults to scale-<SF> if not set)
 : "${DATASET_NAME:=scale-${SCALE_FACTOR}}"
 export DATASET_NAME
