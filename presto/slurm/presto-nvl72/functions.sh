@@ -16,14 +16,21 @@ function setup {
     [ ! -d "$VT_ROOT" ] && echo "VT_ROOT must be a valid directory" && exit 1
     [ ! -d "$DATA" ] && echo "DATA must be a valid directory" && exit 1
 
-    #if [ ! -d ${VT_ROOT}/.hive_metastore ]; then
-    #    echo "Copying hive metastore from data source."
-    #    copy_hive_metastore
-    #else
-    #    echo "Hive metastore already exists.  Reusing."
-    #fi
+    # If sharing is opted in (HIVE_METASTORE_VERSION set) and the local
+    # snapshot is missing, try to populate it from the shared location.
+    if [[ -n "${HIVE_METASTORE_VERSION:-}" && ! -d "${VT_ROOT}/.hive_metastore/tpchsf${SCALE_FACTOR}" ]]; then
+        populate_hive_metastore_from_shared
+    fi
 
-    [ ! -d ${VT_ROOT}/.hive_metastore/tpchsf${SCALE_FACTOR} ] && echo "Schema for SF ${SCALE_FACTOR} does not exist in hive metastore." && exit 1
+    if [ ! -d "${VT_ROOT}/.hive_metastore/tpchsf${SCALE_FACTOR}" ]; then
+        echo "Schema for SF ${SCALE_FACTOR} is not present in ${VT_ROOT}/.hive_metastore."
+        if [[ -n "${HIVE_METASTORE_VERSION:-}" ]]; then
+            echo "Shared slot $(shared_metastore_slot) is also empty; publish one by running launch-analyze-tables.sh with the same HIVE_METASTORE_VERSION set."
+        else
+            echo "Run launch-analyze-tables.sh -s ${SCALE_FACTOR} first, or set HIVE_METASTORE_VERSION to consume a pre-published snapshot."
+        fi
+        exit 1
+    fi
 
     generate_configs
 
@@ -239,32 +246,76 @@ else
 fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
-function copy_hive_metastore {
-    cp -r "${HIVE_METASTORE_SOURCE:-/mnt/data/tpch-rs/HIVE-METASTORE-MG-260313}" ${VT_ROOT}/.hive_metastore
+# ----------------------------------------------------------------------------
+# Shared Hive metastore: publish/populate
+# ----------------------------------------------------------------------------
+# When HIVE_METASTORE_VERSION is set, analyze runs publish their post-ANALYZE
+# tpchsf<SF> tree under $HIVE_METASTORE_SHARED_ROOT/<version>/tpchsf<SF>/, and
+# subsequent benchmark runs populate from that snapshot instead of re-analyzing.
+# Paths inside a .prestoSchema file are container-relative
+# (file:/var/lib/presto/data/hive/data/user_data/scale-<SF>/<table>), so a
+# single snapshot works for any user whose DATA bind-mount lands on the same
+# in-container path.
+
+# Echo the absolute path of the shared slot for the current (version, SF).
+# Empty output => sharing is not opted in.
+function shared_metastore_slot {
+    [[ -z "${HIVE_METASTORE_VERSION:-}" ]] && return 0
+    [[ -z "${HIVE_METASTORE_SHARED_ROOT:-}" || -z "${SCALE_FACTOR:-}" ]] && return 0
+    echo "${HIVE_METASTORE_SHARED_ROOT}/${HIVE_METASTORE_VERSION}/tpchsf${SCALE_FACTOR}"
 }
 
-#./analyze_tables.sh --port $PORT --hostname $HOSTNAME -s tpchsf${scale_factor}
-function setup_benchmark {
-    echo "setting up benchmark"
-    [ $# -ne 1 ] && echo_error "$0 expected one argument for 'scale factor'"
-    local scale_factor=$1
-    local data_path="/data/date-scale-${scale_factor}"
-    run_coord_image "export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; yum install python3.12 -y; yum install jq -y; cd /workspace/presto/scripts; ./setup_benchmark_tables.sh -H $COORD -p $PORT -b tpch -d date-scale-${scale_factor} -s tpchsf${scale_factor} --skip-analyze-tables --no-docker; " "cli"
+# Copy the shared snapshot for the current (version, SF) into the local
+# .hive_metastore.  Skipped when the shared slot does not exist; the caller
+# still has to have the tpchsf<SF> tree in .hive_metastore one way or another
+# (a local analyze run also produces one).
+function populate_hive_metastore_from_shared {
+    local slot
+    slot=$(shared_metastore_slot)
+    if [[ -z "${slot}" || ! -d "${slot}" ]]; then
+        echo "No shared metastore snapshot at ${slot:-<sharing disabled>}; skipping populate."
+        return 0
+    fi
+    local dest="${VT_ROOT}/.hive_metastore/tpchsf${SCALE_FACTOR}"
+    echo "Populating ${dest} from shared snapshot ${slot}"
+    mkdir -p "${VT_ROOT}/.hive_metastore"
+    rsync -a --delete "${slot}/" "${dest}/"
+}
 
-    # Copy the hive metastore from a local copy.  This means we don't have to create
-    # or analyze the tables.
-    for dataset in $(ls ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE); do
-	if [[ -d ${VT_ROOT}/.hive_metastore/${dataset} ]]; then
-	    echo "replacing dataset metadata: $dataset"
-	    cp -r ${SCRIPT_DIR}/ANALYZED_HIVE_METASTORE/${dataset} ${VT_ROOT}/.hive_metastore/
-	    for table in $(ls ${VT_ROOT}/.hive_metastore/${dataset}); do
-		# Need to remove checksum file (it will be recreated).
-		if [ -f ${VT_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc ]; then
-		    rm ${VT_ROOT}/.hive_metastore/${dataset}/${table}/..prestoSchema.crc
-		fi
-	    done
-        fi
-    done
+# If the shared slot for the current (version, SF) is empty, atomically publish
+# the just-analyzed .hive_metastore/tpchsf<SF> tree into it.  Uses a staging
+# directory under the same parent so the final rename is atomic on the shared
+# filesystem; concurrent publishers from different jobs race harmlessly.
+function publish_hive_metastore_to_shared {
+    local slot
+    slot=$(shared_metastore_slot)
+    if [[ -z "${slot}" ]]; then
+        echo "HIVE_METASTORE_VERSION not set; skipping publish."
+        return 0
+    fi
+    local src="${VT_ROOT}/.hive_metastore/tpchsf${SCALE_FACTOR}"
+    if [[ ! -d "${src}" ]]; then
+        echo "Nothing to publish: ${src} does not exist."
+        return 0
+    fi
+    if [[ -d "${slot}" ]]; then
+        echo "Shared slot already populated at ${slot}; skipping publish."
+        return 0
+    fi
+    local parent staging
+    parent="$(dirname "${slot}")"
+    staging="${parent}/.staging-${SLURM_JOB_ID:-$$}-tpchsf${SCALE_FACTOR}"
+    mkdir -p "${parent}"
+    rm -rf "${staging}"
+    echo "Publishing ${src} -> ${slot} (via ${staging})"
+    rsync -a "${src}/" "${staging}/"
+    # Racy between the is-empty check and the rename; mv -T rejects overwriting
+    # a non-empty dir, which is the protection we want.  If another publisher
+    # wins, drop our staging copy.
+    if ! mv -T "${staging}" "${slot}" 2>/dev/null; then
+        echo "Another publisher populated ${slot} first; discarding staging copy."
+        rm -rf "${staging}"
+    fi
 }
 
 # Run a cli node that will connect to the coordinator and run queries from queries.sql

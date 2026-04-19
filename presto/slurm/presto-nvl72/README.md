@@ -119,6 +119,53 @@ Results are saved to:
 
 3. **velox-testing repo** will be auto-cloned to `${REPO_ROOT}/velox-testing` if not present
 
+## Reusing an analyzed Hive metastore across runs
+
+Running `ANALYZE TABLE` from scratch on every clone is expensive and wasteful when
+the underlying parquet data is shared.  The launchers support publishing and
+consuming a pre-analyzed metastore snapshot, keyed by a user-supplied version
+string plus scale factor.
+
+Two env vars control sharing (defined in `defaults.env`):
+
+- `HIVE_METASTORE_SHARED_ROOT` (default `/scratch/$USER/shared_hive_metadata`) —
+  directory on a filesystem reachable from compute nodes where snapshots live.
+- `HIVE_METASTORE_VERSION` (default empty) — version tag chosen by the operator.
+  **Leave unset to disable sharing.**  Bump it whenever the Presto/velox worker
+  image or the parquet data format changes, so stale snapshots do not leak into
+  runs against a newer image.
+
+Layout: `$HIVE_METASTORE_SHARED_ROOT/$HIVE_METASTORE_VERSION/tpchsf<SF>/…`
+
+### Publishing — run once per (version, SF)
+
+```bash
+export HIVE_METASTORE_VERSION=HIVE-METASTORE-20260419
+./launch-analyze-tables.sh -s 1 -n 1
+# On success, if .../$HIVE_METASTORE_VERSION/tpchsf1/ is empty it gets
+# populated atomically.  Subsequent analyze runs with the same version leave
+# the existing snapshot untouched.
+```
+
+### Consuming — every subsequent clone / run
+
+```bash
+export HIVE_METASTORE_VERSION=HIVE-METASTORE-20260419
+rm -rf .hive_metastore      # optional; only strictly needed if stale
+./launch-run.sh -n 2 -s 1 -i 1
+```
+
+`launch-run.sh` populates `.hive_metastore/tpchsf<SF>/` from the shared snapshot
+only when the local copy is absent; existing local snapshots are preserved.  If
+neither local nor shared is available the run fails fast with a message pointing
+at `launch-analyze-tables.sh`.
+
+### Disabling sharing
+
+Leave `HIVE_METASTORE_VERSION` unset.  Analyze does not publish; benchmark runs
+require a local `.hive_metastore/tpchsf<SF>/` populated by an earlier analyze
+in the same clone.
+
 ## Troubleshooting
 
 ### Coordinator fails to start

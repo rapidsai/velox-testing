@@ -87,3 +87,9 @@ echo "Analyze tables complete!"
 echo "Hive metastore updated at: ${VT_ROOT}/.hive_metastore"
 echo "Logs available at: ${LOGS}"
 echo "========================================"
+
+# Auto-publish to the shared metastore when HIVE_METASTORE_VERSION is set and
+# the target slot is still empty.  See functions.sh:publish_hive_metastore_to_shared.
+if [[ -n "${HIVE_METASTORE_VERSION:-}" ]]; then
+    publish_hive_metastore_to_shared
+fi
