@@ -76,6 +76,14 @@ EXPORT_VARS="ALL,SCALE_FACTOR=${SCALE_FACTOR},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_
 if [[ -n "${DATA_DIR}" ]]; then
     EXPORT_VARS="${EXPORT_VARS},DATA=${DATA_DIR}"
 fi
+# Forward shared-metastore config from the calling shell so the slurm job
+# can auto-publish.  Safe when unset: sbatch ignores empty KEY= entries.
+if [[ -n "${HIVE_METASTORE_VERSION:-}" ]]; then
+    EXPORT_VARS="${EXPORT_VARS},HIVE_METASTORE_VERSION=${HIVE_METASTORE_VERSION}"
+fi
+if [[ -n "${HIVE_METASTORE_SHARED_ROOT:-}" ]]; then
+    EXPORT_VARS="${EXPORT_VARS},HIVE_METASTORE_SHARED_ROOT=${HIVE_METASTORE_SHARED_ROOT}"
+fi
 
 OUT_FMT="presto-analyze_n${NODES_COUNT}_sf${SCALE_FACTOR}_%j.out"
 ERR_FMT="presto-analyze_n${NODES_COUNT}_sf${SCALE_FACTOR}_%j.err"

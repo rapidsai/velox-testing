@@ -158,8 +158,17 @@ JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
 # Node 5 has known issues; nodes above 10 are not yet functional.
 NODELIST="${NODELIST:-${DEFAULT_NODELIST}}"
 GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NODE}" || echo "")
+EXPORT_VARS="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE},USE_NUMA=${USE_NUMA},VARIANT_TYPE=${VARIANT_TYPE}"
+# Forward shared-metastore config from the calling shell so the slurm job
+# can populate from the shared snapshot when opted in.
+if [[ -n "${HIVE_METASTORE_VERSION:-}" ]]; then
+    EXPORT_VARS="${EXPORT_VARS},HIVE_METASTORE_VERSION=${HIVE_METASTORE_VERSION}"
+fi
+if [[ -n "${HIVE_METASTORE_SHARED_ROOT:-}" ]]; then
+    EXPORT_VARS="${EXPORT_VARS},HIVE_METASTORE_SHARED_ROOT=${HIVE_METASTORE_SHARED_ROOT}"
+fi
 JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" --nodelist="${NODELIST}" \
---export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE},USE_NUMA=${USE_NUMA},VARIANT_TYPE=${VARIANT_TYPE}" \
+--export="${EXPORT_VARS}" \
 --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" ${GRES_OPT} \
 run-presto-benchmarks.slurm | awk '{print $NF}')
 OUT_FILE="${OUT_FMT//%j/${JOB_ID}}"
