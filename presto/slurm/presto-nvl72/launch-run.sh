@@ -19,8 +19,12 @@ set -e
 # Change to script directory
 cd "$(dirname "$0")"
 
-# Clean up old output files
-rm -f result_dir/* logs/* *.out *.err 2>/dev/null || true
+source ./defaults.env
+
+# Clean up old output files — use rm -rf so subdirectories (e.g. query_results/)
+# are fully removed and stale benchmark_result.json cannot survive a cancelled run.
+rm -rf result_dir logs 2>/dev/null || true
+rm -f *.out *.err 2>/dev/null || true
 mkdir -p result_dir logs
 
 echo "Submitting Presto TPC-H benchmark job..."
@@ -33,8 +37,16 @@ SCALE_FACTOR=""
 NUM_ITERATIONS="2"
 EXTRA_ARGS=()
 NUM_GPUS_PER_NODE="4"
-WORKER_IMAGE="presto-native-worker-gpu"
-COORD_IMAGE="presto-coordinator"
+USE_NUMA="1"
+VARIANT_TYPE="gpu"
+#WORKER_IMAGE="presto-native-worker-gpu"
+COORD_IMAGE="presto-coordinator-karth-Mar11"
+WORKER_IMAGE="presto-native-worker-gpu-karth-Mar11"
+#COORD_IMAGE="presto-coordinator-ibm-03-11"
+#WORKER_IMAGE="presto-native-worker-gpu-ibm-03-11"
+#WORKER_IMAGE="velox-testing-images-presto-471cf1a-velox-1a2f63f-gpu-cuda13.1-20260312-arm64"
+#COORD_IMAGE="presto-coordinator"
+OUTPUT_PATH=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -n|--nodes)
@@ -97,6 +109,25 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        --no-numa)
+            USE_NUMA="0"
+            shift
+            ;;
+        --cpu)
+            VARIANT_TYPE="cpu"
+            NUM_GPUS_PER_NODE="1"
+            USE_NUMA="0"
+            shift
+            ;;
+        -o|--output-path)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                OUTPUT_PATH="$2"
+                shift 2
+            else
+                echo "Error: -o|--output-path requires a value"
+                exit 1
+            fi
+            ;;
         --)
             shift
             break
@@ -123,8 +154,13 @@ fi
 OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
 ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
 SCRIPT_DIR="$PWD"
-JOB_ID=$(sbatch --nodes="${NODES_COUNT}" --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE}" \
---output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" --gres="gpu:${NUM_GPUS_PER_NODE}" \
+JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
+# Node 5 has known issues; nodes above 10 are not yet functional.
+NODELIST="${NODELIST:-${DEFAULT_NODELIST}}"
+GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NODE}" || echo "")
+JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" --nodelist="${NODELIST}" \
+--export="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE},USE_NUMA=${USE_NUMA},VARIANT_TYPE=${VARIANT_TYPE}" \
+--output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" ${GRES_OPT} \
 run-presto-benchmarks.slurm | awk '{print $NF}')
 OUT_FILE="${OUT_FMT//%j/${JOB_ID}}"
 ERR_FILE="${ERR_FMT//%j/${JOB_ID}}"
@@ -155,9 +191,9 @@ echo "Monitor job with:"
 echo "  squeue -j $JOB_ID"
 echo "  tail -f ${OUT_FILE}"
 echo "  tail -f ${ERR_FILE}"
-echo "  tail -f logs/coord_*.log"
+echo "  tail -f logs/coord.log"
 echo "  tail -f logs/worker_*.log"
-echo "  tail -f logs/cli_*.log"
+echo "  tail -f logs/cli.log"
 echo ""
 echo "Waiting for job to complete..."
 
@@ -176,6 +212,12 @@ echo "Showing job output:"
 echo "========================================"
 cat "${OUT_FILE}" 2>/dev/null || echo "No output available"
 echo "Showing benchmark results:"
-cli_log="$(ls -t logs/cli_*.log 2>/dev/null | head -1)"
-[ -z "${cli_log}" ] && cli_log="logs/cli.log"
-cat "${cli_log}" 2>/dev/null || echo "No CLI output available"
+cat logs/cli.log 2>/dev/null || echo "No CLI output available"
+
+if [[ -n "${OUTPUT_PATH}" ]]; then
+    echo ""
+    echo "Copying results to ${OUTPUT_PATH}..."
+    mkdir -p "${OUTPUT_PATH}"
+    cp -r result_dir/. "${OUTPUT_PATH}/"
+    echo "Results copied to ${OUTPUT_PATH}"
+fi

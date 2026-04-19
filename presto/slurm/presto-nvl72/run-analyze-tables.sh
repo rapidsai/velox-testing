@@ -5,25 +5,36 @@
 set -exuo pipefail
 
 # ==============================================================================
-# Presto TPC-H Benchmark Execution Script
+# Presto Analyze Tables Execution Script
 # ==============================================================================
-# This script runs the actual benchmark execution after environment is configured
-# by the slurm launcher script. All configuration is passed via environment vars.
+# Starts coordinator + workers, registers TPC-H tables in the Hive metastore,
+# then runs ANALYZE TABLE for the given scale factor.
+#
+# All configuration is passed via environment variables set by the .slurm script.
 
-# Source helper functions
 source $SCRIPT_DIR/echo_helpers.sh
 source $SCRIPT_DIR/functions.sh
 
-# Ensure metadata injection runs even if the script exits early (e.g. a worker
-# fails to register).  This guarantees benchmark_result.json always has a
-# context block with image_digest before the results are copied out.
-trap 'inject_benchmark_metadata' EXIT
+# ==============================================================================
+# Setup: generate configs and prepare directories
+# ==============================================================================
+echo "Generating Presto configs..."
+generate_configs
 
-# ==============================================================================
-# Setup and Validation
-# ==============================================================================
-echo "Setting up Presto environment..."
-setup
+# ANALYZE TABLE is not supported with cudf enabled. Disable it in all worker
+# configs so workers run in CPU mode while still using the GPU worker image.
+echo "Disabling cudf in worker configs for ANALYZE TABLE compatibility..."
+for worker_conf in ${CONFIGS}/etc_worker*/config_native.properties; do
+    sed -i 's/^cudf\.enabled=true/cudf.enabled=false/' "${worker_conf}"
+done
+for worker_hive in ${CONFIGS}/etc_worker*/catalog/hive.properties; do
+    sed -i 's/^cudf\./#cudf./' "${worker_hive}"
+done
+
+echo "Creating hive metastore directory..."
+mkdir -p ${VT_ROOT}/.hive_metastore
+
+validate_config_directory
 
 # ==============================================================================
 # Start Coordinator
@@ -36,7 +47,6 @@ wait_until_coordinator_is_running
 # Start Workers
 # ==============================================================================
 echo "Starting ${NUM_WORKERS} Presto workers across ${NUM_NODES} nodes..."
-
 worker_id=0
 for node in $(scontrol show hostnames "$SLURM_JOB_NODELIST"); do
     for gpu_id in $(seq 0 $((NUM_GPUS_PER_NODE - 1))); do
@@ -52,28 +62,28 @@ done
 echo "Waiting for ${NUM_WORKERS} workers to register with coordinator..."
 wait_for_workers_to_register $NUM_WORKERS
 
-# Not currently needed because we are copying the hive metastore from the data source.
-#echo "Creating TPC-H schema and registering tables for scale factor ${SCALE_FACTOR}..."
-#setup_benchmark ${SCALE_FACTOR}
-
 # ==============================================================================
-# Run Queries
+# Register Tables and Run ANALYZE TABLE
 # ==============================================================================
-echo "Running TPC-H queries (${NUM_ITERATIONS} iterations, scale factor ${SCALE_FACTOR})..."
-run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
-
-# ==============================================================================
-# Process Results
-# ==============================================================================
-echo "Processing results..."
-mkdir -p ${SCRIPT_DIR}/result_dir
-cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
-
-echo "Collecting configs and logs into result directory..."
-collect_results
+echo "Registering TPC-H tables and running ANALYZE TABLE for tpchsf${SCALE_FACTOR}..."
+# The coordinator container only has Python 3.9, so python3.12 -m venv fails.
+# py_env_functions.sh falls back to conda when MINIFORGE_HOME is set.
+# Miniforge is installed at ${VT_ROOT}/miniforge3, which is mounted as
+# /workspace/miniforge3 inside the container.
+run_coord_image "export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
+    export MINIFORGE_HOME=/workspace/miniforge3; \
+    export HOME=/workspace; \
+    cd /workspace/presto/scripts; \
+    ./setup_benchmark_tables.sh \
+        -b tpch \
+        -d ${DATASET_NAME:-scale-${SCALE_FACTOR}} \
+        -s tpchsf${SCALE_FACTOR} \
+        -H ${COORD} \
+        -p ${PORT} \
+        --no-docker" "cli"
 
 echo "========================================"
-echo "Benchmark complete!"
-echo "Results saved to: ${SCRIPT_DIR}/results_dir"
+echo "Analyze tables complete!"
+echo "Hive metastore updated at: ${VT_ROOT}/.hive_metastore"
 echo "Logs available at: ${LOGS}"
 echo "========================================"
