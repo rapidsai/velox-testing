@@ -64,10 +64,14 @@ def _get_schema_info(hostname: str, port: int, user: str, schema_name: str) -> d
         location = test_utils.get_table_external_location(schema_name, table, cursor)
         meta_path = (Path(location).parent / "metadata.json").resolve()
         if not meta_path.is_file():
-            return None
+            return result
         with open(meta_path) as f:
             data = json.load(f)
-        return data.get("scale_factor") or data.get("options", {}).get("scale_factor")
+        sf = data.get("scale_factor") or data.get("options", {}).get("scale_factor")
+        if sf is not None:
+            result["scale_factor"] = sf
+        result["data_dir"] = str(Path(location).parent)
+        return result
     except Exception as e:
         _debug(f"schema info lookup failed: {e}")
         return result
