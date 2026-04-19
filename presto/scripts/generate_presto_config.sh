@@ -136,6 +136,9 @@ EOF
 
   if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
     echo "cluster-tag=native-cpu" >> ${COORD_CONFIG}
+    # cuDF has no effect in CPU mode but leaving cudf.enabled=true in the worker
+    # config causes noisy startup warnings; force it off for CPU runs.
+    sed -i 's/^cudf\.enabled=true/cudf.enabled=false/' ${WORKER_CONFIG}
   fi
 
   # for Java variant, disable some Parquet properties which are now rejected
@@ -155,7 +158,7 @@ fi
 
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
-if [[ -n "$NUM_WORKERS" && "$VARIANT_TYPE" == "gpu" ]]; then
+if [[ -n "$NUM_WORKERS" && ( "$VARIANT_TYPE" == "gpu" || "$VARIANT_TYPE" == "cpu" ) ]]; then
   if [[ -n ${GPU_IDS:-} ]]; then
       WORKER_IDS=($(echo "$GPU_IDS" | tr ',' ' '))
   else
