@@ -436,10 +436,6 @@ function inject_benchmark_metadata {
     local timestamp
     timestamp=$(date +"%Y-%m-%dT%H:%M:%SZ")
 
-    local gpu_name
-    gpu_name=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader -i 0 2>/dev/null | head -1) || true
-    gpu_name="${gpu_name:-unknown}"
-
     local num_drivers
     num_drivers=$(grep "^task\.max-drivers-per-task=" "${CONFIGS}/etc_worker/config_native.properties" 2>/dev/null \
                   | cut -d= -f2) || true
@@ -448,11 +444,16 @@ function inject_benchmark_metadata {
     local cudf_enabled
     cudf_enabled=$(grep "^cudf\.enabled=" "${CONFIGS}/etc_worker/config_native.properties" 2>/dev/null \
                    | cut -d= -f2) || true
-    local engine
+    local engine gpu_count gpu_name
     if [[ "${cudf_enabled}" == "true" ]]; then
         engine="presto-velox-gpu"
+        gpu_count="${NUM_WORKERS}"
+        gpu_name=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader -i 0 2>/dev/null | head -1) || true
+        gpu_name="${gpu_name:-unknown}"
     else
         engine="presto-velox-cpu"
+        gpu_count=0
+        gpu_name="N/A"
     fi
 
     local worker_image_path="${IMAGE_DIR}/${WORKER_IMAGE}.sqsh"
@@ -469,7 +470,7 @@ function inject_benchmark_metadata {
        --argjson n_workers "$NUM_WORKERS" \
        --argjson node_count "$NUM_NODES" \
        --argjson scale_factor "$SCALE_FACTOR" \
-       --argjson gpu_count "$NUM_WORKERS" \
+       --argjson gpu_count "$gpu_count" \
        --arg gpu_name "$gpu_name" \
        --argjson num_drivers "$num_drivers" \
        --arg worker_image "$WORKER_IMAGE" \
