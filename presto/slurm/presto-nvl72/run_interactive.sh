@@ -1,17 +1,24 @@
 #!/bin/bash
 # Interactive shell on a compute node with a container image.
-# Override IMAGE, NODELIST, GRES, or TIME_LIMIT via environment variables.
+#
+# By default Slurm picks any available node in the partition.  Set NODELIST
+# (e.g. NODELIST=presto-gb200-gcn-03) to pin to a specific node or a range.
+# IMAGE, GRES, and TIME_LIMIT are also overridable via environment.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/defaults.env"
 
 : "${IMAGE:=${IMAGE_DIR}/presto-native-worker-gpu.sqsh}"
-: "${NODELIST:=${DEFAULT_SINGLE_NODE}}"
 : "${GRES:=gpu:4}"
 : "${TIME_LIMIT:=01:00:00}"
 
+NODELIST_ARG=()
+if [[ -n "${NODELIST:-}" ]]; then
+    NODELIST_ARG=(--nodelist="${NODELIST}")
+fi
+
 srun --nodes=1 \
-     --nodelist="${NODELIST}" \
+     "${NODELIST_ARG[@]}" \
      --ntasks-per-node=1 \
      --gres="${GRES}" \
      --exclusive \
