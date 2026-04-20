@@ -155,8 +155,13 @@ OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j
 ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
 SCRIPT_DIR="$PWD"
 JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
-# Node 5 has known issues; nodes above 10 are not yet functional.
-NODELIST="${NODELIST:-${DEFAULT_NODELIST}}"
+# NODELIST is unset by default -- Slurm picks any available nodes.
+# Export NODELIST=<host-or-range> before invoking to pin.
+NODELIST="${NODELIST:-}"
+NODELIST_ARG=()
+if [[ -n "${NODELIST}" ]]; then
+    NODELIST_ARG=(--nodelist="${NODELIST}")
+fi
 GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NODE}" || echo "")
 EXPORT_VARS="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE},USE_NUMA=${USE_NUMA},VARIANT_TYPE=${VARIANT_TYPE}"
 # Forward shared-metastore config from the calling shell so the slurm job
@@ -167,7 +172,7 @@ fi
 if [[ -n "${HIVE_METASTORE_SHARED_ROOT:-}" ]]; then
     EXPORT_VARS="${EXPORT_VARS},HIVE_METASTORE_SHARED_ROOT=${HIVE_METASTORE_SHARED_ROOT}"
 fi
-JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" --nodelist="${NODELIST}" \
+JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" "${NODELIST_ARG[@]}" \
 --export="${EXPORT_VARS}" \
 --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" ${GRES_OPT} \
 run-presto-benchmarks.slurm | awk '{print $NF}')
