@@ -24,8 +24,9 @@ source "$(dirname "$0")/defaults.env"
 SCALE_FACTOR="100"
 OUTPUT_DIR="${OUTPUT_DIR:-/scratch/${USER}/${VT_WORKSPACE}/tpch-rs-float/scale-100-no-delta}"
 PARALLELISM="100"
-# Default to a single node from the functional range (01-10)
-NODELIST="${NODELIST:-${DEFAULT_SINGLE_NODE}}"
+# NODELIST defaults to empty -- Slurm picks any available node.
+# Override via env or -N/--nodelist to pin.
+NODELIST="${NODELIST:-}"
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -47,15 +48,20 @@ echo "Submitting TPC-H data generation job..."
 echo "  Scale factor: $SCALE_FACTOR"
 echo "  Output dir:   $OUTPUT_DIR"
 echo "  Parallelism:  $PARALLELISM"
-echo "  Node:         $NODELIST"
+echo "  Node:         ${NODELIST:-<any available>}"
 echo ""
 
 OUT_FMT="gen-tpch-data_sf${SCALE_FACTOR}_%j.out"
 ERR_FMT="gen-tpch-data_sf${SCALE_FACTOR}_%j.err"
 
+NODELIST_ARG=()
+if [[ -n "${NODELIST}" ]]; then
+    NODELIST_ARG=(--nodelist="${NODELIST}")
+fi
+
 JOB_ID=$(sbatch \
   --nodes=1 \
-  --nodelist="${NODELIST}" \
+  "${NODELIST_ARG[@]}" \
   --export="ALL,SCALE_FACTOR=${SCALE_FACTOR},OUTPUT_DIR=${OUTPUT_DIR},PARALLELISM=${PARALLELISM}" \
   --output="${OUT_FMT}" \
   --error="${ERR_FMT}" \
