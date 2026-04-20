@@ -122,49 +122,53 @@ Results are saved to:
 ## Reusing an analyzed Hive metastore across runs
 
 Running `ANALYZE TABLE` from scratch on every clone is expensive and wasteful when
-the underlying parquet data is shared.  The launchers support publishing and
-consuming a pre-analyzed metastore snapshot, keyed by a user-supplied version
-string plus scale factor.
+the underlying parquet data is shared.  The launchers publish and consume
+pre-analyzed metastore snapshots, keyed by a version string plus scale factor.
 
 Two env vars control sharing (defined in `defaults.env`):
 
-- `HIVE_METASTORE_SHARED_ROOT` (default `/scratch/$USER/shared_hive_metadata`) —
-  directory on a filesystem reachable from compute nodes where snapshots live.
-- `HIVE_METASTORE_VERSION` (default empty) — version tag chosen by the operator.
-  **Leave unset to disable sharing.**  Bump it whenever the Presto/velox worker
-  image or the parquet data format changes, so stale snapshots do not leak into
-  runs against a newer image.
+- `HIVE_METASTORE_SHARED_ROOT` (default `/scratch/prestouser/shared_hive_metadata`)
+  — directory on a cluster-visible filesystem where snapshots live.
+- `HIVE_METASTORE_VERSION` (default `HIVE-METASTORE-20260419-no-delta`) — version
+  tag.  Bump it when the Presto/velox worker image or the parquet data format
+  changes, so stale snapshots don't leak into runs against a newer image.  Unset
+  to disable sharing entirely.
 
 Layout: `$HIVE_METASTORE_SHARED_ROOT/$HIVE_METASTORE_VERSION/tpchsf<SF>/…`
 
-### Publishing — run once per (version, SF)
+Snapshots currently published under the default version (against the `no-delta`
+float dataset at `/scratch/prestouser/tpch-rs-float-no-delta/`): **SF 1000, 3000,
+10000, 30000.**
+
+### Consuming — the default path
+
+With defaults, a benchmark run just works:
 
 ```bash
-export HIVE_METASTORE_VERSION=HIVE-METASTORE-20260419
-./launch-analyze-tables.sh -s 1 -n 1
-# On success, if .../$HIVE_METASTORE_VERSION/tpchsf1/ is empty it gets
-# populated atomically.  Subsequent analyze runs with the same version leave
-# the existing snapshot untouched.
+./launch-run.sh -n 2 -s 3000 -i 1
 ```
 
-### Consuming — every subsequent clone / run
+`setup` in the slurm job populates `.hive_metastore/tpchsf3000/` from the
+shared snapshot when the local copy is absent; existing local copies are kept
+as-is.  If neither local nor shared is available the run fails fast with a
+message pointing at `launch-analyze-tables.sh`.
+
+### Publishing — run once per (version, SF) to seed a new slot
 
 ```bash
-export HIVE_METASTORE_VERSION=HIVE-METASTORE-20260419
-rm -rf .hive_metastore      # optional; only strictly needed if stale
-./launch-run.sh -n 2 -s 1 -i 1
+export HIVE_METASTORE_VERSION=HIVE-METASTORE-20260419-no-delta   # or a new tag
+./launch-analyze-tables.sh -s <SF> -n <nodes>
+# On success, if the target slot is empty it gets populated atomically.
+# Subsequent analyze runs with the same (version, SF) skip the publish.
 ```
 
-`launch-run.sh` populates `.hive_metastore/tpchsf<SF>/` from the shared snapshot
-only when the local copy is absent; existing local snapshots are preserved.  If
-neither local nor shared is available the run fails fast with a message pointing
-at `launch-analyze-tables.sh`.
+### Disabling sharing (fall back to per-clone analyze)
 
-### Disabling sharing
-
-Leave `HIVE_METASTORE_VERSION` unset.  Analyze does not publish; benchmark runs
-require a local `.hive_metastore/tpchsf<SF>/` populated by an earlier analyze
-in the same clone.
+```bash
+unset HIVE_METASTORE_VERSION
+./launch-analyze-tables.sh -s <SF> -n <nodes>   # locally only, no publish
+./launch-run.sh -n <nodes> -s <SF> -i <iters>   # consumes only the local copy
+```
 
 ## Troubleshooting
 
