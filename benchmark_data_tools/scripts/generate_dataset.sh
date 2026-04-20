@@ -26,7 +26,9 @@ Wrapper options:
   --reset-venv              Delete and recreate the Python virtual environment
                             before running.
 
-The remaining options are forwarded to generate_data_files.py:
+The remaining options are forwarded to generate_data_files.py, including:
+  --codec-definitions PATH  Path to a JSON file specifying per-table/per-column
+                            encoding, compression, and dictionary settings.
 
 EOF
     cd "$BENCHMARK_DATA_TOOLS_DIR"

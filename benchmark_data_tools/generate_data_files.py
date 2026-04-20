@@ -13,6 +13,138 @@ from pathlib import Path
 import duckdb
 from duckdb_utils import init_benchmark_tables, is_decimal_column
 
+_INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
+_HIGH_CARD_NDV_THRESHOLD = 0.99
+_SAMPLE_SF = 0.01
+
+
+def build_default_codec_defs():
+    """Auto-generate codec definitions by introspecting TPC-H schema at a tiny SF.
+
+    Applies the experiment-#17 rule:
+      - All integers:            DELTA_BINARY_PACKED, dictionary off
+      - Unique strings (NDV>=99%): PLAIN, dictionary off
+      - Everything else:         tpchgen-cli defaults (PLAIN + Snappy + dictionary on)
+    """
+    conn = duckdb.connect()
+    conn.execute(f"INSTALL tpch; LOAD tpch; CALL dbgen(sf = {_SAMPLE_SF});")
+
+    tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
+    config = {"tables": []}
+
+    for table in sorted(tables):
+        total_rows = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        if total_rows == 0:
+            total_rows = 1
+
+        columns_meta = conn.execute(f"DESCRIBE {table}").fetchall()
+        col_entries = []
+
+        for col_name, col_type, *_ in columns_meta:
+            t = col_type.upper()
+
+            if t in _INTEGER_TYPES:
+                col_entries.append({
+                    "name": col_name,
+                    "encoding": "DELTA_BINARY_PACKED",
+                    "dictionary": False,
+                })
+            elif t == "VARCHAR":
+                ndv = conn.execute(
+                    f"SELECT COUNT(DISTINCT {col_name}) FROM {table}"
+                ).fetchone()[0]
+                if ndv / total_rows >= _HIGH_CARD_NDV_THRESHOLD:
+                    col_entries.append({
+                        "name": col_name,
+                        "encoding": "PLAIN",
+                        "dictionary": False,
+                    })
+
+        if col_entries:
+            config["tables"].append({"name": table, "columns": col_entries})
+
+    conn.close()
+    return config
+
+
+def load_codec_definitions(path):
+    """Load and validate a codec definitions JSON file.
+
+    Expected schema:
+    {
+      "tables": [
+        {
+          "name": "table_name",
+          "columns": [
+            {"name": "col", "encoding": "...", "compression": "...", "dictionary": bool}
+          ]
+        }
+      ]
+    }
+    """
+    with open(path) as f:
+        codec_defs = json.load(f)
+
+    if "tables" not in codec_defs:
+        raise ValueError(f"Codec definitions file must contain a 'tables' key: {path}")
+
+    for table in codec_defs["tables"]:
+        if "name" not in table:
+            raise ValueError(f"Each table entry must have a 'name' key: {path}")
+        for col in table.get("columns", []):
+            if "name" not in col:
+                raise ValueError(
+                    f"Each column entry must have a 'name' key "
+                    f"(table '{table['name']}'): {path}"
+                )
+
+    return codec_defs
+
+
+def get_tpchgen_codec_args(codec_defs, table_name):
+    """Build tpchgen-cli flags from codec definitions for a specific table.
+
+    Returns a list of CLI arguments to append to the tpchgen-cli command.
+    """
+    if codec_defs is None:
+        return []
+
+    table_config = None
+    for t in codec_defs.get("tables", []):
+        if t["name"] == table_name:
+            table_config = t
+            break
+
+    if table_config is None:
+        return []
+
+    columns = table_config.get("columns", [])
+    if not columns:
+        return []
+
+    args = []
+
+    uncompressed_cols = [
+        col["name"] for col in columns
+        if col.get("compression", "").upper() == "UNCOMPRESSED"
+    ]
+    if uncompressed_cols:
+        args.append(f"--uncompressed-column-overrides={','.join(uncompressed_cols)}")
+
+    for col in columns:
+        encoding = col.get("encoding")
+        if encoding:
+            args.append(f"--column-encoding={col['name']}={encoding}")
+
+    no_dict_cols = [
+        col["name"] for col in columns
+        if col.get("dictionary") is False
+    ]
+    if no_dict_cols:
+        args.append(f"--disable-dictionary-encoding={','.join(no_dict_cols)}")
+
+    return args
+
 
 def generate_partition(
     table,
@@ -23,6 +155,7 @@ def generate_partition(
     verbose,
     approx_row_group_bytes,
     convert_decimals_to_floats,
+    codec_defs=None,
 ):
     if verbose:
         print(f"Generating '{table}' partition: {partition}")
@@ -47,6 +180,8 @@ def generate_partition(
 
     if convert_decimals_to_floats:
         command.extend(["--decimal-column-type", "f64"])
+
+    command.extend(get_tpchgen_codec_args(codec_defs, table))
 
     try:
         subprocess.run(command, check=True)
@@ -97,6 +232,7 @@ def generate_data_files_with_tpchgen(args):
                         args.verbose,
                         args.approx_row_group_bytes,
                         args.convert_decimals_to_floats,
+                        args.codec_defs,
                     )
                 )
             max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
@@ -154,6 +290,8 @@ def write_metadata(args):
             "scale_factor": args.scale_factor,
             "approx_row_group_bytes": args.approx_row_group_bytes,
         }
+        if args.codec_defs is not None:
+            metadata["codec_definitions"] = args.codec_defs
         json.dump(metadata, file, indent=2)
         file.write("\n")
 
@@ -257,6 +395,21 @@ if __name__ == "__main__":
         default=128 * 1024 * 1024,
         help="Approximate row group size in bytes. 128MB by default.",
     )
+    parser.add_argument(
+        "--codec-definitions",
+        type=str,
+        required=False,
+        default=None,
+        help="Path to a JSON file specifying per-table/per-column encoding, "
+        "compression, and dictionary settings for Parquet output.",
+    )
     args = parser.parse_args()
+
+    if args.codec_definitions:
+        args.codec_defs = load_codec_definitions(args.codec_definitions)
+    elif args.benchmark_type == "tpch" and not args.use_duckdb:
+        args.codec_defs = build_default_codec_defs()
+    else:
+        args.codec_defs = None
 
     generate_data_files(args)
