@@ -8,27 +8,33 @@
 # Requires ~/.config/enroot/.credentials to contain ghcr.io credentials.
 #
 # Usage:
-#   ./pull_ghcr_image.sh <ghcr.io/org/image:tag> [--output <path/to/image.sqsh>]
+#   ./pull_ghcr_image.sh <ghcr.io/org/image:tag> [--output <path/to/image.sqsh>] [--overwrite]
 #
 # Examples:
 #   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:latest
-#   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:v1.2.3 --output /scratch/$USER/images/presto/worker.sqsh
+#   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:v1.2.3 --output /tmp/worker.sqsh
+#   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:v1.2.3 --overwrite
 
 set -e
 
 source "$(dirname "${BASH_SOURCE[0]}")/defaults.env"
 
 usage() {
-    echo "Usage: $0 <ghcr.io/org/image:tag> [--output <path/to/image.sqsh>]"
+    echo "Usage: $0 <ghcr.io/org/image:tag> [--output <path/to/image.sqsh>] [--overwrite]"
+    echo ""
+    echo "Options:"
+    echo "  --output, -o   Write the image to this exact path (overrides IMAGE_DIR)."
+    echo "  --overwrite    Re-pull even when the target .sqsh already exists."
     echo ""
     echo "Environment variables:"
-    echo "  IMAGES_DIR  Output directory when --output is not specified (default: \$HOME/\$VT_WORKSPACE/images)"
+    echo "  IMAGE_DIR   Output directory when --output is not specified (default: \$IMAGE_DIR from defaults.env)"
     exit 1
 }
 
 # Parse arguments
 IMAGE_REF=""
 OUTPUT_PATH=""
+OVERWRITE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -36,6 +42,10 @@ while [[ $# -gt 0 ]]; do
             [[ -n "${2:-}" ]] || { echo "Error: --output requires a value"; usage; }
             OUTPUT_PATH="$2"
             shift 2
+            ;;
+        --overwrite)
+            OVERWRITE=1
+            shift
             ;;
         -*)
             echo "Unknown option: $1"
@@ -62,36 +72,49 @@ ENROOT_URI="docker://${IMAGE_REF/ghcr.io\//ghcr.io#}"
 
 # Derive default output path from image name and tag
 if [[ -z "$OUTPUT_PATH" ]]; then
-    # IMAGES_DIR is set by defaults.env; fall back just in case
-    IMAGES_DIR="${IMAGES_DIR:-$HOME/${VT_WORKSPACE:-velox-testing}/images}"
-    mkdir -p "$IMAGES_DIR"
-
+    [[ -n "${IMAGE_DIR:-}" ]] || { echo "Error: IMAGE_DIR is not set (check defaults.env)"; exit 1; }
     # Extract image name and tag: ghcr.io/org/image:tag -> image-tag
     IMAGE_SLUG="${IMAGE_REF#ghcr.io/}"    # org/image:tag
     IMAGE_SLUG="${IMAGE_SLUG##*/}"        # image:tag
     IMAGE_SLUG="${IMAGE_SLUG//:/-}"       # image-tag
-    OUTPUT_PATH="$IMAGES_DIR/${IMAGE_SLUG}.sqsh"
+    OUTPUT_PATH="$IMAGE_DIR/${IMAGE_SLUG}.sqsh"
 fi
 
-echo "Image:  $IMAGE_REF"
-echo "Output: $OUTPUT_PATH"
+echo "Image:      $IMAGE_REF"
+echo "Output:     $OUTPUT_PATH"
+echo "Overwrite:  $([[ $OVERWRITE -eq 1 ]] && echo yes || echo no)"
 echo ""
-
-if [[ -f "$OUTPUT_PATH" ]]; then
-    echo "Image already exists: $OUTPUT_PATH ($(ls -lh "$OUTPUT_PATH" | awk '{print $5}'))"
-    echo "Skipping pull. Use --output with a different path, or delete the file to re-pull."
-    exit 0
-fi
 
 # Run enroot import directly as the job so it inherits ENROOT_GZIP_PROGRAM.
 # Pyxis (--container-image) runs enroot inside slurmstepd and ignores --export,
 # so we bypass pyxis entirely here.
+#
+# The existence check, mkdir, and enroot import all run on the compute node
+# because the default IMAGE_DIR (/scratch/$USER/images/presto) is not mounted
+# on the head node; checking or creating it from here would be inconsistent
+# with what the compute node sees.
 ENROOT_DECOMPRESS="$(dirname "${BASH_SOURCE[0]}")/enroot-decompress.sh"
+export OUTPUT_PATH ENROOT_URI OVERWRITE
 
 srun --export="ALL,PMIX_MCA_gds=^ds12,ENROOT_GZIP_PROGRAM=${ENROOT_DECOMPRESS}" \
     --nodes=1 --mem=0 --ntasks-per-node=1 \
     --mpi=pmix_v4 \
-    enroot import --output "${OUTPUT_PATH}" "${ENROOT_URI}"
-
+    bash -c '
+set -e
+if [[ -f "$OUTPUT_PATH" ]]; then
+    size=$(ls -lh "$OUTPUT_PATH" | awk "{print \$5}")
+    if [[ "$OVERWRITE" == "1" ]]; then
+        echo "Image already exists: $OUTPUT_PATH ($size)"
+        echo "--overwrite was passed; removing and re-pulling."
+        rm -f "$OUTPUT_PATH"
+    else
+        echo "Image already exists: $OUTPUT_PATH ($size)"
+        echo "Skipping pull.  Pass --overwrite to re-pull, or --output <path> to write elsewhere."
+        exit 0
+    fi
+fi
+mkdir -p "$(dirname "$OUTPUT_PATH")"
+enroot import --output "$OUTPUT_PATH" "$ENROOT_URI"
 echo ""
 echo "Saved: $(ls -lh "$OUTPUT_PATH")"
+'
