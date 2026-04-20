@@ -185,8 +185,11 @@ function run_worker {
     validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD CUDF_LIB DATA
 
     local gpu_id=$1 image=$2 node=$3 worker_id=$4
-    # Assign NUMA node based on GPU ID: GPUs 0-3 → node 0, GPUs 4-7 → node 1, etc.
-    local numa_node=$((gpu_id / 4))
+    # GB200 NVL72 compute tray: 2 Grace CPUs x 2 Blackwell GPUs per CPU.
+    # CPU NUMA 0 = cores 0-71 (Grace 0, GPUs 0-1).
+    # CPU NUMA 1 = cores 72-143 (Grace 1, GPUs 2-3).
+    # Pairs each worker with the CPU socket its GPU is attached to over NVLink-C2C.
+    local numa_node=$((gpu_id / 2))
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id} numa_node ${numa_node}"
 
     local worker_image="${IMAGE_DIR}/${image}.sqsh"
