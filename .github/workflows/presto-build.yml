@@ -137,8 +137,10 @@ jobs:
             ARM_BUILD_TARGET=generic
           labels: |
             velox-testing.presto.sha=${{ inputs.presto_sha }}
+            velox-testing.presto.branch=
             velox-testing.presto.repository=${{ inputs.presto_repository }}
             velox-testing.velox.sha=${{ inputs.velox_sha }}
+            velox-testing.velox.branch=
             velox-testing.velox.repository=${{ inputs.velox_repository }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }},mode=max
@@ -202,9 +204,11 @@ jobs:
             PRESTO_VERSION=${{ inputs.presto_short_sha }}
           labels: |
             velox-testing.presto.sha=${{ inputs.presto_sha }}
+            velox-testing.presto.branch=
             velox-testing.presto.repository=${{ inputs.presto_repository }}
-            velox-testing.velox.sha=${{ inputs.velox_sha }}
-            velox-testing.velox.repository=${{ inputs.velox_repository }}
+            velox-testing.velox.sha=
+            velox-testing.velox.branch=
+            velox-testing.velox.repository=
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
@@ -333,8 +337,10 @@ jobs:
             NUM_THREADS=31
           labels: |
             velox-testing.presto.sha=${{ inputs.presto_sha }}
+            velox-testing.presto.branch=
             velox-testing.presto.repository=${{ inputs.presto_repository }}
             velox-testing.velox.sha=${{ inputs.velox_sha }}
+            velox-testing.velox.branch=
             velox-testing.velox.repository=${{ inputs.velox_repository }}
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token

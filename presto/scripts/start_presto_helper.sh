@@ -228,11 +228,19 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
 
   # Capture build provenance from sibling repos for embedding in Docker labels.
   PRESTO_REPO_DIR=$(readlink -f "${SCRIPT_DIR}/../../../presto")
-  VELOX_REPO_DIR=$(readlink -f "${SCRIPT_DIR}/../../../velox")
-  PRESTO_SHA=$(git -C "${PRESTO_REPO_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")
-  VELOX_SHA=$(git -C "${VELOX_REPO_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")
-  PRESTO_BRANCH=$(git -C "${PRESTO_REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-  VELOX_BRANCH=$(git -C "${VELOX_REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+  PRESTO_SHA=$(git -C "${PRESTO_REPO_DIR}" rev-parse HEAD 2>/dev/null || echo "")
+  PRESTO_BRANCH=$(git -C "${PRESTO_REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  PRESTO_REPO=$(git -C "${PRESTO_REPO_DIR}" remote get-url origin 2>/dev/null || echo "")
+  if [[ "$VARIANT_TYPE" != "java" ]]; then
+    VELOX_REPO_DIR=$(readlink -f "${SCRIPT_DIR}/../../../velox")
+    VELOX_SHA=$(git -C "${VELOX_REPO_DIR}" rev-parse HEAD 2>/dev/null || echo "")
+    VELOX_BRANCH=$(git -C "${VELOX_REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    VELOX_REPO=$(git -C "${VELOX_REPO_DIR}" remote get-url origin 2>/dev/null || echo "")
+  else
+    VELOX_SHA=""
+    VELOX_BRANCH=""
+    VELOX_REPO=""
+  fi
 
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
@@ -242,8 +250,10 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   "${SCCACHE_BUILD_ARGS[@]}" \
   --label "velox-testing.presto.sha=${PRESTO_SHA}" \
   --label "velox-testing.presto.branch=${PRESTO_BRANCH}" \
+  --label "velox-testing.presto.repository=${PRESTO_REPO}" \
   --label "velox-testing.velox.sha=${VELOX_SHA}" \
   --label "velox-testing.velox.branch=${VELOX_BRANCH}" \
+  --label "velox-testing.velox.repository=${VELOX_REPO}" \
   ${BUILD_TARGET_ARG[@]}
 fi
 
