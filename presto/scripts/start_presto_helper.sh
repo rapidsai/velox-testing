@@ -226,12 +226,24 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
   fi
 
+  # Capture build provenance from sibling repos for embedding in Docker labels.
+  PRESTO_REPO_DIR=$(readlink -f "${SCRIPT_DIR}/../../../presto")
+  VELOX_REPO_DIR=$(readlink -f "${SCRIPT_DIR}/../../../velox")
+  PRESTO_SHA=$(git -C "${PRESTO_REPO_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")
+  VELOX_SHA=$(git -C "${VELOX_REPO_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")
+  PRESTO_BRANCH=$(git -C "${PRESTO_REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+  VELOX_BRANCH=$(git -C "${VELOX_REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
   "${SCCACHE_BUILD_ARGS[@]}" \
+  --label "velox-testing.presto.sha=${PRESTO_SHA}" \
+  --label "velox-testing.presto.branch=${PRESTO_BRANCH}" \
+  --label "velox-testing.velox.sha=${VELOX_SHA}" \
+  --label "velox-testing.velox.branch=${VELOX_BRANCH}" \
   ${BUILD_TARGET_ARG[@]}
 fi
 
