@@ -37,6 +37,12 @@ OPTIONS:
     --logs-dir                      Directory for Spark Connect server logs. Each invocation creates a
                                     timestamped log file and a "spark_connect.log" symlink pointing to it.
                                     Default: "<script_dir>/spark_logs".
+    -e, --num-executors             Number of Spark executors (default: 1). When > 1, starts a Spark
+                                    Standalone cluster with a master, N executor containers, and a
+                                    Spark Connect server that submits to the master.
+    -g, --gpu-ids                   Comma-separated list of GPU device IDs to assign to executors
+                                    (e.g. "0,1,2"). Must match --num-executors count. If omitted,
+                                    defaults to 0..N-1.
 
     If neither --image-tag nor --static-gluten-jar-path is provided, the default
     image tag "dynamic_gpu_\${USER:-latest}" is used.
@@ -49,6 +55,7 @@ EXAMPLES:
     $0 --port 15002 --ui-port 4040
     $0 --profile
     $0 --profile --profile-args "-t cuda"
+    $0 -e 4 -g "0,1,2,3"
     $0 -h
 
 EOF
@@ -140,6 +147,24 @@ parse_args() {
           exit 1
         fi
         ;;
+      -e|--num-executors)
+        if [[ -n $2 ]]; then
+          NUM_EXECUTORS=$2
+          shift 2
+        else
+          echo "Error: --num-executors requires a value"
+          exit 1
+        fi
+        ;;
+      -g|--gpu-ids)
+        if [[ -n $2 ]]; then
+          GPU_IDS=$2
+          shift 2
+        else
+          echo "Error: --gpu-ids requires a value"
+          exit 1
+        fi
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -151,6 +176,9 @@ parse_args() {
 
 parse_args "$@"
 
+NUM_EXECUTORS="${NUM_EXECUTORS:-1}"
+MASTER_WEB_PORT="${MASTER_WEB_PORT:-8080}"
+
 if [[ -n ${PROFILE_ARGS} && "${PROFILE}" != "true" ]]; then
   echo "Error: --profile-args should only be set when --profile is enabled"
   exit 1
@@ -158,6 +186,11 @@ fi
 
 if [[ -n ${IMAGE_TAG} && -n ${GLUTEN_JAR_PATH} ]]; then
   echo "Error: --image-tag and --static-gluten-jar-path are mutually exclusive."
+  exit 1
+fi
+
+if [[ ${NUM_EXECUTORS} -gt 1 && -n ${GLUTEN_JAR_PATH} ]]; then
+  echo "Error: --num-executors > 1 is not supported with --static-gluten-jar-path."
   exit 1
 fi
 
@@ -231,25 +264,52 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="${LOGS_DIR}/spark_connect_${TIMESTAMP}.log"
 LOG_SYMLINK="${LOGS_DIR}/spark_connect.log"
 
-echo "Starting Spark Connect server (image: ${docker_image}, service: ${compose_service}, port: ${PORT}, ui-port: ${UI_PORT}) ..."
-
 export DOCKER_IMAGE="${docker_image}"
 export WORKSPACE_ROOT
 export CONNECT_PORT="${PORT}"
 export UI_PORT
 export SPARK_CONFIG_PATH="${CONTAINER_CONFIG_PATH}"
 export SPARK_CONNECT_USER="${USER}"
+export MASTER_WEB_PORT
 
-CONTAINER_ID=$(docker compose -f "${REPO_ROOT}/spark_gluten/docker/docker-compose.spark-connect.yml" run --rm -d \
-    --service-ports \
-    "${EXTRA_DOCKER_ARGS[@]}" \
-    "${compose_service}")
+if [[ ${NUM_EXECUTORS} -gt 1 ]]; then
+  echo "Starting Spark cluster (${NUM_EXECUTORS} executors, image: ${docker_image}, port: ${PORT}, ui-port: ${UI_PORT}) ..."
 
-ln -sf "$(basename "${LOG_FILE}")" "${LOG_SYMLINK}"
+  TEMPLATE_PATH="${REPO_ROOT}/spark_gluten/docker/docker-compose/template/docker-compose.spark-cluster.yml.jinja"
+  RENDERED_DIR="${REPO_ROOT}/spark_gluten/docker/docker-compose/generated"
+  mkdir -p "${RENDERED_DIR}"
+  RENDERED_PATH="${RENDERED_DIR}/docker-compose.spark-cluster.rendered.yml"
 
-docker logs -f "${CONTAINER_ID}" > "${LOG_FILE}" 2>&1 &
+  RENDER_SCRIPT_PATH=$(readlink -f "${REPO_ROOT}/template_rendering/render_docker_compose_template.py")
+  RENDER_ARGS="--template-path ${TEMPLATE_PATH} --output-path ${RENDERED_PATH} --num-workers ${NUM_EXECUTORS} --single-container false"
+  if [[ -n ${GPU_IDS} ]]; then
+    RENDER_ARGS="${RENDER_ARGS} --gpu-ids ${GPU_IDS}"
+  fi
+  "${REPO_ROOT}/scripts/run_py_script.sh" -q -p "${RENDER_SCRIPT_PATH}" ${RENDER_ARGS}
 
-echo "Container: ${CONTAINER_ID}"
-echo "Logs: ${LOG_FILE}"
+  docker compose -f "${RENDERED_PATH}" up -d
 
-wait_for_spark_connect_server "localhost" "${PORT}"
+  ln -sf "$(basename "${LOG_FILE}")" "${LOG_SYMLINK}"
+  docker compose -f "${RENDERED_PATH}" logs -f > "${LOG_FILE}" 2>&1 &
+
+  echo "Logs: ${LOG_FILE}"
+
+  wait_for_spark_executors "localhost" "${MASTER_WEB_PORT}" "${NUM_EXECUTORS}"
+  wait_for_spark_connect_server "localhost" "${PORT}"
+else
+  echo "Starting Spark Connect server (image: ${docker_image}, service: ${compose_service}, port: ${PORT}, ui-port: ${UI_PORT}) ..."
+
+  CONTAINER_ID=$(docker compose -f "${REPO_ROOT}/spark_gluten/docker/docker-compose.spark-connect.yml" run --rm -d \
+      --service-ports \
+      "${EXTRA_DOCKER_ARGS[@]}" \
+      "${compose_service}")
+
+  ln -sf "$(basename "${LOG_FILE}")" "${LOG_SYMLINK}"
+
+  docker logs -f "${CONTAINER_ID}" > "${LOG_FILE}" 2>&1 &
+
+  echo "Container: ${CONTAINER_ID}"
+  echo "Logs: ${LOG_FILE}"
+
+  wait_for_spark_connect_server "localhost" "${PORT}"
+fi

@@ -63,7 +63,8 @@ RUN --mount=type=bind,source=incubator-gluten,target=/workspace/gluten \
     --mount=type=cache,target=/build_staging,id=gluten-build-${BUILD_TYPE} \
     if [[ "${NO_CACHE}" == "true" ]]; then \
         echo "Clearing build cache..." && \
-        rm -rf /build_staging/*; \
+        rm -rf /build_staging/* && \
+        rm -rf /root/.m2/repository/org/apache/gluten/ /root/.sbt/1.0/zinc/; \
     fi && \
     mkdir -p /build_staging/gluten && \
     cp -a /workspace/gluten/. /build_staging/gluten/ && \

@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Jinja template for a multi-executor Spark Standalone cluster with
+# Spark Connect.  Rendered by render_docker_compose_template.py.
+#
+# Template variables (supplied by the renderer):
+#   workers      – list of GPU device IDs (e.g. [0, 1, 2])
+#   num_workers  – length of `workers`
+
+x-spark-executor-gpu: &executor_base
+  image: ${DOCKER_IMAGE}
+  labels:
+    com.nvidia.spark-connect.user: ${SPARK_CONNECT_USER}
+  cap_add:
+    - SYS_ADMIN
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+  depends_on:
+    - spark-master
+  volumes:
+    - ${WORKSPACE_ROOT}:${WORKSPACE_ROOT}
+  working_dir: ${WORKSPACE_ROOT}/velox-testing/spark_gluten/scripts
+  command: >-
+    bash -c "$$SPARK_HOME/sbin/start-worker.sh spark://spark-master:7077
+    --cores $${SPARK_WORKER_CORES:-4}
+    --memory $${SPARK_WORKER_MEMORY:-48g}
+    && tail -f /dev/null"
+
+services:
+  spark-master:
+    image: ${DOCKER_IMAGE}
+    labels:
+      com.nvidia.spark-connect.user: ${SPARK_CONNECT_USER}
+    container_name: spark-master
+    ports:
+      - "${MASTER_WEB_PORT:-8080}:8080"
+      - "7077:7077"
+    volumes:
+      - ${WORKSPACE_ROOT}:${WORKSPACE_ROOT}
+    working_dir: ${WORKSPACE_ROOT}/velox-testing/spark_gluten/scripts
+    command: >-
+      bash -c "$$SPARK_HOME/sbin/start-master.sh && tail -f /dev/null"
+
+{% for gpu_id in workers %}
+  spark-executor-{{ gpu_id }}:
+    <<: *executor_base
+    container_name: spark-executor-{{ gpu_id }}
+    environment:
+      CUDA_VISIBLE_DEVICES: "{{ gpu_id }}"
+{% endfor %}
+
+  spark-connect:
+    image: ${DOCKER_IMAGE}
+    labels:
+      com.nvidia.spark-connect.user: ${SPARK_CONNECT_USER}
+    cap_add:
+      - SYS_ADMIN
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    depends_on:
+      - spark-master
+    ports:
+      - "${CONNECT_PORT:-15002}:${CONNECT_PORT:-15002}"
+      - "${UI_PORT:-4040}:${UI_PORT:-4040}"
+    volumes:
+      - ${WORKSPACE_ROOT}:${WORKSPACE_ROOT}
+    working_dir: ${WORKSPACE_ROOT}/velox-testing/spark_gluten/scripts
+    environment:
+      SPARK_MASTER_URL: "spark://spark-master:7077"
+    command: /opt/spark/launch_spark_connect_server.sh ${CONNECT_PORT:-15002} ${UI_PORT:-4040} ${SPARK_CONFIG_PATH:-}
