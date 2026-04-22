@@ -36,6 +36,7 @@ function validate_sibling_repos() {
 }
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
+source "${SCRIPT_DIR}/common_functions.sh"
 
 validate_sccache_auth() {
   if [[ "$ENABLE_SCCACHE" == true ]]; then
@@ -226,33 +227,18 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
   fi
 
-  # Capture build provenance from sibling repos for embedding in Docker labels.
-  PRESTO_REPO_DIR=$(readlink -f "${SCRIPT_DIR}/../../../presto")
-  PRESTO_SHA=$(git -C "${PRESTO_REPO_DIR}" rev-parse HEAD 2>/dev/null || echo "")
-  PRESTO_BRANCH=$(git -C "${PRESTO_REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  PRESTO_REPO=$(git -C "${PRESTO_REPO_DIR}" remote get-url origin 2>/dev/null || echo "")
-  if [[ "$VARIANT_TYPE" != "java" ]]; then
-    VELOX_REPO_DIR=$(readlink -f "${SCRIPT_DIR}/../../../velox")
-    VELOX_SHA=$(git -C "${VELOX_REPO_DIR}" rev-parse HEAD 2>/dev/null || echo "")
-    VELOX_BRANCH=$(git -C "${VELOX_REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    VELOX_REPO=$(git -C "${VELOX_REPO_DIR}" remote get-url origin 2>/dev/null || echo "")
-  else
-    VELOX_SHA=""
-    VELOX_BRANCH=""
-    VELOX_REPO=""
+  # Capture build provenance from sibling repos; exported so docker-compose picks them up.
+  capture_build_provenance "${REPO_ROOT}"
+  if [[ "$VARIANT_TYPE" == "java" ]]; then
+    VELOX_SHA="" VELOX_BRANCH="" VELOX_REPO=""
   fi
+  export PRESTO_SHA PRESTO_BRANCH PRESTO_REPO VELOX_SHA VELOX_BRANCH VELOX_REPO
 
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
-  --build-arg PRESTO_SHA="${PRESTO_SHA}" \
-  --build-arg PRESTO_BRANCH="${PRESTO_BRANCH}" \
-  --build-arg PRESTO_REPOSITORY="${PRESTO_REPO}" \
-  --build-arg VELOX_SHA="${VELOX_SHA}" \
-  --build-arg VELOX_BRANCH="${VELOX_BRANCH}" \
-  --build-arg VELOX_REPOSITORY="${VELOX_REPO}" \
   "${SCCACHE_BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}
 
