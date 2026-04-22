@@ -14,7 +14,7 @@ services:
       file: docker-compose.common.yml
       service: presto-base-java
     container_name: presto-java-worker
-    image: presto-java-worker:${PRESTO_IMAGE_TAG:-}
+    image: presto-java-worker:${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}
     environment:
       - SERVER_START_TIMESTAMP=${SERVER_START_TIMESTAMP:-}
     volumes:

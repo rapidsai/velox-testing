@@ -2,7 +2,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
   extends:
     file: ../../docker-compose.common.yml
     service: presto-base-native-worker
-  image: presto-native-worker-gpu:${PRESTO_IMAGE_TAG:-}
+  image: presto-native-worker-gpu:${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}
   build:
     args:
       - GPU=ON
