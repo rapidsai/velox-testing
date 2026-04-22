@@ -94,9 +94,24 @@ mkdir -p velox
 cp -r ../../velox/scripts velox
 cp -r ../../velox/CMake velox
 
+# Capture build provenance from sibling repos for embedding in Docker labels.
+PRESTO_SHA=$(git -C "${REPO_ROOT}/../presto" rev-parse HEAD 2>/dev/null || echo "")
+PRESTO_BRANCH=$(git -C "${REPO_ROOT}/../presto" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+PRESTO_REPO=$(git -C "${REPO_ROOT}/../presto" remote get-url origin 2>/dev/null || echo "")
+VELOX_SHA=$(git -C "${REPO_ROOT}/../velox" rev-parse HEAD 2>/dev/null || echo "")
+VELOX_BRANCH=$(git -C "${REPO_ROOT}/../velox" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+VELOX_REPO=$(git -C "${REPO_ROOT}/../velox" remote get-url origin 2>/dev/null || echo "")
+
 # now build
 echo "Building..."
-docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
+docker compose --progress plain build ${NO_CACHE_ARG} \
+  --label "velox-testing.presto.sha=${PRESTO_SHA}" \
+  --label "velox-testing.presto.branch=${PRESTO_BRANCH}" \
+  --label "velox-testing.presto.repository=${PRESTO_REPO}" \
+  --label "velox-testing.velox.sha=${VELOX_SHA}" \
+  --label "velox-testing.velox.branch=${VELOX_BRANCH}" \
+  --label "velox-testing.velox.repository=${VELOX_REPO}" \
+  centos-native-dependency
 
 # tag with the user-specific name to avoid conflicts between multiple users on the same host
 COMPOSE_IMAGE_NAME='presto/prestissimo-dependency:centos9'
