@@ -56,7 +56,7 @@ Key variables:
 - NUM_ITERATIONS: required by the job; launcher defaults to 1 (`-i/--iterations` to override)
 - NUM_NODES: derived from Slurm allocation; provided via `-n/--nodes` to launcher
 - REPO_ROOT: auto-detected from script location
-- LOGS_DIR: `${SCRIPT_DIR}/logs` by default (log files are timestamped; old logs archived to `logs/archive/`)
+- LOGS: `${SCRIPT_DIR}/logs` by default
 - IMAGE_DIR, DATA, CONFIGS: see below or override via environment if needed
 
 Other defaults:
@@ -82,10 +82,10 @@ squeue -u $USER
 # Monitor job output
 tail -f presto-tpch-run_n<NODES>_sf<SCALE_FACTOR>_i<ITER>_<JOB_ID>.out
 
-# Check logs during execution (filenames include a run timestamp)
-tail -f logs/coord_*.log
-tail -f logs/cli_*.log
-tail -f logs/worker_0_*.log
+# Check logs during execution
+tail -f logs/coord.log
+tail -f logs/cli.log
+tail -f logs/worker_0.log
 ```
 
 ## Coordinator IP and Web UI
@@ -119,12 +119,63 @@ Results are saved to:
 
 3. **velox-testing repo** will be auto-cloned to `${REPO_ROOT}/velox-testing` if not present
 
+## Reusing an analyzed Hive metastore across runs
+
+Running `ANALYZE TABLE` from scratch on every clone is expensive and wasteful when
+the underlying parquet data is shared.  The launchers publish and consume
+pre-analyzed metastore snapshots, keyed by a version string plus scale factor.
+
+Two env vars control sharing (defined in `defaults.env`):
+
+- `HIVE_METASTORE_SHARED_ROOT` (default `/scratch/prestouser/shared_hive_metadata`)
+  — directory on a cluster-visible filesystem where snapshots live.
+- `HIVE_METASTORE_VERSION` (default `HIVE-METASTORE-20260419-no-delta`) — version
+  tag.  Bump it when the Presto/velox worker image or the parquet data format
+  changes, so stale snapshots don't leak into runs against a newer image.  Unset
+  to disable sharing entirely.
+
+Layout: `$HIVE_METASTORE_SHARED_ROOT/$HIVE_METASTORE_VERSION/tpchsf<SF>/…`
+
+Snapshots currently published under the default version (against the `no-delta`
+float dataset at `/scratch/prestouser/tpch-rs-float-no-delta/`): **SF 1000, 3000,
+10000, 30000.**
+
+### Consuming — the default path
+
+With defaults, a benchmark run just works:
+
+```bash
+./launch-run.sh -n 2 -s 3000 -i 1
+```
+
+`setup` in the slurm job populates `.hive_metastore/tpchsf3000/` from the
+shared snapshot when the local copy is absent; existing local copies are kept
+as-is.  If neither local nor shared is available the run fails fast with a
+message pointing at `launch-analyze-tables.sh`.
+
+### Publishing — run once per (version, SF) to seed a new slot
+
+```bash
+export HIVE_METASTORE_VERSION=HIVE-METASTORE-20260419-no-delta   # or a new tag
+./launch-analyze-tables.sh -s <SF> -n <nodes>
+# On success, if the target slot is empty it gets populated atomically.
+# Subsequent analyze runs with the same (version, SF) skip the publish.
+```
+
+### Disabling sharing (fall back to per-clone analyze)
+
+```bash
+unset HIVE_METASTORE_VERSION
+./launch-analyze-tables.sh -s <SF> -n <nodes>   # locally only, no publish
+./launch-run.sh -n <nodes> -s <SF> -i <iters>   # consumes only the local copy
+```
+
 ## Troubleshooting
 
 ### Coordinator fails to start
 Check coordinator logs:
 ```bash
-cat logs/coord_*.log
+cat logs/coord.log
 ```
 
 ### Workers not registering
