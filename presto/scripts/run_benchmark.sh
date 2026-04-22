@@ -305,7 +305,7 @@ fi
 
 if [[ -d "${LOGS_DIR}" ]]; then
   mkdir -p "${EFFECTIVE_BENCHMARK_DIR}/logs"
-  cp -a "${LOGS_DIR}/." "${EFFECTIVE_BENCHMARK_DIR}/logs/"
+  cp -r "${LOGS_DIR}/." "${EFFECTIVE_BENCHMARK_DIR}/logs/"
   echo "Snapshotted logs to ${EFFECTIVE_BENCHMARK_DIR}/logs"
 fi
 
