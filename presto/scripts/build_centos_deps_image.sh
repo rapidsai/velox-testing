@@ -104,17 +104,22 @@ VELOX_REPO=$(git -C "${REPO_ROOT}/../velox" remote get-url origin 2>/dev/null ||
 
 # now build
 echo "Building..."
-docker compose --progress plain build ${NO_CACHE_ARG} \
+docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
+
+# tag with the user-specific name to avoid conflicts between multiple users on the same host
+COMPOSE_IMAGE_NAME='presto/prestissimo-dependency:centos9'
+
+# Apply provenance labels; docker compose build --label is not universally supported.
+echo "Applying provenance labels..."
+echo "FROM ${COMPOSE_IMAGE_NAME}" | docker build --no-cache \
   --label "velox-testing.presto.sha=${PRESTO_SHA}" \
   --label "velox-testing.presto.branch=${PRESTO_BRANCH}" \
   --label "velox-testing.presto.repository=${PRESTO_REPO}" \
   --label "velox-testing.velox.sha=${VELOX_SHA}" \
   --label "velox-testing.velox.branch=${VELOX_BRANCH}" \
   --label "velox-testing.velox.repository=${VELOX_REPO}" \
-  centos-native-dependency
+  -t "${COMPOSE_IMAGE_NAME}" -
 
-# tag with the user-specific name to avoid conflicts between multiple users on the same host
-COMPOSE_IMAGE_NAME='presto/prestissimo-dependency:centos9'
 if [[ "${IMAGE_NAME}" != "${COMPOSE_IMAGE_NAME}" ]]; then
   echo "Tagging image as ${IMAGE_NAME}..."
   docker tag ${COMPOSE_IMAGE_NAME} ${IMAGE_NAME}
