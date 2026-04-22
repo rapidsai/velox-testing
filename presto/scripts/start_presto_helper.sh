@@ -247,24 +247,26 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
+  --build-arg PRESTO_SHA="${PRESTO_SHA}" \
+  --build-arg PRESTO_BRANCH="${PRESTO_BRANCH}" \
+  --build-arg PRESTO_REPOSITORY="${PRESTO_REPO}" \
+  --build-arg VELOX_SHA="${VELOX_SHA}" \
+  --build-arg VELOX_BRANCH="${VELOX_BRANCH}" \
+  --build-arg VELOX_REPOSITORY="${VELOX_REPO}" \
   "${SCCACHE_BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}
 
-  # Apply provenance labels; docker compose build --label is not universally supported.
+  # Coordinator and java-worker use external Dockerfiles (presto repo) without ARG+LABEL
+  # declarations, so labels must be applied via a re-wrap after build.
   PROVENANCE_LABEL_ARGS=(
     --label "velox-testing.presto.sha=${PRESTO_SHA}"
     --label "velox-testing.presto.branch=${PRESTO_BRANCH}"
     --label "velox-testing.presto.repository=${PRESTO_REPO}"
-    --label "velox-testing.velox.sha=${VELOX_SHA}"
-    --label "velox-testing.velox.branch=${VELOX_BRANCH}"
-    --label "velox-testing.velox.repository=${VELOX_REPO}"
   )
   for service in "${BUILD_TARGET_ARG[@]}"; do
     case "$service" in
       "$COORDINATOR_SERVICE") img="$COORDINATOR_IMAGE" ;;
       "$JAVA_WORKER_SERVICE") img="$JAVA_WORKER_IMAGE" ;;
-      "$CPU_WORKER_SERVICE") img="$CPU_WORKER_IMAGE" ;;
-      "$GPU_WORKER_SERVICE") img="$GPU_WORKER_IMAGE" ;;
       *) continue ;;
     esac
     echo "Applying provenance labels to ${img}..."

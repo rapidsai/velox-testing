@@ -335,13 +335,12 @@ jobs:
             ENABLE_SCCACHE=ON
             GPU=${{ matrix.gpu_flag }}
             NUM_THREADS=31
-          labels: |
-            velox-testing.presto.sha=${{ inputs.presto_sha }}
-            velox-testing.presto.branch=
-            velox-testing.presto.repository=${{ inputs.presto_repository }}
-            velox-testing.velox.sha=${{ inputs.velox_sha }}
-            velox-testing.velox.branch=
-            velox-testing.velox.repository=${{ inputs.velox_repository }}
+            PRESTO_SHA=${{ inputs.presto_sha }}
+            PRESTO_BRANCH=
+            PRESTO_REPOSITORY=${{ inputs.presto_repository }}
+            VELOX_SHA=${{ inputs.velox_sha }}
+            VELOX_BRANCH=
+            VELOX_REPOSITORY=${{ inputs.velox_repository }}
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
