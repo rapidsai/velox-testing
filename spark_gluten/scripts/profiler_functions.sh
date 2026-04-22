@@ -35,21 +35,21 @@ function start_profiler() {
 
   local docker_exec_command
   docker_exec_command=$(get_docker_exec_command)
-  $docker_exec_command nsys start --gpu-metrics-devices=all -o /spark_profiles/$(basename $profile_output_file_path).nsys-rep
+  $docker_exec_command nsys start --gpu-metrics-devices=all -o "/spark_profiles/$(basename "$profile_output_file_path").nsys-rep"
 }
 
 function stop_profiler() {
   local -r profile_output_file_path=$1.nsys-rep
-  local -r container_file_path="/spark_profiles/$(basename $profile_output_file_path)"
+  local -r container_file_path="/spark_profiles/$(basename "$profile_output_file_path")"
   local docker_exec_command
   docker_exec_command=$(get_docker_exec_command)
 
   check_profile_output_directory
   $docker_exec_command nsys stop
-  $docker_exec_command chown -R $(id -u):$(id -g) /spark_profiles
+  $docker_exec_command chown -R "$(id -u)":"$(id -g)" /spark_profiles
 
   local container_id
   container_id=$(get_container_id)
-  docker cp ${container_id}:${container_file_path} $profile_output_file_path
-  $docker_exec_command rm ${container_file_path}
+  docker cp "${container_id}":"${container_file_path}" "$profile_output_file_path"
+  $docker_exec_command rm "${container_file_path}"
 }
