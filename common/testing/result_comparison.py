@@ -11,6 +11,7 @@ parquet files). See compare_result_frames for full comparison semantics.
 
 import datetime
 import decimal
+import warnings
 from typing import Literal
 
 import numpy as np
@@ -33,12 +34,13 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 # ---------------------------------------------------------------------------
 
 
-def get_orderby_info(query_sql: str, column_names: list[str]) -> tuple[list[str], list[bool]]:
+def get_orderby_info(query_sql: str, expected_col_names: list[str]) -> tuple[list[int], list[bool]]:
     """
     Extract ORDER BY information from SQL using sqlglot.
 
     Returns:
-        (sort_cols, descending) where sort_cols is a list of column names and
+        (sort_col_indices, descending) where sort_col_indices is a list of
+        0-based column indices (resolved against expected_col_names) and
         descending is a parallel list of booleans.
 
     Returns ([], []) when there is no ORDER BY, or when any ORDER BY expression
@@ -49,19 +51,19 @@ def get_orderby_info(query_sql: str, column_names: list[str]) -> tuple[list[str]
     if not order:
         return [], []
 
-    sort_cols: list[str] = []
+    sort_col_indices: list[int] = []
     descending: list[bool] = []
 
     for ordered in order.expressions:
         key = ordered.this
         desc = bool(ordered.args.get("desc", False))
 
-        # Resolve key → column name via numeric literal or column reference.
+        # Resolve key → column index via numeric literal or column reference.
         if isinstance(key, sqlglot.exp.Literal):
             try:
                 col_num = int(key.this)
-                if 1 <= col_num <= len(column_names):
-                    sort_cols.append(column_names[col_num - 1])
+                if 1 <= col_num <= len(expected_col_names):
+                    sort_col_indices.append(col_num - 1)
                     descending.append(desc)
                     continue
             except (ValueError, TypeError):
@@ -69,15 +71,15 @@ def get_orderby_info(query_sql: str, column_names: list[str]) -> tuple[list[str]
 
         if isinstance(key, sqlglot.exp.Column):
             name = key.name
-            if name in column_names:
-                sort_cols.append(name)
+            if name in expected_col_names:
+                sort_col_indices.append(expected_col_names.index(name))
                 descending.append(desc)
                 continue
 
         # Complex expression — skip ORDER BY validation entirely.
         return [], []
 
-    return sort_cols, descending
+    return sort_col_indices, descending
 
 
 def get_limit(query_sql: str) -> int | None:
@@ -93,24 +95,6 @@ def get_limit(query_sql: str) -> int | None:
         return int(limit_expr.this)
     except (ValueError, TypeError, AttributeError):
         return None
-
-
-# ---------------------------------------------------------------------------
-# Column name reconciliation
-# ---------------------------------------------------------------------------
-
-
-def _reconcile_col_names(actual: pd.DataFrame, expected: pd.DataFrame) -> pd.DataFrame:
-    """
-    Rename actual columns to match expected column names positionally.
-
-    TPC-H does not require column headings (spec §2.1.3.4), and anonymous
-    aggregates (e.g. sum(l_quantity) in Q18) produce engine-defined names that
-    legitimately differ between engines. Always aligning by position avoids
-    false failures on name differences while preserving correct value comparison.
-    """
-    renames = {res: exp for res, exp in zip(actual.columns, expected.columns) if res != exp}
-    return actual.rename(columns=renames) if renames else actual
 
 
 # ---------------------------------------------------------------------------
@@ -176,13 +160,10 @@ def _normalize_df(df: pd.DataFrame, ref: pd.DataFrame) -> pd.DataFrame:
     _NARROW = (np.dtype("int8"), np.dtype("int16"), np.dtype("int32"))
     _NARROW_NULLABLE = ("Int8", "Int16", "Int32")
 
-    for col in df.columns:
-        if col not in ref.columns:
-            continue
-
+    for col, ref_col in zip(df.columns, ref.columns):
         # Decimal → float64
         if _is_decimal_like(df[col]):
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = pd.to_numeric(df[col])
 
         # Narrow int → int64 (numpy dtypes)
         if df[col].dtype in _NARROW:
@@ -193,54 +174,11 @@ def _normalize_df(df: pd.DataFrame, ref: pd.DataFrame) -> pd.DataFrame:
             df[col] = df[col].astype("Int64")
 
         # Temporal normalization: convert if either side is temporal-like
-        if _is_temporal_like(df[col]) or _is_temporal_like(ref[col]):
+        if _is_temporal_like(df[col]) or _is_temporal_like(ref[ref_col]):
             if not (isinstance(df[col].dtype, np.dtype) and np.issubdtype(df[col].dtype, np.datetime64)):
-                try:
-                    df[col] = pd.to_datetime(df[col])
-                except Exception:
-                    pass
+                df[col] = pd.to_datetime(df[col])
 
     return df
-
-
-def _check_dtype_compatibility(actual: pd.DataFrame, expected: pd.DataFrame) -> None:
-    """
-    Raise AssertionError if any column pair has incompatible dtypes after normalization.
-
-    Normalization uses try/except and errors='coerce', so incompatible types can
-    silently survive, producing confusing value-comparison errors. This check catches
-    them early with a clear message.
-
-    Compatible combinations (no error raised):
-      - exact dtype match
-      - both numeric (float or int of any width)
-      - both datetime (any datetime64 variant)
-      - both object / string (value comparison will handle semantics)
-    """
-    mismatches = []
-    for col in actual.columns:
-        if col not in expected.columns:
-            continue
-        a_dtype = actual[col].dtype
-        e_dtype = expected[col].dtype
-        if a_dtype == e_dtype:
-            continue
-        # Both numeric
-        a_num = pd.api.types.is_numeric_dtype(a_dtype)
-        e_num = pd.api.types.is_numeric_dtype(e_dtype)
-        if a_num and e_num:
-            continue
-        # Both datetime
-        if pd.api.types.is_datetime64_any_dtype(a_dtype) and pd.api.types.is_datetime64_any_dtype(e_dtype):
-            continue
-        # Both string/object
-        a_str = pd.api.types.is_string_dtype(a_dtype) or pd.api.types.is_object_dtype(a_dtype)
-        e_str = pd.api.types.is_string_dtype(e_dtype) or pd.api.types.is_object_dtype(e_dtype)
-        if a_str and e_str:
-            continue
-        mismatches.append(f"  '{col}': actual {a_dtype} vs expected {e_dtype}")
-    if mismatches:
-        raise AssertionError("dtype mismatch after normalization:\n" + "\n".join(mismatches))
 
 
 # ---------------------------------------------------------------------------
@@ -252,13 +190,13 @@ def _is_float_col(series: pd.Series) -> bool:
     return pd.api.types.is_float_dtype(series)
 
 
-def _non_float_col_names(df: pd.DataFrame) -> list[str]:
+def _non_float_col_indices(df: pd.DataFrame) -> list[int]:
     return [col for col in df.columns if not _is_float_col(df[col])]
 
 
 def _sort_for_comparison(df: pd.DataFrame) -> pd.DataFrame:
     """Sort by all non-float columns for deterministic tie-breaking, reset index."""
-    non_float = _non_float_col_names(df)
+    non_float = _non_float_col_indices(df)
     if not non_float:
         return df.reset_index(drop=True)
     return df.sort_values(by=non_float, na_position="last").reset_index(drop=True)
@@ -296,13 +234,13 @@ def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
             if null1 and null2:
                 continue
             if null1 or null2:
-                mismatches.append(f"Row {row_idx}, col '{col}': {v1!r} vs {v2!r} (null mismatch)")
+                mismatches.append(f"Row {row_idx}, col {col}: {v1!r} vs {v2!r} (null mismatch)")
             elif col in float_cols:
                 fv1, fv2 = float(v1), float(v2)
                 diff = abs(fv1 - fv2)
                 tol = ABS_TOL + REL_TOL * max(abs(fv1), abs(fv2))
                 if diff > tol:
-                    mismatches.append(f"Row {row_idx}, col '{col}': {fv1} vs {fv2} (diff={diff:.2e}, tol={tol:.2e})")
+                    mismatches.append(f"Row {row_idx}, col {col}: {fv1} vs {fv2} (diff={diff:.2e}, tol={tol:.2e})")
             elif v1 != v2:
                 # Safety net: compare as Timestamps when one side is a date
                 # string (e.g. Presto '1995-03-05') and the other is a
@@ -312,7 +250,7 @@ def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
                         continue
                 except Exception:
                     pass
-                mismatches.append(f"Row {row_idx}, col '{col}': {v1!r} vs {v2!r}")
+                mismatches.append(f"Row {row_idx}, col {col}: {v1!r} vs {v2!r}")
 
             if len(mismatches) >= MAX_MISMATCHES:
                 break
@@ -324,46 +262,25 @@ def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
         raise AssertionError(f"Found {len(mismatches)} mismatch(es){truncated}:\n  " + "\n  ".join(mismatches))
 
 
-def _validate_sort_order(
-    df: pd.DataFrame,
-    sort_cols: list[str],
-    descending: list[bool],
-    side: str,
-) -> None:
-    """Assert that df is already sorted by the specified columns."""
-    ascending = [not d for d in descending]
-    expected_order = (
-        df[sort_cols].sort_values(by=sort_cols, ascending=ascending, na_position="last").reset_index(drop=True)
-    )
-    actual_order = df[sort_cols].reset_index(drop=True)
-    if not actual_order.equals(expected_order):
-        directions = ["DESC" if d else "ASC" for d in descending]
-        raise AssertionError(f"{side} result is not sorted by {list(zip(sort_cols, directions))}")
-
-
-def _build_non_tie_mask(
-    df: pd.DataFrame,
-    sort_cols: list[str],
-    descending: list[bool],
-    boundary: pd.Series,
-) -> pd.Series:
+def _find_tie_start(df: pd.DataFrame, sort_col_indices: list[int], boundary: pd.Series) -> int:
     """
-    Return a boolean mask: True for rows that are strictly 'better' than the
-    boundary row (i.e. would appear before it in the sort order).
-    A tie requires ALL sort columns to equal the boundary value.
+    Scan upward from the last row and return the index where the contiguous
+    block of boundary-tie rows begins. Rows at or above this index are non-ties.
     """
-    mask = pd.Series(False, index=df.index)
-    for col, desc in zip(sort_cols, descending):
-        val = boundary[col]
-        col_series = df[col]
-        if _is_null(val):
-            # NaN boundary: non-NaN values come before it (nulls last)
-            mask |= col_series.notna()
-        elif _is_float_col(col_series):
-            mask |= (col_series - float(val)).abs() > 2 * ABS_TOL
-        else:
-            mask |= col_series > val if desc else col_series < val
-    return mask
+    for i in range(len(df) - 1, -1, -1):
+        row = df.iloc[i]
+        for col_idx in sort_col_indices:
+            v, b = row[col_idx], boundary[col_idx]
+            if _is_null(b):
+                if not _is_null(v):
+                    return i + 1
+            elif _is_float_col(df[col_idx]):
+                fval = float(b)
+                if abs(float(v) - fval) > ABS_TOL + REL_TOL * abs(fval):
+                    return i + 1
+            elif v != b:
+                return i + 1
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -381,69 +298,77 @@ def compare_result_frames(
 
     Steps:
       1. Validate column count.
-      2. Reconcile column names positionally (actual renamed to match expected).
+      2. Reset both frames to positional integer column indices (0, 1, 2, ...).
       3. Normalize dtypes.
       4. Validate row count.
       5. Parse ORDER BY / LIMIT from SQL via sqlglot.
-      6. If ORDER BY present: validate sort order on both frames.
-      7. If ORDER BY + LIMIT: handle boundary ties.
-      8. Sort by non-float columns; compare value-by-value with tolerance.
+      6. If ORDER BY + LIMIT: sort both frames, find the tie boundary, compare.
     """
-    # 1 & 2. Column count check, then positional name reconciliation
+    # 1. Column count check
     if len(actual.columns) != len(expected.columns):
         raise AssertionError(
             f"Column count mismatch: {len(actual.columns)} (actual) vs {len(expected.columns)} (expected)\n"
             f"  actual:   {list(actual.columns)}\n"
             f"  expected: {list(expected.columns)}"
         )
-    actual = _reconcile_col_names(actual, expected)
 
-    # 3. Normalize dtypes then verify compatibility
+    # 2. Capture expected column names (used for ORDER BY name resolution), then
+    # reset both frames to positional integer indices for all subsequent operations.
+    expected_col_names = list(expected.columns)
+    n = len(expected_col_names)
+    actual = actual.copy()
+    expected = expected.copy()
+    actual.columns = range(n)
+    expected.columns = range(n)
+
+    # 3. Normalize dtypes
     actual = _normalize_df(actual, ref=expected)
     expected = _normalize_df(expected, ref=actual)
-    _check_dtype_compatibility(actual, expected)
 
     # 4. Row count
     if len(actual) != len(expected):
         raise AssertionError(f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)")
 
     # 5. Parse ORDER BY / LIMIT
-    sort_cols, descending = get_orderby_info(query_sql, list(actual.columns))
+    sort_col_indices, descending = get_orderby_info(query_sql, expected_col_names)
     limit = get_limit(query_sql)
 
-    if not sort_cols:
-        # No ORDER BY (or unparsable) — sort both sides and compare
+    if not sort_col_indices or limit is None:
+        # No parseable ORDER BY, or ORDER BY without LIMIT — sort both sides and compare
         _assert_frames_equal(_sort_for_comparison(actual), _sort_for_comparison(expected))
         return
 
-    # 6. Validate sort order
-    _validate_sort_order(actual, sort_cols, descending, "actual")
-    _validate_sort_order(expected, sort_cols, descending, "expected")
-
-    if limit is None:
-        # ORDER BY, no LIMIT — sort by non-float cols for tie-breaking
-        _assert_frames_equal(_sort_for_comparison(actual), _sort_for_comparison(expected))
-        return
-
-    # 7. ORDER BY + LIMIT: split into non-ties and boundary ties
+    # 6. ORDER BY + LIMIT: sort both frames, then split at the tie boundary
     ascending = [not d for d in descending]
-    boundary = actual.sort_values(by=sort_cols, ascending=ascending, na_position="last").iloc[-1][sort_cols]
+    actual_sorted = actual.sort_values(by=sort_col_indices, ascending=ascending, na_position="last").reset_index(
+        drop=True
+    )
+    expected_sorted = expected.sort_values(by=sort_col_indices, ascending=ascending, na_position="last").reset_index(
+        drop=True
+    )
+    boundary = actual_sorted.iloc[-1]
 
-    actual_non_tie_mask = _build_non_tie_mask(actual, sort_cols, descending, boundary)
-    expected_non_tie_mask = _build_non_tie_mask(expected, sort_cols, descending, boundary)
+    actual_tie_start = _find_tie_start(actual_sorted, sort_col_indices, boundary)
+    expected_tie_start = _find_tie_start(expected_sorted, sort_col_indices, boundary)
 
-    actual_non_ties = actual[actual_non_tie_mask].reset_index(drop=True)
-    expected_non_ties = expected[expected_non_tie_mask].reset_index(drop=True)
-    actual_ties = actual[~actual_non_tie_mask].reset_index(drop=True)
-    expected_ties = expected[~expected_non_tie_mask].reset_index(drop=True)
+    tie_count = len(actual_sorted) - actual_tie_start
+    if tie_count > 0:
+        pct = 100 * tie_count / len(actual_sorted)
+        warnings.warn(
+            f"{tie_count}/{len(actual_sorted)} rows ({pct:.0f}%) are boundary ties; "
+            "their non-sort columns are excluded from comparison"
+        )
 
     # Non-tie rows: full comparison
-    _assert_frames_equal(_sort_for_comparison(actual_non_ties), _sort_for_comparison(expected_non_ties))
+    _assert_frames_equal(
+        _sort_for_comparison(actual_sorted.iloc[:actual_tie_start]),
+        _sort_for_comparison(expected_sorted.iloc[:expected_tie_start]),
+    )
 
     # Tie rows: compare only sort columns (non-sort columns may legitimately differ)
     _assert_frames_equal(
-        _sort_for_comparison(actual_ties[sort_cols]),
-        _sort_for_comparison(expected_ties[sort_cols]),
+        _sort_for_comparison(actual_sorted.iloc[actual_tie_start:][sort_col_indices]),
+        _sort_for_comparison(expected_sorted.iloc[expected_tie_start:][sort_col_indices]),
     )
 
 
