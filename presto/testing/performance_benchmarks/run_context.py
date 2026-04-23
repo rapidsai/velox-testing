@@ -62,7 +62,7 @@ def _get_scale_factor_from_schema(hostname: str, port: int, user: str, schema_na
             return None
         with open(meta_path) as f:
             data = json.load(f)
-        return data.get("scale_factor")
+        return data.get("scale_factor") or data.get("options", {}).get("scale_factor")
     except Exception as e:
         _debug(f"scale factor lookup failed: {e}")
         return None

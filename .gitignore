@@ -1,6 +1,6 @@
 # python virtual environment
 .venv
-.integ_test_venv
+.*_venv
 
 # jetbrains IDE folder
 .idea
@@ -8,6 +8,8 @@
 __pycache__/
 # emacs backup files
 *~
+# vscode folder
+.vscode
 
 # Hive metastore
 .hive_metastore/
@@ -27,6 +29,8 @@ presto/docker/config/generated*/
 # Generated Presto Docker Compose files
 presto/docker/docker-compose/generated*/
 presto/scripts/presto_logs/
+spark_gluten/scripts/spark_logs/
+spark_gluten/scripts/.temp-spark-connect.conf
 
 # Slurm logs and results
 presto/slurm/presto-nvl72/logs/
@@ -41,3 +45,6 @@ devstate*
 
 spark-gluten-install/
 build_artifacts
+
+# Locally built tool binaries
+.local_installs/

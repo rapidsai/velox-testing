@@ -2,7 +2,7 @@
 {%- set config_variant = config_variant | default('gpu') -%}
 
 {%- set worker_service_base = 'presto-native-worker-gpu-dev' if dev_mode else 'presto-native-worker-gpu' -%}
-{%- set worker_image = worker_service_base ~ ':${PRESTO_IMAGE_TAG}' -%}
+{%- set worker_image = worker_service_base ~ ':${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}' -%}
 {%- set config_root = '../../config/generated/' ~ config_variant -%}
 
 {%- set dev_env_lines = [
@@ -118,8 +118,8 @@ services:
     environment:
       WORKER_ID: {{ gpu_id }}
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       {% if dev_mode %}
       {% for line in dev_env_lines %}
@@ -162,8 +162,8 @@ services:
     {% endif %}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       {% if dev_mode %}
       {% for line in dev_env_lines %}
@@ -183,8 +183,8 @@ services:
 {% else %}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
