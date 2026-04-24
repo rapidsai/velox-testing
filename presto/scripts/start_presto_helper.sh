@@ -181,9 +181,12 @@ elif [[ "$ALL_CUDA_ARCHS" == "true" ]]; then
 fi
 
 DOCKER_COMPOSE_FILE_PATH="${SCRIPT_DIR}/../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml"
-# For GPU, the docker-compose file is a Jinja template. Render it before any docker compose operations.
-if [[ "$VARIANT_TYPE" == "gpu" ]]; then
-  TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
+# GPU always renders from a Jinja template (per-GPU config mounts are parameterised).
+# CPU renders from a Jinja template only when one exists for the current compose
+# file name — the default "native-cpu" has a template to support per-NUMA
+# multi-worker layouts, but "native-cpu.sccache" keeps using its static file.
+TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
+if [[ "$VARIANT_TYPE" == "gpu" || ( "$VARIANT_TYPE" == "cpu" && -f "$TEMPLATE_PATH" ) ]]; then
   RENDERED_DIR="${SCRIPT_DIR}/../docker/docker-compose/generated"
   mkdir -p "$RENDERED_DIR"
   RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
@@ -191,8 +194,8 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
-  RENDER_ARGS="--template-path $TEMPLATE_PATH --output-path $RENDERED_PATH --num-workers $NUM_WORKERS --single-container $SINGLE_CONTAINER --kvikio-threads $KVIKIO_THREADS --sccache $ENABLE_SCCACHE"
-  if [[ -n $GPU_IDS ]]; then
+  RENDER_ARGS="--template-path $TEMPLATE_PATH --output-path $RENDERED_PATH --num-workers $NUM_WORKERS --single-container $SINGLE_CONTAINER --kvikio-threads $KVIKIO_THREADS --sccache $ENABLE_SCCACHE --variant $VARIANT_TYPE"
+  if [[ "$VARIANT_TYPE" == "gpu" && -n $GPU_IDS ]]; then
     RENDER_ARGS="$RENDER_ARGS --gpu-ids $GPU_IDS"
   fi
   "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" $RENDER_ARGS
@@ -237,3 +240,32 @@ fi
 
 # Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
+
+# Optional: block until ${NUM_WORKERS} workers have registered with the
+# coordinator. Useful when a subsequent step (benchmark run, post-start
+# setup) needs the cluster to be fully up. Times out after
+# WAIT_FOR_WORKERS_TIMEOUT seconds (default 120) so a stuck worker
+# doesn't hang the shell indefinitely.
+if [[ "$WAIT_FOR_WORKERS" == "true" ]]; then
+  echo "Waiting for ${NUM_WORKERS} worker(s) to register with coordinator (timeout: ${WAIT_FOR_WORKERS_TIMEOUT}s)..."
+  deadline=$(( $(date +%s) + WAIT_FOR_WORKERS_TIMEOUT ))
+  workers=0
+  while [[ $(date +%s) -lt $deadline ]]; do
+    workers=$(python3 - <<'PY'
+import json, urllib.request
+try:
+    with urllib.request.urlopen("http://localhost:8080/v1/node", timeout=1) as r:
+        print(len(json.load(r)))
+except Exception:
+    print(0)
+PY
+    )
+    echo "  ${workers}/${NUM_WORKERS} worker(s) registered"
+    [[ "$workers" -ge "$NUM_WORKERS" ]] && break
+    sleep 5
+  done
+  if [[ "$workers" -lt "$NUM_WORKERS" ]]; then
+    echo "ERROR: only ${workers}/${NUM_WORKERS} workers registered after ${WAIT_FOR_WORKERS_TIMEOUT}s" >&2
+    exit 1
+  fi
+fi

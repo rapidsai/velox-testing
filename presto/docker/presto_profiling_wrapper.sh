@@ -5,7 +5,7 @@
 set -e
 
 if [[ "$PROFILE" == "ON" ]]; then
-  mkdir /presto_profiles
+  mkdir -p /presto_profiles
 
   if [[ -z $PROFILE_ARGS ]]; then
     PROFILE_ARGS="-t nvtx,cuda"
