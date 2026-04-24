@@ -175,11 +175,15 @@ fi
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
 #
-# Multi-worker CPU runs also get per-worker config dirs so each worker has a
-# unique http port and node id. GPU IDs are explicit (via GPU_IDS) because a
-# GPU worker is physically bound to a specific device; CPU workers use
-# 0-indexed sequential IDs.
-if [[ -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 && ( "$VARIANT_TYPE" == "gpu" || "$VARIANT_TYPE" == "cpu" ) ]]; then
+# GPU always gets per-worker config dirs (even -w 1) because its compose
+# template mounts etc_worker_<id> in both multi-worker and combined-container
+# layouts. GPU IDs are explicit (via GPU_IDS) since each worker is bound to
+# a specific device.
+#
+# CPU only needs per-worker dirs when multi-worker (-w N > 1); the -w 1 CPU
+# path mounts etc_worker directly, matching historical single-container
+# behaviour. CPU workers use 0-indexed sequential IDs.
+if [[ -n "$NUM_WORKERS" && ( "$VARIANT_TYPE" == "gpu" || ( "$VARIANT_TYPE" == "cpu" && "$NUM_WORKERS" -gt 1 ) ) ]]; then
   if [[ "$VARIANT_TYPE" == "gpu" && -n ${GPU_IDS:-} ]]; then
     WORKER_IDS=($(echo "$GPU_IDS" | tr ',' ' '))
   else
