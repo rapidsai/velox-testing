@@ -15,6 +15,8 @@ on:
         required: false
         default: ''
 
+permissions: {}
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-images
@@ -63,6 +65,9 @@ jobs:
   run-sanitizer-tests-memcheck:
     name: compute-sanitizer memcheck
     needs: discover-tests
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
     with:
       tool_name: "memcheck"
@@ -72,6 +77,9 @@ jobs:
   run-sanitizer-tests-racecheck:
     name: compute-sanitizer racecheck
     needs: discover-tests
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
     with:
       tool_name: "racecheck"
@@ -81,6 +89,9 @@ jobs:
   run-sanitizer-tests-synccheck:
     name: compute-sanitizer synccheck
     needs: discover-tests
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
     with:
       tool_name: "synccheck"

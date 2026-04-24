@@ -44,6 +44,8 @@ on:
       build_type: *build_type
       build_variant: *build_variant
 
+permissions: {}
+
 jobs:
   resolve-commits:
     runs-on: ubuntu-latest
@@ -66,6 +68,10 @@ jobs:
 
   velox-build:
     needs: [resolve-commits]
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     uses: ./.github/workflows/velox-build.yml
     with:
       velox_repository: ${{ inputs.velox_repository }}
@@ -79,6 +85,9 @@ jobs:
   velox-test:
     needs: [resolve-commits, velox-build]
     if: ${{ inputs.run_tests }}
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-test.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
@@ -87,6 +96,9 @@ jobs:
 
   velox-benchmark:
     needs: [resolve-commits, velox-build]
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-benchmark.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}

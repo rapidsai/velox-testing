@@ -9,8 +9,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   upstream:
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     uses: ./.github/workflows/presto.yml
     with:
       variant_label: upstream
@@ -24,6 +30,10 @@ jobs:
     secrets: inherit
 
   pinned:
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     uses: ./.github/workflows/presto.yml
     with:
       variant_label: pinned
@@ -37,6 +47,10 @@ jobs:
     secrets: inherit
 
   staging:
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     uses: ./.github/workflows/presto.yml
     with:
       variant_label: staging
