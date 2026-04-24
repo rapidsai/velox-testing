@@ -29,8 +29,10 @@ presto/docker/config/generated*/
 # Generated Presto Docker Compose files
 presto/docker/docker-compose/generated*/
 presto/scripts/presto_logs/
+
 spark_gluten/scripts/spark_logs/
 spark_gluten/scripts/.temp-spark-connect.conf
+spark_gluten/docker/docker-compose/generated/
 
 # Slurm logs and results
 presto/slurm/presto-nvl72/logs/

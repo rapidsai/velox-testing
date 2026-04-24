@@ -46,9 +46,10 @@ wait_for_spark_executors() {
 
   while true; do
     local alive
-    alive=$(curl -sf "http://${host}:${port}/json/" | jq '.aliveworkers // 0') 2>/dev/null || alive=0
+    alive=$(curl -sf "http://${host}:${port}/json/" | jq -r '.aliveworkers // 0') 2>/dev/null || alive=0
+    alive="${alive:-0}"
 
-    if (( alive >= expected )); then
+    if (( alive == expected )); then
       echo "All ${expected} executor(s) registered with Spark Master."
       return 0
     fi

@@ -5,15 +5,20 @@
 # Spark Connect.  Rendered by render_docker_compose_template.py.
 #
 # Template variables (supplied by the renderer):
-#   workers      – list of GPU device IDs (e.g. [0, 1, 2])
+#   workers      – list of worker IDs (e.g. [0, 1, 2])
 #   num_workers  – length of `workers`
+#   gpu          – bool; true for GPU images (adds NVIDIA device reservations)
+#   static_jar   – bool; true when using a host-mounted Gluten JAR
 
-x-spark-executor-gpu: &executor_base
+x-spark-executor: &executor_base
   image: ${DOCKER_IMAGE}
   labels:
     com.nvidia.spark-connect.user: ${SPARK_CONNECT_USER}
+{% if gpu %}
   cap_add:
     - SYS_ADMIN
+  env_file:
+    - ${SPARK_GPU_ENV_FILE}
   deploy:
     resources:
       reservations:
@@ -21,16 +26,19 @@ x-spark-executor-gpu: &executor_base
           - driver: nvidia
             count: all
             capabilities: [gpu]
+{% endif %}
   depends_on:
     - spark-master
   volumes:
     - ${WORKSPACE_ROOT}:${WORKSPACE_ROOT}
+    - ${SPARK_DATA_DIR}:${SPARK_DATA_DIR}
   working_dir: ${WORKSPACE_ROOT}/velox-testing/spark_gluten/scripts
   command: >-
-    bash -c "$$SPARK_HOME/sbin/start-worker.sh spark://spark-master:7077
+    bash -c "$$SPARK_HOME/bin/spark-class org.apache.spark.deploy.worker.Worker
+    spark://spark-master:7077
+    --host $$(cat /etc/hostname)
     --cores $${SPARK_WORKER_CORES:-4}
-    --memory $${SPARK_WORKER_MEMORY:-48g}
-    && tail -f /dev/null"
+    --memory $${SPARK_WORKER_MEMORY:-48g}"
 
 services:
   spark-master:
@@ -38,29 +46,39 @@ services:
     labels:
       com.nvidia.spark-connect.user: ${SPARK_CONNECT_USER}
     container_name: spark-master
+    hostname: spark-master
     ports:
       - "${MASTER_WEB_PORT:-8080}:8080"
       - "7077:7077"
     volumes:
       - ${WORKSPACE_ROOT}:${WORKSPACE_ROOT}
+      - ${SPARK_DATA_DIR}:${SPARK_DATA_DIR}
     working_dir: ${WORKSPACE_ROOT}/velox-testing/spark_gluten/scripts
     command: >-
-      bash -c "$$SPARK_HOME/sbin/start-master.sh && tail -f /dev/null"
+      bash -c "$$SPARK_HOME/bin/spark-class org.apache.spark.deploy.master.Master
+      --host spark-master --port 7077 --webui-port 8080"
 
-{% for gpu_id in workers %}
-  spark-executor-{{ gpu_id }}:
+{% for worker_id in workers %}
+  spark-executor-{{ worker_id }}:
     <<: *executor_base
-    container_name: spark-executor-{{ gpu_id }}
+    container_name: spark-executor-{{ worker_id }}
+    hostname: spark-executor-{{ worker_id }}
+{% if gpu %}
     environment:
-      CUDA_VISIBLE_DEVICES: "{{ gpu_id }}"
+      CUDA_VISIBLE_DEVICES: "{{ worker_id }}"
+{% endif %}
 {% endfor %}
 
   spark-connect:
     image: ${DOCKER_IMAGE}
     labels:
       com.nvidia.spark-connect.user: ${SPARK_CONNECT_USER}
+    hostname: spark-connect
+{% if gpu %}
     cap_add:
       - SYS_ADMIN
+    env_file:
+      - ${SPARK_GPU_ENV_FILE}
     deploy:
       resources:
         reservations:
@@ -68,6 +86,7 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+{% endif %}
     depends_on:
       - spark-master
     ports:
@@ -75,7 +94,11 @@ services:
       - "${UI_PORT:-4040}:${UI_PORT:-4040}"
     volumes:
       - ${WORKSPACE_ROOT}:${WORKSPACE_ROOT}
+      - ${SPARK_DATA_DIR}:${SPARK_DATA_DIR}
+{% if static_jar %}
+      - ${GLUTEN_JAR_DIR}:/opt/gluten/jars:ro
+{% endif %}
     working_dir: ${WORKSPACE_ROOT}/velox-testing/spark_gluten/scripts
     environment:
       SPARK_MASTER_URL: "spark://spark-master:7077"
-    command: /opt/spark/launch_spark_connect_server.sh ${CONNECT_PORT:-15002} ${UI_PORT:-4040} ${SPARK_CONFIG_PATH:-}
+    command: bash launch_spark_connect_server.sh ${CONNECT_PORT:-15002} ${UI_PORT:-4040} ${SPARK_CONFIG_PATH:-}

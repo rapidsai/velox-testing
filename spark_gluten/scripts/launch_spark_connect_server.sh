@@ -56,6 +56,8 @@ $PROFILE_CMD $SPARK_HOME/bin/spark-submit \
     --master "${MASTER}" \
     --jars "${GLUTEN_JAR}" \
     --conf spark.plugins=org.apache.gluten.GlutenPlugin \
+    --conf spark.driver.extraClassPath="${GLUTEN_JAR}" \
+    --conf spark.executor.extraClassPath="${GLUTEN_JAR}" \
     --conf spark.driver.extraJavaOptions="-Dio.netty.tryReflectionSetAccessible=true" \
     --conf spark.executor.extraJavaOptions="-Dio.netty.tryReflectionSetAccessible=true" \
     --conf spark.connect.grpc.binding.port="${CONNECT_PORT}" \

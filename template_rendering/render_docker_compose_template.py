@@ -52,6 +52,22 @@ def parse_args():
         required=False,
         help="Enable sccache build secrets in the rendered compose file.",
     )
+    parser.add_argument(
+        "--static-jar",
+        type=str_to_bool,
+        default=False,
+        dest="static_jar",
+        required=False,
+        help="Render with a host-mounted static Gluten JAR volume.",
+    )
+    parser.add_argument(
+        "--gpu",
+        type=str_to_bool,
+        default=False,
+        dest="gpu",
+        required=False,
+        help="Render with NVIDIA GPU device reservations.",
+    )
     return parser.parse_args()
 
 
@@ -94,6 +110,8 @@ def main() -> int:
         single_container=parsed_args.single_container,
         kvikio_threads=parsed_args.kvikio_threads,
         sccache=parsed_args.sccache,
+        static_jar=parsed_args.static_jar,
+        gpu=parsed_args.gpu,
     )
 
     os.makedirs(os.path.dirname(parsed_args.output_path), exist_ok=True)

@@ -37,7 +37,7 @@ OPTIONS:
     --logs-dir                      Directory for Spark Connect server logs. Each invocation creates a
                                     timestamped log file and a "spark_connect.log" symlink pointing to it.
                                     Default: "<script_dir>/spark_logs".
-    -e, --num-executors             Number of Spark executors (default: 1). When > 1, starts a Spark
+    -e, --num-executors             Number of Spark executors (default: 1). When greater than 1, starts a Spark
                                     Standalone cluster with a master, N executor containers, and a
                                     Spark Connect server that submits to the master.
     -g, --gpu-ids                   Comma-separated list of GPU device IDs to assign to executors
@@ -177,7 +177,7 @@ parse_args() {
 parse_args "$@"
 
 NUM_EXECUTORS="${NUM_EXECUTORS:-1}"
-MASTER_WEB_PORT="${MASTER_WEB_PORT:-8080}"
+MASTER_WEB_PORT="${MASTER_WEB_PORT:-8081}"
 
 if [[ -n ${PROFILE_ARGS} && "${PROFILE}" != "true" ]]; then
   echo "Error: --profile-args should only be set when --profile is enabled"
@@ -186,11 +186,6 @@ fi
 
 if [[ -n ${IMAGE_TAG} && -n ${GLUTEN_JAR_PATH} ]]; then
   echo "Error: --image-tag and --static-gluten-jar-path are mutually exclusive."
-  exit 1
-fi
-
-if [[ ${NUM_EXECUTORS} -gt 1 && -n ${GLUTEN_JAR_PATH} ]]; then
-  echo "Error: --num-executors > 1 is not supported with --static-gluten-jar-path."
   exit 1
 fi
 
@@ -225,7 +220,9 @@ if [[ -n ${GLUTEN_JAR_PATH} ]]; then
     echo "Error: JAR file not found: ${GLUTEN_JAR_PATH}"
     exit 1
   fi
-  EXTRA_DOCKER_ARGS+=(-v "$(dirname "${local_jar_path}"):/opt/gluten/jars:ro")
+  GLUTEN_JAR_DIR="$(dirname "${local_jar_path}")"
+  export GLUTEN_JAR_DIR
+  EXTRA_DOCKER_ARGS+=(-v "${GLUTEN_JAR_DIR}:/opt/gluten/jars:ro")
 else
   IMAGE_TAG="${IMAGE_TAG:-dynamic_gpu_${USER:-latest}}"
   docker_image="apache/gluten:${IMAGE_TAG}"
@@ -268,11 +265,30 @@ export DOCKER_IMAGE="${docker_image}"
 export WORKSPACE_ROOT
 export CONNECT_PORT="${PORT}"
 export UI_PORT
-export SPARK_CONFIG_PATH="${CONTAINER_CONFIG_PATH}"
 export SPARK_CONNECT_USER="${USER}"
 export MASTER_WEB_PORT
+export SPARK_DATA_DIR="${SPARK_DATA_DIR:-${WORKSPACE_ROOT}}"
+
+CONFIG_DIR="${REPO_ROOT}/spark_gluten/testing/config"
+if [[ "${device_type}" == "gpu" && -f "${CONFIG_DIR}/gpu_default.env" ]]; then
+  export SPARK_GPU_ENV_FILE="${CONFIG_DIR}/gpu_default.env"
+else
+  EMPTY_ENV="${SCRIPT_DIR}/.empty.env"
+  : > "${EMPTY_ENV}"
+  export SPARK_GPU_ENV_FILE="${EMPTY_ENV}"
+fi
 
 if [[ ${NUM_EXECUTORS} -gt 1 ]]; then
+  # In cluster mode the config file is under WORKSPACE_ROOT, accessible via
+  # the volume mount -- use the host path directly instead of /tmp.
+  # Override executor cores to match worker topology so each worker gets
+  # exactly 1 executor.  spark.executor.instances is ignored in Standalone
+  # mode; allocation is driven by available resources.
+  WORKER_CORES="${SPARK_WORKER_CORES:-4}"
+  sed -i "/^spark\.executor\.instances /d" "${MERGED_CONFIG}"
+  sed -i "/^spark\.executor\.cores /d" "${MERGED_CONFIG}"
+  echo "spark.executor.cores ${WORKER_CORES}" >> "${MERGED_CONFIG}"
+  export SPARK_CONFIG_PATH="${MERGED_CONFIG}"
   echo "Starting Spark cluster (${NUM_EXECUTORS} executors, image: ${docker_image}, port: ${PORT}, ui-port: ${UI_PORT}) ..."
 
   TEMPLATE_PATH="${REPO_ROOT}/spark_gluten/docker/docker-compose/template/docker-compose.spark-cluster.yml.jinja"
@@ -281,7 +297,15 @@ if [[ ${NUM_EXECUTORS} -gt 1 ]]; then
   RENDERED_PATH="${RENDERED_DIR}/docker-compose.spark-cluster.rendered.yml"
 
   RENDER_SCRIPT_PATH=$(readlink -f "${REPO_ROOT}/template_rendering/render_docker_compose_template.py")
-  RENDER_ARGS="--template-path ${TEMPLATE_PATH} --output-path ${RENDERED_PATH} --num-workers ${NUM_EXECUTORS} --single-container false"
+  STATIC_JAR_FLAG="false"
+  if [[ -n ${GLUTEN_JAR_PATH} ]]; then
+    STATIC_JAR_FLAG="true"
+  fi
+  GPU_FLAG="false"
+  if [[ "${device_type}" == "gpu" ]]; then
+    GPU_FLAG="true"
+  fi
+  RENDER_ARGS="--template-path ${TEMPLATE_PATH} --output-path ${RENDERED_PATH} --num-workers ${NUM_EXECUTORS} --single-container false --static-jar ${STATIC_JAR_FLAG} --gpu ${GPU_FLAG}"
   if [[ -n ${GPU_IDS} ]]; then
     RENDER_ARGS="${RENDER_ARGS} --gpu-ids ${GPU_IDS}"
   fi
@@ -297,6 +321,7 @@ if [[ ${NUM_EXECUTORS} -gt 1 ]]; then
   wait_for_spark_executors "localhost" "${MASTER_WEB_PORT}" "${NUM_EXECUTORS}"
   wait_for_spark_connect_server "localhost" "${PORT}"
 else
+  export SPARK_CONFIG_PATH="${CONTAINER_CONFIG_PATH}"
   echo "Starting Spark Connect server (image: ${docker_image}, service: ${compose_service}, port: ${PORT}, ui-port: ${UI_PORT}) ..."
 
   CONTAINER_ID=$(docker compose -f "${REPO_ROOT}/spark_gluten/docker/docker-compose.spark-connect.yml" run --rm -d \
