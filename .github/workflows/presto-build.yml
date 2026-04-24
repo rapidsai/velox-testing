@@ -93,7 +93,7 @@ jobs:
 
       - &setup_proxy_cache
         name: Setup proxy cache
-        uses: nv-gha-runners/setup-proxy-cache@main
+        uses: nv-gha-runners/setup-proxy-cache@main  # zizmor: ignore[unpinned-uses]
         continue-on-error: true
         with:
           enable-apt: true
