@@ -13,8 +13,12 @@ mkdir -p "${LOGS_DIR}"
 ETC_BASE="/opt/presto-server/etc"
 
 # Resolve the NUMA node for a worker and launch presto_server pinned to it.
-# For GPU workers: pins to the NUMA node closest to the GPU via nvidia-smi topology.
-# For CPU workers: interleaves memory across all NUMA nodes via numactl (requires SYS_NICE).
+# Precedence:
+#   1. NUMA_NODE env var: explicit bind (used by multi-worker CPU where each
+#      container represents one NUMA socket).
+#   2. nvidia-smi topology: pins to the NUMA node closest to the worker's GPU.
+#   3. numactl fallback: --interleave=all across all NUMA nodes (single-
+#      container CPU where one worker spans both sockets).
 #   $1 — GPU ID (or 0 for CPU single-worker)
 #   $2 — etc-dir path for this instance
 launch_worker() {
@@ -24,7 +28,10 @@ launch_worker() {
   local launcher=()
   local cuda_env=()
 
-  if command -v nvidia-smi &> /dev/null; then
+  if [[ -n "${NUMA_NODE:-}" ]]; then
+    echo "NUMA_NODE=${NUMA_NODE} -- launching with numactl --cpunodebind=${NUMA_NODE} --membind=${NUMA_NODE}"
+    launcher=(numactl --cpunodebind="${NUMA_NODE}" --membind="${NUMA_NODE}")
+  elif command -v nvidia-smi &> /dev/null; then
     local topo
     topo=$(nvidia-smi topo -C -M -i "$worker_id")
     echo "$topo"
@@ -60,11 +67,13 @@ launch_worker() {
   env "${cuda_env[@]}" "${launcher[@]}" presto_server --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &
 }
 
-# No args → single worker using CUDA_VISIBLE_DEVICES (default 0), shared config dir.
+# No args → single worker. WORKER_ID env var (set by multi-worker CPU compose
+# where each container is one logical worker) takes precedence; otherwise fall
+# back to CUDA_VISIBLE_DEVICES for GPU runs, defaulting to 0.
 # With args → one worker per GPU ID, each with its own config dir (etc<gpu_id>).
 if [ $# -eq 0 ]; then
   # Single worker mode.
-  launch_worker "${CUDA_VISIBLE_DEVICES:-0}" "${ETC_BASE}/"
+  launch_worker "${WORKER_ID:-${CUDA_VISIBLE_DEVICES:-0}}" "${ETC_BASE}/"
 else
   # Multi-worker single-container mode.  Each GPU ID is an argument.
   for gpu_id in "$@"; do
