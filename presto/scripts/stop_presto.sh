@@ -4,6 +4,11 @@
 
 set -e
 
+# Ignore empty var warnings from docker compose down
+: "${PROFILE:=}"
+: "${PROFILE_ARGS:=}"
+export PROFILE PROFILE_ARGS
+
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
