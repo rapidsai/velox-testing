@@ -14,7 +14,10 @@ SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100 -f 100 -c"
 SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-f, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
     -j, --num-threads                   Number of threads to use for data generation. Default is $((`nproc` / 4)).
-    --approx-row-group-bytes            Approximate row group size in bytes."
+    --approx-row-group-bytes            Approximate row group size in bytes.
+    --parquet-version                   Parquet format version: v1 or v2. Default: v2.
+    --nationkey-type                    Arrow type for nationkey columns: i32 or i64. Default: i32.
+    --regionkey-type                    Arrow type for regionkey columns: i32 or i64. Default: i32."
 
 NUM_THREADS=$(($(nproc) / 4))
 function extra_options_parser() {
@@ -61,6 +64,42 @@ function extra_options_parser() {
       fi
       shift 2
       ;;
+    --parquet-version)
+      if [[ -n $2 ]]; then
+        PARQUET_VERSION_ARG="--parquet-version $2"
+        SCRIPT_EXTRA_OPTIONS_SHIFTS=2
+        SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=false
+        return 0
+      else
+        echo "Error: --parquet-version requires a value"
+        return 1
+      fi
+      shift 2
+      ;;
+    --nationkey-type)
+      if [[ -n $2 ]]; then
+        NATIONKEY_TYPE_ARG="--nationkey-type $2"
+        SCRIPT_EXTRA_OPTIONS_SHIFTS=2
+        SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=false
+        return 0
+      else
+        echo "Error: --nationkey-type requires a value"
+        return 1
+      fi
+      shift 2
+      ;;
+    --regionkey-type)
+      if [[ -n $2 ]]; then
+        REGIONKEY_TYPE_ARG="--regionkey-type $2"
+        SCRIPT_EXTRA_OPTIONS_SHIFTS=2
+        SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=false
+        return 0
+      else
+        echo "Error: --regionkey-type requires a value"
+        return 1
+      fi
+      shift 2
+      ;;
     *)
       return 0
       ;;
@@ -77,7 +116,8 @@ DATA_GEN_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../benchmark_data_tools/gen
 
 "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p $DATA_GEN_SCRIPT_PATH --benchmark-type $BENCHMARK_TYPE \
 --data-dir-path ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} --scale-factor $SCALE_FACTOR \
---num-threads $NUM_THREADS $CONVERT_DECIMALS_TO_FLOATS_ARG $APPROX_ROW_GROUP_BYTES_ARG
+--num-threads $NUM_THREADS $CONVERT_DECIMALS_TO_FLOATS_ARG $APPROX_ROW_GROUP_BYTES_ARG \
+$PARQUET_VERSION_ARG $NATIONKEY_TYPE_ARG $REGIONKEY_TYPE_ARG
 
 SKIP_ANALYZE_TABLES_ARG=""
 if [[ "$SKIP_ANALYZE_TABLES" == "true" ]]; then
