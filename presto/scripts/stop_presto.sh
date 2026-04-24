@@ -36,4 +36,6 @@ case "$(docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 '^presto-')" in
   *)                                ACTIVE="" ;;
 esac
 
-[ -n "$ACTIVE" ] && [ -f "$ACTIVE" ] && docker compose -f "$ACTIVE" down
+if [ -n "$ACTIVE" ] && [ -f "$ACTIVE" ]; then
+  docker compose -f "$ACTIVE" down
+fi
