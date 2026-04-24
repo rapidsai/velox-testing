@@ -28,6 +28,9 @@ def generate_partition(
     approx_row_group_bytes,
     convert_decimals_to_floats,
     codec_defs,
+    parquet_version,
+    nationkey_type,
+    regionkey_type,
 ):
     if verbose:
         print(f"Generating '{table}' partition: {partition}")
@@ -48,6 +51,12 @@ def generate_partition(
         "parquet",
         "--parquet-row-group-bytes",
         str(approx_row_group_bytes),
+        "--parquet-version",
+        parquet_version,
+        "--nationkey-type",
+        nationkey_type,
+        "--regionkey-type",
+        regionkey_type,
     ]
 
     if convert_decimals_to_floats:
@@ -116,6 +125,9 @@ def generate_data_files_with_tpchgen(args, codec_defs):
                         args.approx_row_group_bytes,
                         args.convert_decimals_to_floats,
                         codec_defs,
+                        args.parquet_version,
+                        args.nationkey_type,
+                        args.regionkey_type,
                     )
                 )
             max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
@@ -402,6 +414,31 @@ if __name__ == "__main__":
         required=False,
         default=None,
         help="Path to a JSON file specifying per-table/per-column encoding, compression, and dictionary settings.",
+    )
+    parser.add_argument(
+        "--parquet-version",
+        type=str,
+        required=False,
+        default="v2",
+        choices=["v1", "v2"],
+        help="Parquet format version. v2 enables Data Page V2 encodings (RLE_DICTIONARY, DELTA_BINARY_PACKED) "
+        "that cuDF's Parquet reader relies on for efficient integer decoding. Default: v2.",
+    )
+    parser.add_argument(
+        "--nationkey-type",
+        type=str,
+        required=False,
+        default="i32",
+        choices=["i32", "i64"],
+        help="Arrow type for c_nationkey, n_nationkey, s_nationkey. Default: i32.",
+    )
+    parser.add_argument(
+        "--regionkey-type",
+        type=str,
+        required=False,
+        default="i32",
+        choices=["i32", "i64"],
+        help="Arrow type for n_regionkey, r_regionkey. Default: i32.",
     )
     args = parser.parse_args()
     generate_data_files(args)
