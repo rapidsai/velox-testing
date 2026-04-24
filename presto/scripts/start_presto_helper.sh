@@ -240,3 +240,32 @@ fi
 
 # Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
+
+# Optional: block until ${NUM_WORKERS} workers have registered with the
+# coordinator. Useful when a subsequent step (benchmark run, post-start
+# setup) needs the cluster to be fully up. Times out after
+# WAIT_FOR_WORKERS_TIMEOUT seconds (default 120) so a stuck worker
+# doesn't hang the shell indefinitely.
+if [[ "$WAIT_FOR_WORKERS" == "true" ]]; then
+  echo "Waiting for ${NUM_WORKERS} worker(s) to register with coordinator (timeout: ${WAIT_FOR_WORKERS_TIMEOUT}s)..."
+  deadline=$(( $(date +%s) + WAIT_FOR_WORKERS_TIMEOUT ))
+  workers=0
+  while [[ $(date +%s) -lt $deadline ]]; do
+    workers=$(python3 - <<'PY'
+import json, urllib.request
+try:
+    with urllib.request.urlopen("http://localhost:8080/v1/node", timeout=1) as r:
+        print(len(json.load(r)))
+except Exception:
+    print(0)
+PY
+    )
+    echo "  ${workers}/${NUM_WORKERS} worker(s) registered"
+    [[ "$workers" -ge "$NUM_WORKERS" ]] && break
+    sleep 5
+  done
+  if [[ "$workers" -lt "$NUM_WORKERS" ]]; then
+    echo "ERROR: only ${workers}/${NUM_WORKERS} workers registered after ${WAIT_FOR_WORKERS_TIMEOUT}s" >&2
+    exit 1
+  fi
+fi

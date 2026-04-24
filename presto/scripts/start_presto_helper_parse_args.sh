@@ -76,6 +76,8 @@ ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
 SCCACHE_ENABLE_DIST=false
 SCCACHE_VERSION="${SCCACHE_VERSION:-latest}"
+WAIT_FOR_WORKERS=false
+WAIT_FOR_WORKERS_TIMEOUT=120
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -205,6 +207,19 @@ parse_args() {
       --sccache-enable-dist)
         SCCACHE_ENABLE_DIST=true
         shift
+        ;;
+      --wait)
+        WAIT_FOR_WORKERS=true
+        shift
+        ;;
+      --wait-timeout)
+        if [[ -n $2 ]]; then
+          WAIT_FOR_WORKERS_TIMEOUT=$2
+          shift 2
+        else
+          echo "Error: --wait-timeout requires a value (seconds)"
+          exit 1
+        fi
         ;;
       *)
         echo "Error: Unknown argument $1"
