@@ -39,9 +39,11 @@ jobs:
           password: ${{ github.token }}
       - name: Resolve image
         id: resolve-image
+        env:
+          VELOX_IMAGE: ${{ inputs.velox_image }}
         run: |
-          if [ -n "${{ inputs.velox_image }}" ]; then
-            echo "velox_image=${{ inputs.velox_image }}" >> "${GITHUB_OUTPUT}"
+          if [ -n "${VELOX_IMAGE}" ]; then
+            echo "velox_image=${VELOX_IMAGE}" >> "${GITHUB_OUTPUT}"
           else
             echo "velox_image=${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda12.9" >> "${GITHUB_OUTPUT}"
           fi

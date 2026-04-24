@@ -62,7 +62,7 @@ jobs:
         if: ${{ steps.runs.outputs.velox_run != '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
+        run: | # zizmor: ignore[template-injection]
           python3 scripts/workflow_status/workflow_status.py \
             --run-id ${{ steps.runs.outputs.velox_run }} \
             --repo "$REPO" \
@@ -72,7 +72,7 @@ jobs:
         if: ${{ steps.runs.outputs.presto_run != '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
+        run: | # zizmor: ignore[template-injection]
           python3 scripts/workflow_status/workflow_status.py \
             --run-id ${{ steps.runs.outputs.presto_run }} \
             --repo "$REPO" \
