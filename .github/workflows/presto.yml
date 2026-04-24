@@ -99,7 +99,7 @@ jobs:
       date: ${{ needs.resolve-commits.outputs.date }}
       build_type: ${{ inputs.build_type }}
       build_variant: ${{ inputs.build_variant }}
-    secrets: inherit
+    secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   presto-test:
     needs: [resolve-commits, presto-build]
@@ -112,4 +112,3 @@ jobs:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       presto_short_sha: ${{ needs.resolve-commits.outputs.presto_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
-    secrets: inherit

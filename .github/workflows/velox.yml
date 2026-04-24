@@ -80,7 +80,7 @@ jobs:
       date: ${{ needs.resolve-commits.outputs.date }}
       build_type: ${{ inputs.build_type }}
       build_variant: ${{ inputs.build_variant }}
-    secrets: inherit
+    secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   velox-test:
     needs: [resolve-commits, velox-build]
@@ -92,7 +92,6 @@ jobs:
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
-    secrets: inherit
 
   velox-benchmark:
     needs: [resolve-commits, velox-build]
@@ -104,4 +103,3 @@ jobs:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
       variant_label: ${{ inputs.variant_label }}
-    secrets: inherit
