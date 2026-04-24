@@ -57,7 +57,7 @@ runs:
         OIDC_AVAILABLE: ${{ steps.check-config.outputs.available }}
         AWS_CREDS_OUTCOME: ${{ steps.aws-creds.outcome }}
         ENABLE_DIST: ${{ inputs.enable-dist }}
-      run: |
+      run: | # zizmor: ignore[github-env]
         if [[ "${OIDC_AVAILABLE}" != "true" || "${AWS_CREDS_OUTCOME}" != "success" ]]; then
           echo "::warning::sccache setup failed or OIDC not available. Building without sccache."
           echo "enabled=false" >> "$GITHUB_OUTPUT"
