@@ -49,11 +49,15 @@ if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
   done < "${CONFIG_FILE}"
 fi
 
-$PROFILE_CMD "$SPARK_HOME"/bin/spark-submit \
+MASTER="${SPARK_MASTER_URL:-local[*]}"
+
+$PROFILE_CMD $SPARK_HOME/bin/spark-submit \
     --class org.apache.spark.sql.connect.service.SparkConnectServer \
-    --master "local[*]" \
+    --master "${MASTER}" \
     --jars "${GLUTEN_JAR}" \
     --conf spark.plugins=org.apache.gluten.GlutenPlugin \
+    --conf spark.driver.extraClassPath="${GLUTEN_JAR}" \
+    --conf spark.executor.extraClassPath="${GLUTEN_JAR}" \
     --conf spark.driver.extraJavaOptions="-Dio.netty.tryReflectionSetAccessible=true" \
     --conf spark.executor.extraJavaOptions="-Dio.netty.tryReflectionSetAccessible=true" \
     --conf spark.connect.grpc.binding.port="${CONNECT_PORT}" \
