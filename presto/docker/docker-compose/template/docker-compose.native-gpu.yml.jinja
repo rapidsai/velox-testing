@@ -34,6 +34,8 @@ x-presto-native-worker-gpu: &gpu_worker_base
     # Target context is the common parent of velox-testing/, presto/, and velox/.
     context: ../../../../../
     dockerfile: velox-testing/presto/docker/native_dev_build.dockerfile
+    args:
+      - BASE_IMAGE=${DEPS_IMAGE:-presto/prestissimo-dependency:centos9-${USER}}
   {% else %}
   build:
     args:

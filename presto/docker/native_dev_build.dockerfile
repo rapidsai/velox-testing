@@ -1,4 +1,5 @@
-FROM presto/prestissimo-dependency:centos9
+ARG BASE_IMAGE=presto/prestissimo-dependency:centos9
+FROM ${BASE_IMAGE}
 
 ARG NSIGHT_VERSION=2025.5.1
 
