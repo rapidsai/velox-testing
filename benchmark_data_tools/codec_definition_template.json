@@ -1,0 +1,15 @@
+{
+  "tables": [
+    {
+      "name": "table_name",
+      "columns": [
+        {
+          "name": "column_name",
+          "encoding": "PLAIN | DELTA_BINARY_PACKED | RLE_DICTIONARY",
+          "compression": "SNAPPY | ZSTD | UNCOMPRESSED",
+          "dictionary": true
+        }
+      ]
+    }
+  ]
+}
