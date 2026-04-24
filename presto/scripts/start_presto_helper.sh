@@ -36,6 +36,7 @@ function validate_sibling_repos() {
 }
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
+source "${SCRIPT_DIR}/common_functions.sh"
 
 validate_sccache_auth() {
   if [[ "$ENABLE_SCCACHE" == true ]]; then
@@ -226,6 +227,13 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
   fi
 
+  # Capture build provenance from sibling repos; exported so docker-compose picks them up.
+  capture_build_provenance "${REPO_ROOT}"
+  if [[ "$VARIANT_TYPE" == "java" ]]; then
+    VELOX_SHA="" VELOX_BRANCH="" VELOX_REPO=""
+  fi
+  export PRESTO_SHA PRESTO_BRANCH PRESTO_REPO VELOX_SHA VELOX_BRANCH VELOX_REPO
+
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
@@ -233,6 +241,23 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
   "${SCCACHE_BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}
+
+  # Coordinator and java-worker use external Dockerfiles (presto repo) without ARG+LABEL
+  # declarations, so labels must be applied via a re-wrap after build.
+  PROVENANCE_LABEL_ARGS=(
+    --label "velox-testing.presto.sha=${PRESTO_SHA}"
+    --label "velox-testing.presto.branch=${PRESTO_BRANCH}"
+    --label "velox-testing.presto.repository=${PRESTO_REPO}"
+  )
+  for service in "${BUILD_TARGET_ARG[@]}"; do
+    case "$service" in
+      "$COORDINATOR_SERVICE") img="$COORDINATOR_IMAGE" ;;
+      "$JAVA_WORKER_SERVICE") img="$JAVA_WORKER_IMAGE" ;;
+      *) continue ;;
+    esac
+    echo "Applying provenance labels to ${img}..."
+    echo "FROM ${img}" | docker build --no-cache "${PROVENANCE_LABEL_ARGS[@]}" -t "${img}" -
+  done
 fi
 
 # Start all services defined in the rendered docker-compose file.
