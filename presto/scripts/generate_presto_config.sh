@@ -65,7 +65,7 @@ function duplicate_worker_configs() {
 }
 
 # get host values
-NPROC=`nproc`
+NPROC=$(nproc)
 # lsmem will report in SI.  Make sure we get values in GB.
 RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024*1024)); }')
 
@@ -86,7 +86,7 @@ if [[ -z ${VCPU_PER_WORKER:-} ]]; then
 fi
 
 # move to config directory
-pushd "${SCRIPT_DIR}/../docker/config" > /dev/null
+pushd "${SCRIPT_DIR}/../docker/config" >/dev/null
 
 # always move back even on failure
 trap "popd > /dev/null" EXIT
@@ -100,7 +100,7 @@ if [[ ! -d ${CONFIG_DIR} || "${OVERWRITE_CONFIG}" == "true" ]]; then
   # (re-)generate the config.json file
   rm -rf ${CONFIG_DIR}
   mkdir -p ${CONFIG_DIR}
-  cat > ${CONFIG_DIR}/config.json << EOF
+  cat >${CONFIG_DIR}/config.json <<EOF
 {
     "cluster_size": "small",
     "coordinator_instance_type": "${NPROC}-core CPU and ${RAM_GB}GB RAM",
@@ -134,11 +134,11 @@ EOF
     # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
     # optimizer.default-filter-factor-enabled=true
     sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
-    echo "cluster-tag=native-gpu" >> ${COORD_CONFIG}
+    echo "cluster-tag=native-gpu" >>${COORD_CONFIG}
   fi
 
   if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
-    echo "cluster-tag=native-cpu" >> ${COORD_CONFIG}
+    echo "cluster-tag=native-cpu" >>${COORD_CONFIG}
   fi
 
   # for Java variant, disable some Parquet properties which are now rejected
@@ -147,6 +147,13 @@ EOF
     sed -i 's/parquet\.reader\.chunk-read-limit/#parquet\.reader\.chunk-read-limit/' ${HIVE_CONFIG}
     sed -i 's/parquet\.reader\.pass-read-limit/#parquet\.reader\.pass-read-limit/' ${HIVE_CONFIG}
     sed -i 's/^cudf/#cudf/' ${HIVE_CONFIG}
+  fi
+
+  if [[ "${VARIANT_TYPE}" != "gpu" ]]; then
+    HIVE_CONFIG="${CONFIG_DIR}/etc_worker/catalog/hive.properties"
+    sed -i 's/hive.file-splittable=false/hive.file-splittable=true/' ${HIVE_CONFIG}
+    HIVE_CONFIG="${CONFIG_DIR}/etc_coordinator/catalog/hive.properties"
+    sed -i 's/hive.file-splittable=false/hive.file-splittable=true/' ${HIVE_CONFIG}
   fi
 
   # success message
