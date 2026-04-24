@@ -24,18 +24,16 @@ CPU_FILE="${SCRIPT_DIR}/../docker/docker-compose.native-cpu.yml"
 # Bring down each variant independently to avoid path resolution issues when
 # combining files.
 #
-# Order matters: the coordinator is defined in docker-compose.common.yml and
-# extended by every variant file, so the first `down` removes it. If workers
-# from another variant are still attached to the shared network, that first
-# `down` emits "Resource is still in use" for the network. Tear down in the
-# order GPU -> CPU -> Java so whichever variant is actually running removes
-# its workers together with the coordinator in a single step, leaving the
-# remaining calls as silent no-ops.
-if [ -f "$GPU_FILE" ]; then
-  docker compose -f "$GPU_FILE" down
-fi
-if [ -f "$CPU_RENDERED_FILE" ]; then
-  docker compose -f "$CPU_RENDERED_FILE" down
-fi
-docker compose -f "$CPU_FILE" down
-docker compose -f "$JAVA_FILE" down
+# Tear down whichever variant is currently running (if any). The coordinator
+# is shared via `extends` across every variant's compose file, so calling
+# `down` on a non-active variant would remove it and orphan the real workers
+# on the shared network — hence the single-file policy below.
+case "$(docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 '^presto-')" in
+  presto-native-worker-gpu*)        ACTIVE="$GPU_FILE" ;;
+  presto-native-worker-cpu-[0-9]*)  ACTIVE="$CPU_RENDERED_FILE" ;;
+  presto-native-worker-cpu)         [ -f "$CPU_RENDERED_FILE" ] && ACTIVE="$CPU_RENDERED_FILE" || ACTIVE="$CPU_FILE" ;;
+  presto-java-worker*)              ACTIVE="$JAVA_FILE" ;;
+  *)                                ACTIVE="" ;;
+esac
+
+[ -n "$ACTIVE" ] && [ -f "$ACTIVE" ] && docker compose -f "$ACTIVE" down
