@@ -33,6 +33,7 @@ OPTIONS:
     --profile-args       Arguments to pass to the profiler when it launches the Presto server.
                          This will override the default arguments.
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
+    -s, --skip-server    (gpu-dev only) Keep the dev worker container running but do not start presto_server.
     --logs-dir           Directory for server log files (default: <script_dir>/presto_logs).
                          Old log files are archived to an archive/ subdirectory on each startup.
     --sccache            Enable sccache distributed compilation caching (requires auth files
@@ -53,6 +54,7 @@ EXAMPLES:
     $SCRIPT_NAME -w 4
     $SCRIPT_NAME -w 4 -g 4,5,6,7
     $SCRIPT_NAME --profile
+    $SCRIPT_NAME --skip-server
     $SCRIPT_NAME --sccache -b worker
     $SCRIPT_NAME --sccache --sccache-version 0.12.0-rapids.1 -b worker
     $SCRIPT_NAME --sccache --sccache-enable-dist -b worker
@@ -174,6 +176,10 @@ parse_args() {
         ;;
       --overwrite-config)
         OVERWRITE_CONFIG=true
+        shift
+        ;;
+      -s|--skip-server)
+        export PRESTO_SKIP_SERVER=1
         shift
         ;;
       --skip-generate-config)

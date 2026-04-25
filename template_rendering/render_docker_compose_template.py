@@ -44,6 +44,10 @@ def parse_args():
         required=False,
         help="Number of KvikIO threads (optional).",
     )
+    parser.add_argument("--dev-mode", type=str_to_bool, default=False, dest="dev_mode", required=False,
+                        help="Whether to render in dev (gpu-dev) mode (default: false).")
+    parser.add_argument("--config-variant", type=str, default="gpu", dest="config_variant", required=False,
+                        help="Config directory suffix under presto/docker/config/generated (e.g. 'gpu', 'gpu-dev').")
     parser.add_argument(
         "--sccache",
         type=str_to_bool,
@@ -93,6 +97,8 @@ def main() -> int:
         workers=workers,
         single_container=parsed_args.single_container,
         kvikio_threads=parsed_args.kvikio_threads,
+        dev_mode=parsed_args.dev_mode,
+        config_variant=parsed_args.config_variant,
         sccache=parsed_args.sccache,
     )
 
