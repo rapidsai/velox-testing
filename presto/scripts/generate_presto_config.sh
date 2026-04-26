@@ -217,9 +217,19 @@ if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
     RAM_PER_WORKER_GB=$(( RAM_GB / NUM_WORKERS ))
     : "${CPU_SYSTEM_MEM_GB:=$(( RAM_PER_WORKER_GB - 35 ))}"
     : "${CPU_DRIVERS:=$(( THREADS_PER_WORKER < 255 ? THREADS_PER_WORKER : 255 ))}"
+    # Multi-worker bottlenecks on HTTP exchange backpressure for shuffle-heavy
+    # queries (Q9/Q18 time out at 30m with the 32MB defaults). 16x larger
+    # buffers unlock those queries on SF1000.
+    : "${CPU_EXCHANGE_BUFFER:=512MB}"
+    : "${CPU_SINK_BUFFER:=512MB}"
   else
     : "${CPU_SYSTEM_MEM_GB:=${RAM_GB}}"
     : "${CPU_DRIVERS:=$(( NPROC < 255 ? NPROC : 255 ))}"
+    # Single-worker has no inter-worker shuffle, so the exchange buffers
+    # only matter for in-process exchange. Use Velox's defaults (32MB) —
+    # bigger buffers add latency on small shuffles for no benefit here.
+    : "${CPU_EXCHANGE_BUFFER:=32MB}"
+    : "${CPU_SINK_BUFFER:=32MB}"
   fi
   # ~30% of the worker's memory envelope reserved for the Velox async data cache
   : "${CPU_QUERY_MEM_GB:=$(( CPU_SYSTEM_MEM_GB * 70 / 100 ))}"
@@ -227,6 +237,21 @@ if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
 
   echo "CPU auto-tune: NUM_WORKERS=${NUM_WORKERS:-1} NPROC=${NPROC} NUMA_NODES=${NUMA_NODES} PHYSICAL_CORES=${PHYSICAL_CORES} SMT_RATIO=${SMT_RATIO}"
   echo "               system-memory-gb=${CPU_SYSTEM_MEM_GB} query-memory-gb=${CPU_QUERY_MEM_GB} task.max-drivers-per-task=${CPU_DRIVERS} async-data-cache-enabled=${CPU_ASYNC_DATA_CACHE}"
+  echo "               exchange.max-buffer-size=${CPU_EXCHANGE_BUFFER} sink.max-buffer-size=${CPU_SINK_BUFFER}"
+
+  # set_or_append <key> <value> <file>: idempotent — replaces existing
+  # `key=...` line if present, otherwise appends. Used here because the
+  # buffer-size keys aren't in the pbench template (Velox falls back to
+  # built-in defaults), so on first apply we have to append; on subsequent
+  # applies we replace.
+  set_or_append() {
+    local key=$1 value=$2 cfg=$3
+    if grep -q "^${key}=" "$cfg"; then
+      sed -i "s|^${key}=.*|${key}=${value}|" "$cfg"
+    else
+      echo "${key}=${value}" >> "$cfg"
+    fi
+  }
 
   # Apply to every CPU worker config dir: etc_worker (single-worker + template
   # for duplicate_worker_configs) plus etc_worker_<N> (multi-worker instances).
@@ -239,6 +264,8 @@ if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
     sed -i "s|^query.max-memory-per-node=.*|query.max-memory-per-node=${CPU_QUERY_MEM_GB}GB|" "$cfg"
     sed -i "s/^task.max-drivers-per-task=.*/task.max-drivers-per-task=${CPU_DRIVERS}/" "$cfg"
     sed -i "s/^async-data-cache-enabled=.*/async-data-cache-enabled=${CPU_ASYNC_DATA_CACHE}/" "$cfg"
+    set_or_append "exchange.max-buffer-size" "${CPU_EXCHANGE_BUFFER}" "$cfg"
+    set_or_append "sink.max-buffer-size" "${CPU_SINK_BUFFER}" "$cfg"
   done
 
   # hive.file-splittable flip for CPU. Put outside the regen gate so restarts
