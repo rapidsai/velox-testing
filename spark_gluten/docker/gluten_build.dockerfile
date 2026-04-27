@@ -21,11 +21,9 @@
 ARG SPARK_VERSION=3.5.5
 ARG BASE_IMAGE=apache/gluten:centos-9-jdk8-cudf
 
-FROM ubuntu:24.04 AS spark-download
+FROM ${BASE_IMAGE} AS spark-download
 ARG SPARK_VERSION
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
+RUN curl -fsSL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
         | tar -xz -C /opt && \
     mv "/opt/spark-${SPARK_VERSION}-bin-hadoop3" /opt/spark && \
     curl -fsSL -o "/opt/spark/jars/spark-connect_2.12-${SPARK_VERSION}.jar" \
@@ -76,12 +74,12 @@ RUN --mount=type=bind,source=incubator-gluten,target=/workspace/gluten \
     mkdir -p /build_staging/gluten && \
     # Remove cached source dirs (but keep cpp/ and ep/ for C++ build caching) \
     # so that files deleted from the repo don't persist as stale sources. \
-    find /build_staging/gluten -mindepth 1 -maxdepth 1 ! -name cpp ! -name ep -exec rm -rf {} + 2>/dev/null; true && \
+    find /build_staging/gluten -mindepth 1 -maxdepth 1 ! -name cpp ! -name ep -exec rm -rf {} + && \
     cp -a /workspace/gluten/. /build_staging/gluten/ && \
     rm -rf /build_staging/gluten/.git && \
     mkdir -p /build_staging/gluten/ep/build-velox/build/velox_ep && \
     # Same cleanup for Velox: remove stale sources but keep build/ artifacts. \
-    find /build_staging/gluten/ep/build-velox/build/velox_ep -mindepth 1 -maxdepth 1 ! -name build ! -name _build -exec rm -rf {} + 2>/dev/null; true && \
+    find /build_staging/gluten/ep/build-velox/build/velox_ep -mindepth 1 -maxdepth 1 ! -name build ! -name _build -exec rm -rf {} + && \
     cp -a /workspace/velox/. /build_staging/gluten/ep/build-velox/build/velox_ep/ && \
     rm -rf /build_staging/gluten/ep/build-velox/build/velox_ep/.git && \
     cd /build_staging/gluten && \

@@ -34,10 +34,10 @@ spark.driver.maxResultSize                                    2g
 # ---------------------------------------------------------------------------
 
 # Number of CPU cores allocated to each executor for parallel task execution.
-spark.executor.cores                                          16
+spark.executor.cores                                          {{ executor_cores | default(16) }}
 
 # Number of executor instances.  Set to 1 for local / single-node benchmarks.
-spark.executor.instances                                      1
+spark.executor.instances                                      {{ executor_instances | default(1) }}
 
 # ---------------------------------------------------------------------------
 # SQL / Shuffle configuration

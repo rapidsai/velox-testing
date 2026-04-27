@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Jinja template for a multi-executor Spark Standalone cluster with
-# Spark Connect.  Rendered by render_docker_compose_template.py.
+# Spark Connect.  Rendered by render_template.py.
 #
 # Template variables (supplied by the renderer):
-#   workers      – list of worker IDs (e.g. [0, 1, 2])
-#   num_workers  – length of `workers`
-#   gpu          – bool; true for GPU images (adds NVIDIA device reservations)
-#   static_jar   – bool; true when using a host-mounted Gluten JAR
+#   executors      – list of executor IDs (e.g. [0, 1, 2])
+#   num_executors  – length of `executors`
+#   gpu            – bool; true for GPU images (adds NVIDIA device reservations)
+#   static_jar     – bool; true when using a host-mounted Gluten JAR
 
 x-spark-executor: &executor_base
   image: ${DOCKER_IMAGE}
@@ -58,14 +58,14 @@ services:
       bash -c "$$SPARK_HOME/bin/spark-class org.apache.spark.deploy.master.Master
       --host spark-master --port 7077 --webui-port 8080"
 
-{% for worker_id in workers %}
-  spark-executor-{{ worker_id }}:
+{% for executor_id in executors %}
+  spark-executor-{{ executor_id }}:
     <<: *executor_base
-    container_name: spark-executor-{{ worker_id }}
-    hostname: spark-executor-{{ worker_id }}
+    container_name: spark-executor-{{ executor_id }}
+    hostname: spark-executor-{{ executor_id }}
 {% if gpu %}
     environment:
-      CUDA_VISIBLE_DEVICES: "{{ worker_id }}"
+      CUDA_VISIBLE_DEVICES: "{{ executor_id }}"
 {% endif %}
 {% endfor %}
 

@@ -7,7 +7,11 @@
 # merge_config_files <device_type> <user_config_file>
 #
 # Builds a merged Spark config by layering:
-#   default.conf [+ gpu_default.conf if GPU] [+ user overlay]
+#   default.conf.jinja (rendered) [+ gpu_default.conf if GPU] [+ user overlay]
+#
+# Template variables executor_cores and executor_instances are read from the
+# environment (SPARK_WORKER_CORES, NUM_EXECUTORS) when rendering the Jinja
+# template.  Falls back to the template defaults (16 cores, 1 instance).
 #
 # Writes the merged config to a fixed path (.temp-spark-connect.conf) in
 # SCRIPT_DIR. Cleaned up by stop_spark_connect.sh.
@@ -17,9 +21,17 @@ merge_config_files() {
   local -r config_dir="${REPO_ROOT}/spark_gluten/testing/config"
 
   local -r merged="${SCRIPT_DIR}/.temp-spark-connect.conf"
+  local -r template="${config_dir}/default.conf.jinja"
 
-  if [[ -f "${config_dir}/default.conf" ]]; then
-    cp "${config_dir}/default.conf" "${merged}"
+  if [[ -f "${template}" ]]; then
+    local render_script
+    render_script=$(readlink -f "${REPO_ROOT}/template_rendering/render_template.py")
+    local render_vars="--var executor_cores=${SPARK_WORKER_CORES:-16}"
+    render_vars="${render_vars} --var executor_instances=${NUM_EXECUTORS:-1}"
+    "${REPO_ROOT}/scripts/run_py_script.sh" -q -p "${render_script}" \
+      --template-path "${template}" \
+      --output-path "${merged}" \
+      ${render_vars}
   fi
 
   if [[ "${device_type}" == "gpu" && -f "${config_dir}/gpu_default.conf" ]]; then

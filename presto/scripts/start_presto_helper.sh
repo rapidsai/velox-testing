@@ -190,6 +190,7 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   # Default to 0 if not provided, which results in no per-GPU workers being rendered.
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
+  # TODO: migrate Presto to render_template.py
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
   RENDER_ARGS="--template-path $TEMPLATE_PATH --output-path $RENDERED_PATH --num-workers $NUM_WORKERS --single-container $SINGLE_CONTAINER --kvikio-threads $KVIKIO_THREADS --sccache $ENABLE_SCCACHE"
   if [[ -n $GPU_IDS ]]; then
