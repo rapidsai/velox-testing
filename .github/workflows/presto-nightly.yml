@@ -17,6 +17,8 @@ jobs:
       contents: read
       id-token: write
       packages: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/presto.yml
     with:
       variant_label: upstream
@@ -34,6 +36,8 @@ jobs:
       contents: read
       id-token: write
       packages: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/presto.yml
     with:
       variant_label: pinned
@@ -51,6 +55,8 @@ jobs:
       contents: read
       id-token: write
       packages: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/presto.yml
     with:
       variant_label: staging
