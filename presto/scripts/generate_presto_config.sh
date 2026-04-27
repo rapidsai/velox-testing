@@ -194,6 +194,40 @@ if [[ -n "$NUM_WORKERS" && ( "$VARIANT_TYPE" == "gpu" || ( "$VARIANT_TYPE" == "c
   done
 fi
 
+# Reconcile single-node-execution-enabled and cudf.exchange on every start.
+#
+# duplicate_worker_configs flips both to their multi-worker values when
+# NUM_WORKERS > 1 (single-node-execution-enabled=false on coord + workers,
+# cudf.exchange=true on workers), and never reverts them for NUM_WORKERS == 1.
+# Switching from -w N>1 to -w 1 without `--overwrite-config` therefore leaves
+# stale multi-worker values in place. Concretely, stale
+# single-node-execution-enabled=false on the coord makes the planner keep
+# generating multi-stage distributed plans, which a lone worker then executes
+# with HTTP-exchange roundtrips between stages — measured 5x regression on
+# TPC-H Q17 for both -w 1 CPU and -w 1 GPU after a multi-worker run.
+#
+# Always set both to match the current NUM_WORKERS so toggling worker count
+# doesn't require --overwrite-config.
+if [[ -n "$NUM_WORKERS" && ( "$VARIANT_TYPE" == "gpu" || "$VARIANT_TYPE" == "cpu" ) ]]; then
+  if [[ "$NUM_WORKERS" -gt 1 ]]; then
+    SINGLE_NODE_EXECUTION="false"
+    CUDF_EXCHANGE="true"
+  else
+    SINGLE_NODE_EXECUTION="true"
+    CUDF_EXCHANGE="false"
+  fi
+  for cfg in \
+    "${CONFIG_DIR}/etc_coordinator/config_native.properties" \
+    "${CONFIG_DIR}"/etc_worker*/config_native.properties; do
+    [[ -f "$cfg" ]] || continue
+    sed -i "s/^single-node-execution-enabled=.*/single-node-execution-enabled=${SINGLE_NODE_EXECUTION}/" "$cfg"
+  done
+  for cfg in "${CONFIG_DIR}"/etc_worker*/config_native.properties; do
+    [[ -f "$cfg" ]] || continue
+    sed -i "s/^cudf.exchange=.*/cudf.exchange=${CUDF_EXCHANGE}/" "$cfg"
+  done
+fi
+
 # CPU auto-tuning keyed on NUM_WORKERS + detected host topology.
 # Runs idempotently on every start so manual sed-per-run isn't required, and
 # switching between `-w 1` and `-w 2` just needs `stop_presto.sh && start_native_cpu_presto.sh -w N`.
