@@ -93,7 +93,7 @@ echo ""
 # because the default IMAGE_DIR (/scratch/$USER/images/presto) is not mounted
 # on the head node; checking or creating it from here would be inconsistent
 # with what the compute node sees.
-ENROOT_DECOMPRESS="$(dirname "${BASH_SOURCE[0]}")/enroot-decompress.sh"
+ENROOT_DECOMPRESS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/enroot-decompress.sh"
 export OUTPUT_PATH ENROOT_URI OVERWRITE
 
 srun --export="ALL,PMIX_MCA_gds=^ds12,ENROOT_GZIP_PROGRAM=${ENROOT_DECOMPRESS}" \
