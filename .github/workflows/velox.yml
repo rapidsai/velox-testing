@@ -72,6 +72,8 @@ jobs:
       contents: read
       id-token: write
       packages: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/velox-build.yml
     with:
       velox_repository: ${{ inputs.velox_repository }}
