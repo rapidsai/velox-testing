@@ -33,7 +33,6 @@ OPTIONS:
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
                             schema that contains the benchmark tables.
-    -f, --scale-factor      Scale factor of the benchmark data. Only used for tpch/tpcds benchmarks.
     -o, --output-dir        Directory path that will contain the output files from the benchmark run.
                             By default, output files are written to "$(pwd)/benchmark_output".
     -i, --iterations        Number of query run iterations. By default, 5 iterations are run.
@@ -45,6 +44,18 @@ OPTIONS:
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
+    --reference-results-dir Path to a directory containing reference (expected) parquet files.
+                            After the benchmark, common/testing/validate_results.py compares
+                            actual outputs against these files and writes validation_results.json
+                            next to benchmark_result.json (picked up by post_results.py).
+                            Overrides the PRESTO_EXPECTED_RESULTS_DIR environment variable.
+                            If neither is provided, validation is skipped ("not-validated").
+                            Error if the explicitly provided directory does not exist.
+    PRESTO_EXPECTED_RESULTS_DIR
+                            Environment variable alternative to --reference-results-dir.
+                            Set to the full host path of the expected results directory
+                            (e.g. PRESTO_EXPECTED_RESULTS_DIR=/data/sf100_expected).
+                            Warning (not error) if set but the directory does not exist.
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
                             Use when engine is misdetected or the run fails.
@@ -131,15 +142,6 @@ parse_args() {
           exit 1
         fi
         ;;
-      -f|--scale-factor)
-        if [[ -n $2 ]]; then
-          SCALE_FACTOR=$2
-          shift 2
-        else
-          echo "Error: --scale-factor requires a value"
-          exit 1
-        fi
-        ;;
       -o|--output-dir)
         if [[ -n $2 ]]; then
           OUTPUT_DIR=$2
@@ -183,6 +185,16 @@ parse_args() {
         METRICS=true
         shift
         ;;
+      --reference-results-dir)
+        if [[ -n $2 ]]; then
+          PRESTO_EXPECTED_RESULTS_DIR=$2
+          EXPLICIT_REFERENCE_DIR=true
+          shift 2
+        else
+          echo "Error: --reference-results-dir requires a value"
+          exit 1
+        fi
+        ;;
       -v|--verbose)
         export PRESTO_BENCHMARK_DEBUG=1
         shift
@@ -210,13 +222,16 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
+# Fail fast if an explicit --reference-results-dir was given but doesn't exist.
+if [[ ${EXPLICIT_REFERENCE_DIR} == true && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+  echo "[Validation] Error: --reference-results-dir not found: ${PRESTO_EXPECTED_RESULTS_DIR}" >&2
+  exit 1
+fi
+
 set_presto_coordinator_defaults
 
 PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
-if [[ -n ${SCALE_FACTOR} ]]; then
-  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
-fi
 
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
@@ -292,3 +307,32 @@ echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+
+VALIDATE_SCRIPT="${SCRIPT_DIR}/../../common/testing/validate_results.py"
+VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../testing/requirements.txt"
+
+# Resolve reference results directory.
+# PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
+# Explicit --reference-results-dir was already validated before the benchmark ran.
+if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+  echo "[Validation] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
+else
+  VALIDATE_ARGS=(--output-dir "${OUTPUT_DIR:-$(pwd)/benchmark_output}" --benchmark-type "${BENCHMARK_TYPE}")
+  if [[ -n ${TAG} ]]; then
+    VALIDATE_ARGS+=(--tag "${TAG}")
+  fi
+  if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+    VALIDATE_ARGS+=(--reference-results-dir "${PRESTO_EXPECTED_RESULTS_DIR}")
+  fi
+  if [[ -n ${QUERIES} ]]; then
+    VALIDATE_ARGS+=(--queries "${QUERIES}")
+  fi
+
+  ACTUAL_OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/benchmark_output}"
+  [[ -n ${TAG} ]] && ACTUAL_OUTPUT_DIR="${ACTUAL_OUTPUT_DIR}/${TAG}"
+  echo "[Validation] Running validation: ${ACTUAL_OUTPUT_DIR}/query_results vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
+  "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet \
+    -p "${VALIDATE_SCRIPT}" \
+    -r "${VALIDATE_REQUIREMENTS}" \
+    -- "${VALIDATE_ARGS[@]}"
+fi
