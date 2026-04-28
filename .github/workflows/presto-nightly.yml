@@ -9,8 +9,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   upstream:
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/presto.yml
     with:
       variant_label: upstream
@@ -21,9 +29,15 @@ jobs:
       run_tests: true
       build_type: nightly
       build_variant: upstream
-    secrets: inherit
+    secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   pinned:
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/presto.yml
     with:
       variant_label: pinned
@@ -34,9 +48,15 @@ jobs:
       run_tests: true
       build_type: nightly
       build_variant: pinned
-    secrets: inherit
+    secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   staging:
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/presto.yml
     with:
       variant_label: staging
@@ -47,4 +67,4 @@ jobs:
       run_tests: true
       build_type: nightly
       build_variant: staging
-    secrets: inherit
+    secrets: inherit  # zizmor: ignore[secrets-inherit]

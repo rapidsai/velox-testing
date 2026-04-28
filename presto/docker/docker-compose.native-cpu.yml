@@ -14,7 +14,7 @@ services:
       file: docker-compose.common.yml
       service: presto-base-native-worker
     container_name: presto-native-worker-cpu
-    image: presto-native-worker-cpu:${PRESTO_IMAGE_TAG}
+    image: presto-native-worker-cpu:${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}
     cap_add:
       - SYS_NICE
     build:

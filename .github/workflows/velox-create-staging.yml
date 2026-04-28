@@ -63,6 +63,8 @@ on:
 
 jobs:
   velox-create-staging:
+    permissions:
+      contents: write
     uses: ./.github/workflows/create-staging-composite.yml
     with:
       base_repository: ${{ inputs.base_repository }}
