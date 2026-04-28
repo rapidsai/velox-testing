@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Auto-detecting decompressor for enroot image layer downloads.
 # Used as ENROOT_GZIP_PROGRAM to support both gzip and OCI tar+zstd layers.
 # Called by enroot as: enroot-decompress.sh -d -f -c  (args are ignored)

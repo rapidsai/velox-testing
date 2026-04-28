@@ -263,7 +263,7 @@ def _parse_args() -> argparse.Namespace:
         "--identifier-hash",
         default=None,
         help="Unique identifier hash for software environment (e.g. a container image digest). "
-             "If omitted, the image_digest from benchmark_result.json context is used.",
+        "If omitted, the image_digest from benchmark_result.json context is used.",
     )
     parser.add_argument(
         "--version",

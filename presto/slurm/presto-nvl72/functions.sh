@@ -502,4 +502,3 @@ function inject_benchmark_metadata {
        }' "${result_file}" > "${tmp_file}" && mv "${tmp_file}" "${result_file}"
     echo "Injected benchmark metadata into ${result_file}"
 }
-
