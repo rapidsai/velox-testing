@@ -5,7 +5,7 @@
 # Pull a Docker image from GitHub Container Registry (ghcr.io) and save it
 # as a .sqsh file using pyxis/enroot on a compute node.
 #
-# Requires ~/.config/enroot/.credentials to contain ghcr.io credentials.
+# Requires enroot credentials to be set to access ghcr.io
 #
 # Usage:
 #   ./pull_ghcr_image.sh <ghcr.io/org/image:tag> [--output <path/to/image.sqsh>] [--overwrite]

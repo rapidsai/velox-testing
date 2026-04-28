@@ -119,10 +119,10 @@ Override any of these by exporting before running:
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATA` | `/scratch/prestouser/tpch-rs-float-no-delta` | TPC-H parquet dataset root |
+| `DATA` | `/scratch/${USER}/tpch-rs-float-no-delta` | TPC-H parquet dataset root |
 | `IMAGE_DIR` | `/scratch/${USER}/images/presto` | Directory containing `.sqsh` image files |
 | `RESULTS_BASE` | `${HOME}/${VT_WORKSPACE}/results` | Benchmark result output root |
-| `HIVE_METASTORE_SHARED_ROOT` | `/scratch/prestouser/shared_hive_metadata` | Shared pre-analyzed metastore snapshots |
+| `HIVE_METASTORE_SHARED_ROOT` | `/scratch/${USER}/shared_hive_metadata` | Shared pre-analyzed metastore snapshots |
 | `HIVE_METASTORE_VERSION` | `HIVE-METASTORE-20260419-no-delta` | Metastore snapshot version tag |
 
 ## Monitoring
