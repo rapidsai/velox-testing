@@ -158,7 +158,7 @@ fi
 
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
-if [[ -n "$NUM_WORKERS" && ( "$VARIANT_TYPE" == "gpu" || "$VARIANT_TYPE" == "cpu" ) ]]; then
+if [[ -n "$NUM_WORKERS" ]]; then
   if [[ -n ${GPU_IDS:-} ]]; then
       WORKER_IDS=($(echo "$GPU_IDS" | tr ',' ' '))
   else

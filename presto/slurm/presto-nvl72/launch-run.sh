@@ -39,13 +39,8 @@ EXTRA_ARGS=()
 NUM_GPUS_PER_NODE="4"
 USE_NUMA="1"
 VARIANT_TYPE="gpu"
-#WORKER_IMAGE="presto-native-worker-gpu"
-COORD_IMAGE="presto-coordinator-karth-Mar11"
-WORKER_IMAGE="presto-native-worker-gpu-karth-Mar11"
-#COORD_IMAGE="presto-coordinator-ibm-03-11"
-#WORKER_IMAGE="presto-native-worker-gpu-ibm-03-11"
-#WORKER_IMAGE="velox-testing-images-presto-471cf1a-velox-1a2f63f-gpu-cuda13.1-20260312-arm64"
-#COORD_IMAGE="presto-coordinator"
+WORKER_IMAGE=""
+COORD_IMAGE=""
 OUTPUT_PATH=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -147,6 +142,14 @@ fi
 if [[ -z "${SCALE_FACTOR}" ]]; then
     echo "Error: -s|--scale-factor is required"
     echo "Usage: $0 -n|--nodes <count> -s|--scale-factor <sf> [-i|--iterations <n>] [additional sbatch options]"
+    exit 1
+fi
+if [[ -z "${WORKER_IMAGE}" ]]; then
+    echo "Error: -w|--worker-image is required"
+    exit 1
+fi
+if [[ -z "${COORD_IMAGE}" ]]; then
+    echo "Error: -c|--coord-image is required"
     exit 1
 fi
 

@@ -477,7 +477,7 @@ def _build_submission_payload(
     }
 
     engine_config_payload = engine_config.serialize() if engine_config else {}
-    if any(v is not None for v in (velox_branch, velox_repo, presto_branch, presto_repo)):
+    if velox_branch or velox_repo or presto_branch or presto_repo:
         engine_config_payload = {
             **engine_config_payload,
             "velox_branch": velox_branch,

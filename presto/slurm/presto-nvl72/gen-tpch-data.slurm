@@ -12,25 +12,27 @@
 # ==============================================================================
 # TPC-H Data Generation Job Script
 # ==============================================================================
-# Generates TPC-H parquet data using the tpchgen-rs container.
+# Generates TPC-H parquet data using benchmark_data_tools/generate_data_files.py
+# from velox-testing, running inside the tpchgen-cli container image.
 #
 # Required env vars (passed via --export or set below):
 #   SCALE_FACTOR  - TPC-H scale factor (e.g. 100)
 #   OUTPUT_DIR    - Absolute path to the output directory on the host
 #   PARALLELISM   - Number of parallel generation threads (default: 100)
-#   IMAGE         - tpchgen-rs container image
-#   EXTRA_ARGS    - Additional tpchgen-rs flags
+#
+# Pre-requisite: pull the image with:
+#   ./pull_ghcr_image.sh ghcr.io/rapidsai/velox-testing-images:tpchgen-cli
 
 # ==============================================================================
 # Defaults
 # ==============================================================================
 : "${SCALE_FACTOR:=100}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 source "${SCRIPT_DIR}/defaults.env"
 : "${OUTPUT_DIR:=/scratch/${USER}/${VT_WORKSPACE}/tpch-rs-float/scale-100-no-delta}"
 : "${PARALLELISM:=100}"
-: "${IMAGE:=ghcr.io/tomaugspurger/tpchgen-rs:tom-sync-upstream-clean}"
-: "${EXTRA_ARGS:=--no-delta-length-byte-array --use-float-type}"
+: "${IMAGE:=${IMAGE_DIR}/velox-testing-images-tpchgen-cli.sqsh}"
 
 # ==============================================================================
 # Pre-flight Info
@@ -42,21 +44,33 @@ echo "Scale factor: $SCALE_FACTOR"
 echo "Output dir:   $OUTPUT_DIR"
 echo "Parallelism:  $PARALLELISM"
 echo "Image:        $IMAGE"
-echo "Extra args:   $EXTRA_ARGS"
 echo "========================================"
+
+if [[ ! -f "${IMAGE}" ]]; then
+    echo "Error: tpchgen-cli image not found at: ${IMAGE}"
+    echo "Pull it first with:"
+    echo "  ${SCRIPT_DIR}/pull_ghcr_image.sh ghcr.io/rapidsai/velox-testing-images:tpchgen-cli"
+    exit 1
+fi
 
 mkdir -p "${OUTPUT_DIR}"
 
 # ==============================================================================
 # Generate Data
 # ==============================================================================
-# Mount OUTPUT_DIR as /data inside the container, then run tpchgen-rs.
-# pyxis/enroot runs the container as the submitting user automatically.
+# Mount OUTPUT_DIR as /data and VT_ROOT as /workspace inside the container.
+# generate_data_files.py calls tpchgen-cli (present in the image) to produce
+# per-table partitioned parquet files, then rearranges them and writes metadata.json.
 srun --ntasks=1 \
   --container-image="${IMAGE}" \
-  --container-mounts="${OUTPUT_DIR}:/data" \
-  -- /usr/local/bin/python3.12 /usr/local/bin/generate_tpch.py \
-    -s "${SCALE_FACTOR}" -o /data/ ${EXTRA_ARGS} -j "${PARALLELISM}"
+  --container-mounts="${OUTPUT_DIR}:/data,${VT_ROOT}:/workspace" \
+  -- python3 /workspace/benchmark_data_tools/generate_data_files.py \
+    -b tpch \
+    -d /data \
+    -s "${SCALE_FACTOR}" \
+    --convert-decimals-to-floats \
+    -j "${PARALLELISM}" \
+    --verbose
 
 echo "========================================"
 echo "Data generation complete!"

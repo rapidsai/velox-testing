@@ -101,9 +101,7 @@ function run_coord_image {
         srun -w $COORD --ntasks=1 --overlap \
 --container-image=${coord_image} \
 --container-remap-root \
---export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
+--export=ALL \
 --container-mounts=${VT_ROOT}:/workspace,\
 ${coord_data}:/var/lib/presto/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
@@ -117,9 +115,7 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
         srun -w $COORD --ntasks=1 --overlap \
 --container-remap-root \
 --container-image=${coord_image} \
---export=ALL,JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=JAVA_HOME=/usr/lib/jvm/jre-17-openjdk \
---container-env=PATH=/usr/lib/jvm/jre-17-openjdk/bin:$PATH \
+--export=ALL \
 --container-mounts=${VT_ROOT}:/workspace,\
 ${coord_data}:/var/lib/presto/data,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
@@ -209,6 +205,13 @@ function run_worker {
     mkdir -p ${worker_data}/hive/data/user_data
     mkdir -p ${VT_ROOT}/.hive_metastore
 
+    # To re-enable verbose GLOG logging, add these flags to the srun call below
+    # (note: move them inside -- bash -c "..." as exports, not --container-env,
+    # since pyxis ignores key=value in --container-env):
+    #   GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3
+    #   GLOG_logtostderr=1
+    # Warning: GLOG_logtostderr=1 generates very large logs that can fill the disk.
+
     # The parent SLURM job allocates --gres=gpu:NUM_GPUS_PER_NODE so all GPU kernel
     # capabilities are already set up for the job cgroup.  Do NOT use --gres=gpu:1
     # on the step: it restricts the step's cgroup to one GPU and then nvidia-container-cli
@@ -236,8 +239,6 @@ ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 /usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
 /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1 \
---container-env=GLOG_vmodule=IntraNodeTransferRegistry=3,ExchangeOperator=3 \
---container-env=GLOG_logtostderr=1 \
 -- /bin/bash -c "
 export LD_LIBRARY_PATH='${CUDF_LIB}':\${LD_LIBRARY_PATH:-}
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi

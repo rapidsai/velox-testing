@@ -79,13 +79,6 @@ export NUM_WORKERS=$((NUM_NODES * NUM_GPUS_PER_NODE))
 export PORT=9200
 export CUDF_LIB=/usr/lib64/presto-native-libs
 
-# UCX Configuration
-export UCX_TLS=^ib,ud:aux,sm
-export UCX_MAX_RNDV_RAILS=1
-export UCX_RNDV_PIPELINE_ERROR_HANDLING=y
-export UCX_TCP_KEEPINTVL=1ms
-export UCX_KEEPALIVE_INTERVAL=1ms
-
 # ==============================================================================
 # Pre-flight Info
 # ==============================================================================

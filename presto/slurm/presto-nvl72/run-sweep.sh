@@ -8,8 +8,21 @@
 # Runs launch-run.sh + post_results.py for every combination of nodes and
 # scale factors defined below.
 #
-# Usage: ./run-sweep.sh
+# Usage: ./run-sweep.sh [OPTIONS]
 #
+# Required options:
+#   --sku-name        Hardware SKU name (e.g. raplab-gb200-nvl72)
+#   --velox-branch    Velox branch used to build the worker image
+#   --presto-branch   Presto branch used to build the worker image
+#   --velox-repo      Velox repository URL
+#   --presto-repo     Presto repository URL
+#
+# Optional:
+#   -n, --nodes          Space-separated node counts to sweep (default: "8")
+#   -s, --scale-factors  Space-separated scale factors to sweep (default: "30000")
+#   -i, --iterations     Number of benchmark iterations (default: 3)
+#   --cache-state        Override cache state (default: derived from iterations:
+#                        1 iteration -> "lukewarm", 2+ iterations -> "warm")
 
 set -euo pipefail
 
@@ -18,27 +31,41 @@ VT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 source "${SCRIPT_DIR}/defaults.env"
 
 # ------------------------------------------------------------------------------
-# Sweep configuration — edit these arrays to change what gets benchmarked
+# Argument parsing
 # ------------------------------------------------------------------------------
 
 NODE_COUNTS=(8)
 SCALE_FACTORS=(30000)
-#NODE_COUNTS=(8 4 2)
-#SCALE_FACTORS=(3000 10000)
 ITERATIONS=3
+SKU_NAME=""
+CACHE_STATE=""
+VELOX_BRANCH=""
+PRESTO_BRANCH=""
+VELOX_REPO=""
+PRESTO_REPO=""
 
-# post_results.py fixed arguments
-SKU_NAME="raplab-gb200-nvl72"
-CACHE_STATE="warm"
-VELOX_BRANCH="ibm-research-preview_2026_03_03_pr16201_pr16488"
-PRESTO_BRANCH="ibm-research-preview_2026_03_03_and_fixes_and_PR27215"
-VELOX_REPO="https://github.com/karthikeyann/velox"
-PRESTO_REPO="https://github.com/karthikeyann/presto"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --sku-name)         SKU_NAME="$2";       shift 2 ;;
+        --cache-state)      CACHE_STATE="$2";    shift 2 ;;
+        --velox-branch)     VELOX_BRANCH="$2";   shift 2 ;;
+        --presto-branch)    PRESTO_BRANCH="$2";  shift 2 ;;
+        --velox-repo)       VELOX_REPO="$2";     shift 2 ;;
+        --presto-repo)      PRESTO_REPO="$2";    shift 2 ;;
+        -n|--nodes)         read -ra NODE_COUNTS <<< "$2"; shift 2 ;;
+        -s|--scale-factors) read -ra SCALE_FACTORS <<< "$2"; shift 2 ;;
+        -i|--iterations)    ITERATIONS="$2";     shift 2 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
 
-#VELOX_BRANCH="ibm-research-preview_2026_03_11"
-#PRESTO_BRANCH="ibm-research-preview_2026_03_11"
-#VELOX_REPO="https://github.com/IBM/velox"
-#PRESTO_REPO="https://github.com/prestodb/presto"
+for req in SKU_NAME VELOX_BRANCH PRESTO_BRANCH VELOX_REPO PRESTO_REPO; do
+    [[ -n "${!req}" ]] || { echo "Error: --${req//_/-} is required"; exit 1; }
+done
+
+if [[ -z "${CACHE_STATE}" ]]; then
+    [[ "${ITERATIONS}" -eq 1 ]] && CACHE_STATE="lukewarm" || CACHE_STATE="warm"
+fi
 
 # Seconds to wait between runs to allow the previous job's cudf exchange UCX
 # sockets to release their ports (10003, 10013, ...).  These ports are

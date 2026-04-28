@@ -10,7 +10,8 @@
 # Usage:
 #   ./launch-gen-data.sh [--scale-factor <sf>] [--output-dir <path>] [--parallelism <n>] [additional sbatch options]
 #
-# To change container image or encoding flags, edit gen-tpch-data.slurm directly.
+# To change the container image, override IMAGE_DIR or set IMAGE before running.
+# Pre-pull the image with: ./pull_ghcr_image.sh ghcr.io/rapidsai/velox-testing-images:tpchgen-cli
 # ==============================================================================
 
 set -e
