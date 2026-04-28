@@ -1,18 +1,7 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -30,14 +19,21 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Get the root of the git repository
-REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+if command -v git &> /dev/null; then
+  REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+else
+  REPO_ROOT="$SCRIPT_DIR/../.."
+fi
+
 
 # Validate sibling repos
-if [[ "$VARIANT_TYPE" == "java" ]]; then
-  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
-else
-  "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
-fi
+function validate_sibling_repos() {
+  if [[ "$VARIANT_TYPE" == "java" ]]; then
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
+  else
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
+  fi
+}
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 
@@ -50,31 +46,67 @@ if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
 fi
 echo "Using COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}"
 
+validate_sccache_auth() {
+  if [[ "$ENABLE_SCCACHE" == true ]]; then
+    echo "Checking for sccache authentication files in: $SCCACHE_AUTH_DIR"
+
+    if [[ ! -d "$SCCACHE_AUTH_DIR" ]]; then
+      echo "ERROR: sccache auth directory not found: $SCCACHE_AUTH_DIR" >&2
+      echo "Run scripts/sccache/setup_sccache_auth.sh to set up authentication." >&2
+      exit 1
+    fi
+
+    if [[ ! -f "$SCCACHE_AUTH_DIR/github_token" ]]; then
+      echo "ERROR: GitHub token not found: $SCCACHE_AUTH_DIR/github_token" >&2
+      echo "Run scripts/sccache/setup_sccache_auth.sh to set up authentication." >&2
+      exit 1
+    fi
+
+    if [[ ! -f "$SCCACHE_AUTH_DIR/aws_credentials" ]]; then
+      echo "ERROR: AWS credentials not found: $SCCACHE_AUTH_DIR/aws_credentials" >&2
+      echo "Run scripts/sccache/setup_sccache_auth.sh to set up authentication." >&2
+      exit 1
+    fi
+
+    echo "sccache authentication files found."
+  fi
+}
+
+if [[ "$ENABLE_SCCACHE" == true && "$VARIANT_TYPE" == "java" ]]; then
+  echo "WARNING: --sccache is not applicable for java variant, ignoring."
+  ENABLE_SCCACHE=false
+fi
+
+validate_sccache_auth
+
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   echo "Error: the --profile argument is only supported for Presto GPU"
   exit 1
 fi
 
-if [[ "$PROFILE" == "ON" && $(( $NUM_WORKERS > 1 )) && "$SINGLE_CONTAINER" == "false" ]]; then
+if [[ "$PROFILE" == "ON" && $NUM_WORKERS -gt 1 && "$SINGLE_CONTAINER" == "false" ]]; then
   echo "Error: multi-worker --profile argument is only currently supported with the --single-container option"
   exit 1
 fi
 
-# Set IMAGE_TAG with username to avoid conflicts when multiple users build images
-# Falls back to "latest" if USER is not set
-export IMAGE_TAG="${USER:-latest}"
-echo "Using IMAGE_TAG: $IMAGE_TAG"
+# Set PRESTO_IMAGE_TAG to the username in order to avoid conflicts when multiple users build images.
+# Falls back to "latest" if USER is not set.
+if [ -z "${PRESTO_IMAGE_TAG}" ]; then
+  export PRESTO_IMAGE_TAG="${USER:-latest}"
+fi
+echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 COORDINATOR_SERVICE="presto-coordinator"
-COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:${IMAGE_TAG}
+COORDINATOR_IMAGE=${COORDINATOR_SERVICE}:${PRESTO_IMAGE_TAG}
 JAVA_WORKER_SERVICE="presto-java-worker"
-JAVA_WORKER_IMAGE=${JAVA_WORKER_SERVICE}:${IMAGE_TAG}
+JAVA_WORKER_IMAGE=${JAVA_WORKER_SERVICE}:${PRESTO_IMAGE_TAG}
 CPU_WORKER_SERVICE="presto-native-worker-cpu"
-CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:${IMAGE_TAG}
+CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:${PRESTO_IMAGE_TAG}
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
-GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:${IMAGE_TAG}
+GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:${PRESTO_IMAGE_TAG}
 
-DEPS_IMAGE="${PRESTO_DEPS_IMAGE:-presto/prestissimo-dependency:centos9-${IMAGE_TAG}}"
+DEPS_IMAGE="${PRESTO_DEPS_IMAGE:-presto/prestissimo-dependency:centos9-${PRESTO_IMAGE_TAG}}"
+export DEPS_IMAGE
 
 BUILD_TARGET_ARG=()
 
@@ -98,7 +130,11 @@ if [[ "$VARIANT_TYPE" == "java" ]]; then
   DOCKER_COMPOSE_FILE="java"
   conditionally_add_build_target $JAVA_WORKER_IMAGE $JAVA_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
-  DOCKER_COMPOSE_FILE="native-cpu"
+  if [[ "$ENABLE_SCCACHE" == true ]]; then
+    DOCKER_COMPOSE_FILE="native-cpu.sccache"
+  else
+    DOCKER_COMPOSE_FILE="native-cpu"
+  fi
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
@@ -106,11 +142,21 @@ else
   echo "Internal error: unexpected VARIANT_TYPE value: $VARIANT_TYPE"
 fi
 
-# Default GPU_IDS if NUM_WORKERS is set but GPU_IDS is not
-if [[ -n $NUM_WORKERS && -z $GPU_IDS ]]; then
-  # Generate default GPU IDs: 0,1,2,...,N-1
+if [[ "$VARIANT_TYPE" == "gpu" && -n $NUM_WORKERS && -z ${GPU_IDS:-} ]]; then
   export GPU_IDS=$(seq -s, 0 $((NUM_WORKERS - 1)))
 fi
+
+# Set up LOGS_DIR before any docker compose commands (stop, build, or up)
+# since docker-compose.common.yml requires it via ${LOGS_DIR:?...}.
+LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
+[ -L "${LOGS_DIR}" ] && rm -f "${LOGS_DIR}"
+mkdir -p "${LOGS_DIR}"
+if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
+  mkdir -p "${LOGS_DIR}/archive"
+  mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
+fi
+export SERVER_START_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
+export LOGS_DIR
 
 if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   gpu_worker_services=("${GPU_WORKER_SERVICE}")
@@ -133,7 +179,9 @@ fi
 
 "${SCRIPT_DIR}/stop_presto.sh"
 
-"${SCRIPT_DIR}/generate_presto_config.sh"
+if [[ "${SKIP_GENERATE_CONFIG:-false}" != "true" ]]; then
+  "${SCRIPT_DIR}/generate_presto_config.sh"
+fi
 
 # must determine CUDA_ARCHITECTURES here as nvidia-smi is not available in the docker build context
 CUDA_ARCHITECTURES=""
@@ -167,14 +215,15 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
+  RENDER_ARGS="--template-path $TEMPLATE_PATH --output-path $RENDERED_PATH --num-workers $NUM_WORKERS --single-container $SINGLE_CONTAINER --kvikio-threads $KVIKIO_THREADS --sccache $ENABLE_SCCACHE"
   if [[ -n $GPU_IDS ]]; then
-    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--gpu-ids $GPU_IDS" "--kvikio-threads $KVIKIO_THREADS"
-  else
-    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" "--template-path $TEMPLATE_PATH" "--output-path $RENDERED_PATH" "--num-workers $NUM_WORKERS" "--single-container $SINGLE_CONTAINER" "--kvikio-threads $KVIKIO_THREADS"
+    RENDER_ARGS="$RENDER_ARGS --gpu-ids $GPU_IDS"
   fi
+  "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" $RENDER_ARGS
   DOCKER_COMPOSE_FILE_PATH="$RENDERED_PATH"
 fi
 if (( ${#BUILD_TARGET_ARG[@]} )); then
+  validate_sibling_repos
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
     echo "Either build a local image using build_centos9_deps_image.sh or fetch a pre-built"
@@ -187,19 +236,34 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     PRESTO_VERSION=$PRESTO_VERSION "${SCRIPT_DIR}/build_presto_java_package.sh"
   fi
 
+  SCCACHE_BUILD_ARGS=()
+  SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_VERSION="${SCCACHE_VERSION}")
+  if [[ "$ENABLE_SCCACHE" == true ]]; then
+    SCCACHE_BUILD_ARGS+=(--build-arg ENABLE_SCCACHE="ON")
+    if [[ "$SCCACHE_ENABLE_DIST" == true ]]; then
+      echo "WARNING: sccache distributed compilation enabled - may cause compilation differences"
+    else
+      SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
+    fi
+  else
+    SCCACHE_BUILD_ARGS+=(--build-arg ENABLE_SCCACHE="OFF")
+    SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
+  fi
+
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
   BUILD_ARGS=(
     --build-arg PRESTO_VERSION=$PRESTO_VERSION
     --build-arg NUM_THREADS=$NUM_THREADS
     --build-arg BUILD_TYPE=$BUILD_TYPE
     --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES
-    --build-arg PRESTO_DEPS_IMAGE=$DEPS_IMAGE
+    --build-arg BASE_IMAGE=$DEPS_IMAGE
   )
   if [[ -n "${BUILD_BASE_DIR:-}" ]]; then
     BUILD_ARGS+=(--build-arg BUILD_BASE_DIR=$BUILD_BASE_DIR)
   fi
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG "${BUILD_ARGS[@]}" \
+  "${SCCACHE_BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}
 fi
 

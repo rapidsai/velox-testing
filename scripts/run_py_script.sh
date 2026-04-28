@@ -16,6 +16,7 @@ runs the given python script, and then deletes the created virtual environment.
 OPTIONS:
     -h, --help                      Show this help message.
     -p, --python-script-path        Path of the python script to be run.
+    -q, --quiet                     Suppress setup messages (venv, pip, etc.).
     -r, --requirements-file-path    Path of the requirements.txt file for the python script.
                                     By default, the requirements.txt file is assumed to be in
                                     the same directory as the python script.
@@ -28,7 +29,14 @@ EXAMPLES:
 EOF
 }
 
+QUIET=false
 SCRIPT_ARGS=()
+
+log() {
+  if [[ "$QUIET" != true ]]; then
+    echo "$@"
+  fi
+}
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -46,6 +54,10 @@ parse_args() {
           exit 1
         fi
         ;;
+      -q|--quiet)
+        QUIET=true
+        shift
+        ;;
       -r|--requirements-file-path)
         if [[ -n $2 ]]; then
           REQUIREMENTS_FILE_PATH=$2
@@ -54,6 +66,11 @@ parse_args() {
           echo "Error: --requirements-file-path requires a value"
           exit 1
         fi
+        ;;
+      --)
+        shift
+        SCRIPT_ARGS+=("$@")
+        break
         ;;
       *)
         SCRIPT_ARGS+=($1)
@@ -77,14 +94,21 @@ fi
 
 source "$(dirname $(readlink -f $0))/py_env_functions.sh"
 
-trap delete_python_virtual_env EXIT
+if [[ "$QUIET" == true ]]; then
+  init_python_virtual_env > /dev/null 2>&1
+else
+  init_python_virtual_env
+fi
 
-init_python_virtual_env
+STAMP_FILE=".venv/.requirements_stamp"
+if [[ ! -f "$STAMP_FILE" ]] || ! diff -q "$REQUIREMENTS_FILE_PATH" "$STAMP_FILE" &>/dev/null; then
+  log "Running pip install for requirements file: $REQUIREMENTS_FILE_PATH"
+  pip install -q -r $REQUIREMENTS_FILE_PATH
+  cp "$REQUIREMENTS_FILE_PATH" "$STAMP_FILE"
+else
+  log "Requirements unchanged, skipping pip install"
+fi
 
-
-echo "Running pip install for requirements file: $REQUIREMENTS_FILE_PATH"
-pip install -q -r $REQUIREMENTS_FILE_PATH
-
-echo -e "\nRunning python script with args:\n$SCRIPT_PATH ${SCRIPT_ARGS[@]}\n"
+log -e "\nRunning python script with args:\n$SCRIPT_PATH ${SCRIPT_ARGS[@]}\n"
 python $SCRIPT_PATH ${SCRIPT_ARGS[@]}
-echo "Finished running python script"
+log "Finished running python script"

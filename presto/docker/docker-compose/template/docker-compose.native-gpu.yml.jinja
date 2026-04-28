@@ -2,13 +2,20 @@ x-presto-native-worker-gpu: &gpu_worker_base
   extends:
     file: ../../docker-compose.common.yml
     service: presto-base-native-worker
-  image: presto-native-worker-gpu:${IMAGE_TAG:-latest}
+  image: presto-native-worker-gpu:${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}
   build:
     args:
       - GPU=ON
+{% if sccache %}
+    ulimits: {nofile: {soft: 500000, hard: 500000}}
+    secrets:
+      - github_token
+      - aws_credentials
+{% endif %}
   runtime: nvidia
   cap_add:
     - IPC_LOCK
+    - SYS_ADMIN  # Required for nsys GPU metrics profiling
   pid: host
   ulimits:
     memlock: -1
@@ -37,7 +44,10 @@ x-presto-native-worker-gpu: &gpu_worker_base
     #   - /dev/infiniband/uverbs9
   depends_on:
     - presto-coordinator
+  privileged: true
   volumes:
+  # required for numa
+    - /sys/devices/system/node:/sys/devices/system/node
     - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
     - ../../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
     - ../../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
@@ -48,7 +58,6 @@ services:
     extends:
       file: ../../docker-compose.common.yml
       service: presto-base-coordinator
-    image: presto-coordinator:${IMAGE_TAG:-latest}
     volumes:
       - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
       - ../../config/generated/gpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
@@ -61,9 +70,11 @@ services:
   presto-native-worker-gpu-{{ gpu_id }}:
     <<: *gpu_worker_base
     environment:
+      WORKER_ID: {{ gpu_id }}
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
+      SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
@@ -75,6 +86,7 @@ services:
       KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
     volumes:
+      - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc/config.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
@@ -87,8 +99,9 @@ services:
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
+      SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
@@ -102,8 +115,9 @@ services:
 {% else %}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
+      SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
@@ -129,3 +143,11 @@ services:
 {%- endfor %}
 {%- endif %}
 {%- endif %}
+{% if sccache %}
+
+secrets:
+  github_token:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/github_token"
+  aws_credentials:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/aws_credentials"
+{% endif %}

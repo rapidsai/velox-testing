@@ -1,20 +1,11 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 import os
 
-from ..common.conftest import *
+from ..common.conftest import pytest_generate_tests  # noqa: F401
+from ..common.fixtures import tpcds_queries, tpch_queries  # noqa: F401
+from .common_fixtures import presto_cursor, setup_and_teardown  # noqa: F401
 
 
 def _default_port():
@@ -31,10 +22,21 @@ DEFAULT_HOST = os.getenv("PRESTO_COORDINATOR_HOST", "localhost")
 DEFAULT_PORT = _default_port()
 
 def pytest_addoption(parser):
-    parser.addoption("--queries") # default is all queries for the benchmark type
+    parser.addoption("--queries")  # default is all queries for the benchmark type
+    parser.addoption("--queries-file")  # path to a custom JSON file containing query definitions
     parser.addoption("--keep-tables", action="store_true", default=False)
     parser.addoption("--hostname", default=DEFAULT_HOST)
     parser.addoption("--port", default=DEFAULT_PORT, type=int)
     parser.addoption("--user", default="test_user")
     parser.addoption("--schema-name")
     parser.addoption("--scale-factor")
+    parser.addoption("--output-dir", default="integ_test_output")
+    parser.addoption("--reference-results-dir")
+    parser.addoption("--store-presto-results", action="store_true", default=False)
+    parser.addoption("--store-reference-results", action="store_true", default=False)
+    parser.addoption("--show-presto-result-preview", action="store_true", default=False)
+    parser.addoption("--show-reference-result-preview", action="store_true", default=False)
+    parser.addoption("--preview-rows-count", default=3, type=int)
+    parser.addoption("--skip-reference-comparison", action="store_true", default=False)
+    parser.addoption("--explain", action="store_true", default=False)
+    parser.addoption("--explain-analyze", action="store_true", default=False)

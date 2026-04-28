@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -96,13 +98,12 @@ cp -r ../../velox/CMake velox
 # now build
 echo "Building..."
 docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
-if [[ "${IMAGE_NAME}" != "${DEFAULT_IMAGE}" ]]; then
-  if [[ -z "$(docker images -q ${DEFAULT_IMAGE})" ]]; then
-    echo "Error: expected base image ${DEFAULT_IMAGE} not found after build"
-    exit 1
-  fi
-  echo "Tagging ${DEFAULT_IMAGE} as ${IMAGE_NAME}"
-  docker tag "${DEFAULT_IMAGE}" "${IMAGE_NAME}"
+
+# tag with the user-specific name to avoid conflicts between multiple users on the same host
+COMPOSE_IMAGE_NAME="${DEFAULT_IMAGE}"
+if [[ "${IMAGE_NAME}" != "${COMPOSE_IMAGE_NAME}" ]]; then
+  echo "Tagging image as ${IMAGE_NAME}..."
+  docker tag ${COMPOSE_IMAGE_NAME} ${IMAGE_NAME}
 fi
 
 # done (will cleanup on exit)

@@ -1,20 +1,18 @@
 #!/bin/bash
 
-# Copyright (c) 2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
+
+# Compute the directory where this script resides
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# LOGS_DIR points to the directory where server log files (including nvidia-smi
+# output) are written so that run_context.py can parse GPU info.
+export LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
+
+source "${SCRIPT_DIR}/presto_connection_defaults.sh"
 
 print_help() {
   cat << EOF
@@ -28,7 +26,9 @@ OPTIONS:
     -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
-    -h, --hostname          Hostname of the Presto coordinator.
+    --queries-file          Path to a custom JSON file containing query definitions. When specified, queries are loaded
+                            from this file instead of the default queries_best.json.
+    -H, --hostname          Hostname of the Presto coordinator.
     --port                  Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
@@ -41,8 +41,13 @@ OPTIONS:
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
+    --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
+    --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
+    -v, --verbose           Print debug logs for worker/engine detection
+                            (e.g. node URIs, cluster-tag, GPU model).
+                            Use when engine is misdetected or the run fails.
 
 EXAMPLES:
     $0 -b tpch -s bench_sf100
@@ -51,7 +56,7 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
     $0 -b tpch -s bench_sf100 --metrics
-    $0 -h
+    $0 -b tpch -s bench_sf100 --verbose
 
 EOF
 }
@@ -81,7 +86,16 @@ parse_args() {
           exit 1
         fi
         ;;
-      -h|--hostname)
+      --queries-file)
+        if [[ -n $2 ]]; then
+          QUERIES_FILE=$2
+          shift 2
+        else
+          echo "Error: --queries-file requires a value"
+          exit 1
+        fi
+        ;;
+      -H|--hostname)
         if [[ -n $2 ]]; then
           HOST_NAME=$2
           shift 2
@@ -157,8 +171,20 @@ parse_args() {
         PROFILE=true
         shift
         ;;
+      --skip-drop-cache)
+        SKIP_DROP_CACHE=true
+        shift
+        ;;
+      --skip-analyze-check)
+        SKIP_ANALYZE_CHECK=true
+        shift
+        ;;
       -m|--metrics)
         METRICS=true
+        shift
+        ;;
+      -v|--verbose)
+        export PRESTO_BENCHMARK_DEBUG=1
         shift
         ;;
       *)
@@ -184,6 +210,8 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
+set_presto_coordinator_defaults
+
 PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
 if [[ -n ${SCALE_FACTOR} ]]; then
@@ -192,6 +220,10 @@ fi
 
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
+fi
+
+if [[ -n ${QUERIES_FILE} ]]; then
+  PYTEST_ARGS+=("--queries-file ${QUERIES_FILE}")
 fi
 
 if [[ -n ${HOST_NAME} ]]; then
@@ -224,15 +256,20 @@ if [[ -n ${TAG} ]]; then
 fi
 
 if [[ "${PROFILE}" == "true" ]]; then
-  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f ./profiler_functions.sh)")
+  PYTEST_ARGS+=("--profile --profile-script-path $(readlink -f "${SCRIPT_DIR}/profiler_functions.sh")")
 fi
 
 if [[ "${METRICS}" == "true" ]]; then
   PYTEST_ARGS+=("--metrics")
 fi
 
-# Compute the directory where this script resides
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
+  PYTEST_ARGS+=("--skip-drop-cache")
+fi
+
+if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then
+  PYTEST_ARGS+=("--skip-analyze-check")
+fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
@@ -247,5 +284,11 @@ source "${SCRIPT_DIR}/common_functions.sh"
 
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
+echo "Running bench"
+if [ -z "${PRESTO_IMAGE_TAG}" ]; then
+  export PRESTO_IMAGE_TAG="${USER:-latest}"
+fi
+echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
+
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}

@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -11,6 +13,10 @@ if [ -z "${COMPOSE_PROJECT_NAME:-}" ]; then
   project_user="$(printf "%s" "${project_user}" | tr '[:upper:]' '[:lower:]')"
   COMPOSE_PROJECT_NAME="presto-${project_user}"
   export COMPOSE_PROJECT_NAME
+fi
+
+if [ -z "${PRESTO_IMAGE_TAG}" ]; then
+  export PRESTO_IMAGE_TAG="${USER:-latest}"
 fi
 
 GPU_FILE="${SCRIPT_DIR}/../docker/docker-compose/generated/docker-compose.native-gpu.rendered.yml"

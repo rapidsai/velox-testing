@@ -3,7 +3,6 @@ services:
     extends:
       file: docker-compose.common.yml
       service: presto-base-coordinator
-    image: presto-coordinator:${IMAGE_TAG:-latest}
     volumes:
       - ./config/generated/cpu/etc_common:/opt/presto-server/etc
       - ./config/generated/cpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
@@ -14,10 +13,14 @@ services:
     extends:
       file: docker-compose.common.yml
       service: presto-base-native-worker
-    image: presto-native-worker-cpu:${IMAGE_TAG:-latest}
+    image: presto-native-worker-cpu:${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}
+    cap_add:
+      - SYS_NICE
     build:
       args:
         - GPU=OFF
+    entrypoint: ["bash", "/opt/launch_presto_servers.sh"]
+    command: []
     depends_on:
       - presto-coordinator
     volumes:
