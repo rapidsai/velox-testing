@@ -15,6 +15,8 @@ on:
         required: false
         default: ''
 
+permissions: {}
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-images
@@ -31,6 +33,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -39,9 +43,11 @@ jobs:
           password: ${{ github.token }}
       - name: Resolve image
         id: resolve-image
+        env:
+          VELOX_IMAGE: ${{ inputs.velox_image }}
         run: |
-          if [ -n "${{ inputs.velox_image }}" ]; then
-            echo "velox_image=${{ inputs.velox_image }}" >> "${GITHUB_OUTPUT}"
+          if [ -n "${VELOX_IMAGE}" ]; then
+            echo "velox_image=${VELOX_IMAGE}" >> "${GITHUB_OUTPUT}"
           else
             echo "velox_image=${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda12.9" >> "${GITHUB_OUTPUT}"
           fi
@@ -59,6 +65,9 @@ jobs:
   run-sanitizer-tests-memcheck:
     name: compute-sanitizer memcheck
     needs: discover-tests
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
     with:
       tool_name: "memcheck"
@@ -68,6 +77,9 @@ jobs:
   run-sanitizer-tests-racecheck:
     name: compute-sanitizer racecheck
     needs: discover-tests
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
     with:
       tool_name: "racecheck"
@@ -77,6 +89,9 @@ jobs:
   run-sanitizer-tests-synccheck:
     name: compute-sanitizer synccheck
     needs: discover-tests
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
     with:
       tool_name: "synccheck"
