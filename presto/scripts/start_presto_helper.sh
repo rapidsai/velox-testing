@@ -126,6 +126,15 @@ elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
   else
     DOCKER_COMPOSE_FILE="native-cpu"
   fi
+  # When the multi-worker CPU jinja template is in use (NUM_WORKERS>1,
+  # not single-container), the rendered file names per-worker services
+  # presto-native-worker-cpu-{0..N-1}. All workers share the same image,
+  # so picking worker 0 as the build target is sufficient. sccache uses a
+  # static file with only one CPU service, so skip the rename in that case.
+  CPU_TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
+  if [[ -f "$CPU_TEMPLATE_PATH" && -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 && "$SINGLE_CONTAINER" == "false" ]]; then
+    CPU_WORKER_SERVICE="presto-native-worker-cpu-0"
+  fi
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
   DOCKER_COMPOSE_FILE="native-gpu"
