@@ -11,11 +11,12 @@
 # Usage: ./run-sweep.sh [OPTIONS]
 #
 # Required options:
-#   --sku-name        Hardware SKU name (e.g. raplab-gb200-nvl72)
-#   --velox-branch    Velox branch used to build the worker image
-#   --presto-branch   Presto branch used to build the worker image
-#   --velox-repo      Velox repository URL
-#   --presto-repo     Presto repository URL
+#   --sku-name                    Hardware SKU name (e.g. raplab-gb200-nvl72)
+#   --storage-configuration-name  Storage configuration name passed to post_results.py
+#   --velox-branch                Velox branch used to build the worker image
+#   --presto-branch               Presto branch used to build the worker image
+#   --velox-repo                  Velox repository URL
+#   --presto-repo                 Presto repository URL
 #
 # Optional:
 #   -n, --nodes          Space-separated node counts to sweep (default: "8")
@@ -38,6 +39,7 @@ NODE_COUNTS=(8)
 SCALE_FACTORS=(30000)
 ITERATIONS=3
 SKU_NAME=""
+STORAGE_CONFIGURATION_NAME=""
 CACHE_STATE=""
 VELOX_BRANCH=""
 PRESTO_BRANCH=""
@@ -46,9 +48,10 @@ PRESTO_REPO=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --sku-name)         SKU_NAME="$2";       shift 2 ;;
-        --cache-state)      CACHE_STATE="$2";    shift 2 ;;
-        --velox-branch)     VELOX_BRANCH="$2";   shift 2 ;;
+        --sku-name)                    SKU_NAME="$2";                    shift 2 ;;
+        --storage-configuration-name)  STORAGE_CONFIGURATION_NAME="$2"; shift 2 ;;
+        --cache-state)                 CACHE_STATE="$2";                 shift 2 ;;
+        --velox-branch)                VELOX_BRANCH="$2";                shift 2 ;;
         --presto-branch)    PRESTO_BRANCH="$2";  shift 2 ;;
         --velox-repo)       VELOX_REPO="$2";     shift 2 ;;
         --presto-repo)      PRESTO_REPO="$2";    shift 2 ;;
@@ -59,7 +62,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-for req in SKU_NAME VELOX_BRANCH PRESTO_BRANCH VELOX_REPO PRESTO_REPO; do
+for req in SKU_NAME STORAGE_CONFIGURATION_NAME VELOX_BRANCH PRESTO_BRANCH VELOX_REPO PRESTO_REPO; do
     [[ -n "${!req}" ]] || { echo "Error: --${req//_/-} is required"; exit 1; }
 done
 
@@ -102,7 +105,7 @@ for SF in "${SCALE_FACTORS[@]}"; do
             -p "${VT_ROOT}/benchmark_reporting_tools/post_results.py" \
             "${OUTPUT_DIR}" \
             --sku-name "${SKU_NAME}" \
-            --storage-configuration-name "raplab-nvl72-tpch-rs-float-no-delta-scale-${SF}" \
+            --storage-configuration-name "${STORAGE_CONFIGURATION_NAME}" \
             --cache-state "${CACHE_STATE}" \
             --benchmark-name "tpch-rs-${SF}" \
             --velox-branch "${VELOX_BRANCH}" \

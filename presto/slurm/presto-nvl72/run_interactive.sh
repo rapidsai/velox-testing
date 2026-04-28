@@ -2,7 +2,7 @@
 # Interactive shell on a compute node with a container image.
 #
 # By default Slurm picks any available node in the partition.  Set NODELIST
-# (e.g. NODELIST=presto-gb200-gcn-03) to pin to a specific node or a range.
+# to pin to a specific node or a range.
 # IMAGE, GRES, and TIME_LIMIT are also overridable via environment.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
