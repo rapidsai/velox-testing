@@ -15,6 +15,7 @@ services:
       service: presto-base-native-worker
     container_name: presto-native-worker-cpu
     image: presto-native-worker-cpu:${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}
+    ulimits: {nofile: {soft: 500000, hard: 500000}}
     cap_add:
       - SYS_NICE
     build:

@@ -4,7 +4,25 @@
 
 import argparse
 import os
+import re
 import sys
+
+
+def detect_numa_nodes():
+    """Return list of NUMA node IDs visible on this host.
+
+    Reads /sys/devices/system/node/node<N> entries. Falls back to [0] when
+    the sysfs layout is unavailable (non-Linux, minimal container, etc.).
+    """
+    node_dir = "/sys/devices/system/node"
+    if not os.path.isdir(node_dir):
+        return [0]
+    nodes = []
+    for entry in sorted(os.listdir(node_dir)):
+        m = re.match(r"^node(\d+)$", entry)
+        if m:
+            nodes.append(int(m.group(1)))
+    return nodes or [0]
 
 
 def parse_args():
@@ -52,6 +70,16 @@ def parse_args():
         required=False,
         help="Enable sccache build secrets in the rendered compose file.",
     )
+    parser.add_argument(
+        "--variant",
+        type=str,
+        default="gpu",
+        choices=["gpu", "cpu"],
+        dest="variant",
+        required=False,
+        help="Which variant this template describes. 'cpu' uses NUMA-node assignment; "
+        "'gpu' uses per-GPU assignment via --gpu-ids.",
+    )
     return parser.parse_args()
 
 
@@ -82,11 +110,24 @@ def main() -> int:
     )
     template = env.get_template(os.path.basename(parsed_args.template_path))
 
-    # If GPU IDs are provided, use them; otherwise default to range
-    if gpu_ids:
-        workers = gpu_ids
+    # Build the worker list.
+    # - GPU variant (default): plain list of GPU IDs. Preserves the existing
+    #   contract the GPU template expects (worker loop variable is the GPU id).
+    # - CPU variant: list of dicts with {id, numa_node}. NUMA assignment is
+    #   round-robin across the NUMA nodes detected on the host so that with
+    #   --num-workers equal to the node count each worker lands on its own
+    #   socket. With fewer workers than nodes, leading nodes are used.
+    if parsed_args.variant == "gpu":
+        if gpu_ids:
+            workers = gpu_ids
+        else:
+            workers = list(range(max(0, parsed_args.num_workers)))
     else:
-        workers = list(range(max(0, parsed_args.num_workers)))
+        numa_nodes = detect_numa_nodes()
+        workers = [
+            {"id": i, "numa_node": numa_nodes[i % len(numa_nodes)]}
+            for i in range(max(0, parsed_args.num_workers))
+        ]
 
     rendered = template.render(
         num_workers=parsed_args.num_workers,
@@ -94,6 +135,7 @@ def main() -> int:
         single_container=parsed_args.single_container,
         kvikio_threads=parsed_args.kvikio_threads,
         sccache=parsed_args.sccache,
+        variant=parsed_args.variant,
     )
 
     os.makedirs(os.path.dirname(parsed_args.output_path), exist_ok=True)

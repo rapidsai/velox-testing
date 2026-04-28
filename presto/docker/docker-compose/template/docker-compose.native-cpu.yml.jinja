@@ -1,0 +1,64 @@
+x-presto-native-worker-cpu: &cpu_worker_base
+  extends:
+    file: ../../docker-compose.common.yml
+    service: presto-base-native-worker
+  image: presto-native-worker-cpu:${PRESTO_IMAGE_TAG}
+  ulimits: {nofile: {soft: 500000, hard: 500000}}
+  # SYS_NICE is required so that numactl --cpunodebind / --membind work inside
+  # the container (needed for NUMA pinning of multi-worker CPU setups).
+  cap_add:
+    - SYS_NICE
+  build:
+    args:
+      - GPU=OFF
+  entrypoint: ["bash", "/opt/launch_presto_servers.sh"]
+  command: []
+  depends_on:
+    - presto-coordinator
+  volumes:
+    # Mount /sys/devices/system/node so numactl inside the container can read
+    # the host NUMA topology when deciding memory/cpu bindings.
+    - /sys/devices/system/node:/sys/devices/system/node
+
+services:
+  presto-coordinator:
+    extends:
+      file: ../../docker-compose.common.yml
+      service: presto-base-coordinator
+    volumes:
+      - ../../config/generated/cpu/etc_common:/opt/presto-server/etc
+      - ../../config/generated/cpu/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties
+      - ../../config/generated/cpu/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties
+      - ../../config/generated/cpu/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+
+  {% if workers|length > 1 %}
+  # Multi-worker CPU: one container per worker, each pinned to a NUMA node.
+  # NUMA_NODE is read by launch_presto_servers.sh which wraps presto_server
+  # with `numactl --cpunodebind=N --membind=N`.
+  {% for worker in workers %}
+  presto-native-worker-cpu-{{ worker.id }}:
+    <<: *cpu_worker_base
+    container_name: presto-native-worker-cpu-{{ worker.id }}
+    environment:
+      WORKER_ID: {{ worker.id }}
+      NUMA_NODE: {{ worker.numa_node }}
+      SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
+    volumes:
+      - ../../config/generated/cpu/etc_common:/opt/presto-server/etc
+      - ../../config/generated/cpu/etc_worker_{{ worker.id }}/node.properties:/opt/presto-server/etc/node.properties
+      - ../../config/generated/cpu/etc_worker_{{ worker.id }}/config_native.properties:/opt/presto-server/etc/config.properties
+      - ../../config/generated/cpu/etc_worker_{{ worker.id }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+  {% endfor %}
+  {% else %}
+  # Single-worker CPU: one container spanning all NUMA nodes via --interleave=all.
+  presto-native-worker-cpu:
+    <<: *cpu_worker_base
+    container_name: presto-native-worker-cpu
+    environment:
+      SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
+    volumes:
+      - ../../config/generated/cpu/etc_common:/opt/presto-server/etc
+      - ../../config/generated/cpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
+      - ../../config/generated/cpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
+      - ../../config/generated/cpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
+  {% endif %}
