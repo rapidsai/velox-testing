@@ -5,7 +5,7 @@
       "columns": [
         {"name": "l_orderkey", "encoding": "DELTA_BINARY_PACKED", "dictionary": false},
         {"name": "l_returnflag", "encoding": "PLAIN", "dictionary": true},
-        {"name": "l_comment", "encoding": "PLAIN", "compression": "UNCOMPRESSED", "dictionary": false}
+        {"name": "l_comment", "encoding": "PLAIN", "compressed": false, "dictionary": false}
       ]
     },
     {

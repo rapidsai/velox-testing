@@ -7,6 +7,7 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -56,9 +57,18 @@ def generate_partition(
     command.extend(get_tpchgen_codec_args(codec_defs, table))
 
     try:
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, stderr=subprocess.PIPE, text=True)
     except subprocess.CalledProcessError as e:
-        print(f"Error generating TPC-H data: {e}")
+        stderr = e.stderr or ""
+        if "--parquet-compression" in stderr:
+            bad_value = next(t["compression"] for t in codec_defs["tables"] if t["name"] == table)
+            raise ValueError(
+                f"Invalid 'compression' value {bad_value} for table '{table}' in codec definitions. "
+                f"See codec_definition_template.json for valid values."
+            ) from e
+        if stderr:
+            sys.stderr.write(stderr)
+        raise
 
 
 def generate_data_files(args):
@@ -233,15 +243,17 @@ def get_tpchgen_codec_args(codec_defs, table_name):
     if table_config is None:
         return []
 
-    columns = table_config.get("columns", [])
-    if not columns:
-        return []
-
     args = []
 
-    uncompressed_cols = [
-        column["name"] for column in columns if column.get("compression", "").upper() == "UNCOMPRESSED"
-    ]
+    table_compression = table_config.get("compression")
+    if table_compression:
+        args.append(f"--parquet-compression={table_compression.upper()}")
+
+    columns = table_config.get("columns", [])
+    if not columns:
+        return args
+
+    uncompressed_cols = [column["name"] for column in columns if column.get("compressed") is False]
     if uncompressed_cols:
         args.append(f"--uncompressed-column-overrides={','.join(uncompressed_cols)}")
 
@@ -294,45 +306,45 @@ def build_default_codec_defs():
 
     Achieved ~11% improvement over baseline with ~15% smaller dataset.
     """
-    conn = duckdb.connect()
-    conn.execute(f"INSTALL tpch; LOAD tpch; CALL dbgen(sf = {_SAMPLE_SF});")
+    with duckdb.connect() as conn:
+        conn.execute(f"INSTALL tpch; LOAD tpch; CALL dbgen(sf = {_SAMPLE_SF});")
 
-    tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
-    config = {"tables": []}
+        tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
+        config = {"tables": []}
 
-    for table in sorted(tables):
-        total_rows = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        assert total_rows > 0, f"Table '{table}' has no rows at SF {_SAMPLE_SF}"
+        for table in sorted(tables):
+            total_rows = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            if total_rows == 0:
+                raise RuntimeError(f"Table '{table}' has no rows at SF {_SAMPLE_SF}")
 
-        columns_meta = conn.execute(f"DESCRIBE {table}").fetchall()
-        col_entries = []
+            columns_meta = conn.execute(f"DESCRIBE {table}").fetchall()
+            col_entries = []
 
-        for col_name, col_type, *_ in columns_meta:
-            column_type = col_type.upper()
+            for col_name, col_type, *_ in columns_meta:
+                column_type = col_type.upper()
 
-            if column_type in _INTEGER_TYPES:
-                col_entries.append(
-                    {
-                        "name": col_name,
-                        "encoding": "DELTA_BINARY_PACKED",
-                        "dictionary": False,
-                    }
-                )
-            elif column_type == "VARCHAR":
-                ndv = conn.execute(f"SELECT COUNT(DISTINCT {col_name}) FROM {table}").fetchone()[0]
-                if ndv / total_rows >= _HIGH_CARD_NDV_THRESHOLD:
+                if column_type in _INTEGER_TYPES:
                     col_entries.append(
                         {
                             "name": col_name,
-                            "encoding": "PLAIN",
+                            "encoding": "DELTA_BINARY_PACKED",
                             "dictionary": False,
                         }
                     )
+                elif column_type == "VARCHAR":
+                    ndv = conn.execute(f"SELECT COUNT(DISTINCT {col_name}) FROM {table}").fetchone()[0]
+                    if ndv / total_rows >= _HIGH_CARD_NDV_THRESHOLD:
+                        col_entries.append(
+                            {
+                                "name": col_name,
+                                "encoding": "PLAIN",
+                                "dictionary": False,
+                            }
+                        )
 
-        if col_entries:
-            config["tables"].append({"name": table, "columns": col_entries})
+            if col_entries:
+                config["tables"].append({"name": table, "columns": col_entries})
 
-    conn.close()
     return config
 
 

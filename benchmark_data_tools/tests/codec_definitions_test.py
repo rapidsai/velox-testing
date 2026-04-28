@@ -12,6 +12,8 @@ from .common_fixtures import get_all_parquet_relative_file_paths
 TESTS_DIR = Path(__file__).resolve().parent
 TEST_CODEC_DEFINITIONS_PATH = TESTS_DIR / "test_codec_definitions.json"
 TEST_RLE_DICTIONARY_PATH = TESTS_DIR / "test_codec_definitions_rle_dictionary.json"
+TEST_NON_DEFAULT_COMPRESSION_PATH = TESTS_DIR / "test_codec_definitions_non_default_compression.json"
+TEST_INVALID_COMPRESSION_PATH = TESTS_DIR / "test_codec_definitions_invalid_compression.json"
 
 
 def test_default_codec_defs_applied(setup_and_teardown):
@@ -130,3 +132,44 @@ def test_rle_dictionary_encoding_rejected(setup_and_teardown):
     args.codec_definitions = str(TEST_RLE_DICTIONARY_PATH)
     with pytest.raises(ValueError, match="RLE_DICTIONARY cannot be used as a column encoding"):
         generate_data_files(args)
+
+
+def test_non_default_table_compression(setup_and_teardown):
+    """Generate data with a non-default table-level compression and verify per-column codecs.
+
+    Asserts that pyarrow reports ZSTD for all lineitem columns except l_comment, which is
+    UNCOMPRESSED (the per-column override should take precedence over the table-level codec).
+    """
+    data_dir_path, args = setup_and_teardown
+    args.codec_definitions = str(TEST_NON_DEFAULT_COMPRESSION_PATH)
+    generate_data_files(args)
+
+    file_paths = get_all_parquet_relative_file_paths(data_dir_path)
+    lineitem_files = [file_path for file_path in file_paths if "lineitem" in file_path]
+    assert len(lineitem_files) > 0, "Expected lineitem parquet files"
+
+    for file_path in lineitem_files:
+        parquet_file = pq.ParquetFile(f"{data_dir_path}/{file_path}")
+        for row_group_index in range(parquet_file.num_row_groups):
+            row_group = parquet_file.metadata.row_group(row_group_index)
+            for col_index in range(row_group.num_columns):
+                col_meta = row_group.column(col_index)
+                col_name = col_meta.path_in_schema
+                if col_name == "l_comment":
+                    assert col_meta.compression == "UNCOMPRESSED", (
+                        f"Expected UNCOMPRESSED for l_comment, got {col_meta.compression}"
+                    )
+                else:
+                    assert col_meta.compression == "ZSTD", f"Expected ZSTD for {col_name}, got {col_meta.compression}"
+
+
+def test_invalid_table_compression_rejected(setup_and_teardown):
+    """An invalid table-level compression value is translated into a user-facing ValueError."""
+    _, args = setup_and_teardown
+    args.codec_definitions = str(TEST_INVALID_COMPRESSION_PATH)
+    with pytest.raises(ValueError) as exception_info:
+        generate_data_files(args)
+    assert str(exception_info.value) == (
+        "Invalid 'compression' value 'INVALID' for table 'lineitem' in codec definitions. "
+        "See codec_definition_template.json for valid values."
+    )

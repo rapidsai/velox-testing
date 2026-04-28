@@ -2,11 +2,12 @@
   "tables": [
     {
       "name": "table_name",
+      "compression": "UNCOMPRESSED | SNAPPY | LZO | LZ4 | GZIP | BROTLI | ZSTD(N)",
       "columns": [
         {
           "name": "column_name",
           "encoding": "PLAIN | DELTA_BINARY_PACKED | RLE_DICTIONARY",
-          "compression": "SNAPPY | ZSTD | UNCOMPRESSED",
+          "compressed": true,
           "dictionary": true
         }
       ]

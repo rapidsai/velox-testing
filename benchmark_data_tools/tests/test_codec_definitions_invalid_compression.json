@@ -1,0 +1,8 @@
+{
+  "tables": [
+    {
+      "name": "lineitem",
+      "compression": "INVALID"
+    }
+  ]
+}
