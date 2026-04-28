@@ -240,7 +240,7 @@ ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 /usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
 /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1 \
 -- /bin/bash -c "
-export LD_LIBRARY_PATH='${CUDF_LIB}':\${LD_LIBRARY_PATH:-}
+export LD_LIBRARY_PATH='${CUDF_LIB}':/usr/local/lib:\${LD_LIBRARY_PATH:-}
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
 echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
 if [[ '${USE_NUMA}' == '1' ]]; then
