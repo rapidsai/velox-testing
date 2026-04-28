@@ -74,6 +74,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           path: velox-testing
+          persist-credentials: false
 
       - &checkout_velox
         name: Checkout Velox
@@ -82,6 +83,7 @@ jobs:
           repository: ${{ inputs.velox_repository }}
           ref: ${{ inputs.velox_sha }}
           path: velox
+          persist-credentials: false
 
       - &checkout_presto
         name: Checkout Presto
@@ -90,10 +92,11 @@ jobs:
           repository: ${{ inputs.presto_repository }}
           ref: ${{ inputs.presto_sha }}
           path: presto
+          persist-credentials: false
 
       - &setup_proxy_cache
         name: Setup proxy cache
-        uses: nv-gha-runners/setup-proxy-cache@main
+        uses: nv-gha-runners/setup-proxy-cache@main  # zizmor: ignore[unpinned-uses]
         continue-on-error: true
         with:
           enable-apt: true
@@ -346,6 +349,8 @@ jobs:
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -388,6 +393,8 @@ jobs:
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
@@ -448,6 +455,8 @@ jobs:
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
