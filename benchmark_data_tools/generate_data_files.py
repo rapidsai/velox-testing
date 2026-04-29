@@ -63,7 +63,7 @@ def generate_partition(
         if "--parquet-compression" in stderr:
             bad_value = next(t["compression"] for t in codec_defs["tables"] if t["name"] == table)
             raise ValueError(
-                f"Invalid 'compression' value {bad_value} for table '{table}' in codec definitions. "
+                f"Invalid 'compression' value '{bad_value}' for table '{table}' in codec definitions. "
                 f"See codec_definition_template.json for valid values."
             ) from e
         if stderr:
