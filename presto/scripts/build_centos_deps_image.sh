@@ -63,6 +63,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Get the root of the git repository
 REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
 
+source "${SCRIPT_DIR}/common_functions.sh"
+
 # verify sibling Presto and Velox clones
 if [[ ! -d "${REPO_ROOT}/../presto/presto-native-execution" || ! -d "${REPO_ROOT}/../velox" ]]; then
   echo "Error: Sibling Presto and/or Velox clone not found"
@@ -94,12 +96,30 @@ mkdir -p velox
 cp -r ../../velox/scripts velox
 cp -r ../../velox/CMake velox
 
+capture_build_provenance "${REPO_ROOT}"
+
 # now build
 echo "Building..."
 docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
 
 # tag with the user-specific name to avoid conflicts between multiple users on the same host
 COMPOSE_IMAGE_NAME='presto/prestissimo-dependency:centos9'
+
+# centos-dependency.dockerfile lives in the upstream presto repo and cannot be modified,
+# so provenance labels are applied via a scratch re-wrap layer instead of ARG+LABEL.
+# Capture the pre-label image ID so the now-untagged original can be cleaned up afterward.
+PRELABEL_IMAGE_ID=$(docker inspect --format='{{.Id}}' "${COMPOSE_IMAGE_NAME}")
+echo "Applying provenance labels..."
+echo "FROM ${COMPOSE_IMAGE_NAME}" | docker build --no-cache \
+  --label "velox-testing.presto.sha=${PRESTO_SHA}" \
+  --label "velox-testing.presto.branch=${PRESTO_BRANCH}" \
+  --label "velox-testing.presto.repository=${PRESTO_REPO}" \
+  --label "velox-testing.velox.sha=${VELOX_SHA}" \
+  --label "velox-testing.velox.branch=${VELOX_BRANCH}" \
+  --label "velox-testing.velox.repository=${VELOX_REPO}" \
+  -t "${COMPOSE_IMAGE_NAME}" -
+docker rmi "${PRELABEL_IMAGE_ID}" 2>/dev/null || true
+
 if [[ "${IMAGE_NAME}" != "${COMPOSE_IMAGE_NAME}" ]]; then
   echo "Tagging image as ${IMAGE_NAME}..."
   docker tag ${COMPOSE_IMAGE_NAME} ${IMAGE_NAME}
