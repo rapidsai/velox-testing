@@ -151,19 +151,4 @@ The build scripts include several workarounds for toolchain issues:
 
 ## Scripts
 
-All scripts live in `scripts/devcontainer/` and are installed to `/usr/local/bin/` in the container image. They share common functions via `_common.sh`.
-
-```
-scripts/devcontainer/
-├── _common.sh         # Shared constants (CUDA archs, RAPIDS detection)
-├── build-velox        # Standalone Velox build (all deps bundled)
-├── build-presto       # Presto + Velox build (includes FB deps)
-├── configure-all      # Configure all build trees
-├── configure-velox    # CMake configure only
-├── test-velox         # Run Velox tests
-├── test-presto        # Run Presto tests
-├── clean-all          # Clean all build dirs
-├── clean-velox        # Clean Velox build dir
-├── clean-presto       # Clean Presto build dir
-└── post-create        # Devcontainer post-create hook
-```
+All devcontainer scripts live in `scripts/devcontainer/` and are installed to `/usr/local/bin/` in the container image. They share common functions via `_common.sh`.
