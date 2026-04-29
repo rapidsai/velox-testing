@@ -4,10 +4,12 @@ A GPU-ready development environment for building [Velox](https://github.com/face
 
 ## Quick Start
 
+Builds use the distributed build cluster via `sccache-dist`; use `-j0`.
+
 ```bash
 # 1. Clone sibling repos under the same parent directory
 mkdir ~/code && cd ~/code
-git clone https://github.com/<org>/velox-testing.git
+git clone https://github.com/rapidsai/velox-testing.git
 git clone https://github.com/facebookincubator/velox.git
 git clone https://github.com/prestodb/presto.git
 git clone https://github.com/rapidsai/rmm.git
@@ -21,9 +23,9 @@ code velox-testing
 # 3. Reopen in container (pick container based on CUDA version)
 
 # 4. Build
-build-all       # Build RAPIDS libraries, standalone Velox, then Presto
-build-velox     # Build standalone Velox
-build-presto    # Build Presto; syncs ~/velox and builds it inside the Presto tree
+build-all -j0       # Build RAPIDS libraries, standalone Velox, then Presto
+build-velox -j0     # Build standalone Velox
+build-presto -j0    # Build Presto; syncs ~/velox and builds it inside the Presto tree
 
 # 5. Test
 test-velox      # Run Velox test suite
@@ -36,13 +38,13 @@ The devcontainer expects this layout on the host:
 
 ```
 ~/code/
-├── velox-testing/     # this repo (devcontainer workspace root)
-├── velox/             # facebookincubator/velox
+├── cudf/              # rapidsai/cudf
+├── kvikio/            # rapidsai/kvikio
 ├── presto/            # prestodb/presto
 ├── rmm/               # rapidsai/rmm
-├── cudf/              # rapidsai/cudf
 ├── ucxx/              # rapidsai/ucxx
-└── kvikio/            # rapidsai/kvikio
+├── velox/             # facebookincubator/velox
+└── velox-testing/     # this repo (devcontainer workspace root)
 ```
 
 All repos are bind-mounted into the container under `/home/coder/`.
@@ -93,22 +95,17 @@ Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the
 All commands accept `--help`. Common options:
 
 ```bash
+build-velox -j0                # use sccache-dist distributed builds
 build-velox --debug            # debug build
-build-velox -j 16              # limit parallelism
 build-presto --release         # release build (default)
 build-presto --rebuild-deps    # force rebuild of FB deps
 ```
 
 ## CUDA Variants
 
-Two devcontainer configurations are provided:
+Devcontainer configurations are provided for CUDA 13 and CUDA 12. VS Code will prompt you to choose when opening the workspace.
 
-| Path | CUDA | Base Image |
-|------|------|------------|
-| `.devcontainer/cuda13.1/` | 13.1 | `rapidsai/devcontainers:latest-cpp-cuda13.1-*` |
-| `.devcontainer/cuda12.9/` | 12.9 | `rapidsai/devcontainers:latest-cpp-cuda12.9-*` |
-
-VS Code will prompt you to choose when opening the workspace. The `CUDAARCHS` environment variable defaults to `RAPIDS`, which expands to all RAPIDS-supported architectures.
+The `CUDAARCHS` environment variable defaults to `RAPIDS`, which expands to all RAPIDS-supported architectures.
 
 ## Build Outputs
 
