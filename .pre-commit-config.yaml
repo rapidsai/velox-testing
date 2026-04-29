@@ -48,6 +48,10 @@ repos:
             Makefile$|
             recipe[.]yaml$|
             dependencies[.]yaml$
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.24.1
+    hooks:
+      - id: zizmor
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1
     hooks:
