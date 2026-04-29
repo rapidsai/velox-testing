@@ -8,7 +8,7 @@ echo -e "\033[1;36mVelox Development Container Setup\033[0m"
 echo ""
 
 # Check for required repositories
-REQUIRED_REPOS=("velox" "presto" "rmm" "cudf" "kvikio")
+REQUIRED_REPOS=("velox" "presto" "rmm" "cudf" "ucxx" "kvikio")
 MISSING_REPOS=()
 
 for repo in "${REQUIRED_REPOS[@]}"; do
@@ -33,6 +33,7 @@ if [[ ${#MISSING_REPOS[@]} -gt 0 ]]; then
     echo "  ├── presto/          (prestodb/presto)"
     echo "  ├── rmm/             (rapidsai/rmm)"
     echo "  ├── cudf/            (rapidsai/cudf)"
+    echo "  ├── ucxx/            (rapidsai/ucxx)"
     echo "  └── kvikio/          (rapidsai/kvikio)"
     echo ""
     exit 1

@@ -1,6 +1,6 @@
 # Velox + Presto Devcontainer
 
-A GPU-ready development environment for building [Velox](https://github.com/facebookincubator/velox) with cuDF acceleration and [Presto Native Execution](https://github.com/prestodb/presto/tree/master/presto-native-execution). Based on the RAPIDS devcontainer image with pre-built cuDF, RMM, and KvikIO.
+A GPU-ready development environment for building [Velox](https://github.com/facebookincubator/velox) with cuDF acceleration and [Presto Native Execution](https://github.com/prestodb/presto/tree/master/presto-native-execution). Based on the RAPIDS devcontainer image with scripts for building cuDF, RMM, UCXX, and KvikIO from source.
 
 ## Quick Start
 
@@ -12,20 +12,22 @@ git clone https://github.com/facebookincubator/velox.git
 git clone https://github.com/prestodb/presto.git
 git clone https://github.com/rapidsai/rmm.git
 git clone https://github.com/rapidsai/cudf.git
+git clone https://github.com/rapidsai/ucxx.git
 git clone https://github.com/rapidsai/kvikio.git
 
 # 2. Open in VS Code (or any devcontainer-compatible editor)
 code velox-testing
 
-# 3. Reopen in container (pick CUDA 13.1 or 12.9 variant)
+# 3. Reopen in container (pick container based on CUDA version)
 
 # 4. Build
-build-velox            # ~25 min — standalone velox with cuDF
-build-presto           # ~40 min first run (builds FB deps), ~25 min after
+build-all       # Build RAPIDS libraries, standalone Velox, then Presto
+build-velox     # Build standalone Velox
+build-presto    # Build Presto; syncs ~/velox and builds it inside the Presto tree
 
 # 5. Test
-test-velox             # run velox test suite
-test-presto            # run presto test suite
+test-velox      # Run Velox test suite
+test-presto     # Run Presto test suite
 ```
 
 ## Directory Layout
@@ -39,6 +41,7 @@ The devcontainer expects this layout on the host:
 ├── presto/            # prestodb/presto
 ├── rmm/               # rapidsai/rmm
 ├── cudf/              # rapidsai/cudf
+├── ucxx/              # rapidsai/ucxx
 └── kvikio/            # rapidsai/kvikio
 ```
 
@@ -46,34 +49,34 @@ All repos are bind-mounted into the container under `/home/coder/`.
 
 ## Build Architecture
 
+`build-velox` builds `~/velox` as a standalone Velox tree:
+
 ```
-  ┌───────────────┐           ┌───────────────────────────────┐
-  │  build-velox  │           │         build-presto          │
-  │               │           │                               │
-  │ ~/velox src   │           │  1. FB deps (auto, once)      │
-  │ all BUNDLED   │           │     folly, fbthrift, proxygen │
-  │ MONO_LIB=ON  │           │     → /opt/fb-deps            │
-  │ SHARED=ON    │           │                               │
-  │               │           │  2. rsync ~/velox → submodule │
-  │               │           │     add_subdirectory(velox)   │
-  │               │           │     MONO_LIB=OFF              │
-  └───────┬───────┘           └──────────────┬────────────────┘
-          │                                  │
-          ▼                                  ▼
-  /opt/velox-build/              /opt/presto-build/
-     release/                       presto_server
-     3879 targets                   1978 targets
+source: ~/velox
+build:  /opt/velox-build/<release|debug>
+mode:   VELOX_MONO_LIBRARY=ON, VELOX_BUILD_SHARED=ON
 ```
 
-Both builds consume pre-built **cudf**, **rmm**, and **kvikio** from the RAPIDS devcontainer.
+`build-presto` builds Presto Native Execution and Velox together:
+
+```
+source: ~/presto/presto-native-execution
+build:  /opt/presto-build
+deps:   /opt/fb-deps for folly, fbthrift, proxygen, and related libraries
+velox:  rsync ~/velox/ into ~/presto/presto-native-execution/velox/
+```
+
+Both builds consume **cudf**, **rmm**, **ucxx**, and **kvikio** built from source in the RAPIDS devcontainer.
 
 **Standalone velox** bundles all its dependencies (folly, xsimd, Arrow, etc.) — no prerequisite steps.
 
 **Presto** requires Facebook's OSS stack (folly, fbthrift, proxygen, etc.) for its thrift RPC layer. `build-presto` builds these automatically on first run and caches them at `/opt/fb-deps`. Subsequent runs skip this step unless `--rebuild-deps` is passed.
 
-### Why velox builds twice
+### When Velox Builds Twice
 
-Presto integrates velox via `add_subdirectory()` with different options (`VELOX_MONO_LIBRARY=OFF`, no testing, etc.). The rsync in `build-presto` copies `~/velox` into presto's git submodule directory so both repos share the same source while keeping presto's git state clean.
+`build-presto` does not require `build-velox` to run first. It copies `~/velox` into `~/presto/presto-native-execution/velox` with `rsync`, then Presto's CMake build compiles Velox through `add_subdirectory(velox)`.
+
+Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the standalone `/opt/velox-build` build, then again inside the Presto build tree under `/opt/presto-build`.
 
 ## Commands
 
@@ -125,9 +128,10 @@ Velox has many dependencies. Each can be `SYSTEM` (pre-installed) or `BUNDLED` (
 |------------|------------|--------------|--------|
 | folly | BUNDLED | SYSTEM | Built from source / `/opt/fb-deps` |
 | xsimd | BUNDLED | SYSTEM | Built from source / `/opt/fb-deps` |
-| cudf | SYSTEM | SYSTEM | RAPIDS pre-built |
-| rmm | SYSTEM | SYSTEM | RAPIDS pre-built |
-| kvikio | SYSTEM | SYSTEM | RAPIDS pre-built |
+| cudf | SYSTEM | SYSTEM | RAPIDS build |
+| rmm | SYSTEM | SYSTEM | RAPIDS build |
+| ucxx | SYSTEM | SYSTEM | RAPIDS build |
+| kvikio | SYSTEM | SYSTEM | RAPIDS build |
 | Arrow | BUNDLED | BUNDLED | Built from source |
 | DuckDB | BUNDLED | BUNDLED | Built from source |
 | GTest | BUNDLED | BUNDLED | Built from source |
