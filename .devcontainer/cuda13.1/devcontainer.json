@@ -14,7 +14,7 @@
   "overrideFeatureInstallOrder": [
     "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils"
   ],
-  "initializeCommand": ["/bin/bash", "-c", "mkdir -p ${localWorkspaceFolder}/../.{aws,cache,config/pip,local/share/velox-testing-cuda13.1-venvs}"],
+  "initializeCommand": ["/bin/bash", "${localWorkspaceFolder}/scripts/devcontainer/initialize", "${localWorkspaceFolder}/..", "${localEnv:HOME}", "13.1"],
   "workspaceFolder": "/home/coder",
   "workspaceMount": "source=${localWorkspaceFolder},target=/home/coder/velox-testing,type=bind,consistency=consistent",
   "mounts": [
@@ -38,6 +38,7 @@
     "--ulimit", "nofile=500000"
   ],
   "postCreateCommand": "/home/coder/velox-testing/scripts/devcontainer/post-create",
+  "postStartCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/start-sshd",
   "postAttachCommand": [
     "/bin/bash",
     "-c",
