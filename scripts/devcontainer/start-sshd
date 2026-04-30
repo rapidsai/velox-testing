@@ -1,0 +1,23 @@
+#!/bin/bash
+# Configure the devcontainer SSH daemon on every container start.
+
+set -euo pipefail
+
+HOST_AUTHORIZED_KEYS="${HOME}/.config/velox-testing-authorized_keys"
+
+mkdir -p "${HOME}/.ssh"
+chmod 700 "${HOME}/.ssh"
+touch "${HOME}/.ssh/authorized_keys"
+chmod 600 "${HOME}/.ssh/authorized_keys"
+
+if [[ -s "${HOST_AUTHORIZED_KEYS}" ]]; then
+    while IFS= read -r key; do
+        [[ -z "${key}" ]] && continue
+        grep -qxF "${key}" "${HOME}/.ssh/authorized_keys" || echo "${key}" >> "${HOME}/.ssh/authorized_keys"
+    done < "${HOST_AUTHORIZED_KEYS}"
+fi
+
+sudo mkdir -p /run/sshd
+if ! pgrep -x sshd >/dev/null; then
+    sudo /usr/sbin/sshd
+fi
