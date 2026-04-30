@@ -275,6 +275,7 @@ set +a
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
 
 if [[ '${ENABLE_GDS}' == '1' ]]; then
+    export MELLANOX_VISIBLE_DEVICES=all
     export KVIKIO_COMPAT_MODE=OFF
     export CUFILE_LOGFILE_PATH=\${vt_cufile_log}
     export CUFILE_LOGGING_LEVEL=INFO
