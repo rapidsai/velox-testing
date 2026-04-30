@@ -15,7 +15,7 @@
 #   NUM_THREADS         – compilation threads
 #   NO_CACHE            – "true" to wipe BuildKit cache
 
-ARG BASE_IMAGE=ghcr.io/facebookincubator/velox-dev:adapters
+ARG BASE_IMAGE=ghcr.io/facebookincubator/velox-dev:adapters-masterplan
 
 FROM ${BASE_IMAGE}
 
@@ -54,6 +54,9 @@ RUN --mount=type=bind,source=velox,target=/src/velox \
         fi; \
     done && \
     export CC=gcc CXX=g++ && \
+    # Arrow 15's helpers.h uses assert() without including <cassert>;
+    # mirrors the same concession in gluten_build.dockerfile. Harmless on Arrow 18+.
+    export CXXFLAGS="${CXXFLAGS:-} -include cassert" && \
     \
     # Copy source (preserve build artifacts in cache)
     if [ ! -d /opt/velox-build/velox ]; then \
@@ -103,6 +106,9 @@ RUN --mount=type=bind,source=spark-gluten,target=/src/spark-gluten \
         fi; \
     done && \
     export CC=gcc CXX=g++ && \
+    # Arrow 15's helpers.h uses assert() without including <cassert>;
+    # mirrors the same concession in gluten_build.dockerfile. Harmless on Arrow 18+.
+    export CXXFLAGS="${CXXFLAGS:-} -include cassert" && \
     \
     VELOX_HOME=/opt/velox-build/velox && \
     VELOX_BUILD_PATH=$VELOX_HOME/_build/release && \
@@ -121,6 +127,12 @@ RUN --mount=type=bind,source=spark-gluten,target=/src/spark-gluten \
     \
     cd /opt/gluten-cpp-build/spark-gluten && \
     echo "=== Phase 2: Building spark-gluten C++ ===" && \
+    # Force fresh configure if cache mount's CMakeCache lacks the cassert flag.
+    if [ -f cpp/build/CMakeCache.txt ] && \
+       ! grep -q '\-include cassert' cpp/build/CMakeCache.txt; then \
+        echo "Stale cpp/build (missing -include cassert) — wiping" && \
+        rm -rf cpp/build; \
+    fi && \
     if [ ! -f cpp/build/CMakeCache.txt ]; then \
         mkdir -p cpp/build && cd cpp/build && \
         cmake .. \

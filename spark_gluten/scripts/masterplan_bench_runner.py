@@ -6,8 +6,25 @@
 
 import os
 import time
+from contextlib import contextmanager
 
 from pyspark.sql import SparkSession
+
+try:
+    import nvtx
+
+    # Hex colors avoid the nvtx package's matplotlib dependency for named colors.
+    @contextmanager
+    def nvtx_range(name: str, color: str = "#1f77b4"):
+        rng = nvtx.start_range(message=name, color=color)
+        try:
+            yield
+        finally:
+            nvtx.end_range(rng)
+except ImportError:
+    @contextmanager
+    def nvtx_range(name: str, color: str = "#1f77b4"):
+        yield
 
 TPCH = {
     "1": """SELECT l_returnflag, l_linestatus, sum(l_quantity) as sum_qty,
@@ -109,18 +126,22 @@ def main():
 
         query = TPCH[qid]
 
-        # Warmup
-        df = spark.sql(query)
-        df.collect()
+        with nvtx_range(f"{mode}/Q{qid}", color="#00bcd4"):  # cyan
+            # Warmup
+            with nvtx_range(f"{mode}/Q{qid}/warmup", color="#ffeb3b"):  # yellow
+                df = spark.sql(query)
+                df.collect()
 
-        # Timed runs
-        times = []
-        for _ in range(iterations):
-            df = spark.sql(query)
-            t0 = time.perf_counter()
-            df.collect()
-            elapsed_ms = (time.perf_counter() - t0) * 1000
-            times.append(elapsed_ms)
+            # Timed runs
+            times = []
+            for i in range(iterations):
+                with nvtx_range(f"{mode}/Q{qid}/iter{i + 1}", color="#4caf50"):  # green
+                    df = spark.sql(query)
+                    t0 = time.perf_counter()
+                    with nvtx_range(f"{mode}/Q{qid}/iter{i + 1}/collect", color="#e91e63"):  # magenta
+                        df.collect()
+                    elapsed_ms = (time.perf_counter() - t0) * 1000
+                    times.append(elapsed_ms)
 
         results[qid] = times
         avg = sum(times) / len(times)

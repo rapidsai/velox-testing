@@ -74,6 +74,7 @@ docker run --rm --gpus all \
   -e "BASELINE=${BASELINE}" \
   -e "MASTER=${MASTER}" \
   -e "PARTITIONS=${PARTITIONS}" \
+  -e "MODE=${MODE}" \
   "$IMAGE" \
   bash -c '
     set -e
@@ -84,7 +85,14 @@ docker run --rm --gpus all \
     source /workspace/velox-testing/scripts/py_env_functions.sh
     VENV=/tmp/bench_venv
     init_python_virtual_env "$VENV"
-    pip install -q pyspark==3.4.4
+    pip install -q pyspark==3.4.4 nvtx matplotlib
 
-    python3 /workspace/velox-testing/spark_gluten/scripts/masterplan_bench_runner.py
+    if [ "$NSYS" = "true" ]; then
+      ts=$(date +%Y%m%d_%H%M%S)
+      nsys profile --trace=cuda,nvtx,osrt --force-overwrite=true \
+        -o /output/masterplan-${MODE}-${ts}.nsys-rep \
+        python3 /workspace/velox-testing/spark_gluten/scripts/masterplan_bench_runner.py
+    else
+      python3 /workspace/velox-testing/spark_gluten/scripts/masterplan_bench_runner.py
+    fi
   '
