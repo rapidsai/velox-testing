@@ -57,6 +57,7 @@
     }
   },
   "containerEnv": {
+    "PROJECT_MANIFEST_YML": "/home/coder/velox-testing/.devcontainer/manifest.yaml",
     "VELOX_DEPENDENCY_SOURCE": "SYSTEM"
   }
 }
