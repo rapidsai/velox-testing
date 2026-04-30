@@ -19,7 +19,11 @@ RUN apt-get update -y && \
     g++-14 \
     # Velox dependencies not in RAPIDS base
     libc-ares-dev \
-    libboost-all-dev \
+    libboost-context-dev \
+    libboost-filesystem-dev \
+    libboost-program-options-dev \
+    libboost-regex-dev \
+    libboost-url-dev \
     libdouble-conversion-dev \
     libevent-dev \
     libfmt-dev \
