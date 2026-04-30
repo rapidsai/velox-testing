@@ -214,6 +214,7 @@ function run_worker {
 
     local gds_mounts=""
     if [[ "${ENABLE_GDS}" == "1" ]]; then
+        export MELLANOX_VISIBLE_DEVICES=all
         gds_mounts="/etc/cufile.json:/etc/cufile.json:ro"
         for dev in /dev/nvidia-fs*; do
             if [[ -e "${dev}" ]]; then
@@ -272,15 +273,14 @@ ${gds_mounts:+,${gds_mounts}} \
 export LD_LIBRARY_PATH='${CUDF_LIB}':/usr/local/lib:\${LD_LIBRARY_PATH:-}
 
 set -a
-source \${vt_worker_env_file}
+source ${vt_worker_env_file}
 set +a
 
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
 
 if [[ '${ENABLE_GDS}' == '1' ]]; then
-    export MELLANOX_VISIBLE_DEVICES=all
     export KVIKIO_COMPAT_MODE=OFF
-    export CUFILE_LOGFILE_PATH=\${vt_cufile_log}
+    export CUFILE_LOGFILE_PATH=${vt_cufile_log}
     export CUFILE_LOGGING_LEVEL=INFO
 else
     export KVIKIO_COMPAT_MODE=ON
