@@ -177,6 +177,9 @@ run_coord_image "$COORD_SCRIPT" "coord"
 
 # Runs a worker on a given node with custom configuration files which are generated as necessary.
 function run_worker {
+    : "${ENABLE_GDS:=0}"
+    : "${ENABLE_NSYS:=0}"
+
     [ $# -ne 4 ] && echo_error "$0 expected arguments 'gpu_id', 'image', 'node_id', and 'worker_id'"
     validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD CUDF_LIB DATA
 
@@ -302,7 +305,7 @@ if [[ -n '${nsys_bin}' ]]; then
         for qnum in \"\${qlist[@]}\"; do
             qid=\"Q\${qnum}\"
             while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token_\${qid} ]]; do
-                read -t 2 -r _ <<< '' || true
+                sleep 2
             done
             echo \"Worker ${worker_id}: start token found for \${qid}\"
             rm ${vt_nsys_report_dir}/.nsys_start_token_\${qid}
@@ -311,7 +314,7 @@ if [[ -n '${nsys_bin}' ]]; then
             touch ${vt_nsys_report_dir}/.nsys_started_token_\${qid}
 
             while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token_\${qid} ]]; do
-                read -t 2 -r _ <<< '' || true
+                sleep 2
             done
             echo \"Worker ${worker_id}: stop token found for \${qid}\"
             rm ${vt_nsys_report_dir}/.nsys_stop_token_\${qid}
@@ -322,7 +325,7 @@ if [[ -n '${nsys_bin}' ]]; then
 
     echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"
     echo \"Worker ${worker_id}: running nsys launch\"
-    ${nsys_bin} launch ${nsys_launch_opts} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    ${nsys_bin} launch ${nsys_launch_opts} numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
     echo \"Worker ${worker_id}: nsys launch exited with code: \$?\"
 else
     if [[ '${USE_NUMA}' == '1' ]]; then
@@ -604,9 +607,9 @@ function wait_for_nsys_report_generation {
         fi
 
         declare -A prev_sizes
-        stable_count=0
+        local stable_count=0
         for i in {1..120}; do
-            all_stable=true
+            local all_stable=true
             for qnum in "${qlist[@]}"; do
                 report="${LOGS}/nsys_worker_0_Q${qnum}.nsys-rep"
                 fallback="${LOGS}/nsys_worker_0_Q${qnum}.qdstrm"

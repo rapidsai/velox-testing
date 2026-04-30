@@ -134,6 +134,9 @@ while [[ $# -gt 0 ]]; do
             if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
                 WORKER_ENV_FILE="$2"
                 shift 2
+            else
+                echo "Error: --worker-env-file requires a value"
+                exit 1
             fi
             ;;
         --disable-gds)
@@ -214,7 +217,7 @@ EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS}"
 EXPORT_VARS+=",ENABLE_METRICS=${ENABLE_METRICS}"
 EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
 if [[ -n "${QUERIES}" ]]; then
-    # Do not append comma separated list to EXPORT_VARS since comma seprator
+    # Do not append comma separated list to EXPORT_VARS since comma separator
     # is ambiguous. Single quote causes further issue down the line. Using env var
     # directly is the simplest correct approach.
     export QUERIES

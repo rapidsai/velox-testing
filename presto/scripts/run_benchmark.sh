@@ -267,7 +267,7 @@ fi
 
 if [[ "${PROFILE}" == "true" ]]; then
   if [[ -z "${PROFILE_SCRIPT_PATH}" ]]; then
-    PROFILE_SCRIPT_PATH="$(readlink -f ./profiler_functions.sh)"
+    PROFILE_SCRIPT_PATH="$(readlink -f ${SCRIPT_DIR}/profiler_functions.sh)"
   fi
   PYTEST_ARGS+=("--profile --profile-script-path ${PROFILE_SCRIPT_PATH}")
 fi
