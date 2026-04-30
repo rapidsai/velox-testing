@@ -42,6 +42,13 @@ VARIANT_TYPE="gpu"
 WORKER_IMAGE=""
 COORD_IMAGE=""
 OUTPUT_PATH=""
+SCRIPT_DIR="$PWD"
+WORKER_ENV_FILE="${SCRIPT_DIR}/worker.env"
+ENABLE_GDS=1
+ENABLE_METRICS=0
+ENABLE_NSYS=0
+QUERIES=""
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -n|--nodes)
@@ -74,7 +81,7 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
-	-g|--num-gpus-per-node)
+	    -g|--num-gpus-per-node)
             if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
                 NUM_GPUS_PER_NODE="$2"
                 shift 2
@@ -84,7 +91,7 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
-	-w|--worker-image)
+	    -w|--worker-image)
             if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
                 WORKER_IMAGE="$2"
                 shift 2
@@ -94,7 +101,7 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
-	-c|--coord-image)
+	    -c|--coord-image)
             if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
                 COORD_IMAGE="$2"
                 shift 2
@@ -123,6 +130,33 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        --worker-env-file)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                WORKER_ENV_FILE="$2"
+                shift 2
+            fi
+            ;;
+        --disable-gds)
+            ENABLE_GDS=0
+            shift
+            ;;
+        -m|--metrics)
+            ENABLE_METRICS=1
+            shift
+            ;;
+        -p|--profile)
+            ENABLE_NSYS=1
+            shift
+            ;;
+        -q|--queries)
+          if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+            QUERIES="$2"
+            shift 2
+          else
+            echo "Error: --queries requires a value"
+            exit 1
+          fi
+          ;;
         --)
             shift
             break
@@ -156,7 +190,6 @@ fi
 # Submit job (include nodes/SF/iterations in file names)
 OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
 ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
-SCRIPT_DIR="$PWD"
 JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
 # NODELIST is unset by default -- Slurm picks any available nodes.
 # Export NODELIST=<host-or-range> before invoking to pin.
@@ -166,7 +199,27 @@ if [[ -n "${NODELIST}" ]]; then
     NODELIST_ARG=(--nodelist="${NODELIST}")
 fi
 GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NODE}" || echo "")
-EXPORT_VARS="ALL,SCALE_FACTOR=${SCALE_FACTOR},NUM_ITERATIONS=${NUM_ITERATIONS},SCRIPT_DIR=${SCRIPT_DIR},NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE},USE_NUMA=${USE_NUMA},VARIANT_TYPE=${VARIANT_TYPE}"
+
+EXPORT_VARS="ALL"
+EXPORT_VARS+=",SCALE_FACTOR=${SCALE_FACTOR}"
+EXPORT_VARS+=",NUM_ITERATIONS=${NUM_ITERATIONS}"
+EXPORT_VARS+=",SCRIPT_DIR=${SCRIPT_DIR}"
+EXPORT_VARS+=",NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE}"
+EXPORT_VARS+=",WORKER_IMAGE=${WORKER_IMAGE}"
+EXPORT_VARS+=",COORD_IMAGE=${COORD_IMAGE}"
+EXPORT_VARS+=",USE_NUMA=${USE_NUMA}"
+EXPORT_VARS+=",VARIANT_TYPE=${VARIANT_TYPE}"
+EXPORT_VARS+=",WORKER_ENV_FILE=${WORKER_ENV_FILE}"
+EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS}"
+EXPORT_VARS+=",ENABLE_METRICS=${ENABLE_METRICS}"
+EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
+if [[ -n "${QUERIES}" ]]; then
+    # Do not append comma separated list to EXPORT_VARS since comma seprator
+    # is ambiguous. Single quote causes further issue down the line. Using env var
+    # directly is the simplest correct approach.
+    export QUERIES
+fi
+
 # Forward shared-metastore config from the calling shell so the slurm job
 # can populate from the shared snapshot when opted in.
 if [[ -n "${HIVE_METASTORE_VERSION:-}" ]]; then
