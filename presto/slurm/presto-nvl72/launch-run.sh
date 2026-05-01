@@ -228,9 +228,12 @@ EXPORT_VARS+=",ENABLE_METRICS=${ENABLE_METRICS}"
 EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
 EXPORT_VARS+=",NSYS_WORKER_ID=${NSYS_WORKER_ID}"
 if [[ -n "${QUERIES}" ]]; then
-    # Do not append comma separated list to EXPORT_VARS since comma separator
-    # is ambiguous. Single quote causes further issue down the line. Using env var
-    # directly is the simplest correct approach.
+    # Do not directly append a comma separated list to EXPORT_VARS as the comma separator
+    # is also used to separate different env vars.
+    # Also do not use single quote around the comma separate list as it is found to cause
+    # further issues down the line.
+    # Using export is the simplest, correct approach to make the env vars visible in the
+    # worker container.
     export QUERIES
 fi
 
