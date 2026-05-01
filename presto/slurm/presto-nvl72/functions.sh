@@ -226,7 +226,7 @@ function run_worker {
     local nsys_bin=""
     local nsys_launch_opts=""
     local vt_nsys_report_dir="/var/log/nsys"
-    if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "0" ]]; then
+    if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "${NSYS_WORKER_ID}" ]]; then
         nsys_bin="/opt/nvidia/nsight-systems-cli/2025.5.1/bin/nsys"
         nsys_launch_opts="-t nvtx,cuda"
     fi
@@ -308,17 +308,17 @@ if [[ -n '${nsys_bin}' ]]; then
                 sleep 2
             done
             echo \"Worker ${worker_id}: start token found for \${qid}\"
-            rm ${vt_nsys_report_dir}/.nsys_start_token_\${qid}
-            ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_${worker_id}_\${qid} -f true
+            rm ${vt_nsys_report_dir}/.nsys_start_token_w${worker_id}_\${qid}
+            ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_w${worker_id}_\${qid} -f true
             echo \"Worker ${worker_id}: nsys start exit code: \$?\"
             echo \"Worker ${worker_id}: post-start token created for \${qid}\"
-            touch ${vt_nsys_report_dir}/.nsys_started_token_\${qid}
+            touch ${vt_nsys_report_dir}/.nsys_started_token_w${worker_id}_\${qid}
 
-            while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token_\${qid} ]]; do
+            while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token_w${worker_id}_\${qid} ]]; do
                 sleep 2
             done
             echo \"Worker ${worker_id}: stop token found for \${qid}\"
-            rm ${vt_nsys_report_dir}/.nsys_stop_token_\${qid}
+            rm ${vt_nsys_report_dir}/.nsys_stop_token_w${worker_id}_\${qid}
             ${nsys_bin} stop
             echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
         done
@@ -460,6 +460,7 @@ function run_queries {
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
+    export NSYS_TOKEN_DIR=/workspace/presto/slurm/presto-nvl72/logs; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${extra_args[*]} \
         --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
@@ -613,20 +614,20 @@ function wait_for_nsys_report_generation {
         for i in {1..120}; do
             local all_stable=true
             for qnum in "${qlist[@]}"; do
-                report="${LOGS}/nsys_worker_0_Q${qnum}.nsys-rep"
-                fallback="${LOGS}/nsys_worker_0_Q${qnum}.qdstrm"
+                report="${LOGS}/nsys_worker_w${NSYS_WORKER_ID}_Q${qnum}.nsys-rep"
+                fallback="${LOGS}/nsys_worker_w${NSYS_WORKER_ID}_Q${qnum}.qdstrm"
                 if [[ -f "$report" ]]; then
                     target="$report"
                 elif [[ -f "$fallback" ]]; then
                     target="$fallback"
                 else
-                    echo "    Q${qnum}: no file yet"
+                    echo "    w${NSYS_WORKER_ID} Q${qnum}: no file yet"
                     all_stable=false
                     continue
                 fi
                 cur_size=$(stat -c%s "$target" 2>/dev/null || echo 0)
                 prev=${prev_sizes["$target"]:-0}
-                echo "    Q${qnum}: cur=${cur_size} prev=${prev}"
+                echo "    w${NSYS_WORKER_ID} Q${qnum}: cur=${cur_size} prev=${prev}"
                 if (( cur_size == 0 || cur_size != prev )); then
                     all_stable=false
                 fi

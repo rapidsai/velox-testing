@@ -47,6 +47,7 @@ WORKER_ENV_FILE="${SCRIPT_DIR}/worker.env"
 ENABLE_GDS=1
 ENABLE_METRICS=0
 ENABLE_NSYS=0
+NSYS_WORKER_ID=0
 QUERIES=""
 
 while [[ $# -gt 0 ]]; do
@@ -151,6 +152,15 @@ while [[ $# -gt 0 ]]; do
             ENABLE_NSYS=1
             shift
             ;;
+        --nsys-worker-id)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                NSYS_WORKER_ID="$2"
+                shift 2
+            else
+                echo "Error: --nsys-worker-id requires a value"
+                exit 1
+            fi
+            ;;
         -q|--queries)
           if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
             QUERIES="$2"
@@ -216,6 +226,7 @@ EXPORT_VARS+=",WORKER_ENV_FILE=${WORKER_ENV_FILE}"
 EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS}"
 EXPORT_VARS+=",ENABLE_METRICS=${ENABLE_METRICS}"
 EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
+EXPORT_VARS+=",NSYS_WORKER_ID=${NSYS_WORKER_ID}"
 if [[ -n "${QUERIES}" ]]; then
     # Do not append comma separated list to EXPORT_VARS since comma separator
     # is ambiguous. Single quote causes further issue down the line. Using env var
