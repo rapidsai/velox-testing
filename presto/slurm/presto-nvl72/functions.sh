@@ -309,7 +309,8 @@ if [[ -n '${nsys_bin}' ]]; then
             done
             echo \"Worker ${worker_id}: start token found for \${qid}\"
             rm ${vt_nsys_report_dir}/.nsys_start_token_\${qid}
-            ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_${worker_id}_\${qid} -f true; echo \"Worker ${worker_id}: nsys start exit code: \$?\"
+            ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_${worker_id}_\${qid} -f true
+            echo \"Worker ${worker_id}: nsys start exit code: \$?\"
             echo \"Worker ${worker_id}: post-start token created for \${qid}\"
             touch ${vt_nsys_report_dir}/.nsys_started_token_\${qid}
 
@@ -318,7 +319,8 @@ if [[ -n '${nsys_bin}' ]]; then
             done
             echo \"Worker ${worker_id}: stop token found for \${qid}\"
             rm ${vt_nsys_report_dir}/.nsys_stop_token_\${qid}
-            ${nsys_bin} stop; echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
+            ${nsys_bin} stop
+            echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
         done
         echo \"Worker ${worker_id}: nsys subshell done, all queries profiled\"
     ) &
