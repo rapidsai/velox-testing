@@ -10,7 +10,7 @@ function start_profiler() {
   local -r logs_dir="/workspace/presto/slurm/presto-nvl72/logs"
   touch "${logs_dir}/.nsys_start_token_${query_id}"
   while [[ ! -f "${logs_dir}/.nsys_started_token_${query_id}" ]]; do
-    read -t 2 -r _ <<< '' || true
+    sleep 2
   done
   rm "${logs_dir}/.nsys_started_token_${query_id}"
 }
