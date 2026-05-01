@@ -177,6 +177,10 @@ run_coord_image "$COORD_SCRIPT" "coord"
 
 # Runs a worker on a given node with custom configuration files which are generated as necessary.
 function run_worker {
+    : "${ENABLE_GDS:=0}"
+    : "${ENABLE_NSYS:=0}"
+    : "${NSYS_WORKER_ID:=0}"
+
     [ $# -ne 4 ] && echo_error "$0 expected arguments 'gpu_id', 'image', 'node_id', and 'worker_id'"
     validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD CUDF_LIB DATA
 
@@ -204,6 +208,29 @@ function run_worker {
     mkdir -p ${worker_data}
     mkdir -p ${worker_data}/hive/data/user_data
     mkdir -p ${VT_ROOT}/.hive_metastore
+
+    local vt_worker_env_file="/var/worker_env_file"
+    local vt_cufile_log_dir="/var/log/cufile"
+    local vt_cufile_log="${vt_cufile_log_dir}/cufile_worker_${worker_id}.log"
+
+    local gds_mounts=""
+    if [[ "${ENABLE_GDS}" == "1" ]]; then
+        export MELLANOX_VISIBLE_DEVICES=all
+        gds_mounts="/etc/cufile.json:/etc/cufile.json:ro"
+        for dev in /dev/nvidia-fs*; do
+            if [[ -e "${dev}" ]]; then
+                gds_mounts+=",${dev}:${dev}"
+            fi
+        done
+    fi
+
+    local nsys_bin=""
+    local nsys_launch_opts=""
+    local vt_nsys_report_dir="/var/log/nsys"
+    if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "${NSYS_WORKER_ID}" ]]; then
+        nsys_bin="/opt/nvidia/nsight-systems-cli/2025.5.1/bin/nsys"
+        nsys_launch_opts="-t nvtx,cuda"
+    fi
 
     # To re-enable verbose GLOG logging, add these flags to the srun call below
     # (note: move them inside -- bash -c "..." as exports, not --container-env,
@@ -237,17 +264,81 @@ ${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
+${WORKER_ENV_FILE}:${vt_worker_env_file},\
+${LOGS}:${vt_cufile_log_dir},\
+${LOGS}:${vt_nsys_report_dir},\
 /usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
-/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1 \
+/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1\
+${gds_mounts:+,${gds_mounts}} \
 -- /bin/bash -c "
 export LD_LIBRARY_PATH='${CUDF_LIB}':/usr/local/lib:\${LD_LIBRARY_PATH:-}
+
+set -a
+source ${vt_worker_env_file}
+set +a
+
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
-echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
-if [[ '${USE_NUMA}' == '1' ]]; then
-    numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+
+if [[ '${ENABLE_GDS}' == '1' ]]; then
+    export KVIKIO_COMPAT_MODE=OFF
+    export CUFILE_LOGFILE_PATH=${vt_cufile_log}
+    export CUFILE_LOGGING_LEVEL=INFO
 else
-    /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
-fi" > ${LOGS}/worker_${worker_id}.log 2>&1 &
+    export KVIKIO_COMPAT_MODE=ON
+fi
+
+echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
+echo \"Worker ${worker_id}: ENABLE_GDS=\${ENABLE_GDS:-unset}\"
+echo \"Worker ${worker_id}: ENABLE_NSYS=\${ENABLE_NSYS:-unset}\"
+echo \"Worker ${worker_id}: KVIKIO_COMPAT_MODE=\${KVIKIO_COMPAT_MODE:-unset}\"
+echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
+echo \"Worker ${worker_id}: KVIKIO_TASK_SIZE=\${KVIKIO_TASK_SIZE:-unset}\"
+echo \"Worker ${worker_id}: KVIKIO_NTHREADS=\${KVIKIO_NTHREADS:-unset}\"
+
+if [[ -n '${nsys_bin}' ]]; then
+    (
+        echo \"Worker ${worker_id}: nsys subshell started\"
+        if [[ -n '${QUERIES:-}' ]]; then
+            IFS=',' read -ra qlist <<< '${QUERIES:-}'
+        else
+            qlist=({1..22})
+        fi
+        for qnum in \"\${qlist[@]}\"; do
+            qid=\"Q\${qnum}\"
+            while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token_w${worker_id}_\${qid} ]]; do
+                sleep 2
+            done
+            echo \"Worker ${worker_id}: start token found for \${qid}\"
+            rm ${vt_nsys_report_dir}/.nsys_start_token_w${worker_id}_\${qid}
+            ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_w${worker_id}_\${qid} -f true
+            echo \"Worker ${worker_id}: nsys start exit code: \$?\"
+            echo \"Worker ${worker_id}: post-start token created for \${qid}\"
+            touch ${vt_nsys_report_dir}/.nsys_started_token_w${worker_id}_\${qid}
+
+            while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token_w${worker_id}_\${qid} ]]; do
+                sleep 2
+            done
+            echo \"Worker ${worker_id}: stop token found for \${qid}\"
+            rm ${vt_nsys_report_dir}/.nsys_stop_token_w${worker_id}_\${qid}
+            ${nsys_bin} stop
+            echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
+        done
+        echo \"Worker ${worker_id}: nsys subshell done, all queries profiled\"
+    ) &
+
+    echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"
+    echo \"Worker ${worker_id}: running nsys launch\"
+    ${nsys_bin} launch ${nsys_launch_opts} numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    echo \"Worker ${worker_id}: nsys launch exited with code: \$?\"
+else
+    if [[ '${USE_NUMA}' == '1' ]]; then
+        numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    else
+        /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    fi
+fi
+
+" > ${LOGS}/worker_${worker_id}.log 2>&1 &
 }
 
 # ----------------------------------------------------------------------------
@@ -329,6 +420,12 @@ function run_queries {
     [ $# -ne 2 ] && echo_error "$0 expected two arguments for '<iterations>' and '<scale_factor>'"
     local num_iterations=$1
     local scale_factor=$2
+
+    local extra_args=()
+    [[ "${ENABLE_METRICS}" == "1" ]] && extra_args+=("-m")
+    [[ "${ENABLE_NSYS}" == "1" ]] && extra_args+=("-p" "--profile-script-path" "/workspace/presto/slurm/presto-nvl72/profiler_functions.sh")
+    [[ -n "${QUERIES:-}" ]] && extra_args+=("-q" "${QUERIES}")
+
     source "${SCRIPT_DIR}/defaults.env"
 
     # The upstream coordinator image ships without jq, which
@@ -364,8 +461,9 @@ function run_queries {
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
+    export NSYS_TOKEN_DIR=/workspace/presto/slurm/presto-nvl72/logs; \
     cd /workspace/presto/scripts; \
-    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} \
+    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${extra_args[*]} \
         --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
 }
 
@@ -501,4 +599,55 @@ function inject_benchmark_metadata {
            engine: $engine
        }' "${result_file}" > "${tmp_file}" && mv "${tmp_file}" "${result_file}"
     echo "Injected benchmark metadata into ${result_file}"
+}
+
+function wait_for_nsys_report_generation {
+    if [[ "${ENABLE_NSYS}" == "1" ]]; then
+        echo "Waiting for nsys report generation..."
+        if [[ -n "${QUERIES:-}" ]]; then
+            IFS=',' read -ra qlist <<< "${QUERIES}"
+        else
+            qlist=({1..22})
+        fi
+
+        declare -A prev_sizes
+        local stable_count=0
+        for i in {1..120}; do
+            local all_stable=true
+            for qnum in "${qlist[@]}"; do
+                report="${LOGS}/nsys_worker_w${NSYS_WORKER_ID}_Q${qnum}.nsys-rep"
+                fallback="${LOGS}/nsys_worker_w${NSYS_WORKER_ID}_Q${qnum}.qdstrm"
+                if [[ -f "$report" ]]; then
+                    target="$report"
+                elif [[ -f "$fallback" ]]; then
+                    target="$fallback"
+                else
+                    echo "    w${NSYS_WORKER_ID} Q${qnum}: no file yet"
+                    all_stable=false
+                    continue
+                fi
+                cur_size=$(stat -c%s "$target" 2>/dev/null || echo 0)
+                prev=${prev_sizes["$target"]:-0}
+                echo "    w${NSYS_WORKER_ID} Q${qnum}: cur=${cur_size} prev=${prev}"
+                if (( cur_size == 0 || cur_size != prev )); then
+                    all_stable=false
+                fi
+                prev_sizes["$target"]=$cur_size
+            done
+            echo "  all_stable=${all_stable} stable_count=${stable_count}"
+            if $all_stable; then
+                stable_count=$((stable_count + 1))
+                if (( stable_count >= 3 )); then
+                    echo "All ${#qlist[@]} nsys reports stable."
+                    break
+                fi
+            else
+                stable_count=0
+            fi
+            sleep 5
+        done
+
+        echo "Copying nsys reports to ${SCRIPT_DIR}/result_dir/..."
+        cp "${LOGS}"/*.nsys-rep "${SCRIPT_DIR}/result_dir/"
+    fi
 }
