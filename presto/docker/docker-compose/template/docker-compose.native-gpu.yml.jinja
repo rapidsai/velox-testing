@@ -16,6 +16,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
   cap_add:
     - IPC_LOCK
     - SYS_ADMIN  # Required for nsys GPU metrics profiling
+    - SYS_NICE   # Required for numactl --cpunodebind
   pid: host
   ulimits:
     memlock: -1
@@ -44,7 +45,6 @@ x-presto-native-worker-gpu: &gpu_worker_base
     #   - /dev/infiniband/uverbs9
   depends_on:
     - presto-coordinator
-  privileged: true
   volumes:
   # required for numa
     - /sys/devices/system/node:/sys/devices/system/node
