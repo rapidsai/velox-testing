@@ -179,6 +179,7 @@ run_coord_image "$COORD_SCRIPT" "coord"
 function run_worker {
     : "${ENABLE_GDS:=0}"
     : "${ENABLE_NSYS:=0}"
+    : "${NSYS_WORKER_ID:=0}"
 
     [ $# -ne 4 ] && echo_error "$0 expected arguments 'gpu_id', 'image', 'node_id', and 'worker_id'"
     validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD CUDF_LIB DATA
@@ -304,7 +305,7 @@ if [[ -n '${nsys_bin}' ]]; then
         fi
         for qnum in \"\${qlist[@]}\"; do
             qid=\"Q\${qnum}\"
-            while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token_\${qid} ]]; do
+            while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token_w${worker_id}_\${qid} ]]; do
                 sleep 2
             done
             echo \"Worker ${worker_id}: start token found for \${qid}\"
