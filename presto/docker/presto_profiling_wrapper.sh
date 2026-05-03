@@ -5,7 +5,8 @@
 set -e
 
 if [[ "$PROFILE" == "ON" ]]; then
-  mkdir /presto_profiles
+  # -p: idempotent so container restarts don't fail on the persisted dir
+  mkdir -p /presto_profiles
 
   if [[ -z $PROFILE_ARGS ]]; then
     PROFILE_ARGS="-t nvtx,cuda"
