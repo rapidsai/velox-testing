@@ -401,19 +401,6 @@ def _build_submission_payload(
         is_failed = query_name in failed_queries
 
         if times is None:
-            if is_failed:
-                query_logs.append(
-                    {
-                        "query_name": query_name.lstrip("Q"),
-                        "execution_order": execution_order,
-                        "runtime_ms": None,
-                        "status": "error",
-                        "extra_info": {
-                            "error": str(failed_queries[query_name]),
-                        },
-                    }
-                )
-                execution_order += 1
             continue
 
         for exec_idx, runtime_ms in enumerate(times):
@@ -437,7 +424,7 @@ def _build_submission_payload(
 
     # Handle failed queries that may not have times
     for query_name, error_info in failed_queries.items():
-        if query_name not in raw_times:
+        if query_name not in raw_times or raw_times[query_name] is None:
             query_logs.append(
                 {
                     "query_name": query_name.lstrip("Q"),
