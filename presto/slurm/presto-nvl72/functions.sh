@@ -362,7 +362,11 @@ if [[ -n '${nsys_bin}' ]]; then
 
     echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"
     echo \"Worker ${worker_id}: running nsys launch\"
-    ${nsys_bin} launch ${nsys_launch_opts} numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    if [[ '${USE_NUMA}' == '1' ]]; then
+        ${nsys_bin} launch ${nsys_launch_opts} numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    else
+        ${nsys_bin} launch ${nsys_launch_opts} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
+    fi
     echo \"Worker ${worker_id}: nsys launch exited with code: \$?\"
 else
     if [[ '${USE_NUMA}' == '1' ]]; then
