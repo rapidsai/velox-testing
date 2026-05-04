@@ -67,18 +67,17 @@ RUN --mount=type=bind,source=velox,target=/src/velox \
     fi && \
     \
     cd /opt/velox-build/velox && \
-    if [ ! -f _build/release/lib/libvelox.a ]; then \
-        echo "=== Phase 1: Building Velox C++ ===" && \
+    if [ ! -f _build/release/build.ninja ]; then \
+        echo "=== Phase 1: Configuring Velox C++ ===" && \
         cmake -B _build/release -GNinja \
             -DCMAKE_BUILD_TYPE=Release \
             -DVELOX_ENABLE_PARQUET=ON \
             -DVELOX_BUILD_TESTING=OFF \
             -DVELOX_ENABLE_CUDF=ON \
-            -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURES}" && \
-        cmake --build _build/release -j"${NUM_THREADS}"; \
-    else \
-        echo "=== Phase 1: Velox already built — skipping ==="; \
+            -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURES}"; \
     fi && \
+    echo "=== Phase 1: Building Velox C++ (incremental via Ninja) ===" && \
+    cmake --build _build/release -j"${NUM_THREADS}" && \
     \
     # Copy runtime shared libs to a persistent image location (cache mount
     # is not available at runtime).
