@@ -283,9 +283,8 @@ function run_worker {
     #   generation to complete after pytest exits. See wait_for_nsys_report_generation
     #   for details.
     #
-    # The token files live in /var/log/nsys (worker view) and
-    # /workspace/presto/slurm/presto-nvl72/logs (cli view), which are the same host
-    # directory bind-mounted into both containers.
+    # The token files live in /var/log/nsys, the same host directory bind-mounted
+    # into both the worker and cli containers.
 
     srun -N1 -w $node --ntasks=1 --overlap \
 --container-image=${worker_image} \
