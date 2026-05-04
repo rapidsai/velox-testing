@@ -45,22 +45,20 @@ RUN apt-get update -y && \
     gperf \
     ninja-build \
     ccache \
-    # Development services
-    openssh-server \
     && rm -rf /tmp/* /var/tmp/* /var/cache/apt/* /var/lib/apt/lists/*
 
 # Set GCC 14 as default (GCC 13 has false-positive -Wstringop-overflow in fmt)
 RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 \
-                        --slave /usr/bin/g++ g++ /usr/bin/g++-14 \
-                        --slave /usr/bin/gcov gcov /usr/bin/gcov-14 && \
+    --slave /usr/bin/g++ g++ /usr/bin/g++-14 \
+    --slave /usr/bin/gcov gcov /usr/bin/gcov-14 && \
     update-alternatives --set gcc /usr/bin/gcc-14
 
 # Install velox helper scripts
 COPY velox-testing/scripts/devcontainer/* /usr/local/bin/
 RUN chmod 755 /usr/local/bin/build-* /usr/local/bin/configure-* \
-              /usr/local/bin/test-* /usr/local/bin/clean-* /usr/local/bin/post-create \
-              /usr/local/bin/initialize /usr/local/bin/start-sshd \
-              /usr/local/bin/_devcontainer_common_utils.sh
+    /usr/local/bin/test-* /usr/local/bin/clean-* /usr/local/bin/post-create \
+    /usr/local/bin/initialize /usr/local/bin/start-sshd \
+    /usr/local/bin/_devcontainer_common_utils.sh
 
 # Environment for velox builds
 # VELOX_DEPENDENCY_SOURCE is read from env by CMake

@@ -9,9 +9,11 @@
     }
   },
   "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {},
     "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils:latest": {}
   },
   "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/sshd",
     "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils"
   ],
   "initializeCommand": ["/bin/bash", "${localWorkspaceFolder}/scripts/devcontainer/initialize", "${localWorkspaceFolder}/..", "${localEnv:HOME}", "13.1"],
@@ -32,6 +34,9 @@
   "hostRequirements": {
     "gpu": "optional"
   },
+  "forwardPorts": [
+    2222
+  ],
   "runArgs": [
     "--rm",
     "--name", "${localEnv:USER:anon}-velox-dev-cuda13.1",
