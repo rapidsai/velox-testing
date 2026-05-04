@@ -75,6 +75,7 @@ docker run --rm --gpus all \
   -e "MASTER=${MASTER}" \
   -e "PARTITIONS=${PARTITIONS}" \
   -e "MODE=${MODE}" \
+  -e "CUDF_DISABLE_BUFFERED_INPUT=${CUDF_DISABLE_BUFFERED_INPUT:-false}" \
   "$IMAGE" \
   bash -c '
     set -e
