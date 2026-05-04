@@ -33,6 +33,9 @@ outputs:
   date:
     description: 'Resolved build date'
     value: ${{ steps.resolve.outputs.date }}
+  image_tag_suffix:
+    description: 'Suffix after the resolved build date, if present'
+    value: ${{ steps.resolve.outputs.image_tag_suffix }}
 
 runs:
   using: composite
@@ -50,18 +53,28 @@ runs:
           TAG="${IMAGE_TAG##*:}"
           echo "Parsing tag: ${TAG}"
 
-          # Presto format: presto-{SHA}-velox-{SHA}-...-{DATE}[-arch]
+          # Presto format: presto-{SHA}-velox-{SHA}-...-{DATE}[-suffix]
           if [[ "$TAG" =~ ^presto-([a-f0-9]+)-velox-([a-f0-9]+)-.*-([0-9]{8})(-[a-z0-9]+)?$ ]]; then
             echo "presto_short_sha=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
             echo "velox_short_sha=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
             echo "date=${BASH_REMATCH[3]}" >> "$GITHUB_OUTPUT"
+            suffix="${BASH_REMATCH[4]}"
+            if [[ ! "${suffix}" =~ ^-[0-9]+$ ]]; then
+              suffix=""
+            fi
+            echo "image_tag_suffix=${suffix}" >> "$GITHUB_OUTPUT"
             echo "Parsed presto image: presto=${BASH_REMATCH[1]}, velox=${BASH_REMATCH[2]}, date=${BASH_REMATCH[3]}"
 
-          # Velox format: velox-{SHA}-...-{DATE}[-arch]
+          # Velox format: velox-{SHA}-...-{DATE}[-suffix]
           elif [[ "$TAG" =~ ^velox-([a-f0-9]+)-.*-([0-9]{8})(-[a-z0-9]+)?$ ]]; then
             echo "velox_short_sha=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
             echo "presto_short_sha=" >> "$GITHUB_OUTPUT"
             echo "date=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+            suffix="${BASH_REMATCH[3]}"
+            if [[ ! "${suffix}" =~ ^-[0-9]+$ ]]; then
+              suffix=""
+            fi
+            echo "image_tag_suffix=${suffix}" >> "$GITHUB_OUTPUT"
             echo "Parsed velox image: velox=${BASH_REMATCH[1]}, date=${BASH_REMATCH[2]}"
 
           else
@@ -76,4 +89,5 @@ runs:
           echo "velox_short_sha=${VELOX_SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "presto_short_sha=${PRESTO_SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "date=${DATE}" >> "$GITHUB_OUTPUT"
+          echo "image_tag_suffix=" >> "$GITHUB_OUTPUT"
         fi

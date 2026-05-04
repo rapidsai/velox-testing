@@ -29,6 +29,19 @@ on:
         type: string
         required: false
         default: 'manual'
+      github_run_id:
+        description: 'GitHub Actions run ID used to isolate temporary tags'
+        type: string
+        required: true
+      github_run_attempt:
+        description: 'GitHub Actions run attempt used to isolate temporary tags'
+        type: string
+        required: true
+      final_image_tag_suffix:
+        description: 'Optional suffix appended to final multi-arch image tags'
+        type: string
+        required: false
+        default: ''
 
 env:
   REGISTRY: ghcr.io
@@ -116,7 +129,7 @@ jobs:
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:velox-deps-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}-${{ matrix.arch }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
@@ -207,24 +220,28 @@ jobs:
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          GITHUB_RUN_ID: ${{ inputs.github_run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
           ARCH: ${{ matrix.arch }}
           CUDA: ${{ matrix.cuda_version || '12.9' }}
         run: |
-          echo "image=${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          GITHUB_RUN_ID: ${{ inputs.github_run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
           ARCH: ${{ matrix.arch }}
           BUILD_TYPE: ${{ matrix.build_type }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
         run: |
           if [[ "${BUILD_TYPE}" == "cpu" ]]; then
-            echo "tag=velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Velox image
@@ -277,23 +294,27 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
+          GITHUB_RUN_ID: ${{ inputs.github_run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
+          FINAL_IMAGE_TAG_SUFFIX: ${{ inputs.final_image_tag_suffix }}
         run: |
           create_manifest() {
             local tag="$1"
+            local final_tag="${tag}${FINAL_IMAGE_TAG_SUFFIX}"
             echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
           }
           for cuda in 12.9 13.1; do
             create_manifest "velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
           done
-          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${FINAL_IMAGE_TAG_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
               docker buildx imagetools create \
                 -t "${REGISTRY}/${IMAGE_NAME}:velox-deps-latest-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-arm64"
+                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
             done
           fi
   merge-velox-build:
@@ -315,29 +336,33 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
+          GITHUB_RUN_ID: ${{ inputs.github_run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
+          FINAL_IMAGE_TAG_SUFFIX: ${{ inputs.final_image_tag_suffix }}
         run: |
           create_manifest() {
             local tag="$1"
+            local final_tag="${tag}${FINAL_IMAGE_TAG_SUFFIX}"
             echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
+            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
           }
           for cuda in 12.9 13.1; do
             create_manifest "velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
           done
           create_manifest "velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
-          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${FINAL_IMAGE_TAG_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
               docker buildx imagetools create \
                 -t "${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-arm64"
+                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
             done
             docker buildx imagetools create \
               -t "${REGISTRY}/${IMAGE_NAME}:velox-latest-cpu" \
-              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-arm64"
+              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true
@@ -346,8 +371,8 @@ jobs:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
           base-tags: |
-            velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}
-            velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}
-            velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}
-            velox-deps-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}
-            velox-deps-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}
+            velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
+            velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
+            velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
+            velox-deps-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
+            velox-deps-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}

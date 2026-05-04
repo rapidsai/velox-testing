@@ -55,6 +55,11 @@ on:
       run_tests: *run_tests
       build_type: *build_type
       build_variant: *build_variant
+      final_image_tag_suffix:
+        description: 'Optional suffix appended to final multi-arch image tags'
+        type: string
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -101,6 +106,9 @@ jobs:
       date: ${{ needs.resolve-commits.outputs.date }}
       build_type: ${{ inputs.build_type }}
       build_variant: ${{ inputs.build_variant }}
+      github_run_id: ${{ github.run_id }}
+      github_run_attempt: ${{ github.run_attempt }}
+      final_image_tag_suffix: ${{ inputs.final_image_tag_suffix || (github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '') }}
     secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   presto-test:
@@ -114,3 +122,4 @@ jobs:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       presto_short_sha: ${{ needs.resolve-commits.outputs.presto_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
+      image_tag_suffix: ${{ inputs.final_image_tag_suffix || (github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '') }}

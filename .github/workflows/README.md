@@ -100,8 +100,8 @@ The additional merge happens **after** the base reset but **before** PR merging.
 
 Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and published to [GitHub Container Registry](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing) under the `velox-testing-images` package.
 
-- **`velox-nightly.yml`** — Nightly schedule (5am UTC). Calls `velox.yml` for upstream and staging variants.
-- **`presto-nightly.yml`** — Nightly schedule (5am UTC). Calls `presto.yml` for upstream, pinned, and staging variants.
+- **`velox-nightly.yml`** — Nightly schedule (5am UTC). Calls `velox.yml` for the upstream variant.
+- **`presto-nightly.yml`** — Nightly schedule (5am UTC). Calls `presto.yml` for upstream and pinned variants.
 - **`velox.yml`** / **`presto.yml`** — Reusable pipelines that resolve commits, build images, run tests, and (for Velox) run benchmarks. Also support `workflow_dispatch` for manual runs.
 
   | Variant | Velox | Presto |
@@ -109,6 +109,8 @@ Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and publis
   | `upstream` | `facebookincubator/velox:main` | `prestodb/presto:master` |
   | `pinned` | Presto's pinned Velox submodule | `prestodb/presto:master` |
   | `staging` | `$STABLE_VELOX_REPO:$STABLE_VELOX_COMMIT` | `$STABLE_PRESTO_REPO:$STABLE_PRESTO_COMMIT` |
+
+  `staging` remains available through manual `workflow_dispatch` runs, but is not scheduled nightly while it resolves to the same commits as other variants.
 
 ### CI Image Pipeline
 
@@ -151,6 +153,8 @@ Images are tagged with commit SHAs, CUDA version, and build date:
 - **Presto build (GPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}`
 - **Presto build (CPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-cpu-${DATE}`
 - **Presto coordinator:** `presto-coordinator-${PRESTO_SHA}-${DATE}`
+
+Manual build runs append the GitHub run ID to final image tags, for example `velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}-${GITHUB_RUN_ID}`. Manual builds do not update stable `latest` tags. Intermediate arch-specific tags include the run ID and run attempt before the architecture suffix so overlapping builds cannot delete each other's merge inputs.
 
 Images are purged after 30 days by the `ci-image-cleanup.yml` workflow.
 

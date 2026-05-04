@@ -16,6 +16,11 @@ on:
         type: string
         required: false
         default: ''
+      image_tag_suffix:
+        description: 'Optional suffix appended to Velox image tags'
+        type: string
+        required: false
+        default: ''
 
   workflow_dispatch:
     inputs:
@@ -39,6 +44,11 @@ on:
         type: string
         required: false
         default: ''
+      image_tag_suffix:
+        description: 'Optional suffix appended to Velox image tags'
+        type: string
+        required: false
+        default: ''
 
 env:
   REGISTRY: ghcr.io
@@ -52,6 +62,7 @@ jobs:
     outputs:
       velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
       date: ${{ steps.resolve.outputs.date }}
+      image_tag_suffix: ${{ inputs.image_tag_suffix || steps.resolve.outputs.image_tag_suffix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -140,9 +151,10 @@ jobs:
           VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
           BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
+          IMAGE_TAG_SUFFIX: ${{ needs.resolve-inputs.outputs.image_tag_suffix }}
         working-directory: velox/scripts
         run: |
-          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${IMAGE_TAG_SUFFIX}"
           ./benchmark_velox.sh \
             --image "${IMAGE}" \
             --benchmark-type tpch \
