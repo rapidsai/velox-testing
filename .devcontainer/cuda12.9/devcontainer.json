@@ -42,8 +42,8 @@
     "--name", "${localEnv:USER:anon}-velox-dev-cuda12.9",
     "--ulimit", "nofile=500000"
   ],
-  "postCreateCommand": "/home/coder/velox-testing/scripts/devcontainer/post-create",
-  "postStartCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/start-sshd",
+  "postCreateCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/post-create",
+  "postStartCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/post-start",
   "postAttachCommand": [
     "/bin/bash",
     "-c",
