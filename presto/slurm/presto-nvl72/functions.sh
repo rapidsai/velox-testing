@@ -228,7 +228,10 @@ function run_worker {
     local nsys_launch_opts=""
     local vt_nsys_report_dir="/var/log/nsys"
     if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "${NSYS_WORKER_ID}" ]]; then
-        nsys_bin="/opt/nvidia/nsight-systems-cli/2025.5.1/bin/nsys"
+        # nsys must be on PATH inside the worker container. The recommended approach is
+        # a symlink in the image build:
+        # ln -sf /opt/nvidia/nsight-systems-cli/<version>/bin/nsys /usr/local/bin/nsys
+        nsys_bin="nsys"
         nsys_launch_opts="-t nvtx,cuda"
     fi
 
