@@ -11,8 +11,8 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `velox-create-staging.yml` | Creates Velox staging branch by merging cuDF PRs | Auto-fetches PRs with `cudf` label by default |
 | `presto-create-staging.yml` | Creates Presto staging branch by merging specified PRs | Requires manual PR numbers (no auto-fetch) |
 | **CI Images** |||
-| `velox-nightly.yml` | Nightly Velox builds + tests + benchmarks (upstream, staging) | Schedule (5am UTC) + manual dispatch |
-| `presto-nightly.yml` | Nightly Presto builds + tests (upstream, pinned, staging) | Schedule (5am UTC) + manual dispatch |
+| `velox-nightly.yml` | Nightly Velox builds + tests + benchmarks (upstream) | Schedule (5am UTC) + manual dispatch |
+| `presto-nightly.yml` | Nightly Presto builds + tests (upstream, pinned) | Schedule (5am UTC) + manual dispatch |
 | `velox.yml` | Velox CI image build + test + benchmark pipeline | Called by nightly; also supports `workflow_dispatch` |
 | `presto.yml` | Presto CI image build + test pipeline | Called by nightly; also supports `workflow_dispatch` |
 | `actions/resolve-commits/` | Composite action to resolve Velox/Presto commit SHAs | Used by CI image workflows |
@@ -108,10 +108,6 @@ Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and publis
   |---------|-------|--------|
   | `upstream` | `facebookincubator/velox:main` | `prestodb/presto:master` |
   | `pinned` | Presto's pinned Velox submodule | `prestodb/presto:master` |
-  | `staging` | `$STABLE_VELOX_REPO:$STABLE_VELOX_COMMIT` | `$STABLE_PRESTO_REPO:$STABLE_PRESTO_COMMIT` |
-
-  `staging` remains available through manual `workflow_dispatch` runs, but is not scheduled nightly while it resolves to the same commits as other variants.
-
 ### CI Image Pipeline
 
 The Velox pipeline (`velox.yml`):
@@ -154,7 +150,7 @@ Images are tagged with commit SHAs, CUDA version, and build date:
 - **Presto build (CPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-cpu-${DATE}`
 - **Presto coordinator:** `presto-coordinator-${PRESTO_SHA}-${DATE}`
 
-Manual build runs append the GitHub run ID to final image tags, for example `velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}-${GITHUB_RUN_ID}`. Manual builds do not update stable `latest` tags. Intermediate arch-specific tags include the run ID and run attempt before the architecture suffix so overlapping builds cannot delete each other's merge inputs.
+Manual build runs append the GitHub run ID to final image tags, for example `velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}-${GITHUB_RUN_ID}`. Manual builds do not update stable `latest` tags. Intermediate arch-specific tags include the run ID before the architecture suffix so overlapping builds cannot delete each other's merge inputs.
 
 Images are purged after 30 days by the `ci-image-cleanup.yml` workflow.
 

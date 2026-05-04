@@ -37,20 +37,16 @@ on:
         required: false
         default: 'manual'
       build_variant:
-        description: 'One of: [upstream, pinned, staging, manual]'
+        description: 'One of: [upstream, pinned, manual]'
         type: string
         required: false
         default: 'manual'
       github_run_id:
-        description: 'GitHub Actions run ID used to isolate temporary tags'
+        description: 'GitHub Actions run ID used to make temporary tags unique'
         type: string
         required: true
-      github_run_attempt:
-        description: 'GitHub Actions run attempt used to isolate temporary tags'
-        type: string
-        required: true
-      final_image_tag_suffix:
-        description: 'Optional suffix appended to final multi-arch image tags'
+      final_run_id_suffix:
+        description: 'Optional run ID suffix appended to final multi-arch image tags'
         type: string
         required: false
         default: ''
@@ -156,7 +152,7 @@ jobs:
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}-${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ matrix.arch }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
@@ -200,10 +196,9 @@ jobs:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
           GITHUB_RUN_ID: ${{ inputs.github_run_id }}
-          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
           ARCH: ${{ matrix.arch }}
         run: |
-          echo "tag=presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "tag=presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Presto coordinator image
         id: push
@@ -304,11 +299,10 @@ jobs:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
           GITHUB_RUN_ID: ${{ inputs.github_run_id }}
-          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
           ARCH: ${{ matrix.arch }}
           CUDA: ${{ matrix.cuda_version || '12.9' }}
         run: |
-          echo "image=${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -317,15 +311,14 @@ jobs:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
           GITHUB_RUN_ID: ${{ inputs.github_run_id }}
-          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
           ARCH: ${{ matrix.arch }}
           BUILD_TYPE: ${{ matrix.build_type }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
         run: |
           if [[ "${BUILD_TYPE}" == "cpu" ]]; then
-            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Presto native worker image
@@ -384,26 +377,25 @@ jobs:
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
           GITHUB_RUN_ID: ${{ inputs.github_run_id }}
-          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
-          FINAL_IMAGE_TAG_SUFFIX: ${{ inputs.final_image_tag_suffix }}
+          FINAL_RUN_ID_SUFFIX: ${{ inputs.final_run_id_suffix }}
         run: |
           create_manifest() {
             local tag="$1"
-            local final_tag="${tag}${FINAL_IMAGE_TAG_SUFFIX}"
+            local final_tag="${tag}${FINAL_RUN_ID_SUFFIX}"
             echo "Creating multi-arch manifest: ${tag}"
             docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-arm64"
           }
           for cuda in 12.9 13.1; do
             create_manifest "presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
           done
-          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${FINAL_IMAGE_TAG_SUFFIX}" ]]; then
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${FINAL_RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
               docker buildx imagetools create \
                 -t "${REGISTRY}/${IMAGE_NAME}:presto-deps-latest-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
+                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-arm64"
             done
           fi
   merge-presto-build:
@@ -432,32 +424,31 @@ jobs:
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
           GITHUB_RUN_ID: ${{ inputs.github_run_id }}
-          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
-          FINAL_IMAGE_TAG_SUFFIX: ${{ inputs.final_image_tag_suffix }}
+          FINAL_RUN_ID_SUFFIX: ${{ inputs.final_run_id_suffix }}
         run: |
           create_manifest() {
             local tag="$1"
-            local final_tag="${tag}${FINAL_IMAGE_TAG_SUFFIX}"
+            local final_tag="${tag}${FINAL_RUN_ID_SUFFIX}"
             echo "Creating multi-arch manifest: ${tag}"
             docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-arm64"
           }
           for cuda in 12.9 13.1; do
             create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
           done
           create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
-          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${FINAL_IMAGE_TAG_SUFFIX}" ]]; then
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${FINAL_RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
               docker buildx imagetools create \
                 -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-gpu-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
+                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-amd64" \
+                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-${GITHUB_RUN_ID}-arm64"
             done
             docker buildx imagetools create \
               -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-cpu" \
-              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
+              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${GITHUB_RUN_ID}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${GITHUB_RUN_ID}-arm64"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true
@@ -466,11 +457,11 @@ jobs:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
           base-tags: |
-            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
-            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
-            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
-            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
-            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}-${{ inputs.github_run_id }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}-${{ inputs.github_run_id }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}-${{ inputs.github_run_id }}
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.github_run_id }}
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.github_run_id }}
 
   merge-presto-coordinator:
     name: merge-manifests (presto-coordinator)
@@ -497,20 +488,19 @@ jobs:
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
           GITHUB_RUN_ID: ${{ inputs.github_run_id }}
-          GITHUB_RUN_ATTEMPT: ${{ inputs.github_run_attempt }}
-          FINAL_IMAGE_TAG_SUFFIX: ${{ inputs.final_image_tag_suffix }}
+          FINAL_RUN_ID_SUFFIX: ${{ inputs.final_run_id_suffix }}
         run: |
           TAG="presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}"
-          FINAL_TAG="${TAG}${FINAL_IMAGE_TAG_SUFFIX}"
+          FINAL_TAG="${TAG}${FINAL_RUN_ID_SUFFIX}"
           echo "Creating multi-arch manifest: ${TAG}"
           docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${FINAL_TAG}" \
-            "${REGISTRY}/${IMAGE_NAME}:${TAG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
-            "${REGISTRY}/${IMAGE_NAME}:${TAG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
-          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${FINAL_IMAGE_TAG_SUFFIX}" ]]; then
+            "${REGISTRY}/${IMAGE_NAME}:${TAG}-${GITHUB_RUN_ID}-amd64" \
+            "${REGISTRY}/${IMAGE_NAME}:${TAG}-${GITHUB_RUN_ID}-arm64"
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${FINAL_RUN_ID_SUFFIX}" ]]; then
             docker buildx imagetools create \
               -t "${REGISTRY}/${IMAGE_NAME}:presto-coordinator-latest" \
-              "${REGISTRY}/${IMAGE_NAME}:${TAG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${TAG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-arm64"
+              "${REGISTRY}/${IMAGE_NAME}:${TAG}-${GITHUB_RUN_ID}-amd64" \
+              "${REGISTRY}/${IMAGE_NAME}:${TAG}-${GITHUB_RUN_ID}-arm64"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true
@@ -518,4 +508,4 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
-          base-tags: presto-coordinator-${{ inputs.presto_short_sha }}-${{ inputs.date }}-${{ inputs.github_run_id }}-${{ inputs.github_run_attempt }}
+          base-tags: presto-coordinator-${{ inputs.presto_short_sha }}-${{ inputs.date }}-${{ inputs.github_run_id }}

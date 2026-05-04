@@ -12,12 +12,12 @@ on:
         type: string
         required: true
       variant_label:
-        description: 'Variant label to disambiguate artifacts (e.g. upstream, staging)'
+        description: 'Variant label to disambiguate artifacts (e.g. upstream)'
         type: string
         required: false
         default: ''
-      image_tag_suffix:
-        description: 'Optional suffix appended to Velox image tags'
+      run_id_suffix:
+        description: 'Optional run ID suffix appended to Velox image tags'
         type: string
         required: false
         default: ''
@@ -40,12 +40,12 @@ on:
         required: false
         default: ''
       variant_label:
-        description: 'Variant label to disambiguate artifacts (e.g. upstream, staging)'
+        description: 'Variant label to disambiguate artifacts (e.g. upstream)'
         type: string
         required: false
         default: ''
-      image_tag_suffix:
-        description: 'Optional suffix appended to Velox image tags'
+      run_id_suffix:
+        description: 'Optional run ID suffix appended to Velox image tags'
         type: string
         required: false
         default: ''
@@ -62,7 +62,7 @@ jobs:
     outputs:
       velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
       date: ${{ steps.resolve.outputs.date }}
-      image_tag_suffix: ${{ inputs.image_tag_suffix || steps.resolve.outputs.image_tag_suffix }}
+      run_id_suffix: ${{ inputs.run_id_suffix || steps.resolve.outputs.run_id_suffix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -151,10 +151,10 @@ jobs:
           VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
           BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
-          IMAGE_TAG_SUFFIX: ${{ needs.resolve-inputs.outputs.image_tag_suffix }}
+          RUN_ID_SUFFIX: ${{ needs.resolve-inputs.outputs.run_id_suffix }}
         working-directory: velox/scripts
         run: |
-          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${IMAGE_TAG_SUFFIX}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           ./benchmark_velox.sh \
             --image "${IMAGE}" \
             --benchmark-type tpch \

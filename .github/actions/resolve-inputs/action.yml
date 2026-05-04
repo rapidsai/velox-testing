@@ -33,9 +33,9 @@ outputs:
   date:
     description: 'Resolved build date'
     value: ${{ steps.resolve.outputs.date }}
-  image_tag_suffix:
-    description: 'Suffix after the resolved build date, if present'
-    value: ${{ steps.resolve.outputs.image_tag_suffix }}
+  run_id_suffix:
+    description: 'Run ID suffix after the resolved build date, if present'
+    value: ${{ steps.resolve.outputs.run_id_suffix }}
 
 runs:
   using: composite
@@ -62,7 +62,7 @@ runs:
             if [[ ! "${suffix}" =~ ^-[0-9]+$ ]]; then
               suffix=""
             fi
-            echo "image_tag_suffix=${suffix}" >> "$GITHUB_OUTPUT"
+            echo "run_id_suffix=${suffix}" >> "$GITHUB_OUTPUT"
             echo "Parsed presto image: presto=${BASH_REMATCH[1]}, velox=${BASH_REMATCH[2]}, date=${BASH_REMATCH[3]}"
 
           # Velox format: velox-{SHA}-...-{DATE}[-suffix]
@@ -74,7 +74,7 @@ runs:
             if [[ ! "${suffix}" =~ ^-[0-9]+$ ]]; then
               suffix=""
             fi
-            echo "image_tag_suffix=${suffix}" >> "$GITHUB_OUTPUT"
+            echo "run_id_suffix=${suffix}" >> "$GITHUB_OUTPUT"
             echo "Parsed velox image: velox=${BASH_REMATCH[1]}, date=${BASH_REMATCH[2]}"
 
           else
@@ -89,5 +89,5 @@ runs:
           echo "velox_short_sha=${VELOX_SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "presto_short_sha=${PRESTO_SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "date=${DATE}" >> "$GITHUB_OUTPUT"
-          echo "image_tag_suffix=" >> "$GITHUB_OUTPUT"
+          echo "run_id_suffix=" >> "$GITHUB_OUTPUT"
         fi

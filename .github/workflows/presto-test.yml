@@ -15,8 +15,8 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
-      image_tag_suffix:
-        description: 'Optional suffix appended to Presto image tags'
+      run_id_suffix:
+        description: 'Optional run ID suffix appended to Presto image tags'
         type: string
         required: false
         default: ''
@@ -43,8 +43,8 @@ on:
         type: string
         required: false
         default: ''
-      image_tag_suffix:
-        description: 'Optional suffix appended to Presto image tags'
+      run_id_suffix:
+        description: 'Optional run ID suffix appended to Presto image tags'
         type: string
         required: false
         default: ''
@@ -62,7 +62,7 @@ jobs:
       velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
       presto_short_sha: ${{ steps.resolve.outputs.presto_short_sha }}
       date: ${{ steps.resolve.outputs.date }}
-      image_tag_suffix: ${{ inputs.image_tag_suffix || steps.resolve.outputs.image_tag_suffix }}
+      run_id_suffix: ${{ inputs.run_id_suffix || steps.resolve.outputs.run_id_suffix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -224,13 +224,13 @@ jobs:
           PRESTO_SHORT_SHA: ${{ needs.resolve-inputs.outputs.presto_short_sha }}
           BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
-          IMAGE_TAG_SUFFIX: ${{ needs.resolve-inputs.outputs.image_tag_suffix }}
+          RUN_ID_SUFFIX: ${{ needs.resolve-inputs.outputs.run_id_suffix }}
         run: |
-          COORD_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}${IMAGE_TAG_SUFFIX}"
+          COORD_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           docker pull "${COORD_IMAGE}"
           docker tag "${COORD_IMAGE}" "presto-coordinator:ci"
 
-          WORKER_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${IMAGE_TAG_SUFFIX}"
+          WORKER_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           docker pull "${WORKER_IMAGE}"
           docker tag "${WORKER_IMAGE}" "presto-native-worker-gpu:ci"
 
