@@ -29,7 +29,7 @@ jobs:
       run_tests: true
       build_type: nightly
       build_variant: upstream
-      final_run_id_suffix: ${{ github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '' }}
+      run_id_suffix: ${{ github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '' }}
     secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   pinned:
@@ -49,5 +49,5 @@ jobs:
       run_tests: true
       build_type: nightly
       build_variant: pinned
-      final_run_id_suffix: ${{ github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '' }}
+      run_id_suffix: ${{ github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '' }}
     secrets: inherit  # zizmor: ignore[secrets-inherit]

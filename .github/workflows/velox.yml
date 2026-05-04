@@ -43,8 +43,8 @@ on:
       run_tests: *run_tests
       build_type: *build_type
       build_variant: *build_variant
-      final_run_id_suffix:
-        description: 'Optional run ID suffix appended to final multi-arch image tags'
+      run_id_suffix:
+        description: 'Optional run ID suffix appended to image tags'
         type: string
         required: false
         default: ''
@@ -88,7 +88,7 @@ jobs:
       build_type: ${{ inputs.build_type }}
       build_variant: ${{ inputs.build_variant }}
       github_run_id: ${{ github.run_id }}
-      final_run_id_suffix: ${{ inputs.final_run_id_suffix || (github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '') }}
+      run_id_suffix: ${{ inputs.run_id_suffix || (github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '') }}
     secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   velox-test:
@@ -101,7 +101,7 @@ jobs:
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
-      run_id_suffix: ${{ inputs.final_run_id_suffix || (github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '') }}
+      run_id_suffix: ${{ inputs.run_id_suffix || (github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '') }}
 
   velox-benchmark:
     needs: [resolve-commits, velox-build]
@@ -112,5 +112,5 @@ jobs:
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
-      run_id_suffix: ${{ inputs.final_run_id_suffix || (github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '') }}
+      run_id_suffix: ${{ inputs.run_id_suffix || (github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '') }}
       variant_label: ${{ inputs.variant_label }}

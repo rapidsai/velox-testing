@@ -33,8 +33,8 @@ on:
         description: 'GitHub Actions run ID used to make temporary tags unique'
         type: string
         required: true
-      final_run_id_suffix:
-        description: 'Optional run ID suffix appended to final multi-arch image tags'
+      run_id_suffix:
+        description: 'Optional run ID suffix appended to image tags'
         type: string
         required: false
         default: ''
@@ -289,20 +289,21 @@ jobs:
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
           GITHUB_RUN_ID: ${{ inputs.github_run_id }}
-          FINAL_RUN_ID_SUFFIX: ${{ inputs.final_run_id_suffix }}
+          RUN_ID_SUFFIX: ${{ inputs.run_id_suffix }}
         run: |
           create_manifest() {
             local tag="$1"
-            local final_tag="${tag}${FINAL_RUN_ID_SUFFIX}"
+            local final_tag="$2"
             echo "Creating multi-arch manifest: ${tag}"
             docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
               "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-amd64" \
               "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-arm64"
           }
           for cuda in 12.9 13.1; do
-            create_manifest "velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
+            tag="velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
+            create_manifest "${tag}" "${tag}${RUN_ID_SUFFIX}"
           done
-          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${FINAL_RUN_ID_SUFFIX}" ]]; then
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
               docker buildx imagetools create \
                 -t "${REGISTRY}/${IMAGE_NAME}:velox-deps-latest-cuda${cuda}" \
@@ -330,21 +331,23 @@ jobs:
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
           GITHUB_RUN_ID: ${{ inputs.github_run_id }}
-          FINAL_RUN_ID_SUFFIX: ${{ inputs.final_run_id_suffix }}
+          RUN_ID_SUFFIX: ${{ inputs.run_id_suffix }}
         run: |
           create_manifest() {
             local tag="$1"
-            local final_tag="${tag}${FINAL_RUN_ID_SUFFIX}"
+            local final_tag="$2"
             echo "Creating multi-arch manifest: ${tag}"
             docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
               "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-amd64" \
               "${REGISTRY}/${IMAGE_NAME}:${tag}-${GITHUB_RUN_ID}-arm64"
           }
           for cuda in 12.9 13.1; do
-            create_manifest "velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
+            tag="velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
+            create_manifest "${tag}" "${tag}${RUN_ID_SUFFIX}"
           done
-          create_manifest "velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
-          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${FINAL_RUN_ID_SUFFIX}" ]]; then
+          tag="velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+          create_manifest "${tag}" "${tag}${RUN_ID_SUFFIX}"
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
               docker buildx imagetools create \
                 -t "${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda${cuda}" \

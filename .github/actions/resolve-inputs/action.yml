@@ -34,7 +34,7 @@ outputs:
     description: 'Resolved build date'
     value: ${{ steps.resolve.outputs.date }}
   run_id_suffix:
-    description: 'Run ID suffix after the resolved build date, if present'
+    description: 'Run ID suffix, if present'
     value: ${{ steps.resolve.outputs.run_id_suffix }}
 
 runs:
@@ -53,7 +53,7 @@ runs:
           TAG="${IMAGE_TAG##*:}"
           echo "Parsing tag: ${TAG}"
 
-          # Presto format: presto-{SHA}-velox-{SHA}-...-{DATE}[-suffix]
+          # Presto format: presto-{SHA}-velox-{SHA}-...-{DATE}{RUN_ID_SUFFIX}
           if [[ "$TAG" =~ ^presto-([a-f0-9]+)-velox-([a-f0-9]+)-.*-([0-9]{8})(-[a-z0-9]+)?$ ]]; then
             echo "presto_short_sha=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
             echo "velox_short_sha=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
@@ -65,7 +65,7 @@ runs:
             echo "run_id_suffix=${suffix}" >> "$GITHUB_OUTPUT"
             echo "Parsed presto image: presto=${BASH_REMATCH[1]}, velox=${BASH_REMATCH[2]}, date=${BASH_REMATCH[3]}"
 
-          # Velox format: velox-{SHA}-...-{DATE}[-suffix]
+          # Velox format: velox-{SHA}-...-{DATE}{RUN_ID_SUFFIX}
           elif [[ "$TAG" =~ ^velox-([a-f0-9]+)-.*-([0-9]{8})(-[a-z0-9]+)?$ ]]; then
             echo "velox_short_sha=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
             echo "presto_short_sha=" >> "$GITHUB_OUTPUT"
