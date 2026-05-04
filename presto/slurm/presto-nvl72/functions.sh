@@ -109,6 +109,7 @@ ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.propertie
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
+${LOGS}:/var/log/nsys,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
     else
@@ -123,6 +124,7 @@ ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.propertie
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
+${LOGS}:/var/log/nsys,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
     fi
@@ -499,7 +501,6 @@ function run_queries {
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
-    export NSYS_TOKEN_DIR=/workspace/presto/slurm/presto-nvl72/logs; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${extra_args[*]} \
         --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"

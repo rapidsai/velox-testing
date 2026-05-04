@@ -6,7 +6,7 @@ set -e
 
 function start_profiler() {
   local -r qid=$(basename "$1")
-  local -r token_dir="${NSYS_TOKEN_DIR:?NSYS_TOKEN_DIR not set}"
+  local -r token_dir="/var/log/nsys"
   local -r wid="${NSYS_WORKER_ID:?NSYS_WORKER_ID not set}"
 
   # Clear any stale tokens from a prior failed iteration of this qid.
