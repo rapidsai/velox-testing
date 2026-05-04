@@ -63,11 +63,44 @@ Images are saved to `${IMAGE_DIR}` (default: `/scratch/${USER}/images/presto`).
 
 ### 4. Run benchmarks
 
-```bash
-./launch-run.sh -n <nodes> -s <scale_factor> \
-    -w <worker-image-name> -c <coord-image-name> \
-    [-i <iterations>]
+```text
+./launch-run.sh \
+    -n, --nodes NODES \
+    -s, --scale-factor SCALE_FACTOR \
+    -w, --worker-image WORKER_IMAGE \
+    -c, --coord-image COORD_IMAGE \
+    [-i, --iterations ITERATIONS] \
+    [--disable-gds] \
+    [-m, --metrics] \
+    [-p, --profile] \
+    [--nsys-worker-id WORKER_ID] \
+    [-q, --queries QUERIES] \
+    [--worker-env-file PATH]
+```
 
+**Required:**
+
+- `-n, --nodes NODES` — Number of SLURM nodes.
+- `-s, --scale-factor SF` — TPC-H scale factor.
+- `-w, --worker-image NAME` — Worker image name (without `.sqsh`), expected at `${IMAGE_DIR}/<NAME>.sqsh`.
+- `-c, --coord-image NAME` — Coordinator image (without `.sqsh`), expected at `${IMAGE_DIR}/<NAME>.sqsh`.
+
+**Optional:**
+
+- `-i, --iterations N` — Iterations per query (default: `2`).
+- `-g, --num-gpus-per-node N` — GPUs (and workers) per node (default: `4`).
+- `--no-numa` — Disable NUMA pinning. Default: NUMA pinning performed.
+- `--cpu` — CPU benchmark variant (forces `-g 1` and `--no-numa`).
+- `-o, --output-path PATH` — Copy `result_dir/` to this path after the job completes.
+- `--disable-gds` — Use POSIX I/O (`KVIKIO_COMPAT_MODE=ON`). Default: GDS enabled.
+- `-m, --metrics` — Pull per-query stats from the coordinator REST API into `result_dir/metrics/`.
+- `-p, --profile` — Capture an nsys report per query for one worker. Worker image must include the `nsys` CLI.
+- `--nsys-worker-id ID` — Worker to profile (default: `0`). Requires `-p`.
+- `-q, --queries LIST` — Comma-separated query numbers, e.g. `1,5,9` (default: all 22).
+- `--worker-env-file PATH` — File sourced inside each worker before `presto_server` starts (default: `./worker.env`, sets `KVIKIO_TASK_SIZE=16MiB` and `KVIKIO_NTHREADS=16`).
+
+
+```bash
 # examples
 ./launch-run.sh -n 8 -s 3000 \
     -w presto-native-worker-gpu-v1 -c presto-coordinator-v1

@@ -252,6 +252,37 @@ function run_worker {
     # compat library with the host driver so cudaMallocAsync works.
     # CUDA_VISIBLE_DEVICES=${gpu_id} inside the container restricts each worker to
     # its assigned GPU while still allowing the CUDA driver to enumerate all devices.
+
+    # Notes on nsys profiling
+    #
+    # In the worker container here, we use `nsys launch` to start the presto_server,
+    # and later use `nsys start` and `nsys stop` to control the per-query profiling
+    # session, and each query gets its own .nsys-rep file.
+    # The queries are initiated in a separate cli container. So the challenge is how to
+    # communicate between these two containers, so that the worker container knows the
+    # exact time a query begins and ends, so as to execute `nsys start` and `nsys stop`
+    # accordingly.
+    #
+    # Here we use file-token handshakes:
+    # - A background process in the worker container:
+    #   - Waits for .nsys_start_token_w<id>_<qid>
+    #   - Runs `nsys start`
+    #   - Creates .nsys_started_token_w<id>_<qid>
+    #   - Waits for .nsys_stop_token_w<id>_<qid>
+    #   - Runs `nsys stop`
+    # - The pytest process in the cli container:
+    #   - Creates .nsys_start_token_w<id>_<qid>
+    #   - Waits for .nsys_started_token_w<id>_<qid>
+    #   - Runs the query
+    #   - When the query ends, creates .nsys_stop_token_w<id>_<qid>
+    # - The slurm batch script (run-presto-benchmarks.sh) waits for nsys report
+    #   generation to complete after pytest exits. See wait_for_nsys_report_generation
+    #   for details.
+    #
+    # The token files live in /var/log/nsys (worker view) and
+    # /workspace/presto/slurm/presto-nvl72/logs (cli view), which are the same host
+    # directory bind-mounted into both containers.
+
     srun -N1 -w $node --ntasks=1 --overlap \
 --container-image=${worker_image} \
 --container-remap-root \
@@ -602,6 +633,18 @@ function inject_benchmark_metadata {
 }
 
 function wait_for_nsys_report_generation {
+    # Notes on nsys profiling
+    #
+    # Wait for nsys to finish flushing .nsys-rep files before the job exits.
+    # `nsys stop` only signals the daemon; the report is written asynchronously
+    # and can take seconds to minutes. If SLURM tears down the container first,
+    # partial reports are lost.
+    #
+    # We poll file sizes and consider a report done when its size hasn't
+    # changed for 3 consecutive iterations (15s). The .qdstrm fallback covers
+    # the case where nsys hasn't yet finalized into .nsys-rep: a stable
+    # .qdstrm is better than nothing if we hit the 10-minute ceiling.
+
     if [[ "${ENABLE_NSYS}" == "1" ]]; then
         echo "Waiting for nsys report generation..."
         if [[ -n "${QUERIES:-}" ]]; then
