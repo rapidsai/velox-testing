@@ -109,7 +109,6 @@ ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.propertie
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
-${LOGS}:/var/log/nsys,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
     else

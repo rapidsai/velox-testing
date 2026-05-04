@@ -29,7 +29,7 @@ function start_profiler() {
 
 function stop_profiler() {
   local -r qid=$(basename "$1")
-  local -r token_dir="${NSYS_TOKEN_DIR:?NSYS_TOKEN_DIR not set}"
+  local -r token_dir="/var/log/nsys"
   local -r wid="${NSYS_WORKER_ID:?NSYS_WORKER_ID not set}"
   touch "${token_dir}/.nsys_stop_token_w${wid}_${qid}"
 }
