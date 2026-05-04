@@ -30,7 +30,7 @@ on:
         required: false
         default: 'manual'
       github_run_id:
-        description: 'GitHub Actions run ID used to make temporary tags unique'
+        description: 'Caller workflow run ID used to make temporary tags unique'
         type: string
         required: true
       run_id_suffix:
