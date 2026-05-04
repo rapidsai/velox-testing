@@ -49,8 +49,8 @@ RUN apt-get update -y && \
 
 # Set GCC 14 as default (GCC 13 has false-positive -Wstringop-overflow in fmt)
 RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 \
-    --slave /usr/bin/g++ g++ /usr/bin/g++-14 \
-    --slave /usr/bin/gcov gcov /usr/bin/gcov-14 && \
+                        --slave /usr/bin/g++ g++ /usr/bin/g++-14 \
+                        --slave /usr/bin/gcov gcov /usr/bin/gcov-14 && \
     update-alternatives --set gcc /usr/bin/gcc-14
 
 # Install velox helper scripts
