@@ -16,6 +16,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
   cap_add:
     - IPC_LOCK
     - SYS_ADMIN  # Required for nsys GPU metrics profiling
+    - SYS_NICE   # Required for numactl --cpunodebind/--membind under Docker's default seccomp profile (gates set_mempolicy/mbind/get_mempolicy)
   pid: host
   ulimits:
     memlock: -1
