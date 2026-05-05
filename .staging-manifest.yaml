@@ -1,0 +1,32 @@
+base:
+  repository: "facebookincubator/velox"
+  commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+additional_merge:
+  null  # No additional repository merged
+
+merged_prs:
+  - number: 16423
+    commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    author: "alice"
+    title: "feat #16423"
+    url: "https://github.com/facebookincubator/velox/pull/16423"
+  - number: 16444
+    commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    author: "alice"
+    title: "feat #16444"
+    url: "https://github.com/facebookincubator/velox/pull/16444"
+
+skipped_prs:  # PRs that required manual conflict resolution and were not merged
+  - number: 16535
+    commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    author: "alice"
+    title: "feat #16535"
+    url: "https://github.com/facebookincubator/velox/pull/16535"
+    reason: "manual conflict resolution required"
+  - number: 16859
+    commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    author: "alice"
+    title: "feat #16859"
+    url: "https://github.com/facebookincubator/velox/pull/16859"
+    reason: "manual conflict resolution required"
