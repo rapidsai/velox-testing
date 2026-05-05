@@ -151,16 +151,13 @@ The launcher:
 
 ## Configuration
 
-### Key variables (set via launcher flags or environment)
+### Environment variables
 
-| Variable | Source | Description |
+Override any of these by exporting before running:
+
+| Variable | Default | Description |
 |---|---|---|
-| `SCALE_FACTOR` | `-s/--scale-factor` | TPC-H scale factor (required) |
-| `NODES_COUNT` | `-n/--nodes` | Number of SLURM nodes (required) |
-| `WORKER_IMAGE` | `-w/--worker-image` | Worker image name, without `.sqsh` (required) |
-| `COORD_IMAGE` | `-c/--coord-image` | Coordinator image name, without `.sqsh` (required) |
-| `NUM_ITERATIONS` | `-i/--iterations` | Benchmark iterations (default: 2) |
-| `NUM_GPUS_PER_NODE` | `-g/--num-gpus-per-node` | GPUs per node (default: 4) |
+| `NODELIST` | All nodes | List of nodes to use |
 
 ### Path defaults (`defaults.env`)
 
