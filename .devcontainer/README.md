@@ -4,10 +4,12 @@ A GPU-ready development environment for building [Velox](https://github.com/face
 
 ## Quick Start
 
+Builds use the distributed build cluster via `sccache-dist`; use `-j0`.
+
 ```bash
 # 1. Clone sibling repos under the same parent directory
 mkdir ~/code && cd ~/code
-git clone https://github.com/<org>/velox-testing.git
+git clone https://github.com/rapidsai/velox-testing.git
 git clone https://github.com/facebookincubator/velox.git
 git clone https://github.com/prestodb/presto.git
 git clone https://github.com/rapidsai/rmm.git
@@ -21,9 +23,9 @@ code velox-testing
 # 3. Reopen in container (pick container based on CUDA version)
 
 # 4. Build
-build-all       # Build RAPIDS libraries, standalone Velox, then Presto
-build-velox     # Build standalone Velox
-build-presto    # Build Presto; syncs ~/velox and builds it inside the Presto tree
+build-all -j0       # Build RAPIDS libraries, standalone Velox, then Presto
+build-velox -j0     # Build standalone Velox
+build-presto -j0    # Build Presto; syncs ~/velox and builds it inside the Presto tree
 
 # 5. Test
 test-velox      # Run Velox test suite
@@ -36,13 +38,13 @@ The devcontainer expects this layout on the host:
 
 ```
 ~/code/
-├── velox-testing/     # this repo (devcontainer workspace root)
-├── velox/             # facebookincubator/velox
+├── cudf/              # rapidsai/cudf
+├── kvikio/            # rapidsai/kvikio
 ├── presto/            # prestodb/presto
 ├── rmm/               # rapidsai/rmm
-├── cudf/              # rapidsai/cudf
 ├── ucxx/              # rapidsai/ucxx
-└── kvikio/            # rapidsai/kvikio
+├── velox/             # facebookincubator/velox
+└── velox-testing/     # this repo (devcontainer workspace root)
 ```
 
 All repos are bind-mounted into the container under `/home/coder/`.
@@ -57,7 +59,7 @@ build:  /opt/velox-build/<release|debug>
 mode:   VELOX_MONO_LIBRARY=ON, VELOX_BUILD_SHARED=ON
 ```
 
-`build-presto` builds Presto Native Execution and Velox together:
+`build-presto` builds Presto and Velox together:
 
 ```
 source: ~/presto/presto-native-execution
@@ -68,7 +70,7 @@ velox:  rsync ~/velox/ into ~/presto/presto-native-execution/velox/
 
 Both builds consume **cudf**, **rmm**, **ucxx**, and **kvikio** built from source in the RAPIDS devcontainer.
 
-**Standalone velox** bundles all its dependencies (folly, xsimd, Arrow, etc.) — no prerequisite steps.
+**Standalone Velox** bundles all its dependencies (folly, xsimd, Arrow, etc.) — no prerequisite steps.
 
 **Presto** requires Facebook's OSS stack (folly, fbthrift, proxygen, etc.) for its thrift RPC layer. `build-presto` builds these automatically on first run and caches them at `/opt/fb-deps`. Subsequent runs skip this step unless `--rebuild-deps` is passed.
 
@@ -82,33 +84,33 @@ Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the
 
 | Command | Description |
 |---------|-------------|
-| `build-velox` | Build standalone velox with cuDF (fully self-contained) |
-| `build-presto` | Build presto-native-execution (auto-builds FB deps on first run) |
+| `build-velox` | Build standalone Velox with cuDF (fully self-contained) |
+| `build-presto` | Build Presto (auto-builds FB deps on first run) |
+| `configure-all` | Configure all build trees |
 | `configure-velox` | CMake configure only (for IDE integration) |
-| `test-velox` | Run velox tests via ctest |
-| `test-presto` | Run presto tests via ctest |
-| `clean-velox` | Delete velox build artifacts |
-| `clean-presto` | Delete presto build artifacts |
+| `test-velox` | Run Velox tests via ctest |
+| `test-presto` | Run Presto tests via ctest |
+| `clean-all` | Delete all build artifacts |
+| `clean-velox` | Delete Velox build artifacts |
+| `clean-presto` | Delete Presto build artifacts |
+| `uninstall-all` | Remove installed build outputs |
+| `rapids-make-pip-env` | Recreate Python environments |
+| `devcontainer-utils-sccache-dist-status` | Check distributed build cluster status |
 
 All commands accept `--help`. Common options:
 
 ```bash
+build-velox -j0                # use sccache-dist distributed builds
 build-velox --debug            # debug build
-build-velox -j 16              # limit parallelism
 build-presto --release         # release build (default)
 build-presto --rebuild-deps    # force rebuild of FB deps
 ```
 
 ## CUDA Variants
 
-Two devcontainer configurations are provided:
+Devcontainer configurations are provided for CUDA 13 and CUDA 12. VS Code will prompt you to choose when opening the workspace.
 
-| Path | CUDA | Base Image |
-|------|------|------------|
-| `.devcontainer/cuda13.1/` | 13.1 | `rapidsai/devcontainers:latest-cpp-cuda13.1-*` |
-| `.devcontainer/cuda12.9/` | 12.9 | `rapidsai/devcontainers:latest-cpp-cuda12.9-*` |
-
-VS Code will prompt you to choose when opening the workspace. The `CUDAARCHS` environment variable defaults to `RAPIDS`, which expands to all RAPIDS-supported architectures.
+The `CUDAARCHS` environment variable defaults to `RAPIDS`, which expands to all RAPIDS-supported architectures.
 
 ## Build Outputs
 
@@ -144,22 +146,9 @@ The build scripts include several workarounds for toolchain issues:
 
 - **GCC 14** instead of GCC 13: avoids false-positive `-Wstringop-overflow` in system `fmt` v9.
 - **`-DCMAKE_CXX_SCAN_FOR_MODULES=OFF`**: CMake 4.x + GCC 14 + Ninja triggers `-fmodules-ts` which causes GCC 14 ICE (segfault).
-- **`-no-pie` linker flag** (presto only): fbthrift static archives have construction vtables with hidden visibility from virtual inheritance in `apache::thrift` exception classes. The linker cannot resolve `R_X86_64_PC32` relocations against hidden symbols in PIE executables.
-- **`-Wno-error=nonnull`** (presto only): presto's `SystemConnector.cpp` triggers a false-positive `this` null check warning.
+- **`-no-pie` linker flag** (Presto only): fbthrift static archives have construction vtables with hidden visibility from virtual inheritance in `apache::thrift` exception classes. The linker cannot resolve `R_X86_64_PC32` relocations against hidden symbols in PIE executables.
+- **`-Wno-error=nonnull`** (Presto only): Presto's `SystemConnector.cpp` triggers a false-positive `this` null check warning.
 
 ## Scripts
 
-All scripts live in `scripts/devcontainer/` and are installed to `/usr/local/bin/` in the container image. They share common functions via `_common.sh`.
-
-```
-scripts/devcontainer/
-├── _common.sh         # Shared constants (CUDA archs, RAPIDS detection)
-├── build-velox        # Standalone velox build (all deps bundled)
-├── build-presto       # Presto + velox build (includes FB deps)
-├── configure-velox    # CMake configure only
-├── test-velox         # Run velox tests
-├── test-presto        # Run presto tests
-├── clean-velox        # Clean velox build dir
-├── clean-presto       # Clean presto build dir
-└── post-create        # Devcontainer post-create hook
-```
+All devcontainer scripts live in `scripts/devcontainer/` and are installed to `/usr/local/bin/` in the container image. They share common functions via `_common.sh`.
