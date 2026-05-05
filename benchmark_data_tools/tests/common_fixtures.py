@@ -30,6 +30,7 @@ class DataGenArgs:
     max_rows_per_file: int
     keep_original_dataset: bool
     approx_row_group_bytes: int
+    codec_definitions: str = None
 
 
 @pytest.fixture

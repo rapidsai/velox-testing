@@ -23,7 +23,9 @@ jobs:
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install gh CLI
         run: |
@@ -62,7 +64,7 @@ jobs:
         if: ${{ steps.runs.outputs.velox_run != '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
+        run: | # zizmor: ignore[template-injection]
           python3 scripts/workflow_status/workflow_status.py \
             --run-id ${{ steps.runs.outputs.velox_run }} \
             --repo "$REPO" \
@@ -72,7 +74,7 @@ jobs:
         if: ${{ steps.runs.outputs.presto_run != '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
+        run: | # zizmor: ignore[template-injection]
           python3 scripts/workflow_status/workflow_status.py \
             --run-id ${{ steps.runs.outputs.presto_run }} \
             --repo "$REPO" \
@@ -80,7 +82,7 @@ jobs:
 
       - name: Upload reports as artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: nightly-reports
           path: |
@@ -89,7 +91,7 @@ jobs:
 
       - name: Send velox status to Slack
         if: ${{ always() && hashFiles('velox-status-payload.json') != '' }}
-        uses: slackapi/slack-github-action@v2.1.1
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a  # v2.1.1
         with:
           payload-file-path: velox-status-payload.json
           webhook: ${{ secrets.SLACK_WEBHOOK_NIGHTLY_STATUS_URL }}
@@ -97,7 +99,7 @@ jobs:
 
       - name: Send presto status to Slack
         if: ${{ always() && hashFiles('presto-status-payload.json') != '' }}
-        uses: slackapi/slack-github-action@v2.1.1
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a  # v2.1.1
         with:
           payload-file-path: presto-status-payload.json
           webhook: ${{ secrets.SLACK_WEBHOOK_NIGHTLY_STATUS_URL }}

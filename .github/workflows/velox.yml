@@ -44,6 +44,8 @@ on:
       build_type: *build_type
       build_variant: *build_variant
 
+permissions: {}
+
 jobs:
   resolve-commits:
     runs-on: ubuntu-latest
@@ -55,6 +57,8 @@ jobs:
       date: ${{ steps.resolve.outputs.date }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/resolve-commits
         id: resolve
         with:
@@ -64,6 +68,12 @@ jobs:
 
   velox-build:
     needs: [resolve-commits]
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/velox-build.yml
     with:
       velox_repository: ${{ inputs.velox_repository }}
@@ -72,22 +82,26 @@ jobs:
       date: ${{ needs.resolve-commits.outputs.date }}
       build_type: ${{ inputs.build_type }}
       build_variant: ${{ inputs.build_variant }}
-    secrets: inherit
+    secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   velox-test:
     needs: [resolve-commits, velox-build]
     if: ${{ inputs.run_tests }}
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-test.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
-    secrets: inherit
 
   velox-benchmark:
     needs: [resolve-commits, velox-build]
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/velox-benchmark.yml
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
       variant_label: ${{ inputs.variant_label }}
-    secrets: inherit

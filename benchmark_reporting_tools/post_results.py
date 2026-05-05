@@ -93,10 +93,12 @@ class BenchmarkMetadata:
     kind: str | None = None
     execution_number: int = 1
     worker_count: int | None = None
+    node_count: int | None = None
     scale_factor: int | None = None
     gpu_count: int | None = None
     num_drivers: int | None = None
     gpu_name: str | None = None
+    image_digest: str | None = None
 
     @classmethod
     def from_parsed(cls, raw: dict) -> "BenchmarkMetadata":
@@ -259,8 +261,9 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--identifier-hash",
-        help="Unique identifier hash for software environment (e.g. a container image digest).",
-        required=True,
+        default=None,
+        help="Unique identifier hash for software environment (e.g. a container image digest). "
+        "If omitted, the image_digest from benchmark_result.json context is used.",
     )
     parser.add_argument(
         "--version",
@@ -298,6 +301,26 @@ def _parse_args() -> argparse.Namespace:
         "--benchmark-name",
         help="Benchmark definition name",
         required=True,
+    )
+    parser.add_argument(
+        "--velox-branch",
+        default=None,
+        help="Velox branch used to build the worker image.",
+    )
+    parser.add_argument(
+        "--velox-repo",
+        default=None,
+        help="Velox repository used to build the worker image.",
+    )
+    parser.add_argument(
+        "--presto-branch",
+        default=None,
+        help="Presto branch used to build the worker image.",
+    )
+    parser.add_argument(
+        "--presto-repo",
+        default=None,
+        help="Presto repository used to build the worker image.",
     )
     parser.add_argument(
         "--concurrency-streams",
@@ -355,6 +378,10 @@ def _build_submission_payload(
     is_official: bool,
     asset_ids: list[int] | None = None,
     concurrency_streams: int = 1,
+    velox_branch: str | None = None,
+    velox_repo: str | None = None,
+    presto_branch: str | None = None,
+    presto_repo: str | None = None,
 ) -> dict:
     """Build a BenchmarkSubmission payload from parsed dataclasses.
 
@@ -449,6 +476,16 @@ def _build_submission_payload(
         if v is not None
     }
 
+    engine_config_payload = engine_config.serialize() if engine_config else {}
+    if velox_branch or velox_repo or presto_branch or presto_repo:
+        engine_config_payload = {
+            **engine_config_payload,
+            "velox_branch": velox_branch,
+            "velox_repo": velox_repo,
+            "presto_branch": presto_branch,
+            "presto_repo": presto_repo,
+        }
+
     return {
         "sku_name": sku_name,
         "storage_configuration_name": storage_configuration_name,
@@ -461,11 +498,11 @@ def _build_submission_payload(
             "commit_hash": commit_hash,
         },
         "run_at": benchmark_metadata.timestamp.isoformat(),
-        "node_count": 1,
+        "node_count": benchmark_metadata.node_count or 1,
         "gpu_count": benchmark_metadata.gpu_count or 0,
         "query_logs": query_logs,
         "concurrency_streams": concurrency_streams,
-        "engine_config": engine_config.serialize() if engine_config else {},
+        "engine_config": engine_config_payload,
         "extra_info": extra_info,
         "is_official": is_official,
         "asset_ids": asset_ids,
@@ -550,7 +587,7 @@ async def _process_benchmark_dir(
     storage_configuration_name: str,
     cache_state: str,
     engine_name: str | None,
-    identifier_hash: str,
+    identifier_hash: str | None,
     version: str | None,
     commit_hash: str | None,
     is_official: bool,
@@ -563,6 +600,10 @@ async def _process_benchmark_dir(
     concurrency_streams: int = 1,
     config_dir: Path | None = None,
     logs_dir: Path | None = None,
+    velox_branch: str | None = None,
+    velox_repo: str | None = None,
+    presto_branch: str | None = None,
+    presto_repo: str | None = None,
 ) -> int:
     """Process a benchmark directory and post results to API.
 
@@ -587,6 +628,18 @@ async def _process_benchmark_dir(
         benchmark_metadata = BenchmarkMetadata.from_parsed(raw)
     except (ValueError, KeyError) as e:
         print(f"  Error loading metadata: {e}", file=sys.stderr)
+        return 1
+
+    # Fall back to the container image_digest captured in the benchmark
+    # results context when no explicit identifier_hash was provided on the CLI.
+    if identifier_hash is None:
+        identifier_hash = benchmark_metadata.image_digest
+    if identifier_hash is None:
+        print(
+            "  Error: --identifier-hash was not provided and benchmark_result.json "
+            "context has no image_digest to fall back to.",
+            file=sys.stderr,
+        )
         return 1
 
     # Resolve config directory: explicit override → auto-detect from variant
@@ -669,6 +722,10 @@ async def _process_benchmark_dir(
                 is_official=is_official,
                 asset_ids=asset_ids,
                 concurrency_streams=concurrency_streams,
+                velox_branch=velox_branch,
+                velox_repo=velox_repo,
+                presto_branch=presto_branch,
+                presto_repo=presto_repo,
             )
         except Exception as e:
             print(f"  Error building payload for '{bench_name}': {e}", file=sys.stderr)
@@ -747,6 +804,10 @@ async def main() -> int:
         concurrency_streams=args.concurrency_streams,
         config_dir=Path(args.config_dir) if args.config_dir else None,
         logs_dir=Path(args.logs_dir) if args.logs_dir else None,
+        velox_branch=args.velox_branch,
+        velox_repo=args.velox_repo,
+        presto_branch=args.presto_branch,
+        presto_repo=args.presto_repo,
     )
 
     return result
