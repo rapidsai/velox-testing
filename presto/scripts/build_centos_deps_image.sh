@@ -106,18 +106,21 @@ docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
 COMPOSE_IMAGE_NAME='presto/prestissimo-dependency:centos9'
 
 # centos-dependency.dockerfile lives in the upstream presto repo and cannot be modified,
-# so provenance labels are applied via a scratch re-wrap layer instead of ARG+LABEL.
+# so provenance labels are applied via a wrapper Dockerfile instead of ARG+LABEL.
 # Capture the pre-label image ID so the now-untagged original can be cleaned up afterward.
 PRELABEL_IMAGE_ID=$(docker inspect --format='{{.Id}}' "${COMPOSE_IMAGE_NAME}")
 echo "Applying provenance labels..."
-echo "FROM ${COMPOSE_IMAGE_NAME}" | docker build --no-cache \
-  --label "velox-testing.presto.sha=${PRESTO_SHA}" \
-  --label "velox-testing.presto.branch=${PRESTO_BRANCH}" \
-  --label "velox-testing.presto.repository=${PRESTO_REPO}" \
-  --label "velox-testing.velox.sha=${VELOX_SHA}" \
-  --label "velox-testing.velox.branch=${VELOX_BRANCH}" \
-  --label "velox-testing.velox.repository=${VELOX_REPO}" \
-  -t "${COMPOSE_IMAGE_NAME}" -
+docker build --no-cache \
+  -f "${REPO_ROOT}/presto/docker/provenance_labels.dockerfile" \
+  --build-arg BASE_IMAGE="${COMPOSE_IMAGE_NAME}" \
+  --build-arg PRESTO_SHA="${PRESTO_SHA}" \
+  --build-arg PRESTO_BRANCH="${PRESTO_BRANCH}" \
+  --build-arg PRESTO_REPOSITORY="${PRESTO_REPO}" \
+  --build-arg VELOX_SHA="${VELOX_SHA}" \
+  --build-arg VELOX_BRANCH="${VELOX_BRANCH}" \
+  --build-arg VELOX_REPOSITORY="${VELOX_REPO}" \
+  -t "${COMPOSE_IMAGE_NAME}" \
+  "${REPO_ROOT}/presto/docker"
 docker rmi "${PRELABEL_IMAGE_ID}" 2>/dev/null || true
 
 if [[ "${IMAGE_NAME}" != "${COMPOSE_IMAGE_NAME}" ]]; then

@@ -243,11 +243,14 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   ${BUILD_TARGET_ARG[@]}
 
   # Coordinator and java-worker use external Dockerfiles (presto repo) without ARG+LABEL
-  # declarations, so labels must be applied via a re-wrap after build.
-  PROVENANCE_LABEL_ARGS=(
-    --label "velox-testing.presto.sha=${PRESTO_SHA}"
-    --label "velox-testing.presto.branch=${PRESTO_BRANCH}"
-    --label "velox-testing.presto.repository=${PRESTO_REPO}"
+  # declarations, so provenance labels are applied via a wrapper Dockerfile after build.
+  PROVENANCE_LABEL_BUILDARGS=(
+    --build-arg PRESTO_SHA="${PRESTO_SHA}"
+    --build-arg PRESTO_BRANCH="${PRESTO_BRANCH}"
+    --build-arg PRESTO_REPOSITORY="${PRESTO_REPO}"
+    --build-arg VELOX_SHA=""
+    --build-arg VELOX_BRANCH=""
+    --build-arg VELOX_REPOSITORY=""
   )
   for service in "${BUILD_TARGET_ARG[@]}"; do
     case "$service" in
@@ -255,8 +258,15 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
       "$JAVA_WORKER_SERVICE") img="$JAVA_WORKER_IMAGE" ;;
       *) continue ;;
     esac
+    PRELABEL_IMAGE_ID=$(docker inspect --format='{{.Id}}' "${img}")
     echo "Applying provenance labels to ${img}..."
-    echo "FROM ${img}" | docker build --no-cache "${PROVENANCE_LABEL_ARGS[@]}" -t "${img}" -
+    docker build --no-cache \
+      -f "${REPO_ROOT}/presto/docker/provenance_labels.dockerfile" \
+      --build-arg BASE_IMAGE="${img}" \
+      "${PROVENANCE_LABEL_BUILDARGS[@]}" \
+      -t "${img}" \
+      "${REPO_ROOT}/presto/docker"
+    docker rmi "${PRELABEL_IMAGE_ID}" 2>/dev/null || true
   done
 fi
 
