@@ -64,6 +64,7 @@ jobs:
           repository: ${{ inputs.velox_repository }}
           ref: ${{ inputs.velox_sha }}
           path: velox
+          persist-credentials: false
 
       # TODO: Remove this workaround once https://github.com/facebookincubator/velox/pull/17060 is merged.
       - &patch_arm_build_target
@@ -73,7 +74,7 @@ jobs:
 
       - &setup_proxy_cache
         name: Setup proxy cache
-        uses: nv-gha-runners/setup-proxy-cache@main
+        uses: nv-gha-runners/setup-proxy-cache@main  # zizmor: ignore[unpinned-uses]
         continue-on-error: true
         with:
           enable-apt: true
@@ -170,6 +171,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           path: velox-testing
+          persist-credentials: false
 
       - *checkout_velox
       - *setup_proxy_cache
@@ -266,6 +268,8 @@ jobs:
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - *login_ghcr
       - name: Create and push multi-arch manifests
         env:
@@ -302,6 +306,8 @@ jobs:
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - *login_ghcr
       - name: Create and push multi-arch manifests
         env:

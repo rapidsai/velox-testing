@@ -1,0 +1,10 @@
+{
+  "tables": [
+    {
+      "name": "lineitem",
+      "columns": [
+        {"name": "l_orderkey", "encoding": "RLE_DICTIONARY"}
+      ]
+    }
+  ]
+}
