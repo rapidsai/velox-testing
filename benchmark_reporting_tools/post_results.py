@@ -425,8 +425,9 @@ def _build_submission_payload(
 
     for query_name in query_names:
         times = raw_times[query_name]
+        # Allow incomplete test results to be posted
         if times is None:
-                    times = []
+            times = []
         is_failed = query_name in failed_queries
 
         # Each execution becomes a separate query log entry
