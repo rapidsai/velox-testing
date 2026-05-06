@@ -572,16 +572,18 @@ async def _upload_asset_presigned(
 
 
 async def _upload_log_files(
+    effective_logs_dir: Path,
     benchmark_dir: Path,
     api_url: str,
     api_key: str,
     timeout: float,
     max_concurrency: int = 5,
 ) -> list[int]:
-    """Upload all *.log files from benchmark_dir as assets, in parallel.
+    """Upload all *.log files from effective_logs_dir as assets, in parallel.
 
     Args:
-        benchmark_dir: Directory to glob for *.log files
+        effective_logs_dir: Directory to glob for *.log files
+        benchmark_dir: Additional directory that contains the metrics data to upload
         api_url: Base API URL
         api_key: API bearer token
         timeout: Request timeout in seconds
@@ -590,8 +592,8 @@ async def _upload_log_files(
     Returns:
         List of asset IDs from the uploaded files
     """
-    log_files = sorted(benchmark_dir.glob("*.log"))
-    log_files.extend(sorted(benchmark_dir.glob("*.nsys-rep")))
+    log_files = sorted(effective_logs_dir.glob("*.log"))
+    log_files.extend(sorted(effective_logs_dir.glob("*.nsys-rep")))
     metrics_dir = benchmark_dir / "metrics"
     if metrics_dir.is_dir():
         log_files.extend(sorted(metrics_dir.glob("*.json")))
@@ -746,7 +748,7 @@ async def _process_benchmark_dir(
     if upload_logs and effective_logs_dir and effective_logs_dir.exists():
         if dry_run:
             log_files = sorted(effective_logs_dir.glob("*.log"))
-            log_files.extend(sorted(benchmark_dir.glob("*.nsys-rep")))
+            log_files.extend(sorted(effective_logs_dir.glob("*.nsys-rep")))
             metrics_dir = benchmark_dir / "metrics"
             if metrics_dir.is_dir():
                 log_files.extend(sorted(metrics_dir.glob("*.json")))
@@ -757,7 +759,7 @@ async def _process_benchmark_dir(
             )
         else:
             try:
-                asset_ids = await _upload_log_files(effective_logs_dir, api_url, api_key, timeout)
+                asset_ids = await _upload_log_files(effective_logs_dir, benchmark_dir, api_url, api_key, timeout)
             except (RuntimeError, httpx.RequestError) as e:
                 print(f"  Error uploading logs: {e}", file=sys.stderr)
                 return 1
