@@ -407,6 +407,9 @@ def _build_submission_payload(
         times = raw_times[query_name]
         is_failed = query_name in failed_queries
 
+        if times is None:
+            times = [None]
+
         # Each execution becomes a separate query log entry
         for exec_idx, runtime_ms in enumerate(times):
             if is_failed:
