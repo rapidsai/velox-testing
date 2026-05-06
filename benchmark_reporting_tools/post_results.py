@@ -12,17 +12,16 @@
 CLI for posting Velox benchmark results to the API.
 
 The script reads benchmark_result.json from the input directory.
-Engine configs and worker logs are automatically loaded from the
-velox-testing repo by detecting the engine variant from the
-benchmark results context.  Paths can be overridden with
---config-dir and --logs-dir.
+Engine configs and worker logs are read from subdirectories of the
+benchmark directory that run_benchmark.sh snapshots at the end of
+each run:
 
-Default locations (derived from the repo root and detected variant):
-    configs: presto/docker/config/generated/{variant}/
-    logs:    presto/scripts/presto_logs/
+    {benchmark_dir}/config/{variant}/   — engine configuration
+    {benchmark_dir}/logs/               — server log files
+
+Paths can be overridden with --config-dir and --logs-dir.
 
 Usage:
-    # Auto-detect configs/logs from the repo (default):
     python benchmark_reporting_tools/post_results.py /path/to/benchmark_output \
         --sku-name PDX-H100 \
         --storage-configuration-name pdx-lustre-sf-100 \
@@ -67,25 +66,6 @@ _ENGINE_TO_VARIANT = {
     "presto-velox-cpu": "cpu",
     "presto-java": "java",
 }
-
-
-def _repo_root() -> Path:
-    """Return the velox-testing repo root (parent of benchmark_reporting_tools/)."""
-    return Path(__file__).resolve().parent.parent
-
-
-def _default_config_dir(variant: str) -> Path | None:
-    """Derive the generated config directory for a given variant."""
-    d = _repo_root() / "presto" / "docker" / "config" / "generated" / variant
-    return d if d.is_dir() else None
-
-
-def _default_logs_dir() -> Path | None:
-    """Return the presto_logs directory."""
-    link = _repo_root() / "presto" / "scripts" / "presto_logs"
-    if link.exists():
-        return link.resolve()
-    return None
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -433,6 +413,9 @@ def _build_submission_payload(
             times = []
         is_failed = query_name in failed_queries
 
+        if times is None:
+            times = [None]
+
         # Each execution becomes a separate query log entry
         for exec_idx, runtime_ms in enumerate(times):
             if is_failed:
@@ -715,11 +698,16 @@ async def _process_benchmark_dir(
     variant = _ENGINE_TO_VARIANT.get(benchmark_metadata.engine)
     if effective_config_dir is None:
         if variant:
-            effective_config_dir = _default_config_dir(variant)
-            if effective_config_dir:
-                print(f"  Auto-detected variant '{variant}' → config dir: {effective_config_dir}", file=sys.stderr)
+            bundled = benchmark_dir / "config" / variant
+            if bundled.is_dir():
+                effective_config_dir = bundled
+                print(f"  Using bundled config for variant '{variant}': {effective_config_dir}", file=sys.stderr)
             else:
-                print(f"  Auto-detected variant '{variant}' but config dir does not exist.", file=sys.stderr)
+                print(
+                    f"  Warning: no config found for variant '{variant}' at {bundled}. "
+                    "Use --config-dir to specify one.",
+                    file=sys.stderr,
+                )
         else:
             print(f"  Could not map engine '{benchmark_metadata.engine}' to a variant.", file=sys.stderr)
 
@@ -737,12 +725,13 @@ async def _process_benchmark_dir(
             print("  Warning: no config directory found. Use --config-dir to specify one.", file=sys.stderr)
         engine_config = None
 
-    # Resolve logs directory: explicit override → auto-detect from repo
+    # Resolve logs directory: explicit override → bundled snapshot inside benchmark_dir
     effective_logs_dir = logs_dir
     if effective_logs_dir is None:
-        effective_logs_dir = _default_logs_dir()
-        if effective_logs_dir:
-            print(f"  Auto-detected logs dir: {effective_logs_dir}", file=sys.stderr)
+        bundled = benchmark_dir / "logs"
+        if bundled.is_dir():
+            effective_logs_dir = bundled
+            print(f"  Using bundled logs dir: {effective_logs_dir}", file=sys.stderr)
 
     asset_ids = None
     if upload_logs and effective_logs_dir and effective_logs_dir.exists():
