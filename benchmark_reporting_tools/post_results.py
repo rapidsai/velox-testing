@@ -425,6 +425,8 @@ def _build_submission_payload(
 
     for query_name in query_names:
         times = raw_times[query_name]
+        if times is None:
+                    times = []
         is_failed = query_name in failed_queries
 
         # Each execution becomes a separate query log entry
