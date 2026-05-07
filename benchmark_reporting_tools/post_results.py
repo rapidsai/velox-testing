@@ -573,6 +573,8 @@ async def _upload_log_files(
         List of asset IDs from the uploaded files
     """
     log_files = sorted(effective_logs_dir.glob("*.log"))
+    log_files.extend(sorted(effective_logs_dir.glob("*.out")))
+    log_files.extend(sorted(effective_logs_dir.glob("*.err")))
     log_files.extend(sorted(effective_logs_dir.glob("*.nsys-rep")))
     metrics_dir = benchmark_dir / "metrics"
     if metrics_dir.is_dir():
@@ -734,6 +736,8 @@ async def _process_benchmark_dir(
     if upload_logs and effective_logs_dir and effective_logs_dir.exists():
         if dry_run:
             log_files = sorted(effective_logs_dir.glob("*.log"))
+            log_files.extend(sorted(effective_logs_dir.glob("*.out")))
+            log_files.extend(sorted(effective_logs_dir.glob("*.err")))
             log_files.extend(sorted(effective_logs_dir.glob("*.nsys-rep")))
             metrics_dir = benchmark_dir / "metrics"
             if metrics_dir.is_dir():

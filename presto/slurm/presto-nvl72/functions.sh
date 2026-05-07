@@ -565,6 +565,7 @@ function collect_results {
 
     echo "Copying logs to ${result_dir}/..."
     cp "${LOGS}"/*.log "${result_dir}/"
+    cp "${LOGS}"/*.out "${LOGS}"/*.err "${result_dir}/" 2>/dev/null || true
 }
 
 function inject_benchmark_metadata {

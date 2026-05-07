@@ -201,8 +201,8 @@ if [[ -z "${COORD_IMAGE}" ]]; then
 fi
 
 # Submit job (include nodes/SF/iterations in file names)
-OUT_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
-ERR_FMT="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
+OUT_FMT="logs/presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.out"
+ERR_FMT="logs/presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}_i${NUM_ITERATIONS}_%j.err"
 JOB_NAME="presto-tpch-run_n${NODES_COUNT}_sf${SCALE_FACTOR}"
 # NODELIST is unset by default -- Slurm picks any available nodes.
 # Export NODELIST=<host-or-range> before invoking to pin.
