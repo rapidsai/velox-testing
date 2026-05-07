@@ -79,6 +79,12 @@ class BenchmarkMetadata:
     num_drivers: int | None = None
     gpu_name: str | None = None
     image_digest: str | None = None
+    presto_sha: str | None = None
+    presto_branch: str | None = None
+    presto_repo: str | None = None
+    velox_sha: str | None = None
+    velox_branch: str | None = None
+    velox_repo: str | None = None
 
     @classmethod
     def from_parsed(cls, raw: dict) -> "BenchmarkMetadata":
@@ -285,22 +291,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--velox-branch",
         default=None,
-        help="Velox branch used to build the worker image.",
+        help="Velox branch used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--velox-repo",
         default=None,
-        help="Velox repository used to build the worker image.",
+        help="Velox repository used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--presto-branch",
         default=None,
-        help="Presto branch used to build the worker image.",
+        help="Presto branch used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--presto-repo",
         default=None,
-        help="Presto repository used to build the worker image.",
+        help="Presto repository used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--concurrency-streams",
@@ -624,6 +630,12 @@ async def _process_benchmark_dir(
             file=sys.stderr,
         )
         return 1
+
+    # Fall back to image provenance labels captured in the benchmark context.
+    velox_branch = velox_branch or benchmark_metadata.velox_branch
+    velox_repo = velox_repo or benchmark_metadata.velox_repo
+    presto_branch = presto_branch or benchmark_metadata.presto_branch
+    presto_repo = presto_repo or benchmark_metadata.presto_repo
 
     # Resolve config directory: explicit override → auto-detect from variant
     effective_config_dir = config_dir
