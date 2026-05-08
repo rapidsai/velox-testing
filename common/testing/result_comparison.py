@@ -9,6 +9,7 @@ reference) and the benchmark validation path (result parquet files vs expected
 parquet files). See compare_result_frames for full comparison semantics.
 """
 
+import warnings
 from typing import Literal
 
 import numpy as np
@@ -31,7 +32,7 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 # ---------------------------------------------------------------------------
 
 
-def get_orderby_info(query_sql: str, expected_col_names: list[str]) -> list[int]:
+def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> list[int]:
     """
     Extract ORDER BY column positions from SQL using sqlglot.
 
@@ -66,23 +67,29 @@ def get_orderby_info(query_sql: str, expected_col_names: list[str]) -> list[int]
                 continue
 
         # Complex expression — skip ORDER BY validation entirely.
+        warnings.warn(
+            f"ORDER BY expression {key.sql()!r} couldn't be mapped to a result column; "
+            "engine sort verification will be skipped for this query."
+        )
         return []
 
     return sort_col_indices
 
 
 def get_limit(query_sql: str) -> int | None:
-    """Return the LIMIT value from SQL, or None if there is no LIMIT."""
+    """Return the LIMIT value from SQL, or None if there is no LIMIT (or the
+    LIMIT expression isn't a simple integer literal)."""
     expr = sqlglot.parse_one(query_sql)
     limit_node = next((e for e in expr.find_all(sqlglot.exp.Limit)), None)
     if limit_node is None:
         return None
-    limit_expr = limit_node.args.get("expression")
-    if limit_expr is None:
-        return None
     try:
-        return int(limit_expr.this)
-    except (ValueError, TypeError, AttributeError):
+        return int(limit_node.args["expression"].this)
+    except (KeyError, ValueError, TypeError, AttributeError):
+        warnings.warn(
+            f"LIMIT clause {limit_node.sql()!r} couldn't be parsed as an integer literal; "
+            "treating as no LIMIT (boundary tie handling will be skipped)."
+        )
         return None
 
 
@@ -121,10 +128,17 @@ def _is_float_col(series: pd.Series) -> bool:
 def _sort_by_non_float(df: pd.DataFrame) -> pd.DataFrame:
     """
     Sort df by all non-float columns for deterministic position-by-position
-    comparison. Float columns are excluded because tiny cross-engine precision
-    differences could rank rows differently. Used both for the no-ORDER BY case
-    (entire frame) and for individual tie groups (where ORDER BY columns are
-    constant within the group, so sorting by them is a no-op).
+    comparison. Float columns are excluded as sort keys because actual and
+    expected are sorted independently — if the two engines computed slightly
+    different float values for the same logical row, sorting each frame by
+    those floats could land them at different row positions, breaking the
+    alignment that position-by-position comparison relies on. Non-float
+    columns (strings, ints, dates) match exactly across engines, so they
+    always produce the same row order on both sides.
+
+    Used both for the no-ORDER BY case (entire frame) and for individual tie
+    groups (where ORDER BY columns are constant within the group, so sorting
+    by them is a no-op).
     """
     non_float_labels = df.columns[[i for i in range(df.shape[1]) if not _is_float_col(df.iloc[:, i])]].tolist()
     if not non_float_labels:
@@ -253,7 +267,7 @@ def compare_result_frames(
         raise AssertionError(f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)")
 
     # 5. Parse ORDER BY / LIMIT
-    sort_col_indices = get_orderby_info(query_sql, expected_col_names)
+    sort_col_indices = get_orderby_col_indices(query_sql, expected_col_names)
     limit = get_limit(query_sql)
 
     if not sort_col_indices:
