@@ -21,6 +21,7 @@ RUN apt-get update -y && \
     libc-ares-dev \
     libboost-context-dev \
     libboost-filesystem-dev \
+    libboost-iostreams-dev \
     libboost-program-options-dev \
     libboost-regex-dev \
     libboost-url-dev \

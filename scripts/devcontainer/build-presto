@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(ulimit -Hn)"
+[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(nproc --all --ignore=1)"
 
 PRESTO_DIR="${HOME}/presto/presto-native-execution"
 if [[ ! -d "${PRESTO_DIR}" ]]; then
@@ -293,6 +293,7 @@ EXTRA_CMAKE_FLAGS+=" -DgRPC_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=SYSTEM"
 EXTRA_CMAKE_FLAGS+=" -DArrow_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dgeos_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Ds2geometry_SOURCE=BUNDLED"
 
 # Auto-detect pre-built RAPIDS libraries (cudf, rmm, kvikio)
 append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
