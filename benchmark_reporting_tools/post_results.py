@@ -418,6 +418,8 @@ def _build_submission_payload(
         times = raw_times[query_name]
         is_failed = query_name in failed_queries
 
+        if times is None:
+            times = [None]
         validation_result = _get_validation_result(query_name)
 
         # Each execution becomes a separate query log entry
