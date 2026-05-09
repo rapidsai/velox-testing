@@ -6,7 +6,7 @@ import argparse
 import prestodb
 
 
-def check_tables_analyzed(presto_cursor, schema_name):
+def check_tables_analyzed(presto_cursor, schema_name, excluded_tables=None):
     """Check that ANALYZE TABLE has been run on all tables in the given schema.
 
     Verifies that table statistics exist by checking if SHOW STATS FOR each table
@@ -16,9 +16,11 @@ def check_tables_analyzed(presto_cursor, schema_name):
     Args:
         presto_cursor: Presto database cursor
         schema_name: Name of the schema containing tables to check
+        excluded_tables: Optional table names to skip, e.g. benchmark output tables
     """
+    excluded_tables = set(excluded_tables or [])
     tables = presto_cursor.execute(f"SHOW TABLES FROM hive.{schema_name}").fetchall()
-    table_names = [table_name for (table_name,) in tables]
+    table_names = [table_name for (table_name,) in tables if table_name not in excluded_tables]
 
     if not table_names:
         raise RuntimeError(f"No tables found in schema '{schema_name}'")

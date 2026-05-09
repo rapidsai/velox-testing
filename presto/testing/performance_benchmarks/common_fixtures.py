@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from datetime import datetime, timezone
+import os
 from pathlib import Path
+import re
 
 import pandas as pd
 import prestodb
@@ -14,6 +16,74 @@ from common.testing.performance_benchmarks.profiler_utils import start_profiler,
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
 from .run_context import gather_run_context
+
+
+Q11_RESULT_TABLE = "q11result"
+Q11_SOURCE_TABLE = "partsupp"
+Q11_RESULT_HOST_ROOT = Path("/raid/dmakkar/tmp/presto_q11result")
+PRESTO_USER_DATA_URI = "file:/var/lib/presto/data/hive/data/user_data"
+Q11_STAGING_DIRECTORY = ".hive-staging"
+Q11_STAGING_SESSION_SQL = f"SET SESSION hive.temporary_staging_directory_path = '{Q11_STAGING_DIRECTORY}'"
+Q11_RESULT_TABLE_DDL = """
+CREATE TABLE {table} (
+    ps_partkey BIGINT,
+    value DOUBLE
+)
+WITH (format = 'PARQUET', external_location = '{external_location}')
+"""
+EXTERNAL_LOCATION_PATTERN = re.compile(r"external_location = '(file:[^']+)'")
+
+
+def _get_external_location_uri(presto_cursor, table):
+    create_table_text = presto_cursor.execute(f"SHOW CREATE TABLE {table}").fetchone()[0]
+    match = EXTERNAL_LOCATION_PATTERN.search(create_table_text)
+    return match.group(1) if match else None
+
+
+def _table_exists(presto_cursor, table):
+    return any(table_name == table for (table_name,) in presto_cursor.execute("SHOW TABLES").fetchall())
+
+
+def _ensure_q11_result_dir(result_host_location):
+    result_host_location.mkdir(parents=True, exist_ok=True)
+    result_host_location.chmod(0o777)
+    staging_location = result_host_location / Q11_STAGING_DIRECTORY
+    staging_location.mkdir(parents=True, exist_ok=True)
+    staging_location.chmod(0o777)
+
+
+def _get_q11_result_locations(schema_name):
+    presto_data_dir = os.environ.get("PRESTO_DATA_DIR")
+    if not presto_data_dir:
+        raise RuntimeError("PRESTO_DATA_DIR must be set to map Q11 output into the Presto container")
+
+    result_host_location = Q11_RESULT_HOST_ROOT / schema_name / Q11_RESULT_TABLE
+    try:
+        relative_location = result_host_location.resolve().relative_to(Path(presto_data_dir).resolve())
+    except ValueError as e:
+        raise RuntimeError(
+            f"Q11 output path {result_host_location} must be under PRESTO_DATA_DIR={presto_data_dir}"
+        ) from e
+
+    result_external_location = f"{PRESTO_USER_DATA_URI}/{relative_location.as_posix()}"
+    return result_host_location, result_external_location
+
+
+def _ensure_q11_result_table(presto_cursor, schema_name):
+    if not _get_external_location_uri(presto_cursor, Q11_SOURCE_TABLE):
+        raise RuntimeError(f"Could not determine external location for {Q11_SOURCE_TABLE}")
+
+    result_host_location, result_external_location = _get_q11_result_locations(schema_name)
+    _ensure_q11_result_dir(result_host_location)
+
+    if _table_exists(presto_cursor, Q11_RESULT_TABLE):
+        if _get_external_location_uri(presto_cursor, Q11_RESULT_TABLE) == result_external_location:
+            return
+        presto_cursor.execute(f"DROP TABLE {Q11_RESULT_TABLE}")
+
+    presto_cursor.execute(
+        Q11_RESULT_TABLE_DDL.format(table=Q11_RESULT_TABLE, external_location=result_external_location)
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -52,7 +122,7 @@ def verify_tables_analyzed(request):
     conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
     cursor = conn.cursor()
     try:
-        check_tables_analyzed(cursor, schema)
+        check_tables_analyzed(cursor, schema, excluded_tables={Q11_RESULT_TABLE})
     except RuntimeError as e:
         pytest.exit(str(e), returncode=1)
     finally:
@@ -80,6 +150,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     bench_output_dir = request.config.getoption("--output-dir")
     hostname = request.config.getoption("--hostname")
     port = request.config.getoption("--port")
+    schema_name = request.config.getoption("--schema-name")
 
     if profile:
         assert profile_script_path is not None
@@ -101,6 +172,12 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     def benchmark_query_function(query_id):
         profile_output_file_path = None
         try:
+            query = benchmark_queries[query_id]
+            if query_id == "Q11":
+                presto_cursor.execute(Q11_STAGING_SESSION_SQL)
+                _ensure_q11_result_table(presto_cursor, schema_name)
+                query = f"INSERT INTO {Q11_RESULT_TABLE} {query}"
+
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
@@ -108,7 +185,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             result = []
             for iteration_num in range(iterations):
                 cursor = presto_cursor.execute(
-                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
+                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + query
                 )
                 result.append(cursor.stats["elapsedTimeMillis"])
 
@@ -137,7 +214,9 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                         )
             raw_times_dict[query_id] = result
         except Exception as e:
-            failed_queries_dict[query_id] = f"{e.error_type}: {e.error_name}"
+            error_type = getattr(e, "error_type", type(e).__name__)
+            error_name = getattr(e, "error_name", str(e))
+            failed_queries_dict[query_id] = f"{error_type}: {error_name}"
             raw_times_dict[query_id] = None
             raise
         finally:

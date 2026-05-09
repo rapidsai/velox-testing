@@ -64,6 +64,18 @@ function duplicate_worker_configs() {
   sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
 }
 
+function ensure_hive_non_managed_writes_enabled() {
+  local hive_config=$1
+  if [[ -f "${hive_config}" ]] && ! grep -q '^hive.non-managed-table-writes-enabled=' "${hive_config}"; then
+    sed -i '/^hive.allow-drop-table=/a hive.non-managed-table-writes-enabled=true' "${hive_config}"
+  fi
+  if [[ -f "${hive_config}" ]] && grep -q '^hive.temporary-staging-directory-path=' "${hive_config}"; then
+    sed -i 's|^hive.temporary-staging-directory-path=.*|hive.temporary-staging-directory-path=.hive-staging|' "${hive_config}"
+  elif [[ -f "${hive_config}" ]]; then
+    sed -i '/^hive.non-managed-table-writes-enabled=/a hive.temporary-staging-directory-path=.hive-staging' "${hive_config}"
+  fi
+}
+
 # get host values
 NPROC=$(nproc)
 # lsmem will report in SI.  Make sure we get values in GB.
@@ -162,6 +174,9 @@ else
   # otherwise, reuse existing config
   echo_success "Reusing existing Presto Config files for '${VARIANT_TYPE}'"
 fi
+
+ensure_hive_non_managed_writes_enabled "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties"
+ensure_hive_non_managed_writes_enabled "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
 
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
