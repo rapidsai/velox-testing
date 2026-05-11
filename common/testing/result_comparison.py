@@ -201,39 +201,52 @@ def _verify_sort(df: pd.DataFrame, sort_col_indices: list[int], descending: list
     """
     Verify that df is correctly sorted per ORDER BY columns and directions.
 
-    Walks consecutive rows; for each pair, the ORDER BY columns must be in the
-    correct direction or tied. Float columns use exact equality for "tied"
-    (since this runs before canonicalization, engines having seen the values
-    as exact-equal is what triggered them to apply the next ORDER BY column);
-    if a float pair is non-equal, we still allow within-tolerance flips by
-    not enforcing direction (the engine sorted by its own bit values, which
-    may have been ULP-different from the reference).
+    For each consecutive row pair, the ORDER BY columns must be in the correct
+    direction or tied. Float columns allow within-tolerance flips (engine bit
+    values may have been ULP-different and the engine sorted by its own
+    values; this isn't a real sort violation). Non-exact-equal pairs are
+    "decided" at the first column they distinguish; subsequent columns are
+    only consulted for pairs still tied on all prior columns.
 
-    Raises AssertionError on a real sort violation (wrong direction outside
-    tolerance).
+    Vectorized across all row pairs. Raises AssertionError on a real sort
+    violation (wrong direction outside tolerance).
     """
     n = len(df)
     if n <= 1 or not sort_col_indices:
         return
-    for i in range(1, n):
-        for col_idx, desc in zip(sort_col_indices, descending):
-            prev = df.iloc[i - 1, col_idx]
-            curr = df.iloc[i, col_idx]
-            if curr == prev:
-                continue  # exact tie — engine should have applied next column
+
+    decided = np.zeros(n - 1, dtype=bool)
+
+    for col_idx, desc in zip(sort_col_indices, descending):
+        col = df.iloc[:, col_idx].to_numpy()
+        prev, curr = col[:-1], col[1:]
+
+        with np.errstate(invalid="ignore"):
+            exact_tied = prev == curr
             if _is_float_col(df.iloc[:, col_idx]):
-                # Tolerance-tied float: engine may have ranked by its own bit
-                # value rather than tying-then-applying-next-column. Don't
-                # enforce ordering of subsequent columns at this position.
-                tol = ABS_TOL + REL_TOL * max(abs(curr), abs(prev))
-                if abs(curr - prev) <= tol:
-                    break
-            # Distinct values — direction must be respected.
-            if (desc and curr > prev) or (not desc and curr < prev):
-                raise AssertionError(
-                    f"Sort violation at row {i}, column {col_idx}: "
-                    f"prev={prev!r}, curr={curr!r}, but ORDER BY is {'DESC' if desc else 'ASC'}"
-                )
+                tol = ABS_TOL + REL_TOL * np.maximum(np.abs(prev), np.abs(curr))
+                tolerance_tied = np.abs(curr - prev) <= tol
+            else:
+                tolerance_tied = exact_tied
+            wrong_dir = (curr > prev) if desc else (curr < prev)
+
+        # Pairs not yet decided: exact-tied → still undecided; otherwise this
+        # column decides them. Tolerance-tied (non-exact) decides as OK; outside
+        # tolerance with wrong direction is a violation; otherwise OK.
+        not_exact = ~decided & ~exact_tied
+        new_violations = not_exact & ~tolerance_tied & wrong_dir
+
+        if new_violations.any():
+            i_pair = int(np.argmax(new_violations))
+            i = i_pair + 1  # row index (pair connects rows i-1 and i)
+            raise AssertionError(
+                f"Sort violation at row {i}, column {col_idx}: "
+                f"prev={prev[i_pair]!r}, curr={curr[i_pair]!r}, "
+                f"but ORDER BY is {'DESC' if desc else 'ASC'}"
+            )
+
+        decided |= not_exact
+        if decided.all():
             break
 
 
@@ -243,58 +256,68 @@ def _sort_by_positions(df: pd.DataFrame, positions: list[int], ascending: list[b
     return df.sort_values(by=labels, ascending=ascending, na_position="last").reset_index(drop=True)
 
 
-def _is_null(v) -> bool:
-    if v is None:
-        return True
-    try:
-        return bool(pd.isna(v))
-    except (TypeError, ValueError):
-        return False
-
-
 def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
     """
-    Row-by-row comparison with rel_tol=1e-5, abs_tol=1e-8 for float columns.
-    Both DataFrames must have matching shape and be pre-sorted/reset-indexed.
-    Comparison is positional — column labels are not used.
+    Column-by-column vectorized comparison with rel_tol=1e-5, abs_tol=1e-8 for
+    float columns. Both DataFrames must have matching shape and be pre-sorted /
+    reset-indexed. Comparison is positional — column labels are not used.
+
+    Null handling (TPC-DS can produce three flavours of null per column):
+      - float NaN (divide-by-zero, empty aggregations)
+      - None (ROLLUP NULL labels, missing strings)
+      - pd.NA (nullable Int columns)
+    Both sides null → equal. One side null → mismatch.
+
     Raises AssertionError describing up to MAX_MISMATCHES differences.
     """
     if len(df1) != len(df2):
         raise AssertionError(f"Row count mismatch: {len(df1)} vs {len(df2)}")
 
-    float_col_positions = {i for i in range(df1.shape[1]) if _is_float_col(df1.iloc[:, i])}
     mismatches: list[str] = []
 
-    rows1 = df1.to_dict("split")["data"]
-    rows2 = df2.to_dict("split")["data"]
+    for col_idx in range(df1.shape[1]):
+        a_col = df1.iloc[:, col_idx]
+        b_col = df2.iloc[:, col_idx]
 
-    for row_idx, (r1, r2) in enumerate(zip(rows1, rows2)):
-        for col_idx, (v1, v2) in enumerate(zip(r1, r2)):
-            # TPC-DS produces three flavours of null in result frames:
-            #   - float NaN (divide-by-zero, empty aggregations)
-            #   - None (ROLLUP NULL labels, missing strings)
-            #   - pd.NA (nullable Int columns)
-            # Each behaves differently under == / != / float(): NaN != NaN is True
-            # so the float-tolerance branch silently passes any NaN; float(None)
-            # raises TypeError; pd.NA raises in boolean context. Detect nulls up
-            # front so the type-specific branches see only real values.
-            null1, null2 = _is_null(v1), _is_null(v2)
+        a_null = pd.isna(a_col).to_numpy()
+        b_null = pd.isna(b_col).to_numpy()
+        both_null = a_null & b_null
+        either_null = a_null | b_null
+        only_one_null = either_null & ~both_null
 
-            if null1 and null2:
-                continue
-            if null1 or null2:
-                mismatches.append(f"Row {row_idx}, col {col_idx}: {v1!r} vs {v2!r} (null mismatch)")
-            elif col_idx in float_col_positions:
-                fv1, fv2 = float(v1), float(v2)
-                diff = abs(fv1 - fv2)
-                tol = ABS_TOL + REL_TOL * max(abs(fv1), abs(fv2))
-                if diff > tol:
-                    mismatches.append(f"Row {row_idx}, col {col_idx}: {fv1} vs {fv2} (diff={diff:.2e}, tol={tol:.2e})")
-            elif v1 != v2:
-                mismatches.append(f"Row {row_idx}, col {col_idx}: {v1!r} vs {v2!r}")
+        is_float = _is_float_col(a_col)
+        if is_float:
+            a = a_col.to_numpy(dtype=np.float64, na_value=np.nan)
+            b = b_col.to_numpy(dtype=np.float64, na_value=np.nan)
+            with np.errstate(invalid="ignore"):
+                diff = np.abs(a - b)
+                tol = ABS_TOL + REL_TOL * np.maximum(np.abs(a), np.abs(b))
+                outside_tol = diff > tol
+            bad = only_one_null | ((~either_null) & outside_tol)
+        else:
+            a = a_col.to_numpy()
+            b = b_col.to_numpy()
+            bad = only_one_null | ((~either_null) & (a != b))
 
-            if len(mismatches) >= MAX_MISMATCHES:
-                break
+        bad_idx = np.flatnonzero(bad)
+        if len(bad_idx) == 0:
+            continue
+
+        remaining = MAX_MISMATCHES - len(mismatches)
+        for idx in bad_idx[:remaining]:
+            i = int(idx)
+            v1 = a_col.iloc[i]
+            v2 = b_col.iloc[i]
+            if only_one_null[i]:
+                mismatches.append(f"Row {i}, col {col_idx}: {v1!r} vs {v2!r} (null mismatch)")
+            elif is_float:
+                fv1, fv2 = float(a[i]), float(b[i])
+                d = abs(fv1 - fv2)
+                t = ABS_TOL + REL_TOL * max(abs(fv1), abs(fv2))
+                mismatches.append(f"Row {i}, col {col_idx}: {fv1} vs {fv2} (diff={d:.2e}, tol={t:.2e})")
+            else:
+                mismatches.append(f"Row {i}, col {col_idx}: {v1!r} vs {v2!r}")
+
         if len(mismatches) >= MAX_MISMATCHES:
             break
 
