@@ -50,6 +50,8 @@ RUN apt-get update -y && \
     gperf \
     ninja-build \
     ccache \
+    # rapidsmpf dependencies
+    libnuma-dev \
     && rm -rf /tmp/* /var/tmp/* /var/cache/apt/* /var/lib/apt/lists/*
 
 # Set GCC 14 as default (GCC 13 has false-positive -Wstringop-overflow in fmt)
