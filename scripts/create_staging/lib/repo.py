@@ -13,6 +13,15 @@ from .formatting import log
 from .git_ops import git, git_retry, normalize_repo_url
 
 
+def require_origin_remote(repo_dir: Path) -> None:
+    """Fail fast if ``origin`` is missing (expected after ``git clone``)."""
+    if git(["remote", "get-url", "origin"], cwd=repo_dir, check=False).returncode != 0:
+        raise RuntimeError(
+            f"No `origin` remote in {repo_dir}. Clone the target repo with a standard "
+            "`git clone` so `origin` points at the repository you push to."
+        )
+
+
 def ensure_sibling_layout(target_dir: Path) -> None:
     """Verify the target repo lives next to a `velox-testing` sibling directory.
 
@@ -82,6 +91,8 @@ def init_repo(cfg: Config) -> None:
         raise RuntimeError(f"target path is not a git repo: {target}")
     cfg.work_dir = target
 
+    require_origin_remote(cfg.work_dir)
+
     if not cfg.target_repository:
         origin_url = git(["remote", "get-url", "origin"], cwd=target, check=False).stdout.strip()
         cfg.target_repository = normalize_repo_url(origin_url)
@@ -128,12 +139,21 @@ def maybe_confirm_reset(cfg: Config) -> None:
 
 
 def reset_target_branch(cfg: Config) -> str:
-    """Reset target branch to the base repo's branch and return the new HEAD SHA."""
+    """Reset ``target_branch`` to match the tip of ``base_repository`` / ``base_branch``."""
     repo = cfg.work_dir
-    log(f"Resetting {cfg.target_branch} to {cfg.base_repository}/{cfg.base_branch} (via direct fetch)...")
-    git_retry(["fetch", f"https://github.com/{cfg.base_repository}.git", cfg.base_branch], cwd=repo)
+    ref = f"{cfg.base_repository}#{cfg.base_branch}"
+    log(f"Resetting {cfg.target_branch} to match {ref} (direct fetch from base repo)...")
+    fetch_url = f"https://github.com/{cfg.base_repository}.git"
+    git_retry(["fetch", fetch_url, cfg.base_branch], cwd=repo)
+    fetched = git(["rev-parse", "FETCH_HEAD"], cwd=repo).stdout.strip()
     git(["checkout", "-B", cfg.target_branch, "FETCH_HEAD"], cwd=repo)
-    base_commit = git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+    head = git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+    if head != fetched:
+        raise RuntimeError(
+            f"Internal error: after reset, HEAD ({head}) != FETCH_HEAD ({fetched}); "
+            f"{cfg.target_branch} may not match {ref}."
+        )
+    base_commit = head
     emit_output("BASE_COMMIT", base_commit)
-    log(f"Base commit: {base_commit}")
+    log(f"Synced: {cfg.target_branch} == {cfg.base_repository}@{cfg.base_branch} at {base_commit[:12]}...")
     return base_commit

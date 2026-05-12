@@ -64,7 +64,7 @@ on:
         description: 'GitHub PAT for target repository'
         required: true
       anthropic_api_key:
-        description: 'Anthropic API key'
+        description: 'Anthropic API key (optional; omit for workflows that do not use Claude)'
         required: true
 
 jobs:
@@ -81,6 +81,7 @@ jobs:
         --mode ci
         --base-repository ${{ inputs.base_repository }}
         --base-branch ${{ inputs.base_branch }}
+        --target-repository ${{ inputs.target_repository }}
         --target-branch ${{ inputs.target_branch }}
         --auto-fetch-prs ${{ inputs.auto_fetch_prs }}
         ${{ inputs.pr_labels && format('--pr-labels {0}', inputs.pr_labels) || '' }}
@@ -138,6 +139,15 @@ jobs:
           TARGET_DIR="${TARGET_REPO##*/}"
           echo "TARGET_CLONE_PATH=${GITHUB_WORKSPACE}/${TARGET_DIR}" >> "${GITHUB_ENV}"
           git clone "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" "${TARGET_DIR}"
+          git -C "${TARGET_DIR}" rev-parse --is-inside-work-tree
+          if ! git -C "${TARGET_DIR}" remote get-url origin >/dev/null 2>&1; then
+            echo "::error::Clone succeeded but the target repo has no 'origin' remote (${TARGET_DIR})"
+            exit 1
+          fi
+          echo "Verified: origin remote is set for ${TARGET_REPO} (clone at ${TARGET_DIR})"
+
+      - name: ✈️ Preflight push (dry-run)
+        run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step preflight-push
 
       - name: 🔄 Reset target branch
         run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step reset

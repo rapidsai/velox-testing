@@ -89,6 +89,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--target-branch", default="staging", help="Branch to create/update in the target repo (default: staging)"
     )
     parser.add_argument(
+        "--target-repository",
+        default="",
+        help="Owner/repo of the clone's origin (e.g. rapidsai/velox). In CI, used to refresh push credentials; "
+        "if omitted, derived from `git remote get-url origin`.",
+    )
+    parser.add_argument(
         "--auto-fetch-prs", default="true", help="Auto-fetch open non-draft PRs by --pr-labels (true|false)"
     )
     parser.add_argument(
@@ -115,7 +121,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--step",
         default="",
         help="Run only one step: reset, merge-additional, fetch-prs, "
-        "test-merge, test-pairwise, merge, manifest, push, all",
+        "test-merge, test-pairwise, merge, manifest, preflight-push, push, all",
     )
     parser.add_argument(
         "--pr-order",
@@ -161,6 +167,7 @@ def load_from_args(args: argparse.Namespace) -> Config:
         base_repository=args.base_repository,
         base_branch=args.base_branch,
         target_branch=args.target_branch,
+        target_repository=(args.target_repository or "").strip(),
         auto_fetch_prs=_parse_bool(args.auto_fetch_prs),
         manual_pr_numbers=_split_csv(args.manual_pr_numbers),
         exclude_pr_numbers=_split_csv(args.exclude_pr_numbers),

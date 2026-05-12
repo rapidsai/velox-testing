@@ -16,6 +16,7 @@ Pipeline (run end-to-end with ``--step all`` or one step per CI job):
     test-pairwise   Verify all PRs are mutually compatible (NxN matrix)
     merge           Sequentially merge PRs (with rerere + Claude conflict assist)
     manifest        Write and commit .staging-manifest.yaml
+    preflight-push  CI only: early ``git push --dry-run`` (PAT / protection); run after clone
     push            Push the target / dated branch (CI only)
 
 Single-step CI runs share state via GITHUB_ENV/GITHUB_OUTPUT (PR_LIST,
@@ -69,7 +70,7 @@ from lib.git_ops import require_cmd
 from lib.manifest import create_manifest
 from lib.merge import merge_additional_repository, merge_prs
 from lib.prs import fetch_pr_list
-from lib.push import push_branches
+from lib.push import preflight_push, push_branches
 from lib.repo import init_repo, maybe_confirm_reset, reset_target_branch
 from lib.test_merge import test_merge_compatibility, test_pairwise_compatibility
 
@@ -82,6 +83,7 @@ _STEPS = (
     "test-pairwise",
     "merge",
     "manifest",
+    "preflight-push",
     "push",
 )
 
@@ -157,6 +159,8 @@ def _run_single_step(cfg: Config, step: str) -> None:
             additional,
             skipped_pr_details=details,
         )
+    elif step == "preflight-push":
+        preflight_push(cfg)
     elif step == "push":
         push_branches(cfg)
     else:
@@ -164,6 +168,7 @@ def _run_single_step(cfg: Config, step: str) -> None:
 
 
 def _run_all(cfg: Config) -> None:
+    preflight_push(cfg)
     maybe_confirm_reset(cfg)
     base_commit = reset_target_branch(cfg)
     additional_commit = merge_additional_repository(cfg)
