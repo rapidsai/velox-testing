@@ -81,3 +81,4 @@ jobs:
       script_path: ./velox-testing/velox/scripts/create_staging.sh
     secrets:
       fork_pat: ${{ secrets.VELOX_FORK_PAT || secrets.GITHUB_TOKEN }}
+      anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}

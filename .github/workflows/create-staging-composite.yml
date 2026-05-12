@@ -56,12 +56,15 @@ on:
         required: false
         default: ''
       script_path:
-        description: 'Path to the staging script (e.g., ./velox-testing/velox/scripts/create_staging.sh)'
+        description: 'Path to the staging entrypoint (e.g., ./velox-testing/scripts/create_staging/create_staging.py)'
         type: string
         required: true
     secrets:
       fork_pat:
         description: 'GitHub PAT for target repository'
+        required: true
+      anthropic_api_key:
+        description: 'Anthropic API key'
         required: true
 
 jobs:
@@ -73,6 +76,7 @@ jobs:
       GH_TOKEN: ${{ secrets.fork_pat }}
       TARGET_REPO: ${{ inputs.target_repository }}
       SCRIPT_PATH: ${{ inputs.script_path }}
+      ANTHROPIC_API_KEY: ${{ secrets.anthropic_api_key }}
       BASE_ARGS: >-
         --mode ci
         --base-repository ${{ inputs.base_repository }}
@@ -97,33 +101,65 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Install gh CLI
+        run: |
+          if command -v gh &>/dev/null; then
+            echo "gh already available: $(gh --version | head -1)"
+          else
+            echo "Installing GitHub CLI to ~/.local..."
+            GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
+            ARCH=$(uname -m); [[ "$ARCH" == "x86_64" ]] && ARCH="amd64"
+            mkdir -p "$HOME/.local"
+            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz" \
+              | tar xz --strip-components=1 -C "$HOME/.local"
+            export PATH="$HOME/.local/bin:$PATH"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            gh --version
+          fi
+
+      - name: Install Claude CLI
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          claude --version
+
+      - name: Prepare staging command
+        run: |
+          if [[ "${SCRIPT_PATH}" == *.py ]]; then
+            echo "RUN_STAGING=python3 ${SCRIPT_PATH}" >> "${GITHUB_ENV}"
+          else
+            echo "RUN_STAGING=${SCRIPT_PATH}" >> "${GITHUB_ENV}"
+          fi
+
       - name: 📥 Clone target repository
         run: |
-          # Extract project name from script path (e.g., velox from ./velox-testing/velox/scripts/...)
-          TARGET_DIR=$(echo "${SCRIPT_PATH}" | sed 's|.*/velox-testing/||' | cut -d'/' -f1)
+          # Local directory name matches the target repo basename (e.g. rapidsai/velox -> velox).
+          TARGET_DIR="${TARGET_REPO##*/}"
+          echo "TARGET_CLONE_PATH=${GITHUB_WORKSPACE}/${TARGET_DIR}" >> "${GITHUB_ENV}"
           git clone "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" "${TARGET_DIR}"
 
       - name: 🔄 Reset target branch
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step reset
+        run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step reset
 
       - name: 🔗 Merge additional repository/branch
         if: ${{ inputs.additional_repository != '' && inputs.additional_branch != '' }}
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge-additional
+        run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step merge-additional
 
       - name: 📋 Fetch PR list
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step fetch-prs
+        run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step fetch-prs
 
       - name: 🧪 Test merge compatibility
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step test-merge
+        run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step test-merge
 
       - name: 🧪 Test pairwise merge compatibility
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step test-pairwise
+        run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step test-pairwise
 
       - name: 🔀 Merge PRs
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge
+        run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step merge
 
       - name: 📝 Create staging manifest
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step manifest
+        run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step manifest
 
       - name: 🚀 Push branches
-        run: ${SCRIPT_PATH} ${BASE_ARGS} --step push
+        run: ${RUN_STAGING} ${BASE_ARGS} --target-path "${TARGET_CLONE_PATH}" --step push

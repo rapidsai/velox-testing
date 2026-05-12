@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PARENT_SCRIPT="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/create_staging_branch.sh"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PYTHON_SCRIPT="${PROJECT_DIR}/scripts/create_staging/create_staging.py"
 DEFAULT_TARGET_PATH="$(cd "${SCRIPT_DIR}/../../.." && pwd)/velox"
 
 usage() {
@@ -25,12 +29,12 @@ EOF
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   echo ""
-  echo "=== Parent script options ==="
-  "${PARENT_SCRIPT}" --help
+  echo "=== create_staging.py options ==="
+  python3 "${PYTHON_SCRIPT}" --help
   exit 0
 fi
 
-exec "${PARENT_SCRIPT}" \
+exec python3 "${PYTHON_SCRIPT}" \
   --target-path "${DEFAULT_TARGET_PATH}" \
   --base-repository "facebookincubator/velox" \
   --base-branch "main" \
