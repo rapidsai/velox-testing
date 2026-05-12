@@ -44,6 +44,23 @@ _RETRY_PREFIX = (
 
 
 @dataclass
+class AutoResolveOutcome:
+    """Result of ``auto_resolve_conflicts``.
+
+    ``failure_kind`` is ``\"ok\"`` when ``unresolved_paths`` is empty; otherwise
+    one of: ``auto_resolve_disabled``, ``claude_unavailable``, ``pr_timeout``,
+    ``unresolved``.
+    """
+
+    unresolved_paths: List[str]
+    failure_kind: str = "ok"
+
+    @property
+    def ok(self) -> bool:
+        return not self.unresolved_paths
+
+
+@dataclass
 class MergeContext:
     """Metadata passed to Claude so it can reason about the merge being performed.
 
@@ -418,24 +435,26 @@ def auto_resolve_conflicts(
     repo: Path,
     *,
     context: MergeContext,
-) -> List[str]:
-    """Auto-resolve every unresolved conflicted file. Returns the list of files
-    that could NOT be resolved (empty == fully resolved).
+) -> AutoResolveOutcome:
+    """Auto-resolve every unresolved conflicted file.
 
-    Honours `cfg.pr_timeout_s` as a wall-clock cap for the auto-resolve phase
+    Honours ``cfg.pr_timeout_s`` as a wall-clock cap for the auto-resolve phase
     of this PR. Once the timeout is reached, the remaining files are emitted
     as failed without invoking Claude, so the caller skips the PR quickly.
+
+    Returns an :class:`AutoResolveOutcome` with non-empty ``unresolved_paths``
+    when anything could not be resolved.
     """
     unmerged = list_unmerged_files(repo)
     if not unmerged:
-        return []
+        return AutoResolveOutcome([], "ok")
     divider(f"Auto-resolving {len(unmerged)} conflicted file(s) for {context.merge_label}")
     if not cfg.enable_auto_resolve:
         log("Auto-resolve disabled (--no-auto-resolve)")
-        return unmerged
+        return AutoResolveOutcome(list(unmerged), "auto_resolve_disabled")
     if not claude_available(cfg):
         log(f"WARN: Claude CLI '{cfg.claude_bin}' not on PATH; skipping auto-resolve")
-        return unmerged
+        return AutoResolveOutcome(list(unmerged), "claude_unavailable")
 
     if cfg.pr_timeout_s > 0 and context.deadline is None:
         context.deadline = time.monotonic() + cfg.pr_timeout_s
@@ -464,4 +483,9 @@ def auto_resolve_conflicts(
         log("Files still unresolved after Claude pass:")
         for f in remaining:
             log(f"  - {f}")
-    return remaining or failed
+    out_paths = list(remaining) if remaining else list(failed)
+    if not out_paths:
+        return AutoResolveOutcome([], "ok")
+    if pr_timeout_exhausted:
+        return AutoResolveOutcome(out_paths, "pr_timeout")
+    return AutoResolveOutcome(out_paths, "unresolved")

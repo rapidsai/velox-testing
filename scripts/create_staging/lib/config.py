@@ -41,12 +41,12 @@ class Config:
     # Claude/rerere conflict resolution
     enable_auto_resolve: bool = True
     claude_bin: str = "claude"
-    claude_model: str = "claude-sonnet-4-5"
+    claude_model: str = "claude-opus-4-7"
     claude_timeout_s: int = 300
     # Wall-clock timeout per PR for the auto-resolve phase (Claude + tiebreakers).
     # Once exceeded, remaining unresolved files are dropped and the PR is
     # skipped for manual merging. 0 disables the cap.
-    pr_timeout_s: int = 900
+    pr_timeout_s: int = 600
 
     @property
     def use_local_path(self) -> bool:
@@ -135,8 +135,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--claude-model",
-        default=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5"),
-        help="Claude model to use for conflict resolution",
+        default=os.environ.get("CLAUDE_MODEL", "claude-opus-4-7"),
+        help="Claude model for conflict resolution (default: claude-opus-4-7; env: CLAUDE_MODEL)",
     )
     parser.add_argument(
         "--claude-timeout",

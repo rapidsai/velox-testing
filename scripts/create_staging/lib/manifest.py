@@ -7,7 +7,7 @@ from __future__ import annotations
 import datetime as _dt
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from .config import Config
 from .formatting import log, step
@@ -52,25 +52,48 @@ def _render_pr_entries(
     return lines
 
 
+def _render_skipped_pr_entries(cfg: Config, items: List[Dict[str, str]]) -> List[str]:
+    """YAML lines for ``skipped_prs`` with per-PR ``reason`` from the merge step."""
+    lines: List[str] = []
+    for item in items:
+        pr_num = str(item.get("pr") or "").strip()
+        if not pr_num:
+            continue
+        reason = str(item.get("reason") or "unknown").strip()
+        meta = fetch_pr_metadata(cfg, pr_num)
+        commit = meta["head_sha"] or "unknown"
+        lines.extend(
+            [
+                f"  - number: {pr_num}",
+                f'    commit: "{commit}"',
+                f'    author: "{_yaml_escape(meta["author"] or "N/A")}"',
+                f'    title: "{_yaml_escape(meta["title"] or "N/A")}"',
+                f'    url: "https://github.com/{cfg.base_repository}/pull/{pr_num}"',
+                f'    reason: "{_yaml_escape(reason)}"',
+            ]
+        )
+    return lines
+
+
 def create_manifest(
     cfg: Config,
     base_commit: str,
     merged_prs: List[str],
     additional_commit: str = "",
-    skipped_prs: Optional[List[str]] = None,
+    skipped_pr_details: Optional[List[Dict[str, str]]] = None,
 ) -> Path:
     """Write the staging manifest, commit it, and return its path.
 
-    `skipped_prs` are PRs that the merge step could not auto-resolve; they are
-    recorded under a `skipped_prs:` section so reviewers can see what was left
-    out and pick them up manually.
+    ``skipped_pr_details`` is a list of dicts with at least ``pr`` and
+    ``reason`` keys (as produced by ``merge_prs``). When omitted or empty and
+    no merge failures occurred, ``skipped_prs`` in the YAML is an empty list.
     """
     repo = cfg.work_dir
     template_path = cfg.manifest_template or _DEFAULT_TEMPLATE
     if not template_path.is_file():
         raise RuntimeError(f"template not found: {template_path}")
 
-    skipped_prs = skipped_prs or []
+    skipped_pr_details = skipped_pr_details or []
 
     timestamp = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     dated_branch = os.environ.get("DATED_BRANCH", "") or "N/A"
@@ -107,15 +130,9 @@ def create_manifest(
         body_lines.append("  []  # No PRs merged")
 
     body_lines.append("")
-    body_lines.append("skipped_prs:  # PRs that required manual conflict resolution and were not merged")
-    if skipped_prs:
-        body_lines.extend(
-            _render_pr_entries(
-                cfg,
-                skipped_prs,
-                extra_fields=[("reason", "manual conflict resolution required")],
-            )
-        )
+    body_lines.append("skipped_prs:  # PRs not merged (see reason per entry)")
+    if skipped_pr_details:
+        body_lines.extend(_render_skipped_pr_entries(cfg, skipped_pr_details))
     else:
         body_lines.append("  []  # No PRs skipped")
 
@@ -128,5 +145,5 @@ def create_manifest(
 
     git(["add", str(manifest_file)], cwd=repo)
     git(["commit", "-m", timestamp, "-m", f"Staging branch manifest for {dated_branch or cfg.target_branch}"], cwd=repo)
-    log(f"Manifest committed ({len(merged_prs)} merged, {len(skipped_prs)} skipped).")
+    log(f"Manifest committed ({len(merged_prs)} merged, {len(skipped_pr_details)} skipped).")
     return manifest_file

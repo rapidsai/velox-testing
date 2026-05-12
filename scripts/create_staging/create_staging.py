@@ -19,7 +19,8 @@ Pipeline (run end-to-end with ``--step all`` or one step per CI job):
     push            Push the target / dated branch (CI only)
 
 Single-step CI runs share state via GITHUB_ENV/GITHUB_OUTPUT (PR_LIST,
-BASE_COMMIT, MERGED_PRS, ADDITIONAL_MERGE_COMMIT, DATED_BRANCH).
+BASE_COMMIT, MERGED_PRS, FAILED_PRS, FAILED_SKIP_JSON, ADDITIONAL_MERGE_COMMIT,
+DATED_BRANCH).
 
 Examples:
 
@@ -40,17 +41,25 @@ Examples:
 Environment:
     GH_TOKEN        GitHub token used by `gh` and for fetch/push
     CLAUDE_BIN      Override Claude CLI binary (default: claude)
-    CLAUDE_MODEL    Claude model (default: claude-sonnet-4-5)
+    CLAUDE_MODEL    Claude model (default: claude-opus-4-7)
     CLAUDE_TIMEOUT  Per-file Claude timeout in seconds (default: 300)
     PR_TIMEOUT      Per-PR auto-resolve wall-clock timeout in seconds
                     (default: 900; set 0 to disable)
+
+    If ``<velox-testing-repo>/.env`` exists, key=value lines are applied to the
+    process environment before flags are parsed, but only for variables that
+    are not already set in the shell (so ``export CLAUDE_MODEL=…`` in your
+    session still wins over ``.env``).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
+from typing import Dict, List
 
 from lib import config as cfg_mod
 from lib.config import Config, require_env
@@ -97,6 +106,24 @@ def _env_pr_list() -> list:
     return [p for p in raw.split() if p.strip()]
 
 
+def _env_failed_skip_details() -> List[Dict[str, str]]:
+    """Parse FAILED_SKIP_JSON from the merge step (CI) into [{pr, reason}, ...]."""
+    raw = os.environ.get("FAILED_SKIP_JSON", "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: List[Dict[str, str]] = []
+    for item in data:
+        if isinstance(item, dict) and item.get("pr"):
+            out.append({"pr": str(item["pr"]), "reason": str(item.get("reason", ""))})
+    return out
+
+
 def _run_single_step(cfg: Config, step: str) -> None:
     if step == "reset":
         maybe_confirm_reset(cfg)
@@ -113,14 +140,22 @@ def _run_single_step(cfg: Config, step: str) -> None:
         merge_prs(cfg, require_env("BASE_COMMIT"), _env_pr_list())
     elif step == "manifest":
         merged = [p for p in require_env("MERGED_PRS").split() if p.strip()]
-        skipped = [p for p in os.environ.get("FAILED_PRS", "").split() if p.strip()]
         additional = os.environ.get("ADDITIONAL_MERGE_COMMIT", "").strip()
+        details = _env_failed_skip_details()
+        if not details:
+            for p in [x for x in os.environ.get("FAILED_PRS", "").split() if x.strip()]:
+                details.append(
+                    {
+                        "pr": p,
+                        "reason": "Skipped in merge step (no FAILED_SKIP_JSON; see CI merge logs).",
+                    }
+                )
         create_manifest(
             cfg,
             require_env("BASE_COMMIT"),
             merged,
             additional,
-            skipped_prs=skipped,
+            skipped_pr_details=details,
         )
     elif step == "push":
         push_branches(cfg)
@@ -147,12 +182,48 @@ def _run_all(cfg: Config) -> None:
         base_commit,
         result["merged"],
         additional_commit,
-        skipped_prs=result.get("failed", []),
+        skipped_pr_details=result.get("failed_details") or [],
     )
     push_branches(cfg)
 
 
+def _load_repo_dotenv() -> None:
+    """Populate ``os.environ`` from ``<repo-root>/.env`` when keys are unset.
+
+    Python does not read ``.env`` automatically. Without ``source .env``,
+    ``CLAUDE_MODEL`` etc. would be missing and argparse would fall back to
+    built-in defaults (e.g. ``claude-opus-4-7``). Existing environment
+    variables always win over ``.env`` entries.
+    """
+    root = Path(__file__).resolve().parents[2]
+    path = root / ".env"
+    if not path.is_file():
+        return
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip()
+        if not key:
+            continue
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
+            val = val[1:-1]
+        if key not in os.environ:
+            os.environ[key] = val
+
+
 def main(argv: list | None = None) -> int:
+    _load_repo_dotenv()
     parser = _build_parser()
     args = parser.parse_args(argv)
     _validate_step(args.step)
