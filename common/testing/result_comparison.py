@@ -21,12 +21,6 @@ REL_TOL = 1e-5
 ABS_TOL = 1e-8
 MAX_MISMATCHES = 5
 
-# Relative precision for float canonicalization. Chosen so engine-level
-# precision noise (typically <= 1e-10 relative for stable summation) is
-# flattened to bit-equal across engines, while distinct logical values
-# (relative gap >= 1e-7 in our queries) stay distinct.
-CANONICALIZE_RELATIVE_PRECISION = 1e-8
-
 # Known queries that return empty results due to float precision issues.
 # These are marked as expected failures rather than test failures.
 XFAIL_IF_EMPTY: set[str] = {"q15"}
@@ -39,25 +33,23 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 # ---------------------------------------------------------------------------
 
 
-def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> tuple[list[int], list[bool]]:
+def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> list[int]:
     """
-    Extract ORDER BY column positions and directions from SQL using sqlglot.
+    Extract ORDER BY column positions from SQL using sqlglot.
 
-    Returns (sort_col_indices, descending) — parallel lists of 0-based column
-    indices and DESC flags. Returns ([], []) when there is no ORDER BY, or when
-    any ORDER BY expression is too complex to map to a result column.
+    Returns a list of 0-based column indices. Returns [] when there is no
+    ORDER BY, or when any ORDER BY expression is too complex to map to a
+    result column (CASE, aggregate, etc.).
     """
     expr = sqlglot.parse_one(query_sql)
     order = next((e for e in expr.find_all(sqlglot.exp.Order)), None)
     if not order:
-        return [], []
+        return []
 
     sort_col_indices: list[int] = []
-    descending: list[bool] = []
 
     for ordered in order.expressions:
         key = ordered.this
-        desc = bool(ordered.args.get("desc", False))
 
         # Resolve key → column index via numeric literal or column reference.
         if isinstance(key, sqlglot.exp.Literal):
@@ -65,7 +57,6 @@ def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> tu
                 col_num = int(key.this)
                 if 1 <= col_num <= len(expected_col_names):
                     sort_col_indices.append(col_num - 1)
-                    descending.append(desc)
                     continue
             except (ValueError, TypeError):
                 pass
@@ -74,17 +65,16 @@ def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> tu
             name = key.name
             if name in expected_col_names:
                 sort_col_indices.append(expected_col_names.index(name))
-                descending.append(desc)
                 continue
 
-        # Complex expression — skip ORDER BY validation entirely.
+        # Complex expression — skip ORDER BY tie-group handling for this query.
         warnings.warn(
             f"ORDER BY expression {key.sql()!r} couldn't be mapped to a result column; "
-            "engine sort verification will be skipped for this query."
+            "ORDER BY tie-group handling will be skipped for this query."
         )
-        return [], []
+        return []
 
-    return sort_col_indices, descending
+    return sort_col_indices
 
 
 def get_limit(query_sql: str) -> int | None:
@@ -174,99 +164,100 @@ def _is_float_col(series: pd.Series) -> bool:
     return pd.api.types.is_float_dtype(series)
 
 
-def _canonicalize_floats(df: pd.DataFrame) -> pd.DataFrame:
+def _sort_preserving_orderby(df: pd.DataFrame, sort_col_indices: list[int]) -> pd.DataFrame:
     """
-    Round each float column to a fixed relative precision so engine-level
-    precision noise becomes bit-identical across engines, while distinct
-    logical values stay distinct. The quantum at value v is roughly
-    10^floor(log10(|v|)) * CANONICALIZE_RELATIVE_PRECISION, so the precision
-    is relative to magnitude.
+    Sort df preserving the engine-given ORDER BY row order. Within ORDER BY
+    tie groups, sort by non-float non-ORDER-BY columns first (these are
+    exact-equal across engines), then by float non-ORDER-BY columns (which
+    may differ by ULPs but only matter when all non-float keys tie).
+
+    When sort_col_indices is empty (no parseable ORDER BY in the SQL), sort
+    the entire frame by [non-float, float] columns.
     """
-    out = df.copy()
-    for i in range(df.shape[1]):
-        if not _is_float_col(df.iloc[:, i]):
-            continue
-        col = df.iloc[:, i].to_numpy(dtype=np.float64)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            magnitudes = np.where(col != 0, 10.0 ** np.floor(np.log10(np.abs(col))), 1.0)
-            quantum = magnitudes * CANONICALIZE_RELATIVE_PRECISION
-            rounded = np.where(col != 0, np.round(col / quantum) * quantum, 0.0)
-        # Preserve NaN (np.where above propagates NaN through both branches because
-        # NaN != 0 evaluates True; NaN/anything = NaN; np.round(NaN) = NaN).
-        out.isetitem(i, rounded)
-    return out
+    df = df.reset_index(drop=True)
+
+    sort_set = set(sort_col_indices)
+    non_orderby_positions = [i for i in range(df.shape[1]) if i not in sort_set]
+    non_float_pos = [i for i in non_orderby_positions if not _is_float_col(df.iloc[:, i])]
+    float_pos = [i for i in non_orderby_positions if _is_float_col(df.iloc[:, i])]
+    tie_break_labels = df.columns[non_float_pos + float_pos].tolist()
+
+    # Nothing to sort or canonicalize with — return as-is.
+    if not tie_break_labels:
+        return df
+
+    if not sort_col_indices:
+        # No ORDER BY: sort the entire frame by tie-breakers.
+        return df.sort_values(by=tie_break_labels, na_position="last").reset_index(drop=True)
+
+    # ORDER BY present: identify tie groups via consecutive-row equality, then
+    # sort by [gid, tie-breakers] so engine between-group order is preserved
+    # and within-group order is canonicalized by the tie-breakers.
+    orderby_arr = df.iloc[:, list(sort_col_indices)].to_numpy()
+    is_new_group = np.empty(len(df), dtype=bool)
+    is_new_group[0] = True
+    is_new_group[1:] = (orderby_arr[1:] != orderby_arr[:-1]).any(axis=1)
+    gid = np.cumsum(is_new_group)
+
+    gid_col = "__velox_orderby_tie_gid__"
+    return (
+        df.assign(**{gid_col: gid})
+        .sort_values(by=[gid_col, *tie_break_labels], na_position="last")
+        .drop(columns=gid_col)
+        .reset_index(drop=True)
+    )
 
 
-def _verify_sort(df: pd.DataFrame, sort_col_indices: list[int], descending: list[bool]) -> None:
+def _column_mismatches(a_col: pd.Series, b_col: pd.Series) -> tuple[np.ndarray, np.ndarray]:
     """
-    Verify that df is correctly sorted per ORDER BY columns and directions.
+    Return (bad_indices, null_mismatch_mask) for a single-column comparison.
 
-    For each consecutive row pair, the ORDER BY columns must be in the correct
-    direction or tied. Float columns allow within-tolerance flips (engine bit
-    values may have been ULP-different and the engine sorted by its own
-    values; this isn't a real sort violation). Non-exact-equal pairs are
-    "decided" at the first column they distinguish; subsequent columns are
-    only consulted for pairs still tied on all prior columns.
-
-    Vectorized across all row pairs. Raises AssertionError on a real sort
-    violation (wrong direction outside tolerance).
+    bad_indices: positions where the two columns disagree (after null and
+        tolerance rules). null_mismatch_mask: boolean array, True where exactly
+        one side is null.
     """
-    n = len(df)
-    if n <= 1 or not sort_col_indices:
-        return
+    a_null = pd.isna(a_col).to_numpy()
+    b_null = pd.isna(b_col).to_numpy()
+    null_mismatch = a_null ^ b_null  # exactly one side is null
 
-    decided = np.zeros(n - 1, dtype=bool)
-
-    for col_idx, desc in zip(sort_col_indices, descending):
-        col = df.iloc[:, col_idx].to_numpy()
-        prev, curr = col[:-1], col[1:]
-
+    if _is_float_col(a_col):
+        a = a_col.to_numpy(dtype=np.float64, na_value=np.nan)
+        b = b_col.to_numpy(dtype=np.float64, na_value=np.nan)
         with np.errstate(invalid="ignore"):
-            exact_tied = prev == curr
-            if _is_float_col(df.iloc[:, col_idx]):
-                tol = ABS_TOL + REL_TOL * np.maximum(np.abs(prev), np.abs(curr))
-                tolerance_tied = np.abs(curr - prev) <= tol
-            else:
-                tolerance_tied = exact_tied
-            wrong_dir = (curr > prev) if desc else (curr < prev)
+            value_mismatch = np.abs(a - b) > ABS_TOL + REL_TOL * np.maximum(np.abs(a), np.abs(b))
+        # NaN arithmetic returns NaN, and NaN > tol is False, so any cell
+        # involving a null is automatically excluded from value_mismatch.
+    else:
+        a = a_col.to_numpy()
+        b = b_col.to_numpy()
+        # In object arrays NaN != NaN is True; explicitly mask out null cells.
+        value_mismatch = (a != b) & ~(a_null | b_null)
 
-        # Pairs not yet decided: exact-tied → still undecided; otherwise this
-        # column decides them. Tolerance-tied (non-exact) decides as OK; outside
-        # tolerance with wrong direction is a violation; otherwise OK.
-        not_exact = ~decided & ~exact_tied
-        new_violations = not_exact & ~tolerance_tied & wrong_dir
-
-        if new_violations.any():
-            i_pair = int(np.argmax(new_violations))
-            i = i_pair + 1  # row index (pair connects rows i-1 and i)
-            raise AssertionError(
-                f"Sort violation at row {i}, column {col_idx}: "
-                f"prev={prev[i_pair]!r}, curr={curr[i_pair]!r}, "
-                f"but ORDER BY is {'DESC' if desc else 'ASC'}"
-            )
-
-        decided |= not_exact
-        if decided.all():
-            break
+    return np.flatnonzero(null_mismatch | value_mismatch), null_mismatch
 
 
-def _sort_by_positions(df: pd.DataFrame, positions: list[int], ascending: list[bool]) -> pd.DataFrame:
-    """Sort df by integer column positions, returning a new frame with reset index."""
-    labels = df.columns[positions].tolist()
-    return df.sort_values(by=labels, ascending=ascending, na_position="last").reset_index(drop=True)
+def _format_mismatch(row_idx: int, col_idx: int, a_col: pd.Series, b_col: pd.Series, is_null_mismatch: bool) -> str:
+    v1, v2 = a_col.iloc[row_idx], b_col.iloc[row_idx]
+    if is_null_mismatch:
+        return f"Row {row_idx}, col {col_idx}: {v1!r} vs {v2!r} (null mismatch)"
+    if _is_float_col(a_col):
+        fv1, fv2 = float(v1), float(v2)
+        diff = abs(fv1 - fv2)
+        tol = ABS_TOL + REL_TOL * max(abs(fv1), abs(fv2))
+        return f"Row {row_idx}, col {col_idx}: {fv1} vs {fv2} (diff={diff:.2e}, tol={tol:.2e})"
+    return f"Row {row_idx}, col {col_idx}: {v1!r} vs {v2!r}"
 
 
 def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
     """
-    Column-by-column vectorized comparison with rel_tol=1e-5, abs_tol=1e-8 for
-    float columns. Both DataFrames must have matching shape and be pre-sorted /
-    reset-indexed. Comparison is positional — column labels are not used.
+    Column-by-column vectorized comparison. Float columns use rel_tol=1e-5,
+    abs_tol=1e-8; non-float columns use exact equality. Both DataFrames must
+    have matching shape and be pre-sorted / reset-indexed. Comparison is
+    positional — column labels are not used.
 
-    Null handling (TPC-DS can produce three flavours of null per column):
-      - float NaN (divide-by-zero, empty aggregations)
-      - None (ROLLUP NULL labels, missing strings)
-      - pd.NA (nullable Int columns)
-    Both sides null → equal. One side null → mismatch.
+    Null handling: both sides null → equal; exactly one side null → mismatch.
+    Covers all three flavours of null TPC-DS can produce (float NaN, None,
+    pd.NA) via pandas' uniform `pd.isna`.
 
     Raises AssertionError describing up to MAX_MISMATCHES differences.
     """
@@ -274,50 +265,13 @@ def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
         raise AssertionError(f"Row count mismatch: {len(df1)} vs {len(df2)}")
 
     mismatches: list[str] = []
-
     for col_idx in range(df1.shape[1]):
         a_col = df1.iloc[:, col_idx]
         b_col = df2.iloc[:, col_idx]
-
-        a_null = pd.isna(a_col).to_numpy()
-        b_null = pd.isna(b_col).to_numpy()
-        both_null = a_null & b_null
-        either_null = a_null | b_null
-        only_one_null = either_null & ~both_null
-
-        is_float = _is_float_col(a_col)
-        if is_float:
-            a = a_col.to_numpy(dtype=np.float64, na_value=np.nan)
-            b = b_col.to_numpy(dtype=np.float64, na_value=np.nan)
-            with np.errstate(invalid="ignore"):
-                diff = np.abs(a - b)
-                tol = ABS_TOL + REL_TOL * np.maximum(np.abs(a), np.abs(b))
-                outside_tol = diff > tol
-            bad = only_one_null | ((~either_null) & outside_tol)
-        else:
-            a = a_col.to_numpy()
-            b = b_col.to_numpy()
-            bad = only_one_null | ((~either_null) & (a != b))
-
-        bad_idx = np.flatnonzero(bad)
-        if len(bad_idx) == 0:
-            continue
-
-        remaining = MAX_MISMATCHES - len(mismatches)
-        for idx in bad_idx[:remaining]:
+        bad_idx, null_mismatch = _column_mismatches(a_col, b_col)
+        for idx in bad_idx[: MAX_MISMATCHES - len(mismatches)]:
             i = int(idx)
-            v1 = a_col.iloc[i]
-            v2 = b_col.iloc[i]
-            if only_one_null[i]:
-                mismatches.append(f"Row {i}, col {col_idx}: {v1!r} vs {v2!r} (null mismatch)")
-            elif is_float:
-                fv1, fv2 = float(a[i]), float(b[i])
-                d = abs(fv1 - fv2)
-                t = ABS_TOL + REL_TOL * max(abs(fv1), abs(fv2))
-                mismatches.append(f"Row {i}, col {col_idx}: {fv1} vs {fv2} (diff={d:.2e}, tol={t:.2e})")
-            else:
-                mismatches.append(f"Row {i}, col {col_idx}: {v1!r} vs {v2!r}")
-
+            mismatches.append(_format_mismatch(i, col_idx, a_col, b_col, bool(null_mismatch[i])))
         if len(mismatches) >= MAX_MISMATCHES:
             break
 
@@ -357,20 +311,18 @@ def compare_result_frames(
     """
     Full comparison pipeline. Raises AssertionError on any mismatch.
 
-    All cross-frame access is positional (iloc / to_dict("split")), so column
-    labels never need to align between actual and expected.
+    All cross-frame access is positional, so column labels never need to
+    align between actual and expected.
 
     Steps:
       1. Validate column count and capture expected column names.
-      2. Normalize dtypes.
+      2. Normalize dtypes / value types.
       3. Validate row count.
       4. Parse ORDER BY / LIMIT from SQL.
-      5. Verify each frame's ORDER BY column ordering (per-frame sort check).
-      6. Canonicalize floats so engine-level precision noise becomes bit-equal.
-      7. Sort both frames into a canonical order (ORDER BY columns first, then
-         remaining columns) so position-by-position comparison aligns rows.
-      8. Compare position-by-position, with LIMIT-boundary tie group skipped
-         on its non-ORDER-BY columns (engines may have selected different
+      5. Preserve engine ORDER BY ordering; within tie groups (or the whole
+         frame when no ORDER BY) canonicalize by [non-float, float] tie-breakers.
+      6. Compare position-by-position, with LIMIT-boundary tie group's
+         non-ORDER-BY columns skipped (engines may have selected different
          tied rows at the cutoff).
     """
     # 1. Column count check
@@ -382,7 +334,7 @@ def compare_result_frames(
         )
     expected_col_names = list(expected.columns)
 
-    # 2. Coerce actual's dtypes to match expected's
+    # 2. Coerce actual's dtypes/value types to match expected's
     actual = _normalize_to_expected(actual, expected)
 
     # 3. Row count
@@ -390,32 +342,18 @@ def compare_result_frames(
         raise AssertionError(f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)")
 
     # 4. Parse ORDER BY / LIMIT
-    sort_col_indices, descending = get_orderby_col_indices(query_sql, expected_col_names)
+    sort_col_indices = get_orderby_col_indices(query_sql, expected_col_names)
     limit = get_limit(query_sql)
 
-    # 5. Verify each frame is correctly sorted per the SQL ORDER BY (before
-    # canonicalization, so we see what the engines actually produced).
-    _verify_sort(actual, sort_col_indices, descending)
-    _verify_sort(expected, sort_col_indices, descending)
+    # 5. Preserve engine ORDER BY ordering; canonicalize within tie groups.
+    actual = _sort_preserving_orderby(actual, sort_col_indices)
+    expected = _sort_preserving_orderby(expected, sort_col_indices)
 
-    # 6. Canonicalize floats — engine precision noise becomes bit-identical.
-    actual = _canonicalize_floats(actual)
-    expected = _canonicalize_floats(expected)
-
-    # 7. Canonical sort: ORDER BY columns first (with directions), then all
-    # remaining columns ascending for a fully deterministic order.
-    n_cols = actual.shape[1]
-    sort_set = set(sort_col_indices)
-    all_positions = list(sort_col_indices) + [i for i in range(n_cols) if i not in sort_set]
-    ascending = [not d for d in descending] + [True] * (n_cols - len(sort_col_indices))
-    actual = _sort_by_positions(actual, all_positions, ascending)
-    expected = _sort_by_positions(expected, all_positions, ascending)
-
-    # 8. Compare. With LIMIT, the last tie group on ORDER BY columns may
+    # 6. Compare. With LIMIT, the last tie group on ORDER BY columns may
     # contain different rows in actual vs expected (engines may have selected
     # different subsets of tied rows at the LIMIT cutoff). Skip the
-    # non-ORDER-BY columns there; ORDER BY columns are still verified by the
-    # per-frame _verify_sort and the position-by-position compare.
+    # non-ORDER-BY columns there; ORDER BY columns are still verified by
+    # position-by-position compare.
     if sort_col_indices and limit is not None:
         last_start = _find_last_tie_start(actual.iloc[:, sort_col_indices])
         _assert_frames_equal(actual.iloc[:last_start], expected.iloc[:last_start])

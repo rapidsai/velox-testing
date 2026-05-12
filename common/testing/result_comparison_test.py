@@ -7,13 +7,11 @@ import datetime
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from common.testing.result_comparison import (
-    _canonicalize_floats,
     _find_last_tie_start,
     _normalize_to_expected,
-    _verify_sort,
+    _sort_preserving_orderby,
 )
 
 # ---------------------------------------------------------------------------
@@ -55,117 +53,47 @@ def test_normalize_to_expected_handles_str_to_date_in_object_dtype():
 
 
 # ---------------------------------------------------------------------------
-# _canonicalize_floats
+# _sort_preserving_orderby
 # ---------------------------------------------------------------------------
 
 
-def test_canonicalize_collapses_engine_precision():
-    # Two values differing at ~1e-12 relative — well below quantum (1e-8).
-    df = pd.DataFrame({0: [100.000000000001, 100.000000000002]})
-    result = _canonicalize_floats(df)
-    assert result.iloc[0, 0] == result.iloc[1, 0]
+def test_sort_preserving_orderby_no_orderby_sorts_by_non_float_then_float():
+    # No ORDER BY: sort entire frame by non-float first, float second.
+    # Both rows tie on col 1 (string "a"), so col 0 (int) determines order.
+    df = pd.DataFrame({0: [3.0, 1.0, 2.0], 1: ["c", "a", "b"]})
+    result = _sort_preserving_orderby(df, sort_col_indices=[])
+    # After sort by [col 1 (string, non-float), col 0 (float)]: "a","b","c"
+    assert result[1].tolist() == ["a", "b", "c"]
+    assert result[0].tolist() == [1.0, 2.0, 3.0]
 
 
-def test_canonicalize_preserves_distinct_values():
-    # Values 1e-3 apart at magnitude 100 — relative 1e-5, well above quantum.
-    df = pd.DataFrame({0: [100.0, 100.001]})
-    result = _canonicalize_floats(df)
-    assert result.iloc[0, 0] != result.iloc[1, 0]
+def test_sort_preserving_orderby_preserves_engine_between_group_order():
+    # ORDER BY col 0 (revenue DESC) — engine produced [3, 2, 1].
+    # Each row is its own tie group; preserve engine ordering.
+    df = pd.DataFrame({0: [3, 2, 1], 1: ["x", "y", "z"]})
+    result = _sort_preserving_orderby(df, sort_col_indices=[0])
+    assert result[0].tolist() == [3, 2, 1]
+    assert result[1].tolist() == ["x", "y", "z"]
 
 
-def test_canonicalize_preserves_nan():
-    df = pd.DataFrame({0: [1.0, np.nan, 2.0]})
-    result = _canonicalize_floats(df)
-    assert result.iloc[0, 0] == 1.0
-    assert pd.isna(result.iloc[1, 0])
-    assert result.iloc[2, 0] == 2.0
+def test_sort_preserving_orderby_canonicalizes_within_tie():
+    # ORDER BY col 0; rows 0 and 1 tied at 100. Engine put them in (B, A) order.
+    # Within tie, sort by col 1 (string) → (A, B).
+    df = pd.DataFrame({0: [100, 100, 200], 1: ["B", "A", "C"]})
+    result = _sort_preserving_orderby(df, sort_col_indices=[0])
+    assert result[0].tolist() == [100, 100, 200]
+    assert result[1].tolist() == ["A", "B", "C"]
 
 
-def test_canonicalize_handles_zero():
-    df = pd.DataFrame({0: [0.0, 1e-20, -0.0]})
-    result = _canonicalize_floats(df)
-    assert result.iloc[0, 0] == 0.0
-    # 1e-20 is far smaller than any reasonable quantum; canonicalizes to 0 effectively
-    assert result.iloc[2, 0] == 0.0
-
-
-def test_canonicalize_handles_negatives():
-    df = pd.DataFrame({0: [-100.000000000001, -100.000000000002]})
-    result = _canonicalize_floats(df)
-    assert result.iloc[0, 0] == result.iloc[1, 0]
-
-
-def test_canonicalize_scales_with_magnitude():
-    # Big magnitude: precision is relative, so 1e-3 wiggle on 1e7 gets flattened
-    # (quantum at 1e7 is 1e7*1e-8 = 0.1).
-    df = pd.DataFrame({0: [1e7, 1e7 + 1e-3]})
-    result = _canonicalize_floats(df)
-    assert result.iloc[0, 0] == result.iloc[1, 0]
-
-
-def test_canonicalize_skips_non_float_columns():
-    df = pd.DataFrame({0: ["a", "b"], 1: [1, 2], 2: [1.0, 2.0]})
-    result = _canonicalize_floats(df)
-    # Non-float columns untouched
-    assert result.iloc[0, 0] == "a"
-    assert result.iloc[0, 1] == 1
-
-
-# ---------------------------------------------------------------------------
-# _verify_sort
-# ---------------------------------------------------------------------------
-
-
-def test_verify_sort_ascending_correct():
-    df = pd.DataFrame({0: [1, 2, 3]})
-    _verify_sort(df, [0], [False])  # no exception
-
-
-def test_verify_sort_descending_correct():
-    df = pd.DataFrame({0: [3, 2, 1]})
-    _verify_sort(df, [0], [True])
-
-
-def test_verify_sort_wrong_direction_raises():
-    df = pd.DataFrame({0: [1, 2, 3]})  # ASC data
-    with pytest.raises(AssertionError, match="Sort violation"):
-        _verify_sort(df, [0], [True])  # DESC expected
-
-
-def test_verify_sort_no_orderby_passes():
-    df = pd.DataFrame({0: [3, 1, 2]})
-    _verify_sort(df, [], [])  # no ORDER BY → trivially passes
-
-
-def test_verify_sort_multi_column_primary_distinct():
-    # Primary is distinct → secondary's order is unrestricted per SQL semantics.
-    df = pd.DataFrame({0: [1, 2, 3], 1: [99, 50, 75]})
-    _verify_sort(df, [0, 1], [False, False])
-
-
-def test_verify_sort_multi_column_primary_tied_secondary_correct():
-    df = pd.DataFrame({0: [1, 1, 2], 1: [10, 20, 5]})
-    _verify_sort(df, [0, 1], [False, False])
-
-
-def test_verify_sort_multi_column_primary_tied_secondary_wrong_raises():
-    df = pd.DataFrame({0: [1, 1], 1: [20, 10]})  # primary tied, secondary DESC
-    with pytest.raises(AssertionError, match="Sort violation"):
-        _verify_sort(df, [0, 1], [False, False])  # ASC, ASC expected
-
-
-def test_verify_sort_float_within_tolerance_flip_allowed():
-    # Two consecutive float values within tolerance — engine may have flipped
-    # them due to precision; not a real sort violation.
-    # 100.0001 > 100.0, but they're tolerance-equal at REL_TOL=1e-5*100=1e-3.
-    df = pd.DataFrame({0: [100.0001, 100.0]})  # ASC expected, locally flipped
-    _verify_sort(df, [0], [False])
-
-
-def test_verify_sort_float_outside_tolerance_raises():
-    df = pd.DataFrame({0: [200.0, 100.0]})  # ASC expected; 200 > 100 by ~100
-    with pytest.raises(AssertionError, match="Sort violation"):
-        _verify_sort(df, [0], [False])
+def test_sort_preserving_orderby_non_float_dominates_float():
+    # ORDER BY col 0; rows tied at 100. Within tie, sort first by col 1 (str),
+    # then by col 2 (float). Non-float key alone uniquely identifies the rows,
+    # so the float ordering is never consulted.
+    df = pd.DataFrame({0: [100, 100], 1: ["B", "A"], 2: [1.0, 2.0]})
+    result = _sort_preserving_orderby(df, sort_col_indices=[0])
+    # Sorted by col 1 ASC: "A" before "B"
+    assert result[1].tolist() == ["A", "B"]
+    assert result[2].tolist() == [2.0, 1.0]  # the float "rode along" with its row
 
 
 # ---------------------------------------------------------------------------
