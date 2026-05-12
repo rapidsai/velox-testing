@@ -8,7 +8,7 @@ echo -e "\033[1;36mVelox Development Container Setup\033[0m"
 echo ""
 
 # Check for required repositories
-REQUIRED_REPOS=("velox" "presto" "rmm" "cudf" "ucxx" "kvikio")
+REQUIRED_REPOS=("cudf" "kvikio" "presto" "rapidsmpf" "rmm" "ucxx" "velox")
 MISSING_REPOS=()
 
 for repo in "${REQUIRED_REPOS[@]}"; do
@@ -29,12 +29,13 @@ if [[ ${#MISSING_REPOS[@]} -gt 0 ]]; then
     echo "Expected directory layout:"
     echo "  ~/code/"
     echo "  ├── velox-testing/   (this repo)"
-    echo "  ├── velox/           (facebookincubator/velox)"
-    echo "  ├── presto/          (prestodb/presto)"
-    echo "  ├── rmm/             (rapidsai/rmm)"
     echo "  ├── cudf/            (rapidsai/cudf)"
+    echo "  ├── kvikio/          (rapidsai/kvikio)"
+    echo "  ├── presto/          (prestodb/presto)"
+    echo "  ├── rapidsmpf/       (rapidsai/rapidsmpf)"
+    echo "  ├── rmm/             (rapidsai/rmm)"
     echo "  ├── ucxx/            (rapidsai/ucxx)"
-    echo "  └── kvikio/          (rapidsai/kvikio)"
+    echo "  └── velox/           (facebookincubator/velox)"
     echo ""
     exit 1
 fi
