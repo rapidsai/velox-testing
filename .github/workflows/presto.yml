@@ -68,11 +68,16 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run_id_suffix: ${{ steps.resolve.outputs.run_id_suffix }}
+      intermediate_tag_suffix: ${{ steps.resolve.outputs.intermediate_tag_suffix }}
     steps:
       - name: Resolve run ID suffix
         id: resolve
         env:
           INPUT_RUN_ID_SUFFIX: ${{ inputs.run_id_suffix || '' }}
+          VARIANT_LABEL: ${{ inputs.variant_label || '' }}
+          BUILD_VARIANT: ${{ inputs.build_variant || '' }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
         run: |
           if [[ -n "${INPUT_RUN_ID_SUFFIX}" ]]; then
             echo "run_id_suffix=${INPUT_RUN_ID_SUFFIX}" >> "$GITHUB_OUTPUT"
@@ -81,6 +86,17 @@ jobs:
           else
             echo "run_id_suffix=" >> "$GITHUB_OUTPUT"
           fi
+
+          label="$(printf '%s' "${VARIANT_LABEL:-${BUILD_VARIANT:-manual}}" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9_.-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g' \
+            | cut -c1-40 \
+            | sed -E 's/^-+//; s/-+$//')"
+          if [[ -z "${label}" ]]; then
+            label="manual"
+          fi
+          namespace="${GITHUB_RUN_ID_VALUE}-${GITHUB_RUN_ATTEMPT_VALUE}-${label}"
+          echo "intermediate_tag_suffix=-${namespace}" >> "$GITHUB_OUTPUT"
 
   resolve-commits:
     runs-on: ubuntu-latest
@@ -124,8 +140,8 @@ jobs:
       date: ${{ needs.resolve-commits.outputs.date }}
       build_type: ${{ inputs.build_type }}
       build_variant: ${{ inputs.build_variant }}
-      github_run_id: ${{ github.run_id }}
       run_id_suffix: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
+      intermediate_tag_suffix: ${{ needs.resolve-run-id-suffix.outputs.intermediate_tag_suffix }}
     secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   presto-test:
