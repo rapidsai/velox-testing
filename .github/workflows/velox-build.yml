@@ -298,10 +298,8 @@ jobs:
           done
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
-              docker buildx imagetools create \
-                -t "${REGISTRY}/${IMAGE_NAME}:velox-deps-latest-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-arm64"
+              tag="velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
+              create_manifest_from_arch_tags "${tag}" "velox-deps-latest-cuda${cuda}"
             done
           fi
   merge-velox-build:
@@ -335,15 +333,11 @@ jobs:
           create_manifest "${tag}" "${RUN_ID_SUFFIX}"
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
-              docker buildx imagetools create \
-                -t "${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-arm64"
+              tag="velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
+              create_manifest_from_arch_tags "${tag}" "velox-latest-gpu-cuda${cuda}"
             done
-            docker buildx imagetools create \
-              -t "${REGISTRY}/${IMAGE_NAME}:velox-latest-cpu" \
-              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-arm64"
+            tag="velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+            create_manifest_from_arch_tags "${tag}" "velox-latest-cpu"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true

@@ -386,10 +386,8 @@ jobs:
           done
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
-              docker buildx imagetools create \
-                -t "${REGISTRY}/${IMAGE_NAME}:presto-deps-latest-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-arm64"
+              tag="presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
+              create_manifest_from_arch_tags "${tag}" "presto-deps-latest-cuda${cuda}"
             done
           fi
   merge-presto-build:
@@ -429,15 +427,11 @@ jobs:
           create_manifest "${tag}" "${RUN_ID_SUFFIX}"
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
-              docker buildx imagetools create \
-                -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-gpu-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-arm64"
+              tag="presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
+              create_manifest_from_arch_tags "${tag}" "presto-latest-gpu-cuda${cuda}"
             done
-            docker buildx imagetools create \
-              -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-cpu" \
-              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-arm64"
+            tag="presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+            create_manifest_from_arch_tags "${tag}" "presto-latest-cpu"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true
@@ -483,10 +477,7 @@ jobs:
           TAG="presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}"
           create_manifest "${TAG}" "${RUN_ID_SUFFIX}"
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${RUN_ID_SUFFIX}" ]]; then
-            docker buildx imagetools create \
-              -t "${REGISTRY}/${IMAGE_NAME}:presto-coordinator-latest" \
-              "${REGISTRY}/${IMAGE_NAME}:${TAG}${INTERMEDIATE_TAG_SUFFIX}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${TAG}${INTERMEDIATE_TAG_SUFFIX}-arm64"
+            create_manifest_from_arch_tags "${TAG}" "presto-coordinator-latest"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true
