@@ -96,6 +96,18 @@ def test_sort_preserving_orderby_non_float_dominates_float():
     assert result[2].tolist() == [2.0, 1.0]  # the float "rode along" with its row
 
 
+def test_sort_preserving_orderby_tolerance_tied_floats_grouped():
+    # ORDER BY col 0 (float). Two adjacent rows whose values are ULP-different
+    # but tolerance-equal should be grouped and reordered by col 1 (non-float
+    # tie-breaker). Without tolerance-aware tie detection, the engine-presented
+    # order would be preserved (which is the Q11-at-SF=3k failure mode).
+    df = pd.DataFrame({0: [100.0 + 1e-9, 100.0], 1: ["B", "A"]})
+    result = _sort_preserving_orderby(df, sort_col_indices=[0])
+    # Both values are tolerance-tied (1e-9 << REL_TOL * 100 = 1e-3); the rows
+    # share a gid and are canonicalized by col 1: "A" before "B".
+    assert result[1].tolist() == ["A", "B"]
+
+
 # ---------------------------------------------------------------------------
 # _find_last_tie_start
 # ---------------------------------------------------------------------------

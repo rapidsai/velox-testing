@@ -164,6 +164,37 @@ def _is_float_col(series: pd.Series) -> bool:
     return pd.api.types.is_float_dtype(series)
 
 
+def _orderby_differs_from_prev(orderby_df: pd.DataFrame) -> np.ndarray:
+    """
+    Return a boolean array of length len(orderby_df) - 1 where element i is
+    True iff row i+1 differs from row i on any ORDER BY column. Float columns
+    use tolerance equality (rel_tol=1e-5, abs_tol=1e-8); non-float columns
+    use exact equality.
+
+    Used by both _sort_preserving_orderby (to identify tie groups for
+    canonicalization) and _find_last_tie_start (to find the boundary tie
+    block for LIMIT handling).
+    """
+    n = len(orderby_df)
+    if n <= 1:
+        return np.array([], dtype=bool)
+
+    differs = np.zeros(n - 1, dtype=bool)
+    for col_idx in range(orderby_df.shape[1]):
+        col = orderby_df.iloc[:, col_idx]
+        if _is_float_col(col):
+            arr = col.to_numpy(dtype=np.float64, na_value=np.nan)
+            prev, curr = arr[:-1], arr[1:]
+            with np.errstate(invalid="ignore"):
+                tol = ABS_TOL + REL_TOL * np.maximum(np.abs(prev), np.abs(curr))
+                tied = np.abs(curr - prev) <= tol
+            differs |= ~tied
+        else:
+            arr = col.to_numpy()
+            differs |= arr[1:] != arr[:-1]
+    return differs
+
+
 def _sort_preserving_orderby(df: pd.DataFrame, sort_col_indices: list[int]) -> pd.DataFrame:
     """
     Sort df preserving the engine-given ORDER BY row order. Within ORDER BY
@@ -190,13 +221,14 @@ def _sort_preserving_orderby(df: pd.DataFrame, sort_col_indices: list[int]) -> p
         # No ORDER BY: sort the entire frame by tie-breakers.
         return df.sort_values(by=tie_break_labels, na_position="last").reset_index(drop=True)
 
-    # ORDER BY present: identify tie groups via consecutive-row equality, then
-    # sort by [gid, tie-breakers] so engine between-group order is preserved
-    # and within-group order is canonicalized by the tie-breakers.
-    orderby_arr = df.iloc[:, list(sort_col_indices)].to_numpy()
+    # ORDER BY present: identify tie groups via tolerance-aware consecutive-row
+    # equality (so engines that ULP-flip tolerance-tied rows still produce the
+    # same gid grouping), then sort by [gid, tie-breakers] so engine
+    # between-group order is preserved and within-group order is canonicalized
+    # by the tie-breakers.
     is_new_group = np.empty(len(df), dtype=bool)
     is_new_group[0] = True
-    is_new_group[1:] = (orderby_arr[1:] != orderby_arr[:-1]).any(axis=1)
+    is_new_group[1:] = _orderby_differs_from_prev(df.iloc[:, list(sort_col_indices)])
     gid = np.cumsum(is_new_group)
 
     gid_col = "__velox_orderby_tie_gid__"
@@ -283,19 +315,22 @@ def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
 def _find_last_tie_start(orderby_df: pd.DataFrame) -> int:
     """
     Return the row index where the contiguous tie block at the end of
-    orderby_df begins. Rows from this index onward all share the same values
-    across orderby_df's columns as the last row. Returns 0 for empty frames
-    or frames where every row ties with the last.
+    orderby_df begins. Rows from this index onward are all tolerance-tied
+    (greedy chain via _orderby_differs_from_prev) with their preceding
+    neighbor. Returns 0 for empty frames or frames where every row is
+    tolerance-tied with its predecessor.
     """
     n = len(orderby_df)
-    if n == 0:
+    if n <= 1:
         return 0
-    arr = orderby_df.to_numpy()
-    last_row = arr[-1]
-    for i in range(n - 2, -1, -1):
-        if (arr[i] != last_row).any():
-            return i + 1
-    return 0
+    differs = _orderby_differs_from_prev(orderby_df)
+    # differs[i] indicates row i+1 differs from row i. The last tie block
+    # starts at one past the last "differs" position. If nothing differs, the
+    # whole frame is one tie block starting at row 0.
+    diff_positions = np.flatnonzero(differs)
+    if len(diff_positions) == 0:
+        return 0
+    return int(diff_positions[-1]) + 1
 
 
 # ---------------------------------------------------------------------------
