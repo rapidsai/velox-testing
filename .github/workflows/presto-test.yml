@@ -64,12 +64,12 @@ jobs:
           date: ${{ inputs.date }}
       - name: Resolve run ID suffix
         id: run_id_suffix
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run_id_suffix=-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_id_suffix=" >> "$GITHUB_OUTPUT"
-          fi
+          source scripts/create_manifest.sh
+          echo "run_id_suffix=$(resolve_run_id_suffix)" >> "$GITHUB_OUTPUT"
 
   test-presto-integration:
     name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})

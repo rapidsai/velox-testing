@@ -8,13 +8,13 @@ create_manifest_from_arch_tags() {
 
   echo "Creating multi-arch manifest: ${final_tag}"
   docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
-    "${REGISTRY}/${IMAGE_NAME}:${tag}-${JOB_VARIANT_IDENTIFIER}-amd64" \
-    "${REGISTRY}/${IMAGE_NAME}:${tag}-${JOB_VARIANT_IDENTIFIER}-arm64"
+    "${REGISTRY}/${IMAGE_NAME}:${tag}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-amd64" \
+    "${REGISTRY}/${IMAGE_NAME}:${tag}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-arm64"
 }
 
 resolve_run_id_suffix() {
-  if [[ "${BUILD_TYPE}" != "nightly" ]]; then
-    printf -- '-%s' "${JOB_VARIANT_IDENTIFIER%%-*}"
+  if [[ "${BUILD_TYPE:-}" != "nightly" && -n "${GITHUB_RUN_ID:-}" ]]; then
+    printf -- '-%s' "${GITHUB_RUN_ID}"
   fi
 }
 

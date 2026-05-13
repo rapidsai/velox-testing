@@ -59,22 +59,6 @@ on:
 permissions: {}
 
 jobs:
-  resolve-job-variant-identifier:
-    runs-on: ubuntu-latest
-    outputs:
-      job_variant_identifier: ${{ steps.resolve.outputs.job_variant_identifier }}
-    steps:
-      - name: Resolve job variant identifier
-        id: resolve
-        env:
-          BUILD_VARIANT: ${{ inputs.build_variant || '' }}
-          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
-        run: |
-          if [[ -z "${BUILD_VARIANT}" ]]; then
-            BUILD_VARIANT="manual"
-          fi
-          echo "job_variant_identifier=${GITHUB_RUN_ID_VALUE}-${BUILD_VARIANT}" >> "$GITHUB_OUTPUT"
-
   resolve-commits:
     runs-on: ubuntu-latest
     permissions:
@@ -99,7 +83,7 @@ jobs:
           github_token: ${{ github.token }}
 
   presto-build:
-    needs: [resolve-commits, resolve-job-variant-identifier]
+    needs: [resolve-commits]
     permissions:
       contents: read
       id-token: write
@@ -117,7 +101,6 @@ jobs:
       date: ${{ needs.resolve-commits.outputs.date }}
       build_type: ${{ inputs.build_type }}
       build_variant: ${{ inputs.build_variant }}
-      job_variant_identifier: ${{ needs.resolve-job-variant-identifier.outputs.job_variant_identifier }}
     secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   presto-test:
