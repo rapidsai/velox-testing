@@ -15,12 +15,6 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
-      run_id_suffix:
-        description: 'Optional run ID suffix appended to Presto image tags'
-        type: string
-        required: false
-        default: ''
-
   workflow_dispatch:
     inputs:
       presto_image:
@@ -43,12 +37,6 @@ on:
         type: string
         required: false
         default: ''
-      run_id_suffix:
-        description: 'Optional run ID suffix appended to Presto image tags'
-        type: string
-        required: false
-        default: ''
-
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-images
@@ -62,7 +50,7 @@ jobs:
       velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
       presto_short_sha: ${{ steps.resolve.outputs.presto_short_sha }}
       date: ${{ steps.resolve.outputs.date }}
-      run_id_suffix: ${{ inputs.run_id_suffix || steps.resolve.outputs.run_id_suffix }}
+      run_id_suffix: ${{ steps.resolve.outputs.run_id_suffix || steps.run_id_suffix.outputs.run_id_suffix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -74,6 +62,14 @@ jobs:
           velox_short_sha: ${{ inputs.velox_short_sha }}
           presto_short_sha: ${{ inputs.presto_short_sha }}
           date: ${{ inputs.date }}
+      - name: Resolve run ID suffix
+        id: run_id_suffix
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run_id_suffix=-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_id_suffix=" >> "$GITHUB_OUTPUT"
+          fi
 
   test-presto-integration:
     name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})

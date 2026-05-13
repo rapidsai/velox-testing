@@ -47,28 +47,21 @@ on:
 permissions: {}
 
 jobs:
-  resolve-run-id-suffix:
+  resolve-job-variant-identifier:
     runs-on: ubuntu-latest
     outputs:
-      run_id_suffix: ${{ steps.resolve.outputs.run_id_suffix }}
-      intermediate_tag_suffix: ${{ steps.resolve.outputs.intermediate_tag_suffix }}
+      job_variant_identifier: ${{ steps.resolve.outputs.job_variant_identifier }}
     steps:
-      - name: Resolve run ID suffix
+      - name: Resolve job variant identifier
         id: resolve
         env:
           BUILD_VARIANT: ${{ inputs.build_variant || '' }}
           GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run_id_suffix=-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_id_suffix=" >> "$GITHUB_OUTPUT"
-          fi
-
           if [[ -z "${BUILD_VARIANT}" ]]; then
             BUILD_VARIANT="manual"
           fi
-          echo "intermediate_tag_suffix=-${GITHUB_RUN_ID_VALUE}-${BUILD_VARIANT}" >> "$GITHUB_OUTPUT"
+          echo "job_variant_identifier=${GITHUB_RUN_ID_VALUE}-${BUILD_VARIANT}" >> "$GITHUB_OUTPUT"
 
   resolve-commits:
     runs-on: ubuntu-latest
@@ -90,7 +83,7 @@ jobs:
           github_token: ${{ github.token }}
 
   velox-build:
-    needs: [resolve-commits, resolve-run-id-suffix]
+    needs: [resolve-commits, resolve-job-variant-identifier]
     permissions:
       contents: read
       id-token: write
@@ -105,12 +98,11 @@ jobs:
       date: ${{ needs.resolve-commits.outputs.date }}
       build_type: ${{ inputs.build_type }}
       build_variant: ${{ inputs.build_variant }}
-      run_id_suffix: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
-      intermediate_tag_suffix: ${{ needs.resolve-run-id-suffix.outputs.intermediate_tag_suffix }}
+      job_variant_identifier: ${{ needs.resolve-job-variant-identifier.outputs.job_variant_identifier }}
     secrets: inherit  # zizmor: ignore[secrets-inherit]
 
   velox-test:
-    needs: [resolve-commits, resolve-run-id-suffix, velox-build]
+    needs: [resolve-commits, velox-build]
     if: ${{ inputs.run_tests }}
     permissions:
       contents: read
@@ -119,10 +111,9 @@ jobs:
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
-      run_id_suffix: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
 
   velox-benchmark:
-    needs: [resolve-commits, resolve-run-id-suffix, velox-build]
+    needs: [resolve-commits, velox-build]
     permissions:
       contents: read
       packages: read
@@ -130,5 +121,4 @@ jobs:
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
-      run_id_suffix: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
       variant_label: ${{ inputs.variant_label }}

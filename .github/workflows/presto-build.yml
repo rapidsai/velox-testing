@@ -41,13 +41,8 @@ on:
         type: string
         required: false
         default: 'manual'
-      run_id_suffix:
-        description: 'Optional run ID suffix appended to image tags'
-        type: string
-        required: false
-        default: ''
-      intermediate_tag_suffix:
-        description: 'Run-scoped suffix appended to intermediate arch-specific tags'
+      job_variant_identifier:
+        description: 'Run-scoped identifier inserted into intermediate arch-specific tags'
         type: string
         required: true
 
@@ -152,7 +147,7 @@ jobs:
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}${{ inputs.intermediate_tag_suffix }}-${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ inputs.job_variant_identifier }}-${{ matrix.arch }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
@@ -195,10 +190,10 @@ jobs:
         env:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
-          INTERMEDIATE_TAG_SUFFIX: ${{ inputs.intermediate_tag_suffix }}
+          JOB_VARIANT_IDENTIFIER: ${{ inputs.job_variant_identifier }}
           ARCH: ${{ matrix.arch }}
         run: |
-          echo "tag=presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "tag=presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}-${JOB_VARIANT_IDENTIFIER}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Presto coordinator image
         id: push
@@ -298,11 +293,11 @@ jobs:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
-          INTERMEDIATE_TAG_SUFFIX: ${{ inputs.intermediate_tag_suffix }}
+          JOB_VARIANT_IDENTIFIER: ${{ inputs.job_variant_identifier }}
           ARCH: ${{ matrix.arch }}
           CUDA: ${{ matrix.cuda_version || '12.9' }}
         run: |
-          echo "image=${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${JOB_VARIANT_IDENTIFIER}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -310,15 +305,15 @@ jobs:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
-          INTERMEDIATE_TAG_SUFFIX: ${{ inputs.intermediate_tag_suffix }}
+          JOB_VARIANT_IDENTIFIER: ${{ inputs.job_variant_identifier }}
           ARCH: ${{ matrix.arch }}
           BUILD_TYPE: ${{ matrix.build_type }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
         run: |
           if [[ "${BUILD_TYPE}" == "cpu" ]]; then
-            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${JOB_VARIANT_IDENTIFIER}-${ARCH}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${INTERMEDIATE_TAG_SUFFIX}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${JOB_VARIANT_IDENTIFIER}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Presto native worker image
@@ -376,10 +371,12 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
-          RUN_ID_SUFFIX: ${{ inputs.run_id_suffix }}
-          INTERMEDIATE_TAG_SUFFIX: ${{ inputs.intermediate_tag_suffix }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          JOB_VARIANT_IDENTIFIER: ${{ inputs.job_variant_identifier }}
         run: |
           source scripts/create_manifest.sh
+          RUN_ID_SUFFIX="$(resolve_run_id_suffix)"
           for cuda in 12.9 13.1; do
             tag="presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
             create_manifest "${tag}" "${RUN_ID_SUFFIX}"
@@ -415,10 +412,12 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
-          RUN_ID_SUFFIX: ${{ inputs.run_id_suffix }}
-          INTERMEDIATE_TAG_SUFFIX: ${{ inputs.intermediate_tag_suffix }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          JOB_VARIANT_IDENTIFIER: ${{ inputs.job_variant_identifier }}
         run: |
           source scripts/create_manifest.sh
+          RUN_ID_SUFFIX="$(resolve_run_id_suffix)"
           for cuda in 12.9 13.1; do
             tag="presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
             create_manifest "${tag}" "${RUN_ID_SUFFIX}"
@@ -440,11 +439,11 @@ jobs:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
           base-tags: |
-            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}${{ inputs.intermediate_tag_suffix }}
-            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}${{ inputs.intermediate_tag_suffix }}
-            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}${{ inputs.intermediate_tag_suffix }}
-            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}${{ inputs.intermediate_tag_suffix }}
-            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}${{ inputs.intermediate_tag_suffix }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}-${{ inputs.job_variant_identifier }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}-${{ inputs.job_variant_identifier }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}-${{ inputs.job_variant_identifier }}
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.job_variant_identifier }}
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.job_variant_identifier }}
 
   merge-presto-coordinator:
     name: merge-manifests (presto-coordinator)
@@ -470,10 +469,12 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
-          RUN_ID_SUFFIX: ${{ inputs.run_id_suffix }}
-          INTERMEDIATE_TAG_SUFFIX: ${{ inputs.intermediate_tag_suffix }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          JOB_VARIANT_IDENTIFIER: ${{ inputs.job_variant_identifier }}
         run: |
           source scripts/create_manifest.sh
+          RUN_ID_SUFFIX="$(resolve_run_id_suffix)"
           TAG="presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}"
           create_manifest "${TAG}" "${RUN_ID_SUFFIX}"
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" && -z "${RUN_ID_SUFFIX}" ]]; then
@@ -485,4 +486,4 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
-          base-tags: presto-coordinator-${{ inputs.presto_short_sha }}-${{ inputs.date }}${{ inputs.intermediate_tag_suffix }}
+          base-tags: presto-coordinator-${{ inputs.presto_short_sha }}-${{ inputs.date }}-${{ inputs.job_variant_identifier }}
