@@ -1,0 +1,11 @@
+{
+  "tables": [
+    {
+      "name": "lineitem",
+      "compression": "ZSTD(1)",
+      "columns": [
+        {"name": "l_comment", "compressed": false}
+      ]
+    }
+  ]
+}

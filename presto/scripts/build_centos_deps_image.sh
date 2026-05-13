@@ -6,6 +6,7 @@ set -e
 
 IMAGE_NAME="presto/prestissimo-dependency:centos9-${USER:-latest}"
 NO_CACHE_ARG=''
+CUDA_VERSION=''
 
 print_help() {
   cat << EOF
@@ -22,6 +23,7 @@ OPTIONS:
     -h, --help           Show this help message
     -i, --image-name     Desired Docker Image name (default: presto/prestissimo-dependency:centos9-\${USER:-latest})
     -n, --no-cache       Do not use Docker build cache (default: use cache)
+    --cuda-version       CUDA version to install (major.minor, like 12.9)
 
 EOF
 }
@@ -46,6 +48,15 @@ parse_args() {
         NO_CACHE_ARG="--no-cache"
         shift
         ;;
+      --cuda-version)
+        if [[ -n $2 ]]; then
+          CUDA_VERSION=$2
+          shift 2
+        else
+          echo "Error: --cuda-version requires a value"
+          exit 1
+        fi
+        ;;
       *)
         echo "Error: Unknown argument $1"
         print_help
@@ -62,6 +73,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Get the root of the git repository
 REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+
+source "${SCRIPT_DIR}/common_functions.sh"
 
 # verify sibling Presto and Velox clones
 if [[ ! -d "${REPO_ROOT}/../presto/presto-native-execution" || ! -d "${REPO_ROOT}/../velox" ]]; then
@@ -94,12 +107,37 @@ mkdir -p velox
 cp -r ../../velox/scripts velox
 cp -r ../../velox/CMake velox
 
+capture_build_provenance "${REPO_ROOT}"
+
 # now build
 echo "Building..."
-docker compose --progress plain build ${NO_CACHE_ARG} centos-native-dependency
+CUDA_VERSION_ARG=""
+if [[ -n "${CUDA_VERSION}" ]]; then
+  CUDA_VERSION_ARG="--build-arg CUDA_VERSION=${CUDA_VERSION}"
+fi
+docker compose --progress plain build ${NO_CACHE_ARG} ${CUDA_VERSION_ARG} centos-native-dependency
 
 # tag with the user-specific name to avoid conflicts between multiple users on the same host
 COMPOSE_IMAGE_NAME='presto/prestissimo-dependency:centos9'
+
+# centos-dependency.dockerfile lives in the upstream presto repo and cannot be modified,
+# so provenance labels are applied via a wrapper Dockerfile instead of ARG+LABEL.
+# Capture the pre-label image ID so the now-untagged original can be cleaned up afterward.
+PRELABEL_IMAGE_ID=$(docker inspect --format='{{.Id}}' "${COMPOSE_IMAGE_NAME}")
+echo "Applying provenance labels..."
+docker build --no-cache \
+  -f "${REPO_ROOT}/presto/docker/provenance_labels.dockerfile" \
+  --build-arg BASE_IMAGE="${COMPOSE_IMAGE_NAME}" \
+  --build-arg PRESTO_SHA="${PRESTO_SHA}" \
+  --build-arg PRESTO_BRANCH="${PRESTO_BRANCH}" \
+  --build-arg PRESTO_REPOSITORY="${PRESTO_REPO}" \
+  --build-arg VELOX_SHA="${VELOX_SHA}" \
+  --build-arg VELOX_BRANCH="${VELOX_BRANCH}" \
+  --build-arg VELOX_REPOSITORY="${VELOX_REPO}" \
+  -t "${COMPOSE_IMAGE_NAME}" \
+  "${REPO_ROOT}/presto/docker"
+docker rmi "${PRELABEL_IMAGE_ID}" 2>/dev/null || true
+
 if [[ "${IMAGE_NAME}" != "${COMPOSE_IMAGE_NAME}" ]]; then
   echo "Tagging image as ${IMAGE_NAME}..."
   docker tag ${COMPOSE_IMAGE_NAME} ${IMAGE_NAME}

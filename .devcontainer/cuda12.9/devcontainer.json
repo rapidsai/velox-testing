@@ -5,7 +5,7 @@
     "dockerfile": "${localWorkspaceFolder}/.devcontainer/Dockerfile",
     "args": {
       "CUDA_VERSION": "12.9",
-      "BASE": "rapidsai/devcontainers:latest-cpp-cuda12.9-ucx1.19.0-openmpi5.0.7"
+      "BASE": "rapidsai/devcontainers:latest-cpp-cuda12.9-ucx1.19.0-openmpi5.0.10"
     }
   },
   "features": {
@@ -63,6 +63,7 @@
     }
   },
   "containerEnv": {
+    "PROJECT_MANIFEST_YML": "/home/coder/velox-testing/.devcontainer/manifest.yaml",
     "VELOX_DEPENDENCY_SOURCE": "SYSTEM"
   }
 }

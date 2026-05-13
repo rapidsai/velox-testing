@@ -91,6 +91,7 @@ EXTRA_CMAKE_FLAGS+=" -Dabsl_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DgRPC_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DArrow_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dgeos_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Ds2geometry_SOURCE=BUNDLED"
 
 # Auto-detect pre-built RAPIDS libraries (cudf, rmm, kvikio)
 CUDF_BUILD_DIR=$(get_rapids_cmake_dir "cudf")
