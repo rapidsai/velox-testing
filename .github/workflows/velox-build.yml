@@ -283,17 +283,14 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
           JOB_VARIANT_IDENTIFIER: ${{ inputs.job_variant_identifier }}
         run: |
           source scripts/create_manifest.sh
-          RUN_ID_SUFFIX="$(resolve_run_id_suffix)"
           for cuda in 12.9 13.1; do
             tag="velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
-            create_manifest "${tag}" "${RUN_ID_SUFFIX}"
+            create_manifest "${tag}"
           done
-          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${RUN_ID_SUFFIX}" ]]; then
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
             for cuda in 12.9 13.1; do
               tag="velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
               create_manifest_from_arch_tags "${tag}" "velox-deps-latest-cuda${cuda}"
@@ -318,19 +315,16 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
           JOB_VARIANT_IDENTIFIER: ${{ inputs.job_variant_identifier }}
         run: |
           source scripts/create_manifest.sh
-          RUN_ID_SUFFIX="$(resolve_run_id_suffix)"
           for cuda in 12.9 13.1; do
             tag="velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
-            create_manifest "${tag}" "${RUN_ID_SUFFIX}"
+            create_manifest "${tag}"
           done
           tag="velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
-          create_manifest "${tag}" "${RUN_ID_SUFFIX}"
-          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${RUN_ID_SUFFIX}" ]]; then
+          create_manifest "${tag}"
+          if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
             for cuda in 12.9 13.1; do
               tag="velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
               create_manifest_from_arch_tags "${tag}" "velox-latest-gpu-cuda${cuda}"

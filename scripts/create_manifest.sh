@@ -13,14 +13,13 @@ create_manifest_from_arch_tags() {
 }
 
 resolve_run_id_suffix() {
-  if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-    printf -- '-%s' "${GITHUB_RUN_ID_VALUE}"
+  if [[ "${BUILD_TYPE}" != "nightly" ]]; then
+    printf -- '-%s' "${JOB_VARIANT_IDENTIFIER%%-*}"
   fi
 }
 
 create_manifest() {
   local tag="$1"
-  local run_id_suffix="${2:-}"
 
-  create_manifest_from_arch_tags "${tag}" "${tag}${run_id_suffix}"
+  create_manifest_from_arch_tags "${tag}" "${tag}$(resolve_run_id_suffix)"
 }
