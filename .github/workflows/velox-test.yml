@@ -12,15 +12,28 @@ on:
         type: string
         required: true
       build_variant:
-        description: 'Build variant used in manual final image tags'
+        description: 'Build variant used in final image tags'
         type: string
         required: true
   workflow_dispatch:
     inputs:
-      velox_image:
-        description: 'Velox image to test. SHAs and date are parsed from the tag. e.g. ghcr.io/rapidsai/velox-testing-images:velox-3b263a7-gpu-cuda12.9-20260313'
+      velox_short_sha:
+        description: 'Short Velox commit SHA (7 chars)'
         type: string
         required: true
+      date:
+        description: 'Build date (YYYYMMDD)'
+        type: string
+        required: true
+      build_variant:
+        description: 'Build variant used in final image tags'
+        type: string
+        required: true
+      run_id:
+        description: 'GitHub run ID for manual build image tags; required when build_variant is manual'
+        type: string
+        required: false
+        default: ''
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-images
@@ -42,15 +55,26 @@ jobs:
       - uses: ./.github/actions/resolve-inputs
         id: resolve
         with:
-          image_tag: ${{ inputs.velox_image || '' }}
-          velox_short_sha: ${{ inputs.velox_short_sha || '' }}
-          date: ${{ inputs.date || '' }}
+          image_tag: ''
+          velox_short_sha: ${{ inputs.velox_short_sha }}
+          date: ${{ inputs.date }}
       - name: Resolve run ID suffix
         id: run_id_suffix
         env:
-          BUILD_VARIANT: ${{ inputs.build_variant || 'manual' }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
+          CURRENT_GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          INPUT_RUN_ID: ${{ inputs.run_id }}
         run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${BUILD_VARIANT}" == "manual" ]]; then
+            if [[ -z "${INPUT_RUN_ID}" ]]; then
+              echo "::error::run_id is required when build_variant is manual"
+              exit 1
+            fi
+            export GITHUB_RUN_ID="${INPUT_RUN_ID}"
+          else
+            export GITHUB_RUN_ID="${CURRENT_GITHUB_RUN_ID}"
+          fi
           source scripts/create_manifest.sh
           echo "run_id_suffix=$(resolve_run_id_suffix)" >> "$GITHUB_OUTPUT"
 
