@@ -291,17 +291,10 @@ jobs:
           RUN_ID_SUFFIX: ${{ inputs.run_id_suffix }}
           INTERMEDIATE_TAG_SUFFIX: ${{ inputs.intermediate_tag_suffix }}
         run: |
-          create_manifest() {
-            local tag="$1"
-            local final_tag="$2"
-            echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}${INTERMEDIATE_TAG_SUFFIX}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}${INTERMEDIATE_TAG_SUFFIX}-arm64"
-          }
+          source scripts/create_manifest.sh
           for cuda in 12.9 13.1; do
             tag="velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
-            create_manifest "${tag}" "${tag}${RUN_ID_SUFFIX}"
+            create_manifest "${tag}" "${RUN_ID_SUFFIX}"
           done
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
@@ -333,20 +326,13 @@ jobs:
           RUN_ID_SUFFIX: ${{ inputs.run_id_suffix }}
           INTERMEDIATE_TAG_SUFFIX: ${{ inputs.intermediate_tag_suffix }}
         run: |
-          create_manifest() {
-            local tag="$1"
-            local final_tag="$2"
-            echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}${INTERMEDIATE_TAG_SUFFIX}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}${INTERMEDIATE_TAG_SUFFIX}-arm64"
-          }
+          source scripts/create_manifest.sh
           for cuda in 12.9 13.1; do
             tag="velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
-            create_manifest "${tag}" "${tag}${RUN_ID_SUFFIX}"
+            create_manifest "${tag}" "${RUN_ID_SUFFIX}"
           done
           tag="velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
-          create_manifest "${tag}" "${tag}${RUN_ID_SUFFIX}"
+          create_manifest "${tag}" "${RUN_ID_SUFFIX}"
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" && -z "${RUN_ID_SUFFIX}" ]]; then
             for cuda in 12.9 13.1; do
               docker buildx imagetools create \
