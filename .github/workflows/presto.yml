@@ -114,3 +114,4 @@ jobs:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       presto_short_sha: ${{ needs.resolve-commits.outputs.presto_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
+      build_variant: ${{ inputs.build_variant }}

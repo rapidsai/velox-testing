@@ -11,6 +11,10 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
+      build_variant:
+        description: 'Build variant used in manual final image tags'
+        type: string
+        required: true
       variant_label:
         description: 'Variant label to disambiguate artifacts (e.g. upstream)'
         type: string
@@ -21,18 +25,7 @@ on:
       velox_image:
         description: 'Velox GPU image to benchmark. SHAs and date are parsed from the tag. e.g. ghcr.io/rapidsai/velox-testing-images:velox-3b263a7-gpu-cuda12.9-20260313'
         type: string
-        required: false
-        default: ''
-      velox_short_sha:
-        description: 'Short Velox commit SHA (ignored if velox_image is set)'
-        type: string
-        required: false
-        default: ''
-      date:
-        description: 'Build date YYYYMMDD (ignored if velox_image is set)'
-        type: string
-        required: false
-        default: ''
+        required: true
       variant_label:
         description: 'Variant label to disambiguate artifacts (e.g. upstream)'
         type: string
@@ -59,16 +52,16 @@ jobs:
         id: resolve
         with:
           image_tag: ${{ inputs.velox_image || '' }}
-          velox_short_sha: ${{ inputs.velox_short_sha }}
-          date: ${{ inputs.date }}
+          velox_short_sha: ${{ inputs.velox_short_sha || '' }}
+          date: ${{ inputs.date || '' }}
       - name: Resolve run ID suffix
         id: run_id_suffix
+        env:
+          BUILD_VARIANT: ${{ inputs.build_variant || 'manual' }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run_id_suffix=-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_id_suffix=" >> "$GITHUB_OUTPUT"
-          fi
+          source scripts/create_manifest.sh
+          echo "run_id_suffix=$(resolve_run_id_suffix)" >> "$GITHUB_OUTPUT"
 
   benchmark-velox-gpu:
     name: benchmark-velox-gpu (tpch, cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})

@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+set -euo pipefail
+
 create_manifest_from_arch_tags() {
   local tag="$1"
   local final_tag="$2"
@@ -13,8 +15,12 @@ create_manifest_from_arch_tags() {
 }
 
 resolve_run_id_suffix() {
-  if [[ "${BUILD_TYPE:-}" != "nightly" && -n "${GITHUB_RUN_ID:-}" ]]; then
-    printf -- '-%s' "${GITHUB_RUN_ID}"
+  if [[ -z "${GITHUB_RUN_ID:-}" ]]; then
+    echo "GITHUB_RUN_ID must be set" >&2
+    return 1
+  fi
+  if [[ "${BUILD_VARIANT:-}" != "nightly" && -n "${BUILD_VARIANT:-}" ]]; then
+    printf -- '-%s-%s' "${BUILD_VARIANT}" "${GITHUB_RUN_ID}"
   fi
 }
 
