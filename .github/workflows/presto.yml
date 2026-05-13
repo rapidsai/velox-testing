@@ -55,11 +55,6 @@ on:
       run_tests: *run_tests
       build_type: *build_type
       build_variant: *build_variant
-      run_id_suffix:
-        description: 'Optional run ID suffix appended to image tags'
-        type: string
-        required: false
-        default: ''
 
 permissions: {}
 
@@ -73,30 +68,19 @@ jobs:
       - name: Resolve run ID suffix
         id: resolve
         env:
-          INPUT_RUN_ID_SUFFIX: ${{ inputs.run_id_suffix || '' }}
-          VARIANT_LABEL: ${{ inputs.variant_label || '' }}
           BUILD_VARIANT: ${{ inputs.build_variant || '' }}
           GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
-          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
         run: |
-          if [[ -n "${INPUT_RUN_ID_SUFFIX}" ]]; then
-            echo "run_id_suffix=${INPUT_RUN_ID_SUFFIX}" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "run_id_suffix=-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
           else
             echo "run_id_suffix=" >> "$GITHUB_OUTPUT"
           fi
 
-          label="$(printf '%s' "${VARIANT_LABEL:-${BUILD_VARIANT:-manual}}" \
-            | tr '[:upper:]' '[:lower:]' \
-            | sed -E 's/[^a-z0-9_.-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g' \
-            | cut -c1-40 \
-            | sed -E 's/^-+//; s/-+$//')"
-          if [[ -z "${label}" ]]; then
-            label="manual"
+          if [[ -z "${BUILD_VARIANT}" ]]; then
+            BUILD_VARIANT="manual"
           fi
-          namespace="${GITHUB_RUN_ID_VALUE}-${GITHUB_RUN_ATTEMPT_VALUE}-${label}"
-          echo "intermediate_tag_suffix=-${namespace}" >> "$GITHUB_OUTPUT"
+          echo "intermediate_tag_suffix=-${GITHUB_RUN_ID_VALUE}-${BUILD_VARIANT}" >> "$GITHUB_OUTPUT"
 
   resolve-commits:
     runs-on: ubuntu-latest

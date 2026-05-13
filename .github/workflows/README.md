@@ -150,7 +150,7 @@ Images are tagged with commit SHAs, CUDA version, and build date:
 - **Presto build (CPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-cpu-${DATE}`
 - **Presto coordinator:** `presto-coordinator-${PRESTO_SHA}-${DATE}`
 
-Manual build runs append the GitHub run ID to final image tags, for example `velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}-${GITHUB_RUN_ID}`. Manual builds do not update stable `latest` tags. Intermediate arch-specific tags include the run ID, run attempt, and sanitized/truncated variant label before the architecture suffix so overlapping builds cannot delete each other's merge inputs.
+Manual build runs append the GitHub run ID to final image tags, for example `velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}-${GITHUB_RUN_ID}`. Manual builds do not update stable `latest` tags. Intermediate arch-specific tags include the run ID and build variant before the architecture suffix so overlapping builds cannot delete each other's merge inputs.
 
 Images are purged after 30 days by the `ci-image-cleanup.yml` workflow.
 
