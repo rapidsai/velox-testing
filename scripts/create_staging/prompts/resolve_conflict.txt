@@ -57,6 +57,25 @@ HARD CONSTRAINTS — READ CAREFULLY
     * Only after the above checks, if (a) and (b) DIRECTLY contradict each other (e.g. opposing
       renames of the same symbol where neither is downstream of the other), prefer the side
       whose PR is the currently-merging one. Explain the choice in your final summary.
+- NEVER CONCATENATE IDENTICAL HUNKS. The single most common "kept both sides" mistake is to
+  resolve a conflict where ours and theirs each add the same block of code by writing both
+  copies one after the other. After deleting the markers the file then contains, e.g., two
+  identical `add_executable(<name> ...)` calls, two identical C++ function definitions, two
+  identical Python `def foo(...)` blocks, or two identical YAML stanzas. Before saving:
+    * Re-read the resolved file end-to-end and check that no run of >= 4 non-trivial lines
+      from a hunk appears twice in close proximity unless both ours AND theirs already had it
+      twice. If you see two adjacent identical blocks, collapse them into a single copy.
+    * Symbols that the language/build system requires to be unique (CMake `add_executable` /
+      `add_library` / `add_custom_target` / `add_test(NAME ...)` target names; C++ function,
+      class, struct, namespace-member, and global-variable definitions; Python top-level `def`
+      and `class`; YAML mapping keys at the same level) must each appear exactly once at the
+      top level (or once per mutually-exclusive `if()/else()/endif()` or `#ifdef/#else/#endif`
+      branch). Violating this in CMake fails configure with "another target with the same
+      name already exists"; in C/C++ it fails the build with redefinition errors; in Python
+      it silently shadows the first definition at import time and breaks at runtime.
+    * If the two sides legitimately added genuinely different things that happen to share a
+      base name or boilerplate, keep both — the rule only applies to identical declarations
+      / identical contiguous blocks.
 - If you genuinely cannot resolve the conflict under these constraints without guessing, leave the
   conflict markers in place and reply with a single line starting with "UNRESOLVED: " followed by a
   brief reason. The caller will surface this as a manual-review case. Do not guess.

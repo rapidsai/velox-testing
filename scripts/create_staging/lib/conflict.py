@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Set
 from .config import Config
 from .formatting import divider, log
 from .git_ops import git, list_unmerged_files, run
+from .validators import format_validation_errors_for_prompt, validate_unmerged_resolution
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _PROMPT_FILE = _PROMPTS_DIR / "resolve_conflict.txt"
@@ -275,10 +276,15 @@ def _attempt_claude_pass(
     label: str,
     *,
     timeout: Optional[int] = None,
-) -> str:
-    """Run a single Claude pass. Returns one of:
-    'ok', 'markers', 'noop', 'timeout', 'error'.
-    `timeout` clamps the Claude CLI invocation; defaults to cfg.claude_timeout_s.
+) -> tuple[str, List[str]]:
+    """Run a single Claude pass. Returns ``(outcome, validation_errors)``.
+
+    Outcome is one of: ``ok``, ``markers``, ``noop``, ``timeout``, ``error``,
+    ``validation_failed``. ``validation_errors`` is non-empty only for
+    ``validation_failed`` and carries the human-readable problem descriptions
+    (e.g. duplicate CMake targets) so the caller can inject them into the
+    retry prompt. ``timeout`` clamps the Claude CLI invocation; defaults to
+    ``cfg.claude_timeout_s``.
     """
     effective = timeout if timeout is not None else cfg.claude_timeout_s
     log(f"  - asking Claude to resolve {file_path} ({label}, model={cfg.claude_model}, timeout={effective}s)")
@@ -287,10 +293,10 @@ def _attempt_claude_pass(
         reply = _ask_claude(cfg, prompt, repo, timeout=effective)
     except subprocess.TimeoutExpired:
         log(f"  - {file_path}: Claude timed out after {effective}s")
-        return "timeout"
+        return "timeout", []
     except Exception as exc:
         log(f"  - Claude failed for {file_path}: {exc}")
-        return "error"
+        return "error", []
 
     summary = (reply or "").strip().splitlines()[0] if reply.strip() else ""
     if summary:
@@ -300,13 +306,20 @@ def _attempt_claude_pass(
         after = abs_path.read_text(encoding="utf-8", errors="replace")
     except (OSError, UnicodeDecodeError) as exc:
         log(f"  - {file_path}: cannot re-read after Claude ({exc})")
-        return "error"
+        return "error", []
 
     if _has_conflict_markers(after):
-        return "markers"
+        return "markers", []
     if after == before:
-        return "noop"
-    return "ok"
+        return "noop", []
+
+    validation_errors = validate_unmerged_resolution(repo, file_path, after)
+    if validation_errors:
+        log(f"  - {file_path}: post-resolution validation failed:")
+        for err in validation_errors:
+            log(f"      {err}")
+        return "validation_failed", validation_errors
+    return "ok", []
 
 
 def _remaining_pr_timeout(context: MergeContext) -> Optional[int]:
@@ -377,7 +390,7 @@ def resolve_file(
     if remaining is not None:
         pass_timeout = max(10, min(cfg.claude_timeout_s, remaining))
 
-    outcome = _attempt_claude_pass(
+    outcome, validation_errors = _attempt_claude_pass(
         cfg,
         repo,
         file_path,
@@ -396,6 +409,8 @@ def resolve_file(
             log(f"  - {file_path}: conflict markers remain; retrying with stricter prompt")
         elif outcome == "noop":
             log(f"  - {file_path}: Claude made no changes; retrying with stricter prompt")
+        elif outcome == "validation_failed":
+            log(f"  - {file_path}: retrying with validator feedback injected into the prompt")
         elif outcome == "error":
             log(f"  - {file_path}: retrying after CLI error")
 
@@ -407,12 +422,16 @@ def resolve_file(
         if remaining is not None:
             retry_timeout = max(10, min(cfg.claude_timeout_s, remaining))
 
-        outcome = _attempt_claude_pass(
+        retry_prompt = _RETRY_PREFIX + base_prompt
+        if outcome == "validation_failed" and validation_errors:
+            retry_prompt = format_validation_errors_for_prompt(file_path, validation_errors) + retry_prompt
+
+        outcome, validation_errors = _attempt_claude_pass(
             cfg,
             repo,
             file_path,
             abs_path,
-            _RETRY_PREFIX + base_prompt,
+            retry_prompt,
             label="pass 2/2",
             timeout=retry_timeout,
         )
@@ -422,6 +441,10 @@ def resolve_file(
             log(f"  - {file_path}: conflict markers still present after retry")
         elif outcome == "noop":
             log(f"  - {file_path}: Claude still made no changes after retry")
+        elif outcome == "validation_failed":
+            log(f"  - {file_path}: validator still rejects the resolved file after retry:")
+            for err in validation_errors:
+                log(f"      {err}")
         elif outcome == "timeout":
             log(f"  - {file_path}: retry also timed out")
         return False

@@ -22,6 +22,10 @@ from .conflict import AutoResolveOutcome, MergeContext, auto_resolve_conflicts
 from .formatting import log, step
 from .git_ops import git, git_retry, list_unmerged_files
 from .prs import fetch_pr_head, fetch_pr_metadata_batch
+from .validators import (
+    list_files_in_progress_merge,
+    validate_in_progress_merge_file,
+)
 
 
 def _abort_and_reset(repo: Path, base_commit: str) -> None:
@@ -39,6 +43,36 @@ def _abort_keeping_head(repo: Path) -> None:
     git(["merge", "--abort"], cwd=repo, check=False)
     git(["reset", "--hard", "HEAD"], cwd=repo, check=False)
     git(["clean", "-fd"], cwd=repo, check=False)
+
+
+def _validate_post_rerere_resolution(repo: Path) -> Dict[str, List[str]]:
+    """Run structural validators against every file the in-progress merge touched.
+
+    Returns a mapping of ``file_path -> [error, ...]`` for any file whose
+    rerere-applied resolution introduced duplicate CMake targets/tests,
+    duplicate Python top-level definitions, or generic side-by-side duplicate
+    code blocks. Empty mapping means the rerere result looks structurally
+    clean across every applicable validator.
+    """
+    errors_by_file: Dict[str, List[str]] = {}
+    for file_path in list_files_in_progress_merge(repo):
+        errs = validate_in_progress_merge_file(repo, file_path)
+        if errs:
+            errors_by_file[file_path] = errs
+    return errors_by_file
+
+
+def _forget_rerere_entries(repo: Path, file_paths: List[str]) -> List[str]:
+    """Drop rerere's recorded resolution for each path so the file becomes
+    re-conflicted (markers restored) and Claude can re-resolve it.
+
+    Returns the subset of paths that are unmerged again afterwards.
+    """
+    for path in file_paths:
+        res = git(["rerere", "forget", "--", path], cwd=repo, check=False)
+        if res.returncode != 0:
+            log(f"  - rerere forget failed for {path}: {(res.stderr or '').strip()}")
+    return [p for p in file_paths if p in list_unmerged_files(repo)]
 
 
 def _truncate_stderr(text: str, limit: int = 240) -> str:
@@ -92,22 +126,50 @@ def _attempt_merge(
     *,
     context: MergeContext,
 ) -> MergeAttemptResult:
-    """Run ``git merge``. If it conflicts, try rerere + Claude."""
+    """Run ``git merge``. If it conflicts, try rerere + Claude.
+
+    After rerere claims to have fully resolved everything, we run structural
+    validators against the touched CMake files. If validation finds something
+    rerere shouldn't have stitched together (e.g. duplicate ``add_executable``
+    targets from a stale recorded resolution), we drop the bad rerere entries
+    via ``git rerere forget`` and fall through to the Claude path so the
+    resolution can be re-derived from scratch and re-recorded.
+    """
     res = git(["merge", sha, "--log", "-m", message], cwd=repo, check=False)
     if res.returncode == 0:
         return MergeAttemptResult(True)
 
     if not list_unmerged_files(repo):
-        try:
-            git(["commit", "--no-edit"], cwd=repo)
-            log(f"  rerere fully resolved conflicts for {context.merge_label}")
-            return MergeAttemptResult(True)
-        except subprocess.CalledProcessError as exc:
-            log(f"  rerere claimed full resolution but commit failed: {exc.stderr}")
-            detail = _truncate_stderr(exc.stderr or "")
+        rerere_errors = _validate_post_rerere_resolution(repo)
+        if not rerere_errors:
+            try:
+                git(["commit", "--no-edit"], cwd=repo)
+                log(f"  rerere fully resolved conflicts for {context.merge_label}")
+                return MergeAttemptResult(True)
+            except subprocess.CalledProcessError as exc:
+                log(f"  rerere claimed full resolution but commit failed: {exc.stderr}")
+                detail = _truncate_stderr(exc.stderr or "")
+                return MergeAttemptResult(
+                    False,
+                    f"git commit failed after rerere auto-resolution for {context.merge_label}: {detail}",
+                )
+
+        log(
+            f"  rerere produced an invalid resolution for {context.merge_label}; "
+            f"discarding stale rerere entries and re-resolving via Claude."
+        )
+        for path, errs in rerere_errors.items():
+            log(f"    {path}:")
+            for err in errs:
+                log(f"      - {err}")
+        bad_paths = list(rerere_errors.keys())
+        still_unmerged = _forget_rerere_entries(repo, bad_paths)
+        if not still_unmerged:
+            unrecoverable = "; ".join(f"{p}: {errs[0]}" for p, errs in rerere_errors.items() if errs)
             return MergeAttemptResult(
                 False,
-                f"git commit failed after rerere auto-resolution for {context.merge_label}: {detail}",
+                f"rerere produced an invalid resolution for {context.merge_label} that "
+                f"`git rerere forget` could not roll back ({unrecoverable}).",
             )
 
     outcome = auto_resolve_conflicts(cfg, repo, context=context)
