@@ -63,7 +63,6 @@ jobs:
       - uses: ./.github/actions/resolve-inputs
         id: resolve
         with:
-          image_tag: ''
           velox_short_sha: ${{ inputs.velox_short_sha }}
           presto_short_sha: ${{ inputs.presto_short_sha }}
           date: ${{ inputs.date }}

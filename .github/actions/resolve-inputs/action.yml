@@ -1,15 +1,8 @@
 name: Resolve Test Inputs
 description: >
-  Parses a full image tag to extract SHAs and date, or passes through
-  directly provided values. Supports both presto format
-  (presto-{SHA}-velox-{SHA}-...-{DATE}[-VARIANT-RUN_ID]) and velox format
-  (velox-{SHA}-...-{DATE}[-VARIANT-RUN_ID]).
+  Resolves directly provided test image SHAs and build date.
 
 inputs:
-  image_tag:
-    description: 'Full image tag to parse (optional). If empty, direct inputs are used.'
-    required: false
-    default: ''
   velox_short_sha:
     description: 'Short Velox commit SHA (7 chars)'
     required: false
@@ -44,42 +37,15 @@ runs:
       id: resolve
       shell: bash
       env:
-        IMAGE_TAG: ${{ inputs.image_tag }}
         VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
         PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
         DATE: ${{ inputs.date }}
       run: |
-        if [[ -n "${IMAGE_TAG}" ]]; then
-          TAG="${IMAGE_TAG##*:}"
-          echo "Parsing tag: ${TAG}"
-
-          # Presto format: presto-{SHA}-velox-{SHA}-...-{DATE}{RUN_ID_SUFFIX}
-          if [[ "$TAG" =~ ^presto-([a-f0-9]+)-velox-([a-f0-9]+)-.*-([0-9]{8})(-[a-z0-9]+-[0-9]+)?$ ]]; then
-            echo "presto_short_sha=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-            echo "velox_short_sha=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
-            echo "date=${BASH_REMATCH[3]}" >> "$GITHUB_OUTPUT"
-            echo "run_id_suffix=${BASH_REMATCH[4]}" >> "$GITHUB_OUTPUT"
-            echo "Parsed presto image: presto=${BASH_REMATCH[1]}, velox=${BASH_REMATCH[2]}, date=${BASH_REMATCH[3]}"
-
-          # Velox format: velox-{SHA}-...-{DATE}{RUN_ID_SUFFIX}
-          elif [[ "$TAG" =~ ^velox-([a-f0-9]+)-.*-([0-9]{8})(-[a-z0-9]+-[0-9]+)?$ ]]; then
-            echo "velox_short_sha=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-            echo "presto_short_sha=" >> "$GITHUB_OUTPUT"
-            echo "date=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
-            echo "run_id_suffix=${BASH_REMATCH[3]}" >> "$GITHUB_OUTPUT"
-            echo "Parsed velox image: velox=${BASH_REMATCH[1]}, date=${BASH_REMATCH[2]}"
-
-          else
-            echo "::error::Cannot parse image tag '${TAG}'. Expected presto-{SHA}-velox-{SHA}-...-{DATE} or velox-{SHA}-...-{DATE}"
-            exit 1
-          fi
-        else
-          if [[ -z "${VELOX_SHORT_SHA}" || -z "${DATE}" ]]; then
-            echo "::error::Either image_tag or at minimum velox_short_sha and date must be provided"
-            exit 1
-          fi
-          echo "velox_short_sha=${VELOX_SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "presto_short_sha=${PRESTO_SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
-          echo "run_id_suffix=" >> "$GITHUB_OUTPUT"
+        if [[ -z "${VELOX_SHORT_SHA}" || -z "${DATE}" ]]; then
+          echo "::error::velox_short_sha and date must be provided"
+          exit 1
         fi
+        echo "velox_short_sha=${VELOX_SHORT_SHA}" >> "$GITHUB_OUTPUT"
+        echo "presto_short_sha=${PRESTO_SHORT_SHA}" >> "$GITHUB_OUTPUT"
+        echo "date=${DATE}" >> "$GITHUB_OUTPUT"
+        echo "run_id_suffix=" >> "$GITHUB_OUTPUT"
