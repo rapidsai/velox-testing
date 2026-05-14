@@ -290,7 +290,7 @@ jobs:
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
             for cuda in 12.9 13.1; do
               tag="velox-deps-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
-              create_manifest_from_arch_tags "${tag}" "velox-deps-latest-cuda${cuda}"
+              create_manifest_alias "${tag}" "velox-deps-latest-cuda${cuda}"
             done
           fi
   merge-velox-build:
@@ -324,10 +324,10 @@ jobs:
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "upstream" ]]; then
             for cuda in 12.9 13.1; do
               tag="velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
-              create_manifest_from_arch_tags "${tag}" "velox-latest-gpu-cuda${cuda}"
+              create_manifest_alias "${tag}" "velox-latest-gpu-cuda${cuda}"
             done
             tag="velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
-            create_manifest_from_arch_tags "${tag}" "velox-latest-cpu"
+            create_manifest_alias "${tag}" "velox-latest-cpu"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true

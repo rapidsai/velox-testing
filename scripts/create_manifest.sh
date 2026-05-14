@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-create_manifest_from_arch_tags() {
+create_manifest_alias() {
   local tag="$1"
   local final_tag="$2"
 
@@ -27,5 +27,5 @@ resolve_run_id_suffix() {
 create_manifest() {
   local tag="$1"
 
-  create_manifest_from_arch_tags "${tag}" "${tag}$(resolve_run_id_suffix)"
+  create_manifest_alias "${tag}" "${tag}$(resolve_run_id_suffix)"
 }

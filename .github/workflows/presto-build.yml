@@ -379,7 +379,7 @@ jobs:
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
             for cuda in 12.9 13.1; do
               tag="presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
-              create_manifest_from_arch_tags "${tag}" "presto-deps-latest-cuda${cuda}"
+              create_manifest_alias "${tag}" "presto-deps-latest-cuda${cuda}"
             done
           fi
   merge-presto-build:
@@ -419,10 +419,10 @@ jobs:
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
             for cuda in 12.9 13.1; do
               tag="presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
-              create_manifest_from_arch_tags "${tag}" "presto-latest-gpu-cuda${cuda}"
+              create_manifest_alias "${tag}" "presto-latest-gpu-cuda${cuda}"
             done
             tag="presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
-            create_manifest_from_arch_tags "${tag}" "presto-latest-cpu"
+            create_manifest_alias "${tag}" "presto-latest-cpu"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true
@@ -467,7 +467,7 @@ jobs:
           TAG="presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}"
           create_manifest "${TAG}"
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
-            create_manifest_from_arch_tags "${TAG}" "presto-coordinator-latest"
+            create_manifest_alias "${TAG}" "presto-coordinator-latest"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true
