@@ -15,11 +15,6 @@ on:
         description: 'Build variant used in final image tags'
         type: string
         required: true
-      variant_label:
-        description: 'Variant label to disambiguate artifacts (e.g. upstream)'
-        type: string
-        required: false
-        default: ''
   workflow_dispatch:
     inputs:
       velox_short_sha:
@@ -36,11 +31,6 @@ on:
         required: true
       run_id:
         description: 'GitHub run ID for manual build image tags; required when build_variant is manual'
-        type: string
-        required: false
-        default: ''
-      variant_label:
-        description: 'Variant label to disambiguate artifacts (e.g. upstream)'
         type: string
         required: false
         default: ''
@@ -158,7 +148,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.gpu }}-${{ matrix.arch }}-${{ inputs.velox_short_sha }}-${{ inputs.date }}${{ inputs.variant_label && format('-{0}', inputs.variant_label) || '' }}"
+          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.gpu }}-${{ matrix.arch }}-${{ inputs.velox_short_sha }}-${{ inputs.date }}-${{ inputs.build_variant }}${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}"
           path: benchmark-results
           if-no-files-found: error
           retention-days: 14

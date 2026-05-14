@@ -106,4 +106,3 @@ jobs:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
       build_variant: ${{ inputs.build_variant }}
-      variant_label: ${{ inputs.variant_label }}
