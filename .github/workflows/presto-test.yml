@@ -46,49 +46,29 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-images
 
+permissions: {}
+
 jobs:
-  resolve-inputs:
+  resolve-test-inputs:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     outputs:
-      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
-      presto_short_sha: ${{ steps.resolve.outputs.presto_short_sha }}
-      date: ${{ steps.resolve.outputs.date }}
-      run_id_suffix: ${{ steps.resolve.outputs.run_id_suffix || steps.run_id_suffix.outputs.run_id_suffix }}
+      velox_short_sha: ${{ inputs.velox_short_sha }}
+      presto_short_sha: ${{ inputs.presto_short_sha }}
+      date: ${{ inputs.date }}
+      run_id_suffix: ${{ steps.run_id_suffix.outputs.run_id_suffix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - uses: ./.github/actions/resolve-inputs
-        id: resolve
-        with:
-          velox_short_sha: ${{ inputs.velox_short_sha }}
-          presto_short_sha: ${{ inputs.presto_short_sha }}
-          date: ${{ inputs.date }}
-      - name: Resolve run ID suffix
+      - uses: ./.github/actions/resolve-run-id-suffix
         id: run_id_suffix
-        env:
-          BUILD_VARIANT: ${{ inputs.build_variant }}
-          CURRENT_GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          INPUT_RUN_ID: ${{ inputs.run_id }}
-        run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${BUILD_VARIANT}" == "manual" ]]; then
-            if [[ -z "${INPUT_RUN_ID}" ]]; then
-              echo "::error::run_id is required when build_variant is manual"
-              exit 1
-            fi
-            export GITHUB_RUN_ID="${INPUT_RUN_ID}"
-          else
-            export GITHUB_RUN_ID="${CURRENT_GITHUB_RUN_ID}"
-          fi
-          source scripts/create_manifest.sh
-          echo "run_id_suffix=$(resolve_run_id_suffix)" >> "$GITHUB_OUTPUT"
+        with:
+          build_variant: ${{ inputs.build_variant }}
+          run_id: ${{ inputs.run_id }}
 
   test-presto-integration:
     name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
-    needs: [resolve-inputs]
+    needs: [resolve-test-inputs]
     permissions:
       contents: read
       packages: read
@@ -231,11 +211,11 @@ jobs:
 
       - name: Pull and retag images
         env:
-          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
-          PRESTO_SHORT_SHA: ${{ needs.resolve-inputs.outputs.presto_short_sha }}
-          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          VELOX_SHORT_SHA: ${{ needs.resolve-test-inputs.outputs.velox_short_sha }}
+          PRESTO_SHORT_SHA: ${{ needs.resolve-test-inputs.outputs.presto_short_sha }}
+          BUILD_DATE: ${{ needs.resolve-test-inputs.outputs.date }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
-          RUN_ID_SUFFIX: ${{ needs.resolve-inputs.outputs.run_id_suffix }}
+          RUN_ID_SUFFIX: ${{ needs.resolve-test-inputs.outputs.run_id_suffix }}
         run: |
           COORD_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           docker pull "${COORD_IMAGE}"

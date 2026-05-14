@@ -16,7 +16,6 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `velox.yml` | Velox CI image build + test + benchmark pipeline | Called by nightly; also supports `workflow_dispatch` |
 | `presto.yml` | Presto CI image build + test pipeline | Called by nightly; also supports `workflow_dispatch` |
 | `actions/resolve-commits/` | Composite action to resolve Velox/Presto commit SHAs | Used by CI image workflows |
-| `actions/resolve-inputs/` | Composite action to parse image tags into SHAs + date | Used by test/benchmark workflows for `workflow_dispatch` |
 | `velox-build.yml` | Reusable workflow for Velox CI image builds + merge | Builds deps + build images, creates multi-arch manifests |
 | `presto-build.yml` | Reusable workflow for Presto CI image builds + merge | Builds deps + build + coordinator, creates multi-arch manifests |
 | `velox-test.yml` | Reusable workflow for Velox CI image tests | CPU + GPU tests; supports `workflow_dispatch` for test-only runs |
@@ -134,7 +133,6 @@ The pipeline is split into focused reusable workflows:
 | `velox-test.yml` | Runs Velox CPU and GPU tests against built images |
 | `velox-benchmark.yml` | Runs TPC-H GPU benchmarks against built Velox images using `benchmark_velox.sh --image` |
 | `presto-test.yml` | Runs Presto smoke tests and TPC-H/TPC-DS integration tests against built images |
-| `actions/resolve-inputs/` | Composite action: parses image tags into SHAs + date for `workflow_dispatch` test/benchmark-only runs |
 
 `velox-test.yml`, `velox-benchmark.yml`, and `presto-test.yml` all support `workflow_dispatch` for standalone runs against pre-built images.
 
@@ -220,14 +218,14 @@ CI IMAGES (VELOX)
 velox-nightly.yml ──► velox.yml ──► velox-build.yml ─────┤
                                                          └─► velox-benchmark.yml
 
-velox-test.yml (workflow_dispatch) ──► [resolve-inputs] ──► [test pre-built images]
-velox-benchmark.yml (workflow_dispatch) ──► [resolve-inputs] ──► [benchmark pre-built images]
+velox-test.yml (workflow_dispatch) ──► [test pre-built images]
+velox-benchmark.yml (workflow_dispatch) ──► [benchmark pre-built images]
 
 CI IMAGES (PRESTO)
 ──────────────────
 presto-nightly.yml ──► presto.yml ──► presto-build.yml ──► presto-test.yml
 
-presto-test.yml (workflow_dispatch) ──► [resolve-inputs] ──► [test pre-built images]
+presto-test.yml (workflow_dispatch) ──► [test pre-built images]
 
 COMPUTE SANITIZER
 ─────────────────
