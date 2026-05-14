@@ -305,10 +305,10 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           ARCH: ${{ matrix.arch }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
-          IMAGE_TYPE: ${{ matrix.build_type }}
+          BUILD_TYPE: ${{ matrix.build_type }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
         run: |
-          if [[ "${IMAGE_TYPE}" == "cpu" ]]; then
+          if [[ "${BUILD_TYPE}" == "cpu" ]]; then
             echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
