@@ -33,48 +33,54 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 # ---------------------------------------------------------------------------
 
 
-def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> list[int]:
+def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> tuple[list[int], list[bool]]:
     """
-    Extract ORDER BY column positions from SQL using sqlglot.
+    Extract ORDER BY column positions and directions from SQL using sqlglot.
 
-    Returns a list of 0-based column indices. Returns [] when there is no
-    ORDER BY, or when any ORDER BY expression is too complex to map to a
-    result column (CASE, aggregate, etc.).
+    Returns (indices, ascending) where ascending[i] is True iff indices[i]
+    is sorted ASC. Returns ([], []) when there is no ORDER BY, or when any
+    ORDER BY expression is too complex to map to a result column (CASE,
+    aggregate, etc.).
     """
     expr = sqlglot.parse_one(query_sql)
     order = next((e for e in expr.find_all(sqlglot.exp.Order)), None)
     if not order:
-        return []
+        return [], []
 
     sort_col_indices: list[int] = []
+    ascending: list[bool] = []
 
     for ordered in order.expressions:
         key = ordered.this
+        is_desc = bool(ordered.args.get("desc"))
 
         # Resolve key → column index via numeric literal or column reference.
+        resolved_idx: int | None = None
         if isinstance(key, sqlglot.exp.Literal):
             try:
                 col_num = int(key.this)
                 if 1 <= col_num <= len(expected_col_names):
-                    sort_col_indices.append(col_num - 1)
-                    continue
+                    resolved_idx = col_num - 1
             except (ValueError, TypeError):
                 pass
 
-        if isinstance(key, sqlglot.exp.Column):
+        if resolved_idx is None and isinstance(key, sqlglot.exp.Column):
             name = key.name
             if name in expected_col_names:
-                sort_col_indices.append(expected_col_names.index(name))
-                continue
+                resolved_idx = expected_col_names.index(name)
 
-        # Complex expression — skip ORDER BY tie-group handling for this query.
-        warnings.warn(
-            f"ORDER BY expression {key.sql()!r} couldn't be mapped to a result column; "
-            "ORDER BY tie-group handling will be skipped for this query."
-        )
-        return []
+        if resolved_idx is None:
+            # Complex expression — skip ORDER BY handling for this query.
+            warnings.warn(
+                f"ORDER BY expression {key.sql()!r} couldn't be mapped to a result column; "
+                "ORDER BY validation and tie-boundary handling will be skipped for this query."
+            )
+            return [], []
 
-    return sort_col_indices
+        sort_col_indices.append(resolved_idx)
+        ascending.append(not is_desc)
+
+    return sort_col_indices, ascending
 
 
 def get_limit(query_sql: str) -> int | None:
@@ -171,9 +177,9 @@ def _orderby_differs_from_prev(orderby_df: pd.DataFrame) -> np.ndarray:
     use tolerance equality (rel_tol=1e-5, abs_tol=1e-8); non-float columns
     use exact equality.
 
-    Used by both _sort_preserving_orderby (to identify tie groups for
-    canonicalization) and _find_last_tie_start (to find the boundary tie
-    block for LIMIT handling).
+    Tolerance is appropriate here because the caller (_find_last_tie_start)
+    is identifying rows the engine *could have* considered interchangeable
+    at a LIMIT cutoff — a cross-engine notion, not strict bit-identity.
     """
     n = len(orderby_df)
     if n <= 1:
@@ -195,49 +201,58 @@ def _orderby_differs_from_prev(orderby_df: pd.DataFrame) -> np.ndarray:
     return differs
 
 
-def _sort_preserving_orderby(df: pd.DataFrame, sort_col_indices: list[int]) -> pd.DataFrame:
+def _validate_orderby(df: pd.DataFrame, sort_col_indices: list[int], ascending: list[bool]) -> None:
     """
-    Sort df preserving the engine-given ORDER BY row order. Within ORDER BY
-    tie groups, sort by non-float non-ORDER-BY columns first (these are
-    exact-equal across engines), then by float non-ORDER-BY columns (which
-    may differ by ULPs but only matter when all non-float keys tie).
+    Validate that each ORDER BY column is monotonic in its specified direction
+    within the tie groups of all earlier ORDER BY columns.
 
-    When sort_col_indices is empty (no parseable ORDER BY in the SQL), sort
-    the entire frame by [non-float, float] columns.
+    Walks one column at a time: for column k, a violation is any adjacent
+    pair (i, i+1) that is anti-monotonic AND where all of columns 0..k-1
+    are equal at i and i+1 (same outer tie group). Strict equality is used
+    throughout — every value comes from one engine and is bit-identical to
+    itself.
+
+    Raises AssertionError pointing at the first offending row. A no-op when
+    sort_col_indices is empty or the frame has 0-1 rows.
+    """
+    if not sort_col_indices or len(df) <= 1:
+        return
+
+    # Boolean of length n-1; True where any prior column changes between
+    # row i and row i+1 (i.e., row i+1 starts a new outer tie group).
+    prior_changed = np.zeros(len(df) - 1, dtype=bool)
+
+    for col_idx, asc in zip(sort_col_indices, ascending):
+        col = df.iloc[:, col_idx].to_numpy()
+        prev, curr = col[:-1], col[1:]
+        anti_monotonic = curr < prev if asc else curr > prev
+        # A real violation requires both anti-monotonicity AND prior columns
+        # to be tied; otherwise we're across an outer-tie boundary, where
+        # this column's direction doesn't apply.
+        bad = np.flatnonzero(anti_monotonic & ~prior_changed)
+        if len(bad) > 0:
+            i = int(bad[0])
+            raise AssertionError(
+                f"Engine violated ORDER BY on column index {col_idx} "
+                f"({'ASC' if asc else 'DESC'}) at row {i + 1}: "
+                f"got {curr[i]!r} after {prev[i]!r}"
+            )
+        prior_changed = prior_changed | (curr != prev)
+
+
+def _canonical_sort(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sort df by [all non-float columns, all float columns] for a deterministic,
+    engine-independent ordering. ORDER BY columns are not treated specially —
+    they're just regular columns participating in the same sort.
     """
     df = df.reset_index(drop=True)
-
-    sort_set = set(sort_col_indices)
-    non_orderby_positions = [i for i in range(df.shape[1]) if i not in sort_set]
-    non_float_pos = [i for i in non_orderby_positions if not _is_float_col(df.iloc[:, i])]
-    float_pos = [i for i in non_orderby_positions if _is_float_col(df.iloc[:, i])]
-    tie_break_labels = df.columns[non_float_pos + float_pos].tolist()
-
-    # Nothing to sort or canonicalize with — return as-is.
-    if not tie_break_labels:
+    non_float_pos = [i for i in range(df.shape[1]) if not _is_float_col(df.iloc[:, i])]
+    float_pos = [i for i in range(df.shape[1]) if _is_float_col(df.iloc[:, i])]
+    labels = df.columns[non_float_pos + float_pos].tolist()
+    if not labels:
         return df
-
-    if not sort_col_indices:
-        # No ORDER BY: sort the entire frame by tie-breakers.
-        return df.sort_values(by=tie_break_labels, na_position="last").reset_index(drop=True)
-
-    # ORDER BY present: identify tie groups via tolerance-aware consecutive-row
-    # equality (so engines that ULP-flip tolerance-tied rows still produce the
-    # same gid grouping), then sort by [gid, tie-breakers] so engine
-    # between-group order is preserved and within-group order is canonicalized
-    # by the tie-breakers.
-    is_new_group = np.empty(len(df), dtype=bool)
-    is_new_group[0] = True
-    is_new_group[1:] = _orderby_differs_from_prev(df.iloc[:, list(sort_col_indices)])
-    gid = np.cumsum(is_new_group)
-
-    gid_col = "__velox_orderby_tie_gid__"
-    return (
-        df.assign(**{gid_col: gid})
-        .sort_values(by=[gid_col, *tie_break_labels], na_position="last")
-        .drop(columns=gid_col)
-        .reset_index(drop=True)
-    )
+    return df.sort_values(by=labels, na_position="last").reset_index(drop=True)
 
 
 def _column_mismatches(a_col: pd.Series, b_col: pd.Series) -> tuple[np.ndarray, np.ndarray]:
@@ -354,11 +369,10 @@ def compare_result_frames(
       2. Normalize dtypes / value types.
       3. Validate row count.
       4. Parse ORDER BY / LIMIT from SQL.
-      5. Preserve engine ORDER BY ordering; within tie groups (or the whole
-         frame when no ORDER BY) canonicalize by [non-float, float] tie-breakers.
-      6. Compare position-by-position, with LIMIT-boundary tie group's
-         non-ORDER-BY columns skipped (engines may have selected different
-         tied rows at the cutoff).
+      5. Validate each engine respected ORDER BY (per-frame, strict equality).
+      6. With LIMIT: peel the tied tail in engine order, then canonical-sort
+         each piece. Compare front fully; compare tail's ORDER BY values only.
+      7. Without LIMIT: canonical-sort both frames and compare in full.
     """
     # 1. Column count check
     if len(actual.columns) != len(expected.columns):
@@ -377,28 +391,39 @@ def compare_result_frames(
         raise AssertionError(f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)")
 
     # 4. Parse ORDER BY / LIMIT
-    sort_col_indices = get_orderby_col_indices(query_sql, expected_col_names)
+    sort_col_indices, ascending = get_orderby_col_indices(query_sql, expected_col_names)
     limit = get_limit(query_sql)
 
-    # 5. Preserve engine ORDER BY ordering; canonicalize within tie groups.
-    actual = _sort_preserving_orderby(actual, sort_col_indices)
-    expected = _sort_preserving_orderby(expected, sort_col_indices)
+    # 5. Per-frame ORDER BY validation — engine order is intact here.
+    _validate_orderby(actual, sort_col_indices, ascending)
+    _validate_orderby(expected, sort_col_indices, ascending)
 
-    # 6. Compare. With LIMIT, the last tie group on ORDER BY columns may
-    # contain different rows in actual vs expected (engines may have selected
-    # different subsets of tied rows at the LIMIT cutoff). Skip the
-    # non-ORDER-BY columns there; ORDER BY columns are still verified by
-    # position-by-position compare.
+    # 6. LIMIT tie boundary: the engine may have selected different rows from
+    # a tolerance-tied bucket at the cutoff. Peel that tail (in engine order)
+    # before canonical sort, then compare the front fully and the tail's
+    # ORDER BY values only.
     if sort_col_indices and limit is not None:
-        last_start = _find_last_tie_start(actual.iloc[:, sort_col_indices])
-        _assert_frames_equal(actual.iloc[:last_start], expected.iloc[:last_start])
+        last_start_a = _find_last_tie_start(actual.iloc[:, sort_col_indices])
+        last_start_e = _find_last_tie_start(expected.iloc[:, sort_col_indices])
+        if last_start_a != last_start_e:
+            raise AssertionError(
+                f"Engines disagree on LIMIT tie-boundary position: "
+                f"actual tied tail starts at {last_start_a}, expected at {last_start_e}"
+            )
+        last_start = last_start_a
+
         _assert_frames_equal(
-            actual.iloc[last_start:, sort_col_indices],
-            expected.iloc[last_start:, sort_col_indices],
+            _canonical_sort(actual.iloc[:last_start]),
+            _canonical_sort(expected.iloc[:last_start]),
+        )
+        _assert_frames_equal(
+            _canonical_sort(actual.iloc[last_start:]).iloc[:, sort_col_indices],
+            _canonical_sort(expected.iloc[last_start:]).iloc[:, sort_col_indices],
         )
         return
 
-    _assert_frames_equal(actual, expected)
+    # 7. No LIMIT: canonical-sort both frames and compare in full.
+    _assert_frames_equal(_canonical_sort(actual), _canonical_sort(expected))
 
 
 # ---------------------------------------------------------------------------

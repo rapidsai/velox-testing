@@ -7,11 +7,13 @@ import datetime
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from common.testing.result_comparison import (
+    _canonical_sort,
     _find_last_tie_start,
     _normalize_to_expected,
-    _sort_preserving_orderby,
+    _validate_orderby,
 )
 
 # ---------------------------------------------------------------------------
@@ -53,59 +55,73 @@ def test_normalize_to_expected_handles_str_to_date_in_object_dtype():
 
 
 # ---------------------------------------------------------------------------
-# _sort_preserving_orderby
+# _validate_orderby
 # ---------------------------------------------------------------------------
 
 
-def test_sort_preserving_orderby_no_orderby_sorts_by_non_float_then_float():
-    # No ORDER BY: sort entire frame by non-float first, float second.
-    # Both rows tie on col 1 (string "a"), so col 0 (int) determines order.
+def test_validate_orderby_no_orderby_columns_is_noop():
+    # Empty sort_col_indices: validation is a no-op regardless of frame content.
+    df = pd.DataFrame({0: [3, 1, 2], 1: ["c", "a", "b"]})
+    _validate_orderby(df, sort_col_indices=[], ascending=[])
+
+
+def test_validate_orderby_single_column_ascending_correct():
+    df = pd.DataFrame({0: [1, 2, 2, 3], 1: ["a", "b", "c", "d"]})
+    _validate_orderby(df, sort_col_indices=[0], ascending=[True])
+
+
+def test_validate_orderby_single_column_descending_correct():
+    df = pd.DataFrame({0: [3, 2, 2, 1], 1: ["a", "b", "c", "d"]})
+    _validate_orderby(df, sort_col_indices=[0], ascending=[False])
+
+
+def test_validate_orderby_wrong_direction_raises():
+    # Frame is ASC, but spec says DESC → fails.
+    df = pd.DataFrame({0: [1, 2, 3]})
+    with pytest.raises(AssertionError, match="ORDER BY"):
+        _validate_orderby(df, sort_col_indices=[0], ascending=[False])
+
+
+def test_validate_orderby_multi_column_secondary_within_tie_correct_passes():
+    # ORDER BY col 0 ASC, col 1 ASC. Primary tied at 1; secondary correctly
+    # ordered within each tie group.
+    df = pd.DataFrame({0: [1, 1, 2, 2], 1: ["a", "b", "x", "y"]})
+    _validate_orderby(df, sort_col_indices=[0, 1], ascending=[True, True])
+
+
+def test_validate_orderby_multi_column_secondary_within_tie_violated_raises():
+    # Primary tied at 1 but secondary is in wrong order within the tie group.
+    df = pd.DataFrame({0: [1, 1, 2, 2], 1: ["b", "a", "x", "y"]})
+    with pytest.raises(AssertionError, match="ORDER BY"):
+        _validate_orderby(df, sort_col_indices=[0, 1], ascending=[True, True])
+
+
+def test_validate_orderby_handles_duplicate_column_labels():
+    # df with two columns both labeled "x" — validate_orderby should still work
+    # by accessing columns positionally.
+    df = pd.DataFrame([[1, "a"], [2, "b"], [3, "c"]], columns=["x", "x"])
+    _validate_orderby(df, sort_col_indices=[0], ascending=[True])
+
+
+# ---------------------------------------------------------------------------
+# _canonical_sort
+# ---------------------------------------------------------------------------
+
+
+def test_canonical_sort_non_float_before_float():
+    # Non-float col uniquely identifies rows; float ordering is irrelevant.
     df = pd.DataFrame({0: [3.0, 1.0, 2.0], 1: ["c", "a", "b"]})
-    result = _sort_preserving_orderby(df, sort_col_indices=[])
-    # After sort by [col 1 (string, non-float), col 0 (float)]: "a","b","c"
+    result = _canonical_sort(df)
     assert result[1].tolist() == ["a", "b", "c"]
     assert result[0].tolist() == [1.0, 2.0, 3.0]
 
 
-def test_sort_preserving_orderby_preserves_engine_between_group_order():
-    # ORDER BY col 0 (revenue DESC) — engine produced [3, 2, 1].
-    # Each row is its own tie group; preserve engine ordering.
-    df = pd.DataFrame({0: [3, 2, 1], 1: ["x", "y", "z"]})
-    result = _sort_preserving_orderby(df, sort_col_indices=[0])
-    assert result[0].tolist() == [3, 2, 1]
-    assert result[1].tolist() == ["x", "y", "z"]
-
-
-def test_sort_preserving_orderby_canonicalizes_within_tie():
-    # ORDER BY col 0; rows 0 and 1 tied at 100. Engine put them in (B, A) order.
-    # Within tie, sort by col 1 (string) → (A, B).
-    df = pd.DataFrame({0: [100, 100, 200], 1: ["B", "A", "C"]})
-    result = _sort_preserving_orderby(df, sort_col_indices=[0])
-    assert result[0].tolist() == [100, 100, 200]
-    assert result[1].tolist() == ["A", "B", "C"]
-
-
-def test_sort_preserving_orderby_non_float_dominates_float():
-    # ORDER BY col 0; rows tied at 100. Within tie, sort first by col 1 (str),
-    # then by col 2 (float). Non-float key alone uniquely identifies the rows,
-    # so the float ordering is never consulted.
-    df = pd.DataFrame({0: [100, 100], 1: ["B", "A"], 2: [1.0, 2.0]})
-    result = _sort_preserving_orderby(df, sort_col_indices=[0])
-    # Sorted by col 1 ASC: "A" before "B"
-    assert result[1].tolist() == ["A", "B"]
-    assert result[2].tolist() == [2.0, 1.0]  # the float "rode along" with its row
-
-
-def test_sort_preserving_orderby_tolerance_tied_floats_grouped():
-    # ORDER BY col 0 (float). Two adjacent rows whose values are ULP-different
-    # but tolerance-equal should be grouped and reordered by col 1 (non-float
-    # tie-breaker). Without tolerance-aware tie detection, the engine-presented
-    # order would be preserved (which is the Q11-at-SF=3k failure mode).
-    df = pd.DataFrame({0: [100.0 + 1e-9, 100.0], 1: ["B", "A"]})
-    result = _sort_preserving_orderby(df, sort_col_indices=[0])
-    # Both values are tolerance-tied (1e-9 << REL_TOL * 100 = 1e-3); the rows
-    # share a gid and are canonicalized by col 1: "A" before "B".
-    assert result[1].tolist() == ["A", "B"]
+def test_canonical_sort_all_float_columns():
+    # No non-float columns; sort by float columns left-to-right.
+    df = pd.DataFrame({0: [2.0, 1.0, 1.0], 1: [5.0, 3.0, 1.0]})
+    result = _canonical_sort(df)
+    assert result[0].tolist() == [1.0, 1.0, 2.0]
+    assert result[1].tolist() == [1.0, 3.0, 5.0]
 
 
 # ---------------------------------------------------------------------------
