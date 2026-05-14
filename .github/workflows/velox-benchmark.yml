@@ -51,11 +51,9 @@ env:
 permissions: {}
 
 jobs:
-  resolve-test-inputs:
+  resolve-run-id-suffix:
     runs-on: ubuntu-latest
     outputs:
-      velox_short_sha: ${{ inputs.velox_short_sha }}
-      date: ${{ inputs.date }}
       run_id_suffix: ${{ steps.run_id_suffix.outputs.run_id_suffix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -69,7 +67,7 @@ jobs:
 
   benchmark-velox-gpu:
     name: benchmark-velox-gpu (tpch, cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
-    needs: [resolve-test-inputs]
+    needs: [resolve-run-id-suffix]
     permissions:
       contents: read
       packages: read
@@ -141,10 +139,10 @@ jobs:
 
       - name: Run TPC-H GPU benchmarks
         env:
-          VELOX_SHORT_SHA: ${{ needs.resolve-test-inputs.outputs.velox_short_sha }}
-          BUILD_DATE: ${{ needs.resolve-test-inputs.outputs.date }}
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
-          RUN_ID_SUFFIX: ${{ needs.resolve-test-inputs.outputs.run_id_suffix }}
+          RUN_ID_SUFFIX: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
         working-directory: velox/scripts
         run: |
           IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${RUN_ID_SUFFIX}"
@@ -160,7 +158,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.gpu }}-${{ matrix.arch }}-${{ needs.resolve-test-inputs.outputs.velox_short_sha }}-${{ needs.resolve-test-inputs.outputs.date }}${{ inputs.variant_label && format('-{0}', inputs.variant_label) || '' }}"
+          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.gpu }}-${{ matrix.arch }}-${{ inputs.velox_short_sha }}-${{ inputs.date }}${{ inputs.variant_label && format('-{0}', inputs.variant_label) || '' }}"
           path: benchmark-results
           if-no-files-found: error
           retention-days: 14
