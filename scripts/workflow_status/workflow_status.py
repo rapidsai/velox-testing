@@ -27,10 +27,11 @@ from lib.formatting import (
     format_failure_detail,
     status_emoji,
 )
-from lib.gh import detect_repo, fetch_jobs, fetch_log, fetch_run
+from lib.gh import detect_repo, fetch_job_log, fetch_jobs, fetch_run
 from lib.logs import (
     extract_relevant_failures,
     filter_log_for_job,
+    pick_display_snippet,
     split_into_blocks,
 )
 from lib.similarity import (
@@ -166,7 +167,7 @@ def _process_failed_job(
             rep_bidx = grp[0]
             block = blocks[rep_bidx]
             ai_st, cause, fix = ai_results.get(rep_bidx, ("", "", ""))
-            display_st = ai_st if ai_st else "\n".join([ln for ln in block.splitlines() if ln.strip()][:5])
+            display_st = ai_st if ai_st else pick_display_snippet(block)
             stacktraces.append((display_st, cause, fix))
 
             if len(grp) > 1:
@@ -274,18 +275,43 @@ def main() -> None:
     else:
         out.print(f"*\U0001f534 Failure Details ({len(failed_jobs)} failed job(s)):*")
 
-        # Fetch logs once for the whole run
-        log_out: str | None = None
-        if config.analyze_cause or config.print_logs:
-            log_out = fetch_log(config.run_id, config, failed_only=True)
+        # Fetch logs per-job in parallel. Logs are needed for the stacktrace
+        # display itself, similarity-based grouping, and (optionally) AI
+        # cause/fix analysis -- so we always fetch when there are failures,
+        # regardless of --no-cause / --no-fix / --print-logs.
+        #
+        # We use per-job ``gh run view --job <id> --log`` because the
+        # run-level ``--log[-failed]`` path is rejected for matrices large
+        # enough to trip gh's safety throttle:
+        #     too many API requests needed to fetch logs;
+        #     try narrowing down to a specific job with the --job option
+        # which used to leave every failure stuck on "(no logs available)".
+        job_log_by_id: dict[int, str] = {}
+        with ThreadPoolExecutor(max_workers=config.max_gh_workers) as log_pool:
+            log_futs = {
+                log_pool.submit(fetch_job_log, j.get("databaseId"), config): j
+                for j in failed_jobs
+                if j.get("databaseId")
+            }
+            for fut in as_completed(log_futs):
+                j = log_futs[fut]
+                try:
+                    job_log_by_id[j["databaseId"]] = fut.result() or ""
+                except Exception as exc:
+                    print(
+                        f"WARN: failed to fetch log for job {j.get('databaseId')} ({j.get('name', '?')}): {exc}",
+                        file=sys.stderr,
+                    )
+                    job_log_by_id[j["databaseId"]] = ""
 
-        # Group failed jobs by error similarity to deduplicate
+        # Per-job extracted failure lines, used downstream for similarity
+        # grouping. Each ``jlog`` string already covers a single job, so
+        # ``filter_log_for_job`` is a cheap no-op safety net.
         job_logs: list[str] = []
         for job in failed_jobs:
             jname = job.get("name", "unknown")
-            jlog = ""
-            if log_out:
-                jlog = extract_relevant_failures(filter_log_for_job(log_out, jname))
+            raw = job_log_by_id.get(job.get("databaseId", -1), "")
+            jlog = extract_relevant_failures(filter_log_for_job(raw, jname)) if raw else ""
             job_logs.append(jlog)
 
         job_token_sets = [compute_error_tokens(jl) for jl in job_logs]
@@ -310,11 +336,13 @@ def main() -> None:
             for member_indices in error_groups:
                 rep_idx = member_indices[0]
                 display_idx += 1
+                rep_job = failed_jobs[rep_idx]
+                rep_log = job_log_by_id.get(rep_job.get("databaseId", -1), "") or None
                 fut = pool.submit(
                     _process_failed_job,
-                    failed_jobs[rep_idx],
+                    rep_job,
                     display_idx,
-                    log_out,
+                    rep_log,
                     run_url,
                     wf_name,
                     config,
