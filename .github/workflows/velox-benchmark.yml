@@ -11,61 +11,53 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
-      variant_label:
-        description: 'Variant label to disambiguate artifacts (e.g. upstream, staging)'
+      build_variant:
+        description: 'Build variant used in final image tags'
         type: string
-        required: false
-        default: ''
-
+        required: true
   workflow_dispatch:
     inputs:
-      velox_image:
-        description: 'Velox GPU image to benchmark. SHAs and date are parsed from the tag. e.g. ghcr.io/rapidsai/velox-testing-images:velox-3b263a7-gpu-cuda12.9-20260313'
-        type: string
-        required: false
-        default: ''
       velox_short_sha:
-        description: 'Short Velox commit SHA (ignored if velox_image is set)'
+        description: 'Short Velox commit SHA (7 chars)'
         type: string
-        required: false
-        default: ''
+        required: true
       date:
-        description: 'Build date YYYYMMDD (ignored if velox_image is set)'
+        description: 'Build date (YYYYMMDD)'
+        type: string
+        required: true
+      build_variant:
+        description: 'Build variant used in final image tags'
+        type: string
+        required: true
+      run_id:
+        description: 'GitHub run ID for manual build image tags; required when build_variant is manual'
         type: string
         required: false
         default: ''
-      variant_label:
-        description: 'Variant label to disambiguate artifacts (e.g. upstream, staging)'
-        type: string
-        required: false
-        default: ''
-
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-images
 
+permissions: {}
+
 jobs:
-  resolve-inputs:
+  resolve-run-id-suffix:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     outputs:
-      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
-      date: ${{ steps.resolve.outputs.date }}
+      run_id_suffix: ${{ steps.run_id_suffix.outputs.run_id_suffix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - uses: ./.github/actions/resolve-inputs
-        id: resolve
+      - uses: ./.github/actions/resolve-run-id-suffix
+        id: run_id_suffix
         with:
-          image_tag: ${{ inputs.velox_image || '' }}
-          velox_short_sha: ${{ inputs.velox_short_sha }}
-          date: ${{ inputs.date }}
+          build_variant: ${{ inputs.build_variant }}
+          run_id: ${{ inputs.run_id }}
 
   benchmark-velox-gpu:
     name: benchmark-velox-gpu (tpch, cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
-    needs: [resolve-inputs]
+    needs: [resolve-run-id-suffix]
     permissions:
       contents: read
       packages: read
@@ -137,12 +129,13 @@ jobs:
 
       - name: Run TPC-H GPU benchmarks
         env:
-          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
-          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
+          RUN_ID_SUFFIX: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
         working-directory: velox/scripts
         run: |
-          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           ./benchmark_velox.sh \
             --image "${IMAGE}" \
             --benchmark-type tpch \
@@ -155,7 +148,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.gpu }}-${{ matrix.arch }}-${{ needs.resolve-inputs.outputs.velox_short_sha }}-${{ needs.resolve-inputs.outputs.date }}${{ inputs.variant_label && format('-{0}', inputs.variant_label) || '' }}"
+          name: "velox-benchmark-tpch-gpu-cuda${{ matrix.cuda_version }}-${{ matrix.gpu }}-${{ matrix.arch }}-${{ inputs.velox_short_sha }}-${{ inputs.date }}-${{ inputs.build_variant }}${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}"
           path: benchmark-results
           if-no-files-found: error
           retention-days: 14

@@ -11,52 +11,53 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
-
+      build_variant:
+        description: 'Build variant used in final image tags'
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
-      velox_image:
-        description: 'Velox image to test. SHAs and date are parsed from the tag. e.g. ghcr.io/rapidsai/velox-testing-images:velox-3b263a7-gpu-cuda12.9-20260313'
-        type: string
-        required: false
-        default: ''
       velox_short_sha:
-        description: 'Short Velox commit SHA (ignored if velox_image is set)'
+        description: 'Short Velox commit SHA (7 chars)'
         type: string
-        required: false
-        default: ''
+        required: true
       date:
-        description: 'Build date YYYYMMDD (ignored if velox_image is set)'
+        description: 'Build date (YYYYMMDD)'
+        type: string
+        required: true
+      build_variant:
+        description: 'Build variant used in final image tags'
+        type: string
+        required: true
+      run_id:
+        description: 'GitHub run ID for manual build image tags; required when build_variant is manual'
         type: string
         required: false
         default: ''
-
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-images
 
+permissions: {}
+
 jobs:
-  resolve-inputs:
+  resolve-run-id-suffix:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     outputs:
-      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
-      presto_short_sha: ${{ steps.resolve.outputs.presto_short_sha }}
-      date: ${{ steps.resolve.outputs.date }}
+      run_id_suffix: ${{ steps.run_id_suffix.outputs.run_id_suffix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - uses: ./.github/actions/resolve-inputs
-        id: resolve
+      - uses: ./.github/actions/resolve-run-id-suffix
+        id: run_id_suffix
         with:
-          image_tag: ${{ inputs.velox_image || '' }}
-          velox_short_sha: ${{ inputs.velox_short_sha }}
-          date: ${{ inputs.date }}
+          build_variant: ${{ inputs.build_variant }}
+          run_id: ${{ inputs.run_id }}
 
   test-velox-cpu:
     name: test-velox-cpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
-    needs: [resolve-inputs]
+    needs: [resolve-run-id-suffix]
     permissions:
       contents: read
       packages: read
@@ -79,11 +80,12 @@ jobs:
           password: ${{ github.token }}
       - name: Run CPU tests
         env:
-          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
-          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
           IMAGE_TAG: ${{ matrix.image_tag }}
+          RUN_ID_SUFFIX: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
         run: |
-          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-${IMAGE_TAG}-${BUILD_DATE}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-${IMAGE_TAG}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           echo "Testing image: ${IMAGE}"
           docker pull "${IMAGE}"
           docker run --rm "${IMAGE}" bash -c \
@@ -91,7 +93,7 @@ jobs:
 
   test-velox-gpu:
     name: test-velox-gpu (${{ matrix.image_tag }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
-    needs: [resolve-inputs]
+    needs: [resolve-run-id-suffix]
     permissions:
       contents: read
       packages: read
@@ -141,11 +143,12 @@ jobs:
           password: ${{ github.token }}
       - name: Run GPU tests
         env:
-          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
-          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
           IMAGE_TAG: ${{ matrix.image_tag }}
+          RUN_ID_SUFFIX: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
         run: |
-          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${IMAGE_TAG}-${BUILD_DATE}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${IMAGE_TAG}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           echo "Testing image: ${IMAGE}"
           docker pull "${IMAGE}"
           docker run --rm --gpus all "${IMAGE}" bash -c \

@@ -11,12 +11,12 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `velox-create-staging.yml` | Creates Velox staging branch by merging cuDF PRs | Auto-fetches PRs with `cudf` label by default |
 | `presto-create-staging.yml` | Creates Presto staging branch by merging specified PRs | Requires manual PR numbers (no auto-fetch) |
 | **CI Images** |||
-| `velox-nightly.yml` | Nightly Velox builds + tests + benchmarks (upstream, staging) | Schedule (5am UTC) + manual dispatch |
-| `presto-nightly.yml` | Nightly Presto builds + tests (upstream, pinned, staging) | Schedule (5am UTC) + manual dispatch |
+| `velox-nightly.yml` | Nightly Velox builds + tests + benchmarks (upstream) | Schedule (5am UTC) + manual dispatch |
+| `presto-nightly.yml` | Nightly Presto builds + tests (upstream, pinned) | Schedule (5am UTC) + manual dispatch |
 | `velox.yml` | Velox CI image build + test + benchmark pipeline | Called by nightly; also supports `workflow_dispatch` |
 | `presto.yml` | Presto CI image build + test pipeline | Called by nightly; also supports `workflow_dispatch` |
 | `actions/resolve-commits/` | Composite action to resolve Velox/Presto commit SHAs | Used by CI image workflows |
-| `actions/resolve-inputs/` | Composite action to parse image tags into SHAs + date | Used by test/benchmark workflows for `workflow_dispatch` |
+| `actions/resolve-run-id-suffix/` | Composite action to resolve final image tag suffixes | Used by test/benchmark workflows |
 | `velox-build.yml` | Reusable workflow for Velox CI image builds + merge | Builds deps + build images, creates multi-arch manifests |
 | `presto-build.yml` | Reusable workflow for Presto CI image builds + merge | Builds deps + build + coordinator, creates multi-arch manifests |
 | `velox-test.yml` | Reusable workflow for Velox CI image tests | CPU + GPU tests; supports `workflow_dispatch` for test-only runs |
@@ -100,16 +100,14 @@ The additional merge happens **after** the base reset but **before** PR merging.
 
 Multi-arch (amd64/arm64) Docker images for Velox and Presto are built and published to [GitHub Container Registry](https://github.com/orgs/rapidsai/packages?repo_name=velox-testing) under the `velox-testing-images` package.
 
-- **`velox-nightly.yml`** — Nightly schedule (5am UTC). Calls `velox.yml` for upstream and staging variants.
-- **`presto-nightly.yml`** — Nightly schedule (5am UTC). Calls `presto.yml` for upstream, pinned, and staging variants.
+- **`velox-nightly.yml`** — Nightly schedule (5am UTC). Calls `velox.yml` for the upstream variant.
+- **`presto-nightly.yml`** — Nightly schedule (5am UTC). Calls `presto.yml` for upstream and pinned variants.
 - **`velox.yml`** / **`presto.yml`** — Reusable pipelines that resolve commits, build images, run tests, and (for Velox) run benchmarks. Also support `workflow_dispatch` for manual runs.
 
   | Variant | Velox | Presto |
   |---------|-------|--------|
   | `upstream` | `facebookincubator/velox:main` | `prestodb/presto:master` |
   | `pinned` | Presto's pinned Velox submodule | `prestodb/presto:master` |
-  | `staging` | `$STABLE_VELOX_REPO:$STABLE_VELOX_COMMIT` | `$STABLE_PRESTO_REPO:$STABLE_PRESTO_COMMIT` |
-
 ### CI Image Pipeline
 
 The Velox pipeline (`velox.yml`):
@@ -131,14 +129,14 @@ The pipeline is split into focused reusable workflows:
 | Workflow | Purpose |
 |----------|---------|
 | `actions/resolve-commits/` | Composite action: resolves Velox/Presto commit SHAs (including `presto-pinned` logic) and sets the build date |
+| `actions/resolve-run-id-suffix/` | Composite action: resolves `-${BUILD_VARIANT}-${GITHUB_RUN_ID}` suffixes for manual final image tags |
 | `velox-build.yml` | Builds velox-deps and velox images, creates multi-arch manifests |
 | `presto-build.yml` | Builds presto-deps, presto native worker, and coordinator images, creates multi-arch manifests |
 | `velox-test.yml` | Runs Velox CPU and GPU tests against built images |
 | `velox-benchmark.yml` | Runs TPC-H GPU benchmarks against built Velox images using `benchmark_velox.sh --image` |
 | `presto-test.yml` | Runs Presto smoke tests and TPC-H/TPC-DS integration tests against built images |
-| `actions/resolve-inputs/` | Composite action: parses image tags into SHAs + date for `workflow_dispatch` test/benchmark-only runs |
 
-`velox-test.yml`, `velox-benchmark.yml`, and `presto-test.yml` all support `workflow_dispatch` for standalone runs against pre-built images.
+`velox-test.yml`, `velox-benchmark.yml`, and `presto-test.yml` all support `workflow_dispatch` for standalone runs. Dispatch inputs use the same commit/date/build-variant components as reusable workflow calls, plus an optional `run_id` that is required when testing images from manual builds (`build_variant: manual`).
 
 ### Image Tags
 
@@ -151,6 +149,8 @@ Images are tagged with commit SHAs, CUDA version, and build date:
 - **Presto build (GPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}`
 - **Presto build (CPU):** `presto-${PRESTO_SHA}-velox-${VELOX_SHA}-cpu-${DATE}`
 - **Presto coordinator:** `presto-coordinator-${PRESTO_SHA}-${DATE}`
+
+Manual build runs append the build variant and GitHub run ID to final image tags, for example `velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}`. Scheduled nightly final tags keep the date-only names above and update stable `latest` tags for the canonical variants. Intermediate arch-specific tags include the same build variant and GitHub run ID before the architecture suffix, for example `velox-${VELOX_SHA}-gpu-cuda${CUDA_VERSION}-${DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${ARCH}`, so overlapping builds cannot delete each other's merge inputs.
 
 Images are purged after 30 days by the `ci-image-cleanup.yml` workflow.
 
@@ -220,14 +220,14 @@ CI IMAGES (VELOX)
 velox-nightly.yml ──► velox.yml ──► velox-build.yml ─────┤
                                                          └─► velox-benchmark.yml
 
-velox-test.yml (workflow_dispatch) ──► [resolve-inputs] ──► [test pre-built images]
-velox-benchmark.yml (workflow_dispatch) ──► [resolve-inputs] ──► [benchmark pre-built images]
+velox-test.yml (workflow_dispatch) ──► [test images by SHA/date/variant]
+velox-benchmark.yml (workflow_dispatch) ──► [benchmark images by SHA/date/variant]
 
 CI IMAGES (PRESTO)
 ──────────────────
 presto-nightly.yml ──► presto.yml ──► presto-build.yml ──► presto-test.yml
 
-presto-test.yml (workflow_dispatch) ──► [resolve-inputs] ──► [test pre-built images]
+presto-test.yml (workflow_dispatch) ──► [test images by SHA/date/variant]
 
 COMPUTE SANITIZER
 ─────────────────
