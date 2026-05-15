@@ -7,15 +7,29 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import duckdb
 from duckdb_utils import init_benchmark_tables, is_decimal_column
-from rewrite_parquet import process_dir
+
+_INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
+_HIGH_CARD_NDV_THRESHOLD = 0.99
+_SAMPLE_SF = 0.01
 
 
-def generate_partition(table, partition, raw_data_path, scale_factor, num_partitions, verbose, approx_row_group_bytes):
+def generate_partition(
+    table,
+    partition,
+    raw_data_path,
+    scale_factor,
+    num_partitions,
+    verbose,
+    approx_row_group_bytes,
+    convert_decimals_to_floats,
+    codec_defs,
+):
     if verbose:
         print(f"Generating '{table}' partition: {partition}")
     Path(f"{raw_data_path}/part-{partition}").mkdir(parents=True, exist_ok=True)
@@ -36,13 +50,39 @@ def generate_partition(table, partition, raw_data_path, scale_factor, num_partit
         "--parquet-row-group-bytes",
         str(approx_row_group_bytes),
     ]
+
+    if convert_decimals_to_floats:
+        command.extend(["--decimal-column-type", "f64"])
+
+    command.extend(get_tpchgen_codec_args(codec_defs, table))
+
     try:
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, stderr=subprocess.PIPE, text=True)
     except subprocess.CalledProcessError as e:
-        print(f"Error generating TPC-H data: {e}")
+        stderr = e.stderr or ""
+        if "--parquet-compression" in stderr:
+            bad_value = next(t["compression"] for t in codec_defs["tables"] if t["name"] == table)
+            raise ValueError(
+                f"Invalid 'compression' value '{bad_value}' for table '{table}' in codec definitions. "
+                f"See codec_definition_template.json for valid values."
+            ) from e
+        if stderr:
+            sys.stderr.write(stderr)
+        raise
 
 
 def generate_data_files(args):
+    if args.codec_definitions:
+        if args.benchmark_type != "tpch":
+            raise ValueError("--codec-definitions is currently only supported for TPC-H benchmarks")
+        if args.use_duckdb:
+            raise ValueError("--codec-definitions is not supported with --use-duckdb")
+        codec_defs = load_codec_definitions(args.codec_definitions)
+    elif args.benchmark_type == "tpch" and not args.use_duckdb:
+        codec_defs = build_default_codec_defs()
+    else:
+        codec_defs = None
+
     if os.path.exists(args.data_dir_path):
         shutil.rmtree(args.data_dir_path)
     Path(f"{args.data_dir_path}").mkdir(parents=True, exist_ok=True)
@@ -51,22 +91,20 @@ def generate_data_files(args):
     if args.benchmark_type == "tpch" and not args.use_duckdb:
         if args.verbose:
             print("generating with tpchgen")
-        generate_data_files_with_tpchgen(args)
+        generate_data_files_with_tpchgen(args, codec_defs)
     else:
         if args.verbose:
             print("generating with duckdb")
         generate_data_files_with_duckdb(args)
 
 
-def generate_data_files_with_tpchgen(args):
-    tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
+def generate_data_files_with_tpchgen(args, codec_defs):
+    local_installs_bin = Path(__file__).resolve().parent / ".local_installs" / "bin"
+    if local_installs_bin.exists():
+        os.environ["PATH"] = os.pathsep.join([str(local_installs_bin), os.environ["PATH"]])
 
-    if args.convert_decimals_to_floats:
-        raw_data_path = args.data_dir_path + "-temp"
-        if os.path.exists(raw_data_path):
-            shutil.rmtree(raw_data_path)
-    else:
-        raw_data_path = args.data_dir_path
+    tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
+    raw_data_path = args.data_dir_path
 
     max_partitions = 1
     with ThreadPoolExecutor(args.num_threads) as executor:
@@ -86,6 +124,8 @@ def generate_data_files_with_tpchgen(args):
                         num_partitions,
                         args.verbose,
                         args.approx_row_group_bytes,
+                        args.convert_decimals_to_floats,
+                        codec_defs,
                     )
                 )
             max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
@@ -97,11 +137,6 @@ def generate_data_files_with_tpchgen(args):
 
     if args.verbose:
         print(f"Raw data created at: {raw_data_path}")
-
-    if args.convert_decimals_to_floats:
-        process_dir(raw_data_path, args.data_dir_path, args.num_threads, args.verbose, args.convert_decimals_to_floats)
-        if not args.keep_original_dataset:
-            shutil.rmtree(raw_data_path)
 
     write_metadata(args)
 
@@ -191,6 +226,128 @@ def get_column_projection(column_metadata, convert_decimals_to_floats):
     return projection
 
 
+def get_tpchgen_codec_args(codec_defs, table_name):
+    """Build tpchgen-cli flags from codec definitions for a specific table.
+
+    Returns a list of CLI arguments to append to the tpchgen-cli command.
+    """
+    if codec_defs is None:
+        return []
+
+    table_config = None
+    for table in codec_defs.get("tables", []):
+        if table["name"] == table_name:
+            table_config = table
+            break
+
+    if table_config is None:
+        return []
+
+    args = []
+
+    table_compression = table_config.get("compression")
+    if table_compression:
+        args.append(f"--parquet-compression={table_compression.upper()}")
+
+    columns = table_config.get("columns", [])
+    if not columns:
+        return args
+
+    uncompressed_cols = [column["name"] for column in columns if column.get("compressed") is False]
+    if uncompressed_cols:
+        args.append(f"--uncompressed-column-overrides={','.join(uncompressed_cols)}")
+
+    for column in columns:
+        encoding = column.get("encoding")
+        if encoding:
+            if encoding.upper() == "RLE_DICTIONARY":
+                raise ValueError(
+                    "RLE_DICTIONARY cannot be used as a column encoding. To enable dictionary encoding, set "
+                    "'dictionary' to true (or omit it) instead."
+                )
+            args.append(f"--column-encoding={column['name']}={encoding}")
+
+    no_dict_cols = [column["name"] for column in columns if column.get("dictionary") is False]
+    if no_dict_cols:
+        args.append(f"--disable-dictionary-encoding={','.join(no_dict_cols)}")
+
+    return args
+
+
+def load_codec_definitions(path):
+    """Load and validate a codec definitions JSON file.
+
+    See codec_definition_template.json for the expected schema.
+    """
+    with open(path) as file:
+        codec_defs = json.load(file)
+
+    if "tables" not in codec_defs:
+        raise ValueError(f"Codec definitions file must contain a 'tables' key: {path}")
+
+    for table in codec_defs["tables"]:
+        if "name" not in table:
+            raise ValueError(f"Each table entry must have a 'name' key: {path}")
+        for column in table.get("columns", []):
+            if "name" not in column:
+                raise ValueError(f"Each column entry must have a 'name' key (table '{table['name']}'): {path}")
+
+    return codec_defs
+
+
+def build_default_codec_defs():
+    """Auto-generate codec definitions by introspecting TPC-H schema at a tiny SF.
+
+    Best-performing configuration from TPC-H SF1000 benchmarks (10 iterations,
+    22 queries, Presto GPU):
+      - All integers:              DELTA_BINARY_PACKED, dictionary off
+      - Unique strings (NDV>=99%): PLAIN, dictionary off
+      - Everything else:           tpchgen-cli defaults (PLAIN + Snappy + dictionary on)
+
+    Achieved ~11% improvement over baseline with ~15% smaller dataset.
+    """
+    with duckdb.connect() as conn:
+        conn.execute(f"INSTALL tpch; LOAD tpch; CALL dbgen(sf = {_SAMPLE_SF});")
+
+        tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
+        config = {"tables": []}
+
+        for table in sorted(tables):
+            total_rows = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            if total_rows == 0:
+                raise RuntimeError(f"Table '{table}' has no rows at SF {_SAMPLE_SF}")
+
+            columns_meta = conn.execute(f"DESCRIBE {table}").fetchall()
+            col_entries = []
+
+            for col_name, col_type, *_ in columns_meta:
+                column_type = col_type.upper()
+
+                if column_type in _INTEGER_TYPES:
+                    col_entries.append(
+                        {
+                            "name": col_name,
+                            "encoding": "DELTA_BINARY_PACKED",
+                            "dictionary": False,
+                        }
+                    )
+                elif column_type == "VARCHAR":
+                    ndv = conn.execute(f"SELECT COUNT(DISTINCT {col_name}) FROM {table}").fetchone()[0]
+                    if ndv / total_rows >= _HIGH_CARD_NDV_THRESHOLD:
+                        col_entries.append(
+                            {
+                                "name": col_name,
+                                "encoding": "PLAIN",
+                                "dictionary": False,
+                            }
+                        )
+
+            if col_entries:
+                config["tables"].append({"name": table, "columns": col_entries})
+
+    return config
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate benchmark parquet data files for a given scale factor. "
@@ -245,20 +402,18 @@ if __name__ == "__main__":
         help="Limit number of rows in each file (creates more partitions)",
     )
     parser.add_argument(
-        "-k",
-        "--keep-original-dataset",
-        action="store_true",
-        required=False,
-        default=False,
-        help="Keep the original dataset that was generated before transformations",
-    )
-    parser.add_argument(
         "--approx-row-group-bytes",
         type=int,
         required=False,
         default=128 * 1024 * 1024,
         help="Approximate row group size in bytes. 128MB by default.",
     )
+    parser.add_argument(
+        "--codec-definitions",
+        type=str,
+        required=False,
+        default=None,
+        help="Path to a JSON file specifying per-table/per-column encoding, compression, and dictionary settings.",
+    )
     args = parser.parse_args()
-
     generate_data_files(args)

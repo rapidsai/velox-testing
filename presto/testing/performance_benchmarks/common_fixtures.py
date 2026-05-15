@@ -9,10 +9,10 @@ import prestodb
 import pytest
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
+from common.testing.performance_benchmarks.profiler_utils import start_profiler, stop_profiler
 
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
-from .profiler_utils import start_profiler, stop_profiler
 from .run_context import gather_run_context
 
 
@@ -42,6 +42,9 @@ def run_context_collector(request):
 @pytest.fixture(scope="session", autouse=True)
 def verify_tables_analyzed(request):
     """Session-scoped setup that verifies ANALYZE TABLE has been run on all tables."""
+    if request.config.getoption("--skip-analyze-check"):
+        print("[Analyze] Skipping analyze check (--skip-analyze-check flag set).")
+        return
     hostname = request.config.getoption("--hostname")
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
@@ -50,6 +53,8 @@ def verify_tables_analyzed(request):
     cursor = conn.cursor()
     try:
         check_tables_analyzed(cursor, schema)
+    except RuntimeError as e:
+        pytest.exit(str(e), returncode=1)
     finally:
         cursor.close()
         conn.close()

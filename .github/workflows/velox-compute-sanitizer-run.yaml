@@ -1,0 +1,73 @@
+name: compute-sanitizer-run
+
+on:
+  workflow_call:
+    inputs:
+      tool_name:
+        required: true
+        type: string
+        description: "Compute sanitizer tool to run (memcheck, racecheck, initcheck, synccheck)"
+      test_names:
+        required: true
+        type: string
+        description: "JSON array of test names to run"
+      velox_image:
+        required: true
+        type: string
+        description: "Full Velox GPU container image reference"
+  workflow_dispatch:
+    inputs:
+      tool_name:
+        required: true
+        type: choice
+        description: "Compute sanitizer tool to run"
+        options:
+          - memcheck
+          - racecheck
+          - initcheck
+          - synccheck
+      test_names:
+        required: true
+        type: string
+        description: "JSON array of test names to run"
+      velox_image:
+        required: true
+        type: string
+        description: "Full Velox GPU container image reference"
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  run-sanitizer-tests:
+    name: ${{ inputs.tool_name }} / ${{ matrix.test_name }}
+    runs-on: linux-amd64-gpu-l4-latest-1
+    permissions:
+      contents: read
+      packages: read
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        test_name: ${{ fromJson(inputs.test_names) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+      - name: Run compute-sanitizer ${{ inputs.tool_name }} on ${{ matrix.test_name }}
+        env:
+          IMAGE: ${{ inputs.velox_image }}
+          TOOL_NAME: ${{ inputs.tool_name }}
+          TEST_NAME: ${{ matrix.test_name }}
+        run: |
+          docker pull "${IMAGE}"
+          docker run --rm --gpus all \
+            -v "${GITHUB_WORKSPACE}/ci/run_compute_sanitizer_test.sh:/tmp/run_compute_sanitizer_test.sh:ro" \
+            "${IMAGE}" bash /tmp/run_compute_sanitizer_test.sh "${TOOL_NAME}" "${TEST_NAME}"

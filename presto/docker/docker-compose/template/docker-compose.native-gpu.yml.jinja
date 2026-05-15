@@ -2,7 +2,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
   extends:
     file: ../../docker-compose.common.yml
     service: presto-base-native-worker
-  image: presto-native-worker-gpu:${PRESTO_IMAGE_TAG}
+  image: presto-native-worker-gpu:${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}
   build:
     args:
       - GPU=ON
@@ -16,6 +16,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
   cap_add:
     - IPC_LOCK
     - SYS_ADMIN  # Required for nsys GPU metrics profiling
+    - SYS_NICE   # Required for numactl --cpunodebind/--membind under Docker's default seccomp profile (gates set_mempolicy/mbind/get_mempolicy)
   pid: host
   ulimits:
     memlock: -1
@@ -44,7 +45,6 @@ x-presto-native-worker-gpu: &gpu_worker_base
     #   - /dev/infiniband/uverbs9
   depends_on:
     - presto-coordinator
-  privileged: true
   volumes:
   # required for numa
     - /sys/devices/system/node:/sys/devices/system/node
@@ -73,8 +73,8 @@ services:
     environment:
       WORKER_ID: {{ gpu_id }}
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
@@ -101,8 +101,8 @@ services:
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
@@ -117,8 +117,8 @@ services:
 {% else %}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-      PROFILE: ${PROFILE}
-      PROFILE_ARGS: ${PROFILE_ARGS}
+      PROFILE: ${PROFILE:-}
+      PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y

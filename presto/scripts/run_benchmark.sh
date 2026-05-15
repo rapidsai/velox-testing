@@ -42,6 +42,7 @@ OPTIONS:
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
+    --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
     -v, --verbose           Print debug logs for worker/engine detection
@@ -174,6 +175,10 @@ parse_args() {
         SKIP_DROP_CACHE=true
         shift
         ;;
+      --skip-analyze-check)
+        SKIP_ANALYZE_CHECK=true
+        shift
+        ;;
       -m|--metrics)
         METRICS=true
         shift
@@ -262,6 +267,10 @@ if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
 fi
 
+if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then
+  PYTEST_ARGS+=("--skip-analyze-check")
+fi
+
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
 trap delete_python_virtual_env EXIT
@@ -283,3 +292,26 @@ echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+
+# Snapshot logs and engine configs into the benchmark output directory so that
+# post_results.py has self-contained, run-specific data even when multiple runs
+# are posted after the fact.
+EFFECTIVE_OUTPUT_DIR="$(readlink -f "${OUTPUT_DIR:-$(pwd)/benchmark_output}")"
+if [[ -n "${TAG}" ]]; then
+  EFFECTIVE_BENCHMARK_DIR="${EFFECTIVE_OUTPUT_DIR}/${TAG}"
+else
+  EFFECTIVE_BENCHMARK_DIR="${EFFECTIVE_OUTPUT_DIR}"
+fi
+
+if [[ -d "${LOGS_DIR}" ]]; then
+  mkdir -p "${EFFECTIVE_BENCHMARK_DIR}/logs"
+  cp -r "${LOGS_DIR}/." "${EFFECTIVE_BENCHMARK_DIR}/logs/"
+  echo "Snapshotted logs to ${EFFECTIVE_BENCHMARK_DIR}/logs"
+fi
+
+CONFIG_SRC="$(readlink -f "${SCRIPT_DIR}/../docker/config/generated")"
+if [[ -d "${CONFIG_SRC}" ]]; then
+  mkdir -p "${EFFECTIVE_BENCHMARK_DIR}/config"
+  cp -r "${CONFIG_SRC}/." "${EFFECTIVE_BENCHMARK_DIR}/config/"
+  echo "Snapshotted configs to ${EFFECTIVE_BENCHMARK_DIR}/config"
+fi

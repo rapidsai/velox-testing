@@ -42,33 +42,19 @@ OPTIONS:
     --preview-rows-count                Number of rows to include in the preview i.e. when
                                         --show-spark-result-preview or --show-reference-result-preview is specified.
     --skip-reference-comparison         Skip Spark rows comparison against a reference set of rows.
-    --reuse-venv                        If this argument is specified, reuse the existing Python virtual environment if
-                                        one exists and skip dependency installation.
-    --static-gluten-jar-path            Path to a statically-linked Gluten JAR file on the host.
-    --image-tag                         Tag of docker image to use for testing. The full image reference is
-                                        "apache/gluten:<image-tag>". The default value is "dynamic_gpu_\${USER:-latest}".
-    --spark-config                      Path to a Spark configuration file. Values in this file override
-                                        the default Spark configurations. Each line should contain a key
-                                        and value separated by whitespace.
-    --env-file                          Path to an environment variable file. Each line should contain a
-                                        variable assignment in KEY=VALUE format. These variables will be
-                                        set in the container environment when running integration tests.
-
-
+    --hostname                          Hostname of the Spark Connect server (default: localhost).
+    --port                              Port of the Spark Connect gRPC service (default: 15002).
+    --reset-venv                        Delete and recreate the Python virtual environment before running.
 
 EXAMPLES:
     $0 -b tpch
     $0 -b tpch -q "1,2"
-    $0 -b tpch -q "1,2" --image-tag my_gpu_image_tag
-    $0 -b tpch --spark-config /path/to/custom_config.conf
-    $0 -b tpch --env-file /path/to/env_vars.env
     $0 -b tpch -q "1,2" -d my_sf1_dataset
     $0 -b tpch -q "1,2" -d my_sf1_dataset -r my_reference_results_dir
     $0 -b tpch -q "1,2" -d my_sf1_dataset --store-spark-results
     $0 -b tpch -q "1,2" -d my_sf1_dataset --store-reference-results
     $0 -b tpch -q "1,2" -d my_sf1_dataset --show-spark-result-preview --show-reference-result-preview --preview-rows-count 5
     $0 -b tpch -q "1,2" -d my_sf1_dataset --store-spark-results --skip-reference-comparison
-    $0 -b tpch --static-gluten-jar-path /path/to/custom/gluten/build.jar
     $0 -h
 
 EOF
@@ -158,50 +144,27 @@ parse_args() {
         SKIP_REFERENCE_COMPARISON=true
         shift
         ;;
-      --reuse-venv)
-        # shellcheck disable=SC2034 # consumed by run_test_in_docker.sh
-        REUSE_VENV=true
+      --hostname)
+        if [[ -n $2 ]]; then
+          HOST_NAME=$2
+          shift 2
+        else
+          echo "Error: --hostname requires a value"
+          exit 1
+        fi
+        ;;
+      --port)
+        if [[ -n $2 ]]; then
+          PORT=$2
+          shift 2
+        else
+          echo "Error: --port requires a value"
+          exit 1
+        fi
+        ;;
+      --reset-venv)
+        RESET_VENV=true
         shift
-        ;;
-      --static-gluten-jar-path)
-        if [[ -n $2 ]]; then
-          # shellcheck disable=SC2034 # consumed by run_test_in_docker.sh
-          GLUTEN_JAR_PATH=$2
-          shift 2
-        else
-          echo "Error: --static-gluten-jar-path requires a value"
-          exit 1
-        fi
-        ;;
-      --image-tag)
-        if [[ -n $2 ]]; then
-          # shellcheck disable=SC2034 # consumed by run_test_in_docker.sh
-          IMAGE_TAG=$2
-          shift 2
-        else
-          echo "Error: --image-tag requires a value"
-          exit 1
-        fi
-        ;;
-      --spark-config)
-        if [[ -n $2 ]]; then
-          # shellcheck disable=SC2034 # consumed by resolve_config_args
-          SPARK_CONFIG_FILE=$2
-          shift 2
-        else
-          echo "Error: --spark-config requires a value"
-          exit 1
-        fi
-        ;;
-      --env-file)
-        if [[ -n $2 ]]; then
-          # shellcheck disable=SC2034 # consumed by resolve_config_args
-          ENV_FILE=$2
-          shift 2
-        else
-          echo "Error: --env-file requires a value"
-          exit 1
-        fi
         ;;
       *)
         echo "Error: Unknown argument $1"
@@ -218,6 +181,30 @@ if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
   echo "Error: A valid benchmark type (tpch or tpcds) is required. Use the -b or --benchmark-type argument."
   print_help
   exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/spark_connect_functions.sh"
+
+SERVER_HOST="${HOST_NAME:-localhost}"
+SERVER_PORT="${PORT:-15002}"
+
+if ! check_spark_connect_server "${SERVER_HOST}" "${SERVER_PORT}"; then
+  echo "Error: Spark Connect server is not running at ${SERVER_HOST}:${SERVER_PORT}."
+  echo "Start the server with start_spark_connect.sh before running integration tests."
+  exit 1
+fi
+
+# When using a custom dataset, SPARK_DATA_DIR has to be set.
+if [[ -n ${DATASET_NAME} ]]; then
+  if [[ -z ${SPARK_DATA_DIR} ]]; then
+    echo "Error: When using --dataset-name, the SPARK_DATA_DIR environment variable must be set to a directory containing the benchmark datasets."
+    print_help
+    exit 1
+  fi
 fi
 
 PYTEST_ARGS=()
@@ -262,26 +249,34 @@ if [[ -n ${SKIP_REFERENCE_COMPARISON} ]]; then
   PYTEST_ARGS+=("--skip-reference-comparison")
 fi
 
+PYTEST_ARGS+=("--hostname" "${SERVER_HOST}")
+PYTEST_ARGS+=("--port" "${SERVER_PORT}")
+
 VENV_DIR=".integ_test_venv"
 
 # shellcheck disable=SC1091
-source "$(dirname "${BASH_SOURCE[0]}")/run_test_in_docker.sh"
+source "${REPO_ROOT}/scripts/py_env_functions.sh"
 
-resolve_config_args
-
-# When using a custom dataset, SPARK_DATA_DIR has to be set.
-if [[ -n ${DATASET_NAME} ]]; then
-  if [[ -z ${SPARK_DATA_DIR} ]]; then
-    echo "Error: When using --dataset-name, the SPARK_DATA_DIR environment variable must be set to a directory containing the benchmark datasets."
-    print_help
-    exit 1
-  fi
-  EXTRA_DOCKER_ARGS+=(-v "${SPARK_DATA_DIR}:${SPARK_DATA_DIR}" -e "SPARK_DATA_DIR=${SPARK_DATA_DIR}")
+if [[ "${RESET_VENV}" == "true" ]]; then
+  delete_python_virtual_env "${VENV_DIR}"
 fi
 
-TEST_FILE="../testing/integration_tests/${BENCHMARK_TYPE}_test.py"
+TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
 
-run_test_in_docker \
-  "${VENV_DIR}" \
-  "${OUTPUT_DIR}" \
-  -s -v --durations=0 "${TEST_FILE}" "${PYTEST_ARGS[@]}"
+init_python_virtual_env "${VENV_DIR}"
+pip install --disable-pip-version-check -q -r "${TEST_DIR}/requirements.txt"
+
+LOG_FILE="${OUTPUT_DIR}/spark_warnings.log"
+mkdir -p "${OUTPUT_DIR}"
+
+TEST_FILE="${SCRIPT_DIR}/../testing/integration_tests/${BENCHMARK_TYPE}_test.py"
+
+echo "Warnings/stderr redirected to ${LOG_FILE}"
+pytest -s -v --durations=0 "${TEST_FILE}" "${PYTEST_ARGS[@]}" 2>"${LOG_FILE}"
+EXIT_CODE=$?
+
+if [[ -s "${LOG_FILE}" ]]; then
+  echo "Warning log saved to ${LOG_FILE} ($(wc -l < "${LOG_FILE}") lines)"
+fi
+
+exit "${EXIT_CODE}"

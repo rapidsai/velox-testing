@@ -36,6 +36,7 @@ function validate_sibling_repos() {
 }
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
+source "${SCRIPT_DIR}/common_functions.sh"
 
 validate_sccache_auth() {
   if [[ "$ENABLE_SCCACHE" == true ]]; then
@@ -96,7 +97,8 @@ CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:${PRESTO_IMAGE_TAG}
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
 GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:${PRESTO_IMAGE_TAG}
 
-DEPS_IMAGE="presto/prestissimo-dependency:centos9"
+DEPS_IMAGE="presto/prestissimo-dependency:centos9-${USER:-latest}"
+export DEPS_IMAGE
 
 BUILD_TARGET_ARG=()
 
@@ -225,6 +227,13 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
   fi
 
+  # Capture build provenance from sibling repos; exported so docker-compose picks them up.
+  capture_build_provenance "${REPO_ROOT}"
+  if [[ "$VARIANT_TYPE" == "java" ]]; then
+    VELOX_SHA="" VELOX_BRANCH="" VELOX_REPO=""
+  fi
+  export PRESTO_SHA PRESTO_BRANCH PRESTO_REPO VELOX_SHA VELOX_BRANCH VELOX_REPO
+
   echo "Building services: ${BUILD_TARGET_ARG[@]}"
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
@@ -232,6 +241,33 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
   "${SCCACHE_BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}
+
+  # Coordinator and java-worker use external Dockerfiles (presto repo) without ARG+LABEL
+  # declarations, so provenance labels are applied via a wrapper Dockerfile after build.
+  PROVENANCE_LABEL_BUILDARGS=(
+    --build-arg PRESTO_SHA="${PRESTO_SHA}"
+    --build-arg PRESTO_BRANCH="${PRESTO_BRANCH}"
+    --build-arg PRESTO_REPOSITORY="${PRESTO_REPO}"
+    --build-arg VELOX_SHA=""
+    --build-arg VELOX_BRANCH=""
+    --build-arg VELOX_REPOSITORY=""
+  )
+  for service in "${BUILD_TARGET_ARG[@]}"; do
+    case "$service" in
+      "$COORDINATOR_SERVICE") img="$COORDINATOR_IMAGE" ;;
+      "$JAVA_WORKER_SERVICE") img="$JAVA_WORKER_IMAGE" ;;
+      *) continue ;;
+    esac
+    PRELABEL_IMAGE_ID=$(docker inspect --format='{{.Id}}' "${img}")
+    echo "Applying provenance labels to ${img}..."
+    docker build --no-cache \
+      -f "${REPO_ROOT}/presto/docker/provenance_labels.dockerfile" \
+      --build-arg BASE_IMAGE="${img}" \
+      "${PROVENANCE_LABEL_BUILDARGS[@]}" \
+      -t "${img}" \
+      "${REPO_ROOT}/presto/docker"
+    docker rmi "${PRELABEL_IMAGE_ID}" 2>/dev/null || true
+  done
 fi
 
 # Start all services defined in the rendered docker-compose file.

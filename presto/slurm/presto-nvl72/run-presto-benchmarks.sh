@@ -14,6 +14,11 @@ set -exuo pipefail
 source $SCRIPT_DIR/echo_helpers.sh
 source $SCRIPT_DIR/functions.sh
 
+# Ensure metadata injection runs even if the script exits early (e.g. a worker
+# fails to register).  This guarantees benchmark_result.json always has a
+# context block with image_digest before the results are copied out.
+trap 'inject_benchmark_metadata' EXIT
+
 # ==============================================================================
 # Setup and Validation
 # ==============================================================================
@@ -47,10 +52,6 @@ done
 echo "Waiting for ${NUM_WORKERS} workers to register with coordinator..."
 wait_for_workers_to_register $NUM_WORKERS
 
-# Not currently needed because we are copying the hive metastore from the data source.
-#echo "Creating TPC-H schema and registering tables for scale factor ${SCALE_FACTOR}..."
-#setup_benchmark ${SCALE_FACTOR}
-
 # ==============================================================================
 # Run Queries
 # ==============================================================================
@@ -62,10 +63,13 @@ run_queries ${NUM_ITERATIONS} ${SCALE_FACTOR}
 # ==============================================================================
 echo "Processing results..."
 mkdir -p ${SCRIPT_DIR}/result_dir
-cp -r ${LOGS_DIR}/cli_${SERVER_START_TIMESTAMP}.log ${SCRIPT_DIR}/result_dir/summary.txt
+cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
+
+echo "Collecting configs and logs into result directory..."
+collect_results
 
 echo "========================================"
 echo "Benchmark complete!"
 echo "Results saved to: ${SCRIPT_DIR}/results_dir"
-echo "Logs available at: ${LOGS_DIR}"
+echo "Logs available at: ${LOGS}"
 echo "========================================"

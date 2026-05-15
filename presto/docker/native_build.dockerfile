@@ -1,5 +1,6 @@
 # check=skip=SecretsUsedInArgOrEnv
-FROM presto/prestissimo-dependency:centos9
+ARG BASE_IMAGE=presto/prestissimo-dependency:centos9
+FROM ${BASE_IMAGE}
 
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
     dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
@@ -110,5 +111,18 @@ RUN mkdir /usr/lib64/presto-native-libs && \
     echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
 
 COPY velox-testing/presto/docker/launch_presto_servers.sh velox-testing/presto/docker/presto_profiling_wrapper.sh /opt
+
+ARG PRESTO_SHA
+ARG PRESTO_BRANCH
+ARG PRESTO_REPOSITORY
+ARG VELOX_SHA
+ARG VELOX_BRANCH
+ARG VELOX_REPOSITORY
+LABEL velox-testing.presto.sha=${PRESTO_SHA} \
+      velox-testing.presto.branch=${PRESTO_BRANCH} \
+      velox-testing.presto.repository=${PRESTO_REPOSITORY} \
+      velox-testing.velox.sha=${VELOX_SHA} \
+      velox-testing.velox.branch=${VELOX_BRANCH} \
+      velox-testing.velox.repository=${VELOX_REPOSITORY}
 
 CMD ["bash", "/opt/presto_profiling_wrapper.sh"]

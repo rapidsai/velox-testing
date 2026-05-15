@@ -45,6 +45,8 @@ jobs:
       date: ${{ steps.resolve.outputs.date }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/resolve-inputs
         id: resolve
         with:
@@ -88,7 +90,7 @@ jobs:
             "cd /opt/velox-build/release && ctest -j 16 --label-exclude cuda_driver --output-on-failure --no-tests=error"
 
   test-velox-gpu:
-    name: test-velox-gpu (${{ matrix.image_tag }}, ${{ matrix.arch }})
+    name: test-velox-gpu (${{ matrix.image_tag }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
     needs: [resolve-inputs]
     permissions:
       contents: read
@@ -97,18 +99,38 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # amd64
           - arch: amd64
             image_tag: 12.9
             gpu: l4
           - arch: amd64
+            image_tag: 12.9
+            gpu: a100
+          - arch: amd64
+            image_tag: 12.9
+            gpu: h100
+          - arch: amd64
             image_tag: 13.1
             gpu: l4
+          - arch: amd64
+            image_tag: 13.1
+            gpu: a100
+          - arch: amd64
+            image_tag: 13.1
+            gpu: h100
+          # arm64
           - arch: arm64
             image_tag: 12.9
             gpu: l4
           - arch: arm64
+            image_tag: 12.9
+            gpu: a100
+          - arch: arm64
             image_tag: 13.1
             gpu: l4
+          - arch: arm64
+            image_tag: 13.1
+            gpu: a100
     runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
     steps:
       - name: Log in to the Container registry
