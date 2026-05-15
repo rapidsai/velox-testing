@@ -144,6 +144,13 @@ _CLUSTER_TAG_TO_ENGINE = {
     "java": "presto-java",
 }
 
+_PROVENANCE_FILE = Path("/opt/velox-testing/provenance.json")
+
+_PROVENANCE_FIELDS = frozenset({
+    "presto_sha", "presto_branch", "presto_repo",
+    "velox_sha", "velox_branch", "velox_repo",
+})
+
 
 def _get_engine(hostname: str, port: int) -> str:
     """Determine worker engine type from the coordinator's cluster-tag.
@@ -209,6 +216,20 @@ def _get_num_drivers() -> int | None:
     return None
 
 
+def _get_image_provenance() -> dict:
+    """Return provenance fields from the baked-in file, or {} if absent or unreadable."""
+    if not _PROVENANCE_FILE.is_file():
+        return {}
+    try:
+        data = json.loads(_PROVENANCE_FILE.read_text())
+        result = {k: v for k, v in data.items() if k in _PROVENANCE_FIELDS and v}
+        _debug(f"provenance from file: {result}")
+        return result
+    except Exception as e:
+        _debug(f"failed to read provenance file: {e}")
+        return {}
+
+
 def gather_run_context(
     hostname: str,
     port: int,
@@ -251,5 +272,7 @@ def gather_run_context(
 
     # Always 1 for single-run invocations; reserved for future multi-execution support.
     ctx["execution_number"] = 1
+
+    ctx.update(_get_image_provenance())
 
     return ctx

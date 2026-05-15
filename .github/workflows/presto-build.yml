@@ -123,7 +123,6 @@ jobs:
           cp -r velox/CMake presto-deps-context/velox/CMake
 
       - name: Build and push Presto deps image
-        id: push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
         with:
           context: presto-deps-context
@@ -131,15 +130,27 @@ jobs:
           build-args: |
             CUDA_VERSION=${{ matrix.cuda_version }}
             ARM_BUILD_TARGET=generic
-          labels: |
-            velox-testing.presto.sha=${{ inputs.presto_sha }}
-            velox-testing.presto.branch=
-            velox-testing.presto.repository=${{ inputs.presto_repository }}
-            velox-testing.velox.sha=${{ inputs.velox_sha }}
-            velox-testing.velox.branch=
-            velox-testing.velox.repository=${{ inputs.velox_repository }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }},mode=max
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ matrix.arch }}
+
+      - name: Apply provenance labels to Presto deps image
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          context: velox-testing/presto/docker
+          file: velox-testing/presto/docker/provenance_labels.dockerfile
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ matrix.arch }}
+            PRESTO_SHA=${{ inputs.presto_sha }}
+            PRESTO_BRANCH=
+            PRESTO_REPOSITORY=${{ inputs.presto_repository }}
+            VELOX_SHA=${{ inputs.velox_sha }}
+            VELOX_BRANCH=
+            VELOX_REPOSITORY=${{ inputs.velox_repository }}
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
@@ -190,20 +201,31 @@ jobs:
           echo "tag=presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Presto coordinator image
-        id: push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
         with:
           context: presto/docker
           file: presto/docker/Dockerfile
           build-args: |
             PRESTO_VERSION=${{ inputs.presto_short_sha }}
-          labels: |
-            velox-testing.presto.sha=${{ inputs.presto_sha }}
-            velox-testing.presto.branch=
-            velox-testing.presto.repository=${{ inputs.presto_repository }}
-            velox-testing.velox.sha=
-            velox-testing.velox.branch=
-            velox-testing.velox.repository=
+          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+
+      - name: Apply provenance labels to Presto coordinator image
+        id: push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          context: velox-testing/presto/docker
+          file: velox-testing/presto/docker/provenance_labels.dockerfile
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+            PRESTO_SHA=${{ inputs.presto_sha }}
+            PRESTO_BRANCH=
+            PRESTO_REPOSITORY=${{ inputs.presto_repository }}
+            VELOX_SHA=
+            VELOX_BRANCH=
+            VELOX_REPOSITORY=
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
