@@ -23,10 +23,13 @@ runs:
         IMAGE_NAME: ${{ inputs.image-name }}
         GITHUB_TOKEN: ${{ github.token }}
       run: |
-        # Process each base tag line
+        tags=()
         while IFS= read -r base_tag; do
           [[ -z "${base_tag}" ]] && continue
           for arch in amd64 arm64; do
-            ./ci/delete-arch-tags.sh "${base_tag}-${arch}"
+            tags+=("${base_tag}-${arch}")
           done
         done <<< "${BASE_TAGS}"
+        if [[ "${#tags[@]}" -gt 0 ]]; then
+          ./ci/delete-arch-tags.sh "${tags[@]}"
+        fi
