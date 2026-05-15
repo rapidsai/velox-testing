@@ -43,9 +43,42 @@ versions_file=$(mktemp)
 trap 'rm -f "${versions_file}"' EXIT
 
 echo "Looking up ${#} tag(s) in ${ORG}/${PACKAGE}..."
-GH_TOKEN="${GITHUB_TOKEN}" gh api --paginate \
-  "orgs/${ORG}/packages/container/${PACKAGE}/versions?per_page=100" \
-  > "${versions_file}"
+page=1
+while :; do
+  page_file=$(mktemp)
+  response_file=$(mktemp)
+  # Fetch one page at a time so cleanup can stop once all requested tags are found.
+  GH_TOKEN="${GITHUB_TOKEN}" gh api -i \
+    "orgs/${ORG}/packages/container/${PACKAGE}/versions?per_page=100&page=${page}" \
+    > "${response_file}"
+  awk 'body { print } /^\r?$/ { body=1 }' "${response_file}" > "${page_file}"
+  # Keep the existing jq lookup below simple by accumulating the pages already fetched.
+  jq -s 'add' "${versions_file}" "${page_file}" > "${versions_file}.next"
+  mv "${versions_file}.next" "${versions_file}"
+  rm -f "${page_file}"
+
+  missing=0
+  for tag in "$@"; do
+    if ! jq -e --arg tag "${tag}" \
+      'any(.[]; (.metadata.container.tags // []) | index($tag))' \
+      "${versions_file}" >/dev/null; then
+      missing=1
+      break
+    fi
+  done
+  if [[ "${missing}" -eq 0 ]]; then
+    rm -f "${response_file}"
+    break
+  fi
+
+  # The GitHub Packages API exposes the next page only through the Link header.
+  if ! grep -qi 'rel="next"' "${response_file}"; then
+    rm -f "${response_file}"
+    break
+  fi
+  rm -f "${response_file}"
+  page=$((page + 1))
+done
 
 for tag in "$@"; do
   VERSION_ID=$(jq -r --arg tag "${tag}" \
