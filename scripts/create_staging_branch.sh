@@ -9,6 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MERGE_COMMUTE_CMD=(python3 "${PROJECT_ROOT}/scripts/merge_commute.py" --strict-commute)
 
 BASE_REPO=""
 BASE_BRANCH=""
@@ -28,23 +29,30 @@ GH_TOKEN="${GH_TOKEN:-}"
 USE_LOCAL_PATH="false"
 MODE="local"
 STEP_NAME=""
+MERGED_BASES_BRANCH="merged_bases"
 declare -A PR_SHA
 
+# Log messages to stderr.
 log() { echo "$@" >&2; }
+# Print error and exit.
 die() { log "ERROR: $*"; exit 1; }
 STEP=0
+# Emit a numbered step header.
 step() {
   STEP=$((STEP + 1))
   log "==== [${STEP}] $* ===="
 }
+# Emit a section divider.
 divider() {
   log "---- $* ----"
 }
+# Normalize git URL to owner/repo.
 normalize_repo_url() {
   local url="$1"
   echo "${url}" | awk -F'[:/]' '{print $(NF-1)"/"$NF}' | sed 's/\.git$//'
 }
 
+# Ensure repo layout has velox-testing sibling.
 ensure_sibling_layout() {
   local target_dir="$1"
   local parent_dir
@@ -58,6 +66,7 @@ ensure_sibling_layout() {
     die "Expected velox-testing sibling directory not found: ${velox_testing_dir}"
   fi
 }
+# Emit outputs to GitHub workflow env files.
 emit_output() {
   local name="$1"
   local value="$2"
@@ -69,12 +78,14 @@ emit_output() {
   fi
 }
 
+# Require an env var to be set.
 require_env_var() {
   local name="$1"
   local value="${!name:-}"
   [[ -n "${value}" ]] || die "Missing ${name}. Run the appropriate prior step to set it."
 }
 
+# Retry a command with backoff.
 retry() {
   local attempts=5
   local sleep_s=2
@@ -94,6 +105,7 @@ retry() {
   done
 }
 
+# Print script usage.
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
@@ -137,7 +149,8 @@ Environment:
   GH_TOKEN                         GitHub token for cloning/pushing and gh API calls
 
 Steps (for --step option):
-  reset, fetch-prs, test-merge, test-pairwise, merge, merge-additional, manifest, push, all
+  # reset, fetch-prs, test-bases, test-merge, test-merge-merged-bases, test-pairwise,
+  # test-pairwise-merged-bases, merge, merge-additional, manifest, push, all
 
 Examples:
 
@@ -179,10 +192,12 @@ Notes:
 EOF
 }
 
+# Ensure a command exists in PATH.
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
 }
 
+# Parse CLI arguments.
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -207,6 +222,7 @@ parse_args() {
   done
 }
 
+# Validate required repo inputs.
 ensure_repo_inputs() {
   if [[ -z "${TARGET_PATH}" ]]; then
     die "Missing --target-path (repo should already be cloned)."
@@ -219,6 +235,7 @@ ensure_repo_inputs() {
   fi
 }
 
+# Ensure git user config exists.
 setup_git_config() {
   local repo_dir="$1"
   if ! git -C "${repo_dir}" config user.name >/dev/null 2>&1; then
@@ -229,6 +246,7 @@ setup_git_config() {
   fi
 }
 
+# Initialize and validate target repo path.
 init_target_repo() {
   if [[ -z "${TARGET_PATH}" ]]; then
     die "target path not found: provide --target-path (cloning is handled in CI workflow)"
@@ -242,6 +260,7 @@ init_target_repo() {
   USE_LOCAL_PATH="true"
 }
 
+# Configure upstream remotes and fetch.
 setup_remotes() {
   local repo_dir="$1"
   if [[ "${USE_LOCAL_PATH}" == "true" ]]; then
@@ -267,6 +286,7 @@ setup_remotes() {
   retry git -C "${repo_dir}" fetch upstream "${BASE_BRANCH}"
 }
 
+# Set dated branch name for CI mode.
 set_dated_branch() {
   if [[ "${MODE}" == "local" ]]; then
     DATED_BRANCH=""
@@ -279,6 +299,7 @@ set_dated_branch() {
   log "Dated branch: ${DATED_BRANCH}"
 }
 
+# Reset target branch to base branch.
 reset_target_branch() {
   local repo_dir="$1"
   if [[ "${USE_LOCAL_PATH}" == "true" ]]; then
@@ -295,6 +316,7 @@ reset_target_branch() {
   log "Base commit: ${BASE_COMMIT}"
 }
 
+# Build PR list from labels or manual list.
 fetch_pr_list() {
   local pr_list=""
   if [[ "${AUTO_FETCH_PRS}" == "true" ]]; then
@@ -349,6 +371,7 @@ fetch_pr_list() {
   log "PRs to process: ${PR_LIST}"
 }
 
+# Fetch PR head SHA for a PR number.
 fetch_pr_head() {
   local repo_dir="$1"
   local pr_num="$2"
@@ -366,23 +389,116 @@ fetch_pr_head() {
   fi
 }
 
+# List files with merge conflicts.
+list_conflict_files() {
+  local repo_dir="$1"
+  git -C "${repo_dir}" diff --name-only --diff-filter=U | xargs || true
+}
+
+# Print a table of conflicting PR details.
+print_conflicting_prs_table() {
+  local pr_list="$1"
+  log ""
+  log "Conflicting PR Details:"
+  log ""
+  log "$(printf "| %-10s | %-20s | %-50s | %-55s |" "PR" "Author" "Title" "URL")"
+  log "$(printf "| %-10s | %-20s | %-50s | %-55s |" "----------" "--------------------" "--------------------------------------------------" "-------------------------------------------------------")"
+
+  for pr_num in ${pr_list}; do
+    local pr_author pr_title pr_url
+    pr_author="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json author --jq '.author.login' 2>/dev/null || echo "N/A")"
+    pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "N/A")"
+    pr_url="https://github.com/${BASE_REPO}/pull/${pr_num}"
+    if [[ ${#pr_title} -gt 47 ]]; then
+      pr_title="${pr_title:0:47}..."
+    fi
+    log "$(printf "| %-10s | %-20s | %-50s | %-55s |" "#${pr_num}" "${pr_author}" "${pr_title}" "${pr_url}")"
+  done
+}
+
+# Create merged bases branch if possible.
+ensure_merged_bases_branch() {
+  local repo_dir="$1"
+  step "Testing base branch compatibility"
+
+  if [[ -z "${ADDITIONAL_REPOSITORY}" || -z "${ADDITIONAL_BRANCH}" ]]; then
+    log "No additional base branch configured; ${MERGED_BASES_BRANCH} matches ${TARGET_BRANCH}."
+    git -C "${repo_dir}" checkout -B "${MERGED_BASES_BRANCH}" "${TARGET_BRANCH}" >/dev/null 2>&1
+    git -C "${repo_dir}" checkout "${TARGET_BRANCH}" >/dev/null 2>&1
+    MERGED_BASES_READY="false"
+    export MERGED_BASES_READY
+    emit_output MERGED_BASES_READY "${MERGED_BASES_READY}"
+    return 0
+  fi
+
+  local additional_remote="additional-merge-source"
+  local additional_url="https://github.com/${ADDITIONAL_REPOSITORY}.git"
+  if ! git -C "${repo_dir}" remote get-url "${additional_remote}" >/dev/null 2>&1; then
+    git -C "${repo_dir}" remote add "${additional_remote}" "${additional_url}"
+  fi
+  log "Fetching ${ADDITIONAL_BRANCH} from ${ADDITIONAL_REPOSITORY} for merged bases..."
+  if ! git -C "${repo_dir}" fetch "${additional_remote}" "${ADDITIONAL_BRANCH}" >/dev/null 2>&1; then
+    log "Failed to fetch ${ADDITIONAL_BRANCH} for merged bases."
+    return 1
+  fi
+
+  git -C "${repo_dir}" checkout -B "${MERGED_BASES_BRANCH}" "${TARGET_BRANCH}" >/dev/null 2>&1
+  log "Merging base branches into ${MERGED_BASES_BRANCH}..."
+  if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${MERGED_BASES_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") >/dev/null 2>&1; then
+    local conflict_files
+    conflict_files="$(list_conflict_files "${repo_dir}")"
+    if [[ -n "${conflict_files}" ]]; then
+      log "Conflicting files for base branches: ${conflict_files}"
+    fi
+    git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
+    git -C "${repo_dir}" reset --hard "${TARGET_BRANCH}" >/dev/null 2>&1
+    git -C "${repo_dir}" checkout "${TARGET_BRANCH}" >/dev/null 2>&1
+    log "Cannot create ${MERGED_BASES_BRANCH} branch."
+    MERGED_BASES_READY="false"
+    export MERGED_BASES_READY
+    emit_output MERGED_BASES_READY "${MERGED_BASES_READY}"
+    return 1
+  fi
+
+  if git -C "${repo_dir}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+    git -C "${repo_dir}" commit -m "Merge base branches: ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}" >/dev/null 2>&1
+  fi
+  git -C "${repo_dir}" checkout "${TARGET_BRANCH}" >/dev/null 2>&1
+  log "Created ${MERGED_BASES_BRANCH} branch."
+  MERGED_BASES_READY="true"
+  export MERGED_BASES_READY
+  emit_output MERGED_BASES_READY "${MERGED_BASES_READY}"
+  return 0
+}
+
+
+# Test PR merge compatibility against a base ref.
 test_merge_compatibility() {
   local repo_dir="$1"
   local pr_list="$2"
+  local base_ref="$3"
+  local label="$4"
+  local base_commit
+  base_commit="$(git -C "${repo_dir}" rev-parse "${base_ref}")"
   local successful=""
   local conflicts=""
 
-  step "Testing merge compatibility against ${BASE_REPO}/${BASE_BRANCH}"
+  step "Testing merge compatibility against ${label}"
   for pr_num in ${pr_list}; do
     divider "PR #${pr_num}"
     fetch_pr_head "${repo_dir}" "${pr_num}"
-    if git -C "${repo_dir}" merge --no-commit --no-ff "${PR_SHA[$pr_num]}" >/dev/null 2>&1; then
+    if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${base_ref}" "${PR_SHA[$pr_num]}") >/dev/null 2>&1; then
       successful="${successful} ${pr_num}"
     else
+      local conflict_files
+      conflict_files="$(list_conflict_files "${repo_dir}")"
+      if [[ -n "${conflict_files}" ]]; then
+        log "Conflicting files for PR #${pr_num}: ${conflict_files}"
+      fi
       conflicts="${conflicts} ${pr_num}"
     fi
     git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
-    git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
+    git -C "${repo_dir}" reset --hard "${base_commit}" >/dev/null
     git -C "${repo_dir}" clean -fd >/dev/null
   done
 
@@ -391,14 +507,20 @@ test_merge_compatibility() {
     for pr_num in ${conflicts}; do
       log "  PR #${pr_num}: https://github.com/${BASE_REPO}/pull/${pr_num}"
     done
+    print_conflicting_prs_table "${conflicts}"
     exit 1
   fi
-  log "All PRs can merge cleanly with ${BASE_BRANCH}."
+  log "All PRs can merge cleanly with ${label}."
 }
 
+# Build pairwise compatibility matrix against a base.
 test_pairwise_compatibility() {
   local repo_dir="$1"
   local pr_list="$2"
+  local base_ref="$3"
+  local label="$4"
+  local base_commit
+  base_commit="$(git -C "${repo_dir}" rev-parse "${base_ref}")"
   local pr_array=(${pr_list})
   local pr_count="${#pr_array[@]}"
   local conflict_pairs=""
@@ -409,19 +531,24 @@ test_pairwise_compatibility() {
     return 0
   fi
 
-  step "Testing pairwise merge compatibility"
+  step "Testing pairwise merge compatibility against ${label}"
   for ((i=0; i<pr_count; i++)); do
     for ((j=i+1; j<pr_count; j++)); do
       local pr1="${pr_array[$i]}"
       local pr2="${pr_array[$j]}"
       fetch_pr_head "${repo_dir}" "${pr1}"
       fetch_pr_head "${repo_dir}" "${pr2}"
-      git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
+      git -C "${repo_dir}" reset --hard "${base_commit}" >/dev/null
       git -C "${repo_dir}" clean -fd >/dev/null
 
-      if ! git -C "${repo_dir}" merge --no-edit "${PR_SHA[$pr1]}" >/dev/null 2>&1; then
+      if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --auto-continue --keep-merge "${base_ref}" "${PR_SHA[$pr1]}") >/dev/null 2>&1; then
+        local conflict_files
+        conflict_files="$(list_conflict_files "${repo_dir}")"
+        if [[ -n "${conflict_files}" ]]; then
+          log "Conflicting files for PR #${pr1}: ${conflict_files}"
+        fi
         git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
-        git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
+        git -C "${repo_dir}" reset --hard "${base_commit}" >/dev/null
         conflict_pairs="${conflict_pairs} ${pr1}+${pr2}"
         pair_results["${pr1},${pr2}"]="XX"
         conflict_prs["${pr1}"]=1
@@ -429,9 +556,14 @@ test_pairwise_compatibility() {
         continue
       fi
 
-      if git -C "${repo_dir}" merge --no-commit --no-ff "${PR_SHA[$pr2]}" >/dev/null 2>&1; then
+      if (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" --keep-merge "${base_ref}" "${PR_SHA[$pr2]}") >/dev/null 2>&1; then
         pair_results["${pr1},${pr2}"]="OK"
       else
+        local conflict_files
+        conflict_files="$(list_conflict_files "${repo_dir}")"
+        if [[ -n "${conflict_files}" ]]; then
+          log "Conflicting files for PR #${pr1} + #${pr2}: ${conflict_files}"
+        fi
         conflict_pairs="${conflict_pairs} ${pr1}+${pr2}"
         pair_results["${pr1},${pr2}"]="XX"
         conflict_prs["${pr1}"]=1
@@ -439,7 +571,7 @@ test_pairwise_compatibility() {
       fi
 
       git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
-      git -C "${repo_dir}" reset --hard "${BASE_COMMIT}" >/dev/null
+      git -C "${repo_dir}" reset --hard "${base_commit}" >/dev/null
       git -C "${repo_dir}" clean -fd >/dev/null
     done
   done
@@ -528,6 +660,7 @@ test_pairwise_compatibility() {
   log "All PR pairs can merge cleanly together."
 }
 
+# Merge PRs into target branch.
 merge_prs() {
   local repo_dir="$1"
   local pr_list="$2"
@@ -539,10 +672,14 @@ merge_prs() {
     fetch_pr_head "${repo_dir}" "${pr_num}"
     local pr_title
     pr_title="$(gh pr view "${pr_num}" --repo "${BASE_REPO}" --json title --jq '.title' 2>/dev/null || echo "PR #${pr_num}")"
-    if ! git -C "${repo_dir}" merge "${PR_SHA[$pr_num]}" --log -m "Merge PR #${pr_num}: ${pr_title}" 2>&1; then
+    if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${PR_SHA[$pr_num]}") 2>&1; then
       log "Merge conflict in PR #${pr_num}. Aborting."
-      git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
       exit 1
+    fi
+    if git -C "${repo_dir}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+      git -C "${repo_dir}" commit -m "Merge PR #${pr_num}: ${pr_title}"
+    else
+      log "PR #${pr_num} already up to date; no merge commit created."
     fi
     merged="${merged} ${pr_num}"
     count=$((count + 1))
@@ -556,6 +693,7 @@ merge_prs() {
   log "Merged ${MERGED_COUNT} PRs."
 }
 
+# Merge additional repository branch into target.
 merge_additional_repository() {
   local repo_dir="$1"
 
@@ -582,10 +720,14 @@ merge_additional_repository() {
 
   # Merge the branch
   log "Merging ${additional_remote}/${ADDITIONAL_BRANCH}..."
-  if ! git -C "${repo_dir}" merge "${additional_remote}/${ADDITIONAL_BRANCH}" --log -m "Merge ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}" 2>&1; then
+  if ! (cd "${repo_dir}" && "${MERGE_COMMUTE_CMD[@]}" "${TARGET_BRANCH}" "${additional_remote}/${ADDITIONAL_BRANCH}") 2>&1; then
     log "Merge conflict with additional repository. Aborting."
-    git -C "${repo_dir}" merge --abort >/dev/null 2>&1 || true
     exit 1
+  fi
+  if git -C "${repo_dir}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+    git -C "${repo_dir}" commit -m "Merge ${ADDITIONAL_REPOSITORY}/${ADDITIONAL_BRANCH}"
+  else
+    log "Additional branch already up to date; no merge commit created."
   fi
 
   ADDITIONAL_MERGE_COMMIT="$(git -C "${repo_dir}" rev-parse "${additional_remote}/${ADDITIONAL_BRANCH}")"
@@ -600,6 +742,7 @@ merge_additional_repository() {
   log "Updated BASE_COMMIT to include additional merge: ${BASE_COMMIT}"
 }
 
+# Create and commit staging manifest.
 create_manifest() {
   local repo_dir="$1"
   local template_file="${MANIFEST_TEMPLATE:-${PROJECT_ROOT}/.github/templates/staging-manifest.yaml.template}"
@@ -656,6 +799,7 @@ create_manifest() {
   log "Manifest committed."
 }
 
+# Push target and dated branches.
 push_branches() {
   local repo_dir="$1"
   local force="${FORCE_PUSH}"
@@ -681,6 +825,7 @@ push_branches() {
 }
 
 
+# Initialize repo, remotes, and dated branch.
 init_repo() {
   init_target_repo
   if [[ -z "${TARGET_REPO}" ]]; then
@@ -692,6 +837,7 @@ init_repo() {
   set_dated_branch
 }
 
+# Confirm destructive reset in local mode.
 maybe_confirm_reset() {
   if [[ "${USE_LOCAL_PATH}" == "true" ]]; then
     if [[ "${MODE}" == "local" ]]; then
@@ -724,9 +870,11 @@ maybe_confirm_reset() {
   fi
 }
 
+# Orchestrate the full staging flow.
 main() {
   require_cmd git
   require_cmd gh
+  require_cmd python3
   parse_args "$@"
   ensure_repo_inputs
   init_repo
@@ -740,15 +888,36 @@ main() {
       fetch-prs)
         fetch_pr_list
         ;;
+      test-bases)
+        ensure_merged_bases_branch "${WORK_DIR}"
+        ;;
       test-merge)
         require_env_var PR_LIST
         require_env_var BASE_COMMIT
-        test_merge_compatibility "${WORK_DIR}" "${PR_LIST}"
+        test_merge_compatibility "${WORK_DIR}" "${PR_LIST}" "${TARGET_BRANCH}" "${BASE_REPO}/${BASE_BRANCH}"
+        ;;
+      test-merge-merged-bases)
+        require_env_var PR_LIST
+        require_env_var MERGED_BASES_READY
+        if [[ "${MERGED_BASES_READY}" == "true" ]]; then
+          test_merge_compatibility "${WORK_DIR}" "${PR_LIST}" "${MERGED_BASES_BRANCH}" "${MERGED_BASES_BRANCH}"
+        else
+          log "Skipping ${MERGED_BASES_BRANCH} PR merge tests: cannot create ${MERGED_BASES_BRANCH} branch."
+        fi
         ;;
       test-pairwise)
         require_env_var PR_LIST
         require_env_var BASE_COMMIT
-        test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}"
+        test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}" "${TARGET_BRANCH}" "${BASE_REPO}/${BASE_BRANCH}"
+        ;;
+      test-pairwise-merged-bases)
+        require_env_var PR_LIST
+        require_env_var MERGED_BASES_READY
+        if [[ "${MERGED_BASES_READY}" == "true" ]]; then
+          test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}" "${MERGED_BASES_BRANCH}" "${MERGED_BASES_BRANCH}"
+        else
+          log "Skipping ${MERGED_BASES_BRANCH} pairwise tests: cannot create ${MERGED_BASES_BRANCH} branch."
+        fi
         ;;
       merge)
         require_env_var PR_LIST
@@ -774,10 +943,22 @@ main() {
 
   maybe_confirm_reset
   reset_target_branch "${WORK_DIR}"
-  merge_additional_repository "${WORK_DIR}"
+  ensure_merged_bases_branch "${WORK_DIR}" || true
+  require_env_var MERGED_BASES_READY
   fetch_pr_list
-  test_merge_compatibility "${WORK_DIR}" "${PR_LIST}"
-  test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}"
+  test_merge_compatibility "${WORK_DIR}" "${PR_LIST}" "${TARGET_BRANCH}" "${BASE_REPO}/${BASE_BRANCH}"
+  if [[ "${MERGED_BASES_READY}" == "true" ]]; then
+    test_merge_compatibility "${WORK_DIR}" "${PR_LIST}" "${MERGED_BASES_BRANCH}" "${MERGED_BASES_BRANCH}"
+  else
+    log "Skipping ${MERGED_BASES_BRANCH} PR merge tests: cannot create ${MERGED_BASES_BRANCH} branch."
+  fi
+  test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}" "${TARGET_BRANCH}" "${BASE_REPO}/${BASE_BRANCH}"
+  if [[ "${MERGED_BASES_READY}" == "true" ]]; then
+    test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}" "${MERGED_BASES_BRANCH}" "${MERGED_BASES_BRANCH}"
+  else
+    log "Skipping ${MERGED_BASES_BRANCH} pairwise tests: cannot create ${MERGED_BASES_BRANCH} branch."
+  fi
+  merge_additional_repository "${WORK_DIR}"
   merge_prs "${WORK_DIR}" "${PR_LIST}"
   create_manifest "${WORK_DIR}"
   push_branches "${WORK_DIR}"
