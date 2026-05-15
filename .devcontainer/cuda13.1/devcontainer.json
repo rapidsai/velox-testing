@@ -9,12 +9,14 @@
     }
   },
   "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {},
     "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils:latest": {}
   },
   "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/sshd",
     "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils"
   ],
-  "initializeCommand": ["/bin/bash", "-c", "mkdir -p ${localWorkspaceFolder}/../.{aws,cache,config/pip,local/share/velox-testing-cuda13.1-venvs}"],
+  "initializeCommand": ["/bin/bash", "${localWorkspaceFolder}/scripts/devcontainer/initialize", "${localWorkspaceFolder}/..", "${localEnv:HOME}", "13.1"],
   "workspaceFolder": "/home/coder",
   "workspaceMount": "source=${localWorkspaceFolder},target=/home/coder/velox-testing,type=bind,consistency=consistent",
   "mounts": [
@@ -32,12 +34,16 @@
   "hostRequirements": {
     "gpu": "optional"
   },
+  "forwardPorts": [
+    2222
+  ],
   "runArgs": [
     "--rm",
     "--name", "${localEnv:USER:anon}-velox-dev-cuda13.1",
     "--ulimit", "nofile=500000"
   ],
-  "postCreateCommand": "/home/coder/velox-testing/scripts/devcontainer/post-create",
+  "postCreateCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/post-create",
+  "postStartCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/post-start",
   "postAttachCommand": [
     "/bin/bash",
     "-c",
