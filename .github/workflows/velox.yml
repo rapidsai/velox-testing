@@ -95,6 +95,7 @@ jobs:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
       build_variant: ${{ inputs.build_variant }}
+      run_id: ${{ github.run_id }}
 
   velox-benchmark:
     needs: [resolve-commits, velox-build]
@@ -106,3 +107,4 @@ jobs:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
       build_variant: ${{ inputs.build_variant }}
+      run_id: ${{ github.run_id }}
