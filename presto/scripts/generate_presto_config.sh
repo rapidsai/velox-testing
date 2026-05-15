@@ -48,11 +48,9 @@ function duplicate_worker_configs() {
 
   # Some configs should only be applied if we are in a multi-worker environment.
   if [[ ${NUM_WORKERS} -gt 1 ]]; then
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${coord_native_config}
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${worker_native_config}
+    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${coord_native_config} ${worker_native_config}
     # make cudf.exchange=true if we are running multiple workers
     sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_native_config}
-    # make join-distribution-type=PARTITIONED if we are running multiple workers
   fi
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
@@ -123,37 +121,16 @@ EOF
     sed -i "s|hive.metastore.catalog.dir=.*|hive.metastore.uri=${HIVE_METASTORE_URI}|" "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties" "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
   fi
 
-  COORD_CONFIG="${CONFIG_DIR}/etc_coordinator/config_native.properties"
-  WORKER_CONFIG="${CONFIG_DIR}/etc_worker/config_native.properties"
-  # now perform other variant-specific modifications to the generated configs
-  if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
-    # for GPU variant, uncomment these optimizer settings
-    # optimizer.joins-not-null-inference-strategy=USE_FUNCTION_METADATA
-    # optimizer.default-filter-factor-enabled=true
-    sed -i 's/\#optimizer/optimizer/g' ${COORD_CONFIG}
-    echo "cluster-tag=native-gpu" >>${COORD_CONFIG}
-  fi
-
-  if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
-    echo "cluster-tag=native-cpu" >> ${COORD_CONFIG}
-    # cuDF has no effect in CPU mode but leaving cudf.enabled=true in the worker
-    # config causes noisy startup warnings; force it off for CPU runs.
-    sed -i 's/^cudf\.enabled=true/cudf.enabled=false/' ${WORKER_CONFIG}
-  fi
-
-  # for Java variant, disable some Parquet properties which are now rejected
-  if [[ "${VARIANT_TYPE}" == "java" ]]; then
-    HIVE_CONFIG="${CONFIG_DIR}/etc_worker/catalog/hive.properties"
-    sed -i 's/parquet\.reader\.chunk-read-limit/#parquet\.reader\.chunk-read-limit/' ${HIVE_CONFIG}
-    sed -i 's/parquet\.reader\.pass-read-limit/#parquet\.reader\.pass-read-limit/' ${HIVE_CONFIG}
-    sed -i 's/^cudf/#cudf/' ${HIVE_CONFIG}
-  fi
-
-  if [[ "${VARIANT_TYPE}" != "gpu" ]]; then
-    HIVE_CONFIG="${CONFIG_DIR}/etc_worker/catalog/hive.properties"
-    sed -i 's/hive.file-splittable=false/hive.file-splittable=true/' ${HIVE_CONFIG}
-    HIVE_CONFIG="${CONFIG_DIR}/etc_coordinator/catalog/hive.properties"
-    sed -i 's/hive.file-splittable=false/hive.file-splittable=true/' ${HIVE_CONFIG}
+  # Apply variant-specific override files by appending them to the generated configs
+  OVERRIDES_DIR="${SCRIPT_DIR}/../docker/config/template/overrides/${VARIANT_TYPE}"
+  if [[ -d "${OVERRIDES_DIR}" ]]; then
+    while IFS= read -r -d '' src_file; do
+      rel_path="${src_file#${OVERRIDES_DIR}/}"
+      dest_file="${CONFIG_DIR}/${rel_path}"
+      if [[ -f "${dest_file}" ]]; then
+        cat "${src_file}" >> "${dest_file}"
+      fi
+    done < <(find "${OVERRIDES_DIR}" -type f -print0)
   fi
 
   # success message
