@@ -116,13 +116,6 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
 
-      - &login_dockerhub
-        name: Login to DockerHub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
-          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
-
       - name: Stage presto-deps build context
         run: |
           cp -r presto/presto-native-execution presto-deps-context
@@ -180,7 +173,6 @@ jobs:
       - *setup_proxy_cache
       - *setup_buildx
       - *login_ghcr
-      - *login_dockerhub
 
       - name: Build Presto Java package
         env:
@@ -271,7 +263,6 @@ jobs:
       - *setup_proxy_cache
       - *setup_buildx
       - *login_ghcr
-      - *login_dockerhub
 
       - &setup_sccache
         name: Setup sccache
