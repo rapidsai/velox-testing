@@ -357,7 +357,7 @@ jobs:
 
   merge-presto-deps:
     name: merge-manifests (presto-deps)
-    needs: [presto-deps]
+    needs: [presto-deps, presto-build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -393,6 +393,15 @@ jobs:
               create_manifest_alias "${tag}" "presto-deps-latest-cuda${cuda}"
             done
           fi
+      - name: Delete intermediate arch-specific tags
+        continue-on-error: true
+        uses: ./.github/actions/delete-arch-tags
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          base-tags: |
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
   merge-presto-build:
     name: merge-manifests (presto-build)
     needs: [presto-build]
@@ -445,8 +454,6 @@ jobs:
             presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
             presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
             presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
-            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
-            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
 
   merge-presto-coordinator:
     name: merge-manifests (presto-coordinator)

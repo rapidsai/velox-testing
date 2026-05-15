@@ -255,7 +255,7 @@ jobs:
 
   merge-velox-deps:
     name: merge-manifests (velox-deps)
-    needs: [velox-deps]
+    needs: [velox-deps, velox-build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -285,6 +285,15 @@ jobs:
               create_manifest_alias "${tag}" "velox-deps-latest-cuda${cuda}"
             done
           fi
+      - name: Delete intermediate arch-specific tags
+        continue-on-error: true
+        uses: ./.github/actions/delete-arch-tags
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          base-tags: |
+            velox-deps-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
+            velox-deps-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
   merge-velox-build:
     name: merge-manifests (velox-build)
     needs: [velox-build]
@@ -331,5 +340,3 @@ jobs:
             velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
             velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
             velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
-            velox-deps-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
-            velox-deps-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
