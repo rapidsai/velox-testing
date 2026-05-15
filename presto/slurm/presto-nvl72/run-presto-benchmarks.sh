@@ -68,6 +68,8 @@ cp -r ${LOGS}/cli.log ${SCRIPT_DIR}/result_dir/summary.txt
 echo "Collecting configs and logs into result directory..."
 collect_results
 
+wait_for_nsys_report_generation
+
 echo "========================================"
 echo "Benchmark complete!"
 echo "Results saved to: ${SCRIPT_DIR}/results_dir"
