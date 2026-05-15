@@ -219,7 +219,7 @@ jobs:
 
   presto-build:
     name: presto-build (${{ matrix.build_type }}, ${{ matrix.arch }})
-    needs: [presto-deps]
+    needs: [merge-presto-deps]
     runs-on: linux-${{ matrix.arch }}-cpu32
     permissions:
       contents: read
@@ -296,10 +296,9 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          ARCH: ${{ matrix.arch }}
           CUDA: ${{ matrix.cuda_version || '12.9' }}
         run: |
-          echo "image=${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -357,7 +356,7 @@ jobs:
 
   merge-presto-deps:
     name: merge-manifests (presto-deps)
-    needs: [presto-deps, presto-build]
+    needs: [presto-deps]
     runs-on: ubuntu-latest
     permissions:
       contents: read

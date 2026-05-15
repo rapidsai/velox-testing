@@ -119,7 +119,7 @@ jobs:
 
   velox-build:
     name: velox-build (${{ matrix.build_type }}, ${{ matrix.arch }})
-    needs: [velox-deps]
+    needs: [merge-velox-deps]
     runs-on: linux-${{ matrix.arch }}-cpu32
     permissions:
       contents: read
@@ -200,10 +200,9 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          ARCH: ${{ matrix.arch }}
           CUDA: ${{ matrix.cuda_version || '12.9' }}
         run: |
-          echo "image=${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -255,7 +254,7 @@ jobs:
 
   merge-velox-deps:
     name: merge-manifests (velox-deps)
-    needs: [velox-deps, velox-build]
+    needs: [velox-deps]
     runs-on: ubuntu-latest
     permissions:
       contents: read
