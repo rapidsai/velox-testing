@@ -49,7 +49,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(ulimit -Hn)"
+[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(nproc --all --ignore=1)"
 
 VELOX_DIR="${HOME}/velox"
 if [[ ! -d "${VELOX_DIR}" ]]; then
