@@ -15,58 +15,57 @@ on:
         description: 'Build date (YYYYMMDD)'
         type: string
         required: true
-
+      build_variant:
+        description: 'Build variant used in final image tags'
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
-      presto_image:
-        description: 'Presto worker image to test. SHAs and date are parsed from the tag. e.g. ghcr.io/rapidsai/velox-testing-images:presto-8e27030-velox-3b263a7-gpu-cuda12.9-20260313'
-        type: string
-        required: false
-        default: ''
       velox_short_sha:
-        description: 'Short Velox commit SHA (ignored if presto_image is set)'
+        description: 'Short Velox commit SHA (7 chars)'
         type: string
-        required: false
-        default: ''
+        required: true
       presto_short_sha:
-        description: 'Short Presto commit SHA (ignored if presto_image is set)'
+        description: 'Short Presto commit SHA (7 chars)'
         type: string
-        required: false
-        default: ''
+        required: true
       date:
-        description: 'Build date YYYYMMDD (ignored if presto_image is set)'
+        description: 'Build date (YYYYMMDD)'
+        type: string
+        required: true
+      build_variant:
+        description: 'Build variant used in final image tags'
+        type: string
+        required: true
+      run_id:
+        description: 'GitHub run ID for manual build image tags; required when build_variant is manual'
         type: string
         required: false
         default: ''
-
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-images
 
+permissions: {}
+
 jobs:
-  resolve-inputs:
+  resolve-run-id-suffix:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     outputs:
-      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
-      presto_short_sha: ${{ steps.resolve.outputs.presto_short_sha }}
-      date: ${{ steps.resolve.outputs.date }}
+      run_id_suffix: ${{ steps.run_id_suffix.outputs.run_id_suffix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - uses: ./.github/actions/resolve-inputs
-        id: resolve
+      - uses: ./.github/actions/resolve-run-id-suffix
+        id: run_id_suffix
         with:
-          image_tag: ${{ inputs.presto_image || '' }}
-          velox_short_sha: ${{ inputs.velox_short_sha }}
-          presto_short_sha: ${{ inputs.presto_short_sha }}
-          date: ${{ inputs.date }}
+          build_variant: ${{ inputs.build_variant }}
+          run_id: ${{ inputs.run_id }}
 
   test-presto-integration:
     name: integration-test (${{ matrix.test_type }}, presto-gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
-    needs: [resolve-inputs]
+    needs: [resolve-run-id-suffix]
     permissions:
       contents: read
       packages: read
@@ -209,16 +208,17 @@ jobs:
 
       - name: Pull and retag images
         env:
-          VELOX_SHORT_SHA: ${{ needs.resolve-inputs.outputs.velox_short_sha }}
-          PRESTO_SHORT_SHA: ${{ needs.resolve-inputs.outputs.presto_short_sha }}
-          BUILD_DATE: ${{ needs.resolve-inputs.outputs.date }}
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
+          RUN_ID_SUFFIX: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
         run: |
-          COORD_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}"
+          COORD_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           docker pull "${COORD_IMAGE}"
           docker tag "${COORD_IMAGE}" "presto-coordinator:ci"
 
-          WORKER_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}"
+          WORKER_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           docker pull "${WORKER_IMAGE}"
           docker tag "${WORKER_IMAGE}" "presto-native-worker-gpu:ci"
 
