@@ -30,7 +30,7 @@ on:
         required: false
         default: 'manual'
       build_variant: &build_variant
-        description: 'One of: [upstream, staging, manual]'
+        description: 'One of: [upstream, manual]'
         type: string
         required: false
         default: 'manual'
@@ -94,6 +94,8 @@ jobs:
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
+      build_variant: ${{ inputs.build_variant }}
+      run_id: ${{ github.run_id }}
 
   velox-benchmark:
     needs: [resolve-commits, velox-build]
@@ -104,4 +106,5 @@ jobs:
     with:
       velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
       date: ${{ needs.resolve-commits.outputs.date }}
-      variant_label: ${{ inputs.variant_label }}
+      build_variant: ${{ inputs.build_variant }}
+      run_id: ${{ github.run_id }}

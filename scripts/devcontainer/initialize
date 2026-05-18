@@ -1,0 +1,21 @@
+#!/bin/bash
+# Host-side initialization for Velox devcontainers.
+
+set -euo pipefail
+
+workspace_parent="${1:?workspace parent path is required}"
+host_home="${2:?host home path is required}"
+cuda_version="${3:?CUDA version is required}"
+
+mkdir -p \
+    "${workspace_parent}/.aws" \
+    "${workspace_parent}/.cache" \
+    "${workspace_parent}/.config/pip" \
+    "${workspace_parent}/.local/share/velox-testing-cuda${cuda_version}-venvs"
+
+authorized_keys="${workspace_parent}/.config/velox-testing-authorized_keys"
+if compgen -G "${host_home}/.ssh/*.pub" >/dev/null; then
+    cat "${host_home}"/.ssh/*.pub > "${authorized_keys}"
+else
+    : > "${authorized_keys}"
+fi

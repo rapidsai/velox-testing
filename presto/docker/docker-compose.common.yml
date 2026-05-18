@@ -35,6 +35,12 @@ services:
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
       args:
         - BASE_IMAGE=${DEPS_IMAGE:-presto/prestissimo-dependency:centos9-${USER}}
+        - PRESTO_SHA=${PRESTO_SHA:-}
+        - PRESTO_BRANCH=${PRESTO_BRANCH:-}
+        - PRESTO_REPOSITORY=${PRESTO_REPO:-}
+        - VELOX_SHA=${VELOX_SHA:-}
+        - VELOX_BRANCH=${VELOX_BRANCH:-}
+        - VELOX_REPOSITORY=${VELOX_REPO:-}
     environment:
       - GLOG_logtostderr=1
       - SERVER_START_TIMESTAMP=${SERVER_START_TIMESTAMP:-}

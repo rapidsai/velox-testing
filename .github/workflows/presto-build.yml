@@ -37,11 +37,10 @@ on:
         required: false
         default: 'manual'
       build_variant:
-        description: 'One of: [upstream, pinned, staging, manual]'
+        description: 'One of: [upstream, pinned, manual]'
         type: string
         required: false
         default: 'manual'
-
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-images
@@ -116,13 +115,6 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
 
-      - &login_dockerhub
-        name: Login to DockerHub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          username: ${{ secrets.GPUCIBOT_DOCKERHUB_USER }}
-          password: ${{ secrets.GPUCIBOT_DOCKERHUB_TOKEN }}
-
       - name: Stage presto-deps build context
         run: |
           cp -r presto/presto-native-execution presto-deps-context
@@ -138,12 +130,19 @@ jobs:
           build-args: |
             CUDA_VERSION=${{ matrix.cuda_version }}
             ARM_BUILD_TARGET=generic
+          labels: |
+            velox-testing.presto.sha=${{ inputs.presto_sha }}
+            velox-testing.presto.branch=
+            velox-testing.presto.repository=${{ inputs.presto_repository }}
+            velox-testing.velox.sha=${{ inputs.velox_sha }}
+            velox-testing.velox.branch=
+            velox-testing.velox.repository=${{ inputs.velox_repository }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-presto-deps-cuda${{ matrix.cuda_version }}-${{ matrix.arch }},mode=max
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}-${{ matrix.arch }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
@@ -173,7 +172,6 @@ jobs:
       - *setup_proxy_cache
       - *setup_buildx
       - *login_ghcr
-      - *login_dockerhub
 
       - name: Build Presto Java package
         env:
@@ -186,9 +184,11 @@ jobs:
         env:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
           ARCH: ${{ matrix.arch }}
         run: |
-          echo "tag=presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "tag=presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Presto coordinator image
         id: push
@@ -198,6 +198,13 @@ jobs:
           file: presto/docker/Dockerfile
           build-args: |
             PRESTO_VERSION=${{ inputs.presto_short_sha }}
+          labels: |
+            velox-testing.presto.sha=${{ inputs.presto_sha }}
+            velox-testing.presto.branch=
+            velox-testing.presto.repository=${{ inputs.presto_repository }}
+            velox-testing.velox.sha=
+            velox-testing.velox.branch=
+            velox-testing.velox.repository=
           outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
           push: true
           tags: |
@@ -212,7 +219,7 @@ jobs:
 
   presto-build:
     name: presto-build (${{ matrix.build_type }}, ${{ matrix.arch }})
-    needs: [presto-deps]
+    needs: [merge-presto-deps]
     runs-on: linux-${{ matrix.arch }}-cpu32
     permissions:
       contents: read
@@ -257,7 +264,6 @@ jobs:
       - *setup_proxy_cache
       - *setup_buildx
       - *login_ghcr
-      - *login_dockerhub
 
       - &setup_sccache
         name: Setup sccache
@@ -288,10 +294,11 @@ jobs:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
-          ARCH: ${{ matrix.arch }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
           CUDA: ${{ matrix.cuda_version || '12.9' }}
         run: |
-          echo "image=${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -299,14 +306,16 @@ jobs:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
           BUILD_DATE: ${{ inputs.date }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
           ARCH: ${{ matrix.arch }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
           BUILD_TYPE: ${{ matrix.build_type }}
           CUDA_VERSION: ${{ matrix.cuda_version }}
         run: |
           if [[ "${BUILD_TYPE}" == "cpu" ]]; then
-            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${ARCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push Presto native worker image
@@ -324,6 +333,12 @@ jobs:
             ENABLE_SCCACHE=ON
             GPU=${{ matrix.gpu_flag }}
             NUM_THREADS=31
+            PRESTO_SHA=${{ inputs.presto_sha }}
+            PRESTO_BRANCH=
+            PRESTO_REPOSITORY=${{ inputs.presto_repository }}
+            VELOX_SHA=${{ inputs.velox_sha }}
+            VELOX_BRANCH=
+            VELOX_REPOSITORY=${{ inputs.velox_repository }}
           secret-files: |
             github_token=${{ env.SCCACHE_AUTH_DIR }}/github_token
             aws_credentials=${{ env.SCCACHE_AUTH_DIR }}/aws_credentials
@@ -364,25 +379,28 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          create_manifest() {
-            local tag="$1"
-            echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
-          }
+          source scripts/create_manifest.sh
           for cuda in 12.9 13.1; do
-            create_manifest "presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
+            tag="presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
+            create_manifest "${tag}"
           done
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
             for cuda in 12.9 13.1; do
-              docker buildx imagetools create \
-                -t "${REGISTRY}/${IMAGE_NAME}:presto-deps-latest-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}-arm64"
+              tag="presto-deps-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cuda${cuda}-${BUILD_DATE}"
+              create_manifest_alias "${tag}" "presto-deps-latest-cuda${cuda}"
             done
           fi
+      - name: Delete intermediate arch-specific tags
+        continue-on-error: true
+        uses: ./.github/actions/delete-arch-tags
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          base-tags: |
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
+            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
   merge-presto-build:
     name: merge-manifests (presto-build)
     needs: [presto-build]
@@ -408,29 +426,22 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          create_manifest() {
-            local tag="$1"
-            echo "Creating multi-arch manifest: ${tag}"
-            docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${tag}" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${tag}-arm64"
-          }
+          source scripts/create_manifest.sh
           for cuda in 12.9 13.1; do
-            create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
+            tag="presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
+            create_manifest "${tag}"
           done
-          create_manifest "presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+          tag="presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+          create_manifest "${tag}"
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
             for cuda in 12.9 13.1; do
-              docker buildx imagetools create \
-                -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-gpu-cuda${cuda}" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-amd64" \
-                "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}-arm64"
+              tag="presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${cuda}-${BUILD_DATE}"
+              create_manifest_alias "${tag}" "presto-latest-gpu-cuda${cuda}"
             done
-            docker buildx imagetools create \
-              -t "${REGISTRY}/${IMAGE_NAME}:presto-latest-cpu" \
-              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}-arm64"
+            tag="presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}"
+            create_manifest_alias "${tag}" "presto-latest-cpu"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true
@@ -439,11 +450,9 @@ jobs:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
           base-tags: |
-            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}
-            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}
-            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}
-            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}
-            presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
+            presto-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
 
   merge-presto-coordinator:
     name: merge-manifests (presto-coordinator)
@@ -469,17 +478,13 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_TYPE: ${{ inputs.build_type }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
+          source scripts/create_manifest.sh
           TAG="presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}"
-          echo "Creating multi-arch manifest: ${TAG}"
-          docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${TAG}" \
-            "${REGISTRY}/${IMAGE_NAME}:${TAG}-amd64" \
-            "${REGISTRY}/${IMAGE_NAME}:${TAG}-arm64"
+          create_manifest "${TAG}"
           if [[ "${BUILD_TYPE}" == "nightly" && "${BUILD_VARIANT}" == "pinned" ]]; then
-            docker buildx imagetools create \
-              -t "${REGISTRY}/${IMAGE_NAME}:presto-coordinator-latest" \
-              "${REGISTRY}/${IMAGE_NAME}:${TAG}-amd64" \
-              "${REGISTRY}/${IMAGE_NAME}:${TAG}-arm64"
+            create_manifest_alias "${TAG}" "presto-coordinator-latest"
           fi
       - name: Delete intermediate arch-specific tags
         continue-on-error: true
@@ -487,4 +492,4 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
-          base-tags: presto-coordinator-${{ inputs.presto_short_sha }}-${{ inputs.date }}
+          base-tags: presto-coordinator-${{ inputs.presto_short_sha }}-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}

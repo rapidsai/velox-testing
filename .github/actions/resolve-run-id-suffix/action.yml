@@ -1,0 +1,40 @@
+name: Resolve Run ID Suffix
+description: Resolves final image tag run ID suffix for test and benchmark workflows.
+
+inputs:
+  build_variant:
+    description: 'Build variant used in final image tags'
+    required: true
+  run_id:
+    description: 'GitHub run ID for manual build image tags; required for manual workflow_dispatch runs'
+    required: false
+    default: ''
+
+outputs:
+  run_id_suffix:
+    description: 'Resolved final image tag suffix'
+    value: ${{ steps.resolve.outputs.run_id_suffix }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve run ID suffix
+      id: resolve
+      shell: bash
+      env:
+        BUILD_VARIANT: ${{ inputs.build_variant }}
+        CURRENT_GITHUB_RUN_ID: ${{ github.run_id }}
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        INPUT_RUN_ID: ${{ inputs.run_id }}
+      run: |
+        if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${BUILD_VARIANT}" == "manual" ]]; then
+          if [[ -z "${INPUT_RUN_ID}" ]]; then
+            echo "::error::run_id is required when build_variant is manual"
+            exit 1
+          fi
+          export GITHUB_RUN_ID="${INPUT_RUN_ID}"
+        else
+          export GITHUB_RUN_ID="${CURRENT_GITHUB_RUN_ID}"
+        fi
+        source scripts/create_manifest.sh
+        echo "run_id_suffix=$(resolve_run_id_suffix)" >> "$GITHUB_OUTPUT"
