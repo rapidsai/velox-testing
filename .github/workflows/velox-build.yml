@@ -119,7 +119,7 @@ jobs:
 
   velox-build:
     name: velox-build (${{ matrix.build_type }}, ${{ matrix.arch }})
-    needs: [velox-deps]
+    needs: [merge-velox-deps]
     runs-on: linux-${{ matrix.arch }}-cpu32
     permissions:
       contents: read
@@ -200,10 +200,9 @@ jobs:
           BUILD_DATE: ${{ inputs.date }}
           BUILD_VARIANT: ${{ inputs.build_variant }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          ARCH: ${{ matrix.arch }}
           CUDA: ${{ matrix.cuda_version || '12.9' }}
         run: |
-          echo "image=${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${IMAGE_NAME}:velox-deps-${VELOX_SHORT_SHA}-cuda${CUDA}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image tag
         id: tag
@@ -285,6 +284,15 @@ jobs:
               create_manifest_alias "${tag}" "velox-deps-latest-cuda${cuda}"
             done
           fi
+      - name: Delete intermediate arch-specific tags
+        continue-on-error: true
+        uses: ./.github/actions/delete-arch-tags
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          base-tags: |
+            velox-deps-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
+            velox-deps-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
   merge-velox-build:
     name: merge-manifests (velox-build)
     needs: [velox-build]
@@ -331,5 +339,3 @@ jobs:
             velox-${{ inputs.velox_short_sha }}-gpu-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
             velox-${{ inputs.velox_short_sha }}-gpu-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
             velox-${{ inputs.velox_short_sha }}-cpu-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
-            velox-deps-${{ inputs.velox_short_sha }}-cuda12.9-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}
-            velox-deps-${{ inputs.velox_short_sha }}-cuda13.1-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}

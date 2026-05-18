@@ -19,6 +19,11 @@ on:
         description: 'Build variant used in final image tags'
         type: string
         required: true
+      run_id:
+        description: 'GitHub run ID for manual build image tags'
+        type: string
+        required: false
+        default: ''
   workflow_dispatch:
     inputs:
       velox_short_sha:
