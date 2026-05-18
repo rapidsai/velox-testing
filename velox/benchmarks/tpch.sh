@@ -183,14 +183,21 @@ run_tpch_single_benchmark() {
       num_drivers=${NUM_DRIVERS:-32}
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
       CUDF_FLAGS=""
+      CUDF_PROPERTIES_PATH=""
+      cudf_memory_resource=""
       ;;
     "gpu")
       num_drivers=${NUM_DRIVERS:-4}
       cudf_chunk_read_limit=$((1024 * 1024 * 1024 * 1))
       cudf_pass_read_limit=0
+      # Upstream velox PR #16357 removed the --cudf_memory_resource /
+      # --cudf_memory_percent CLI flags from the cuDF TPC-H benchmark and
+      # replaced them with a single --cudf_properties=<file> flag that loads a
+      # key=value properties file (see CudfConfig.h for available keys).
       cudf_memory_resource="async"
+      CUDF_PROPERTIES_PATH="/tmp/cudf_q${query_number_padded}.properties"
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
-      CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit} --cudf_memory_resource=${cudf_memory_resource}"
+      CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit} --cudf_properties=${CUDF_PROPERTIES_PATH}"
       ;;
   esac
 
@@ -221,11 +228,19 @@ run_tpch_single_benchmark() {
     fi
   fi
 
+  # Build the in-container snippet that materializes a cuDF properties file
+  # (consumed by --cudf_properties). Empty on CPU so nothing is written.
+  WRITE_CUDF_PROPERTIES_CMD=""
+  if [[ -n "${CUDF_PROPERTIES_PATH}" ]]; then
+    WRITE_CUDF_PROPERTIES_CMD="printf '%s\n' 'cudf.memory_resource=${cudf_memory_resource}' > \"${CUDF_PROPERTIES_PATH}\""
+  fi
+
   # Execute benchmark using velox-benchmark service (volumes and environment pre-configured)
   set +e
   $run_in_container_func 'bash -c "
       set -exuo pipefail
       BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
+      '"${WRITE_CUDF_PROPERTIES_CMD}"'
       '"${PROFILE_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \
         --data_path=/workspace/velox/velox-benchmark-data \
