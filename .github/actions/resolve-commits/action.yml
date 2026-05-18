@@ -87,4 +87,6 @@ runs:
     - name: Set build date
       id: date
       shell: bash
-      run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+      run: |
+        echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+        echo "Build date: $(date -u +%Y%m%d)"
