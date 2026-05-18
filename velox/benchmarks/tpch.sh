@@ -176,6 +176,7 @@ run_tpch_single_benchmark() {
   local num_repeats="$5"
 
   printf -v query_number_padded '%02d' "$query_number"
+  cudf_memory_resource="async"
 
   # Set device-specific parameters
   case "$device_type" in
@@ -188,9 +189,8 @@ run_tpch_single_benchmark() {
       num_drivers=${NUM_DRIVERS:-4}
       cudf_chunk_read_limit=$((1024 * 1024 * 1024 * 1))
       cudf_pass_read_limit=0
-      cudf_memory_resource="async"
       BENCHMARK_EXECUTABLE="$(get_tpch_benchmark_executable_path "$device_type")"
-      CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit} --cudf_memory_resource=${cudf_memory_resource}"
+      CUDF_FLAGS="--cudf_chunk_read_limit=${cudf_chunk_read_limit} --cudf_pass_read_limit=${cudf_pass_read_limit}"
       ;;
   esac
 
@@ -226,6 +226,13 @@ run_tpch_single_benchmark() {
   $run_in_container_func 'bash -c "
       set -exuo pipefail
       BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
+      if [[ '"${device_type}"' == "gpu" ]]; then
+        CUDF_PROPERTIES_FILE=\"$(mktemp /tmp/velox-cudf.XXXXXX.properties)\"
+        printf "%s\\n" "cudf.memory_resource='"${cudf_memory_resource}"'" > \"\${CUDF_PROPERTIES_FILE}\"
+        CUDF_FLAGS=\"'"${CUDF_FLAGS}"' --cudf_properties=\${CUDF_PROPERTIES_FILE}\"
+      else
+        CUDF_FLAGS=\"'"${CUDF_FLAGS}"'\"
+      fi
       '"${PROFILE_CMD}"' \
         '"${BENCHMARK_EXECUTABLE}"' \
         --data_path=/workspace/velox/velox-benchmark-data \
@@ -233,7 +240,7 @@ run_tpch_single_benchmark() {
         --run_query_verbose='"${query_number_padded}"' \
         --num_repeats='"${num_repeats}"' \
         --num_drivers='"${num_drivers}"' \
-        '"${CUDF_FLAGS}"' 2>&1 | \
+        \${CUDF_FLAGS} 2>&1 | \
         tee \"\$BASE_FILENAME\"
       chown \"${USER_ID}:${GROUP_ID}\" \"\$BASE_FILENAME\"
       NSYS_REP_FILE=\"\${BASE_FILENAME}.nsys-rep\"
