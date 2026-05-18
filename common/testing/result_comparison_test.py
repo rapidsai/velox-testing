@@ -26,7 +26,7 @@ def test_normalize_to_expected_converts_str_dates_to_datetime64():
     When expected has datetime64 and actual has str dates,
     _normalize_to_expected converts actual to datetime64.
     """
-    actual = pd.DataFrame({0: ["1995-03-05", "1992-01-01", "1993-06-15"]})
+    actual = pd.DataFrame({0: pd.Series(["1995-03-05", "1992-01-01", "1993-06-15"], dtype=object)})
     expected = pd.DataFrame({0: pd.to_datetime(["1995-03-05", "1992-01-01", "1993-06-15"])})
 
     assert actual[0].dtype == object
@@ -42,8 +42,8 @@ def test_normalize_to_expected_handles_str_to_date_in_object_dtype():
     engines' parquet writers produce different DATE encodings).
     _normalize_to_expected converts actual's str values to datetime.date.
     """
-    actual = pd.DataFrame({0: ["1995-03-05", "1992-01-01"]})
-    expected = pd.DataFrame({0: [datetime.date(1995, 3, 5), datetime.date(1992, 1, 1)]})
+    actual = pd.DataFrame({0: pd.Series(["1995-03-05", "1992-01-01"], dtype=object)})
+    expected = pd.DataFrame({0: pd.Series([datetime.date(1995, 3, 5), datetime.date(1992, 1, 1)], dtype=object)})
 
     assert actual[0].dtype == object
     assert expected[0].dtype == object
