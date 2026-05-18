@@ -10,22 +10,21 @@ set -euo pipefail
 # REST API is the supported way to remove tags/versions.
 #
 # Usage:
-#   ./ci/delete-arch-tags.sh TAG
+#   ./ci/delete-arch-tags.sh TAG [TAG ...]
 #
 # Example:
 #   IMAGE_NAME=rapidsai/velox-testing-images GITHUB_TOKEN=ghp_... \
-#     ./ci/delete-arch-tags.sh velox-deps-abc123-cuda12.9-20260319-amd64
+#     ./ci/delete-arch-tags.sh velox-deps-abc123-cuda12.9-20260319-amd64 velox-deps-abc123-cuda12.9-20260319-arm64
 #
 # Environment:
 #   IMAGE_NAME   - Full image name without registry prefix (e.g. rapidsai/velox-testing-images)
 #   GITHUB_TOKEN - GitHub token with write:packages scope
 #   REGISTRY     - Unused; kept for compatibility with the action that sets it
 
-if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 TAG" >&2
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 TAG [TAG ...]" >&2
   exit 1
 fi
-TAG="$1"
 
 if [[ -z "${IMAGE_NAME:-}" ]]; then
   echo "Error: IMAGE_NAME is required" >&2
@@ -40,19 +39,59 @@ fi
 ORG="${IMAGE_NAME%%/*}"
 PACKAGE="${IMAGE_NAME#*/}"
 
-echo "Looking up tag '${TAG}' in ${ORG}/${PACKAGE}..."
-VERSION_ID=$(GH_TOKEN="${GITHUB_TOKEN}" gh api --paginate \
-  "orgs/${ORG}/packages/container/${PACKAGE}/versions" \
-  | jq -r --arg tag "${TAG}" \
-      '.[] | select(.metadata.container.tags | contains([$tag])) | .id' \
-  | head -n 1)
+versions_file=$(mktemp)
+trap 'rm -f "${versions_file}"' EXIT
 
-if [[ -z "${VERSION_ID}" ]]; then
-  echo "  Tag '${TAG}' not found. Skipping."
-  exit 0
-fi
+echo "Looking up ${#} tag(s) in ${ORG}/${PACKAGE}..."
+page=1
+while :; do
+  page_file=$(mktemp)
+  response_file=$(mktemp)
+  # Fetch one page at a time so cleanup can stop once all requested tags are found.
+  GH_TOKEN="${GITHUB_TOKEN}" gh api -i \
+    "orgs/${ORG}/packages/container/${PACKAGE}/versions?per_page=100&page=${page}" \
+    > "${response_file}"
+  awk 'body { print } /^\r?$/ { body=1 }' "${response_file}" > "${page_file}"
+  # Keep the existing jq lookup below simple by accumulating the pages already fetched.
+  jq -s 'add' "${versions_file}" "${page_file}" > "${versions_file}.next"
+  mv "${versions_file}.next" "${versions_file}"
+  rm -f "${page_file}"
 
-echo "  Found version ID: ${VERSION_ID}. Deleting..."
-GH_TOKEN="${GITHUB_TOKEN}" gh api --method DELETE \
-  "orgs/${ORG}/packages/container/${PACKAGE}/versions/${VERSION_ID}"
-echo "  -> Deleted tag '${TAG}' (version ${VERSION_ID})"
+  missing=0
+  for tag in "$@"; do
+    if ! jq -e --arg tag "${tag}" \
+      'any(.[]; (.metadata.container.tags // []) | index($tag))' \
+      "${versions_file}" >/dev/null; then
+      missing=1
+      break
+    fi
+  done
+  if [[ "${missing}" -eq 0 ]]; then
+    rm -f "${response_file}"
+    break
+  fi
+
+  # The GitHub Packages API exposes the next page only through the Link header.
+  if ! grep -qi 'rel="next"' "${response_file}"; then
+    rm -f "${response_file}"
+    break
+  fi
+  rm -f "${response_file}"
+  page=$((page + 1))
+done
+
+for tag in "$@"; do
+  VERSION_ID=$(jq -r --arg tag "${tag}" \
+    'first(.[] | select((.metadata.container.tags // []) | index($tag)) | .id) // empty' \
+    "${versions_file}")
+
+  if [[ -z "${VERSION_ID}" ]]; then
+    echo "  Tag '${tag}' not found. Skipping."
+    continue
+  fi
+
+  echo "  Found version ID for '${tag}': ${VERSION_ID}. Deleting..."
+  GH_TOKEN="${GITHUB_TOKEN}" gh api --method DELETE \
+    "orgs/${ORG}/packages/container/${PACKAGE}/versions/${VERSION_ID}"
+  echo "  -> Deleted tag '${tag}' (version ${VERSION_ID})"
+done
