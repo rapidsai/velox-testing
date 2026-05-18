@@ -54,9 +54,9 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
-from typing import Any
 import httpx
 
 _LARGE_ASSET_DIRECT_UPLOAD_THRESHOLD_BYTES = 10 * 1024 * 1024
@@ -616,8 +616,13 @@ async def _upload_log_files(
                     media_type = "text/plain"
 
                 if len(content) > _LARGE_ASSET_DIRECT_UPLOAD_THRESHOLD_BYTES:
-                    print(f"    Using presigned upload for {log_file.name} ({len(content) // (1024 * 1024)} MiB)...", file=sys.stderr)
-                    asset_id = await _upload_asset_presigned(client, content, log_file.name, log_file.name, media_type, timeout)
+                    print(
+                        f"    Using presigned upload for {log_file.name} ({len(content) // (1024 * 1024)} MiB)...",
+                        file=sys.stderr,
+                    )
+                    asset_id = await _upload_asset_presigned(
+                        client, content, log_file.name, log_file.name, media_type, timeout
+                    )
                 else:
                     response = await client.post(
                         "/api/assets/upload/",
