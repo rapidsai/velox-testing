@@ -36,25 +36,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Log in to the Container registry
-        env:
-          REGISTRY: ${{ env.REGISTRY }}
-          USERNAME: ${{ github.repository_owner }}
-          PASSWORD: ${{ github.token }}
-        run: |
-          max_attempts=5
-          delay_seconds=5
-          for attempt in $(seq 1 "${max_attempts}"); do
-            if printf '%s' "${PASSWORD}" | docker login "${REGISTRY}" --username "${USERNAME}" --password-stdin; then
-              exit 0
-            fi
-            if [ "${attempt}" -eq "${max_attempts}" ]; then
-              echo "Container registry login failed after ${max_attempts} attempts." >&2
-              exit 1
-            fi
-            echo "Container registry login failed (attempt ${attempt}/${max_attempts}); retrying in ${delay_seconds}s..." >&2
-            sleep "${delay_seconds}"
-            delay_seconds=$((delay_seconds * 2))
-          done
+        uses: ./.github/actions/container-registry-login
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
       - name: Resolve image
         id: resolve-image
         env:
