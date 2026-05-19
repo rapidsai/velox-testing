@@ -63,14 +63,63 @@ Images are saved to `${IMAGE_DIR}` (default: `/scratch/${USER}/images/presto`).
 
 ### 4. Run benchmarks
 
-```bash
-./launch-run.sh -n <nodes> -s <scale_factor> \
-    -w <worker-image-name> -c <coord-image-name> \
-    [-i <iterations>]
+```text
+./launch-run.sh \
+    -n, --nodes NODES \
+    -s, --scale-factor SCALE_FACTOR \
+    -w, --worker-image WORKER_IMAGE \
+    -c, --coord-image COORD_IMAGE \
+    [-i, --iterations ITERATIONS] \
+    [--disable-gds] \
+    [-m, --metrics] \
+    [-p, --profile] \
+    [--nsys-worker-id WORKER_ID] \
+    [-q, --queries QUERIES] \
+    [--worker-env-file PATH]
+```
 
-# examples
+**Required:**
+
+- `-n, --nodes NODES` — Number of SLURM nodes.
+- `-s, --scale-factor SF` — TPC-H scale factor.
+- `-w, --worker-image NAME` — Worker image name (without `.sqsh`), expected at `${IMAGE_DIR}/<NAME>.sqsh`.
+- `-c, --coord-image NAME` — Coordinator image (without `.sqsh`), expected at `${IMAGE_DIR}/<NAME>.sqsh`.
+
+**Optional:**
+
+- `-i, --iterations N` — Iterations per query (default: `2`).
+- `-g, --num-gpus-per-node N` — GPUs (and workers) per node (default: `4`).
+- `--no-numa` — Disable NUMA pinning. Default: NUMA pinning performed.
+- `--cpu` — CPU benchmark variant (forces `-g 1` and `--no-numa`).
+- `-o, --output-path PATH` — Copy `result_dir/` to this path after the job completes.
+- `--disable-gds` — Use POSIX I/O (`KVIKIO_COMPAT_MODE=ON`). Default: GDS enabled.
+- `-m, --metrics` — Pull per-query stats from the coordinator REST API into `result_dir/metrics/`.
+- `-p, --profile` — Capture an nsys report per query for one worker. Worker image must include the `nsys` CLI, which
+  must be on `PATH` inside the worker container. The recommended approach is a symlink in the image build:
+
+  ```bash
+  ln -sf /opt/nvidia/nsight-systems-cli/<version>/bin/nsys /usr/local/bin/nsys
+  ```
+
+- `--nsys-worker-id ID` — Worker to profile (default: `0`). Requires `-p`.
+- `-q, --queries LIST` — Comma-separated query numbers, e.g. `1,5,9` (default: all 22).
+- `--worker-env-file PATH` — File sourced inside each worker before `presto_server` starts (default: `./worker.env`, sets `KVIKIO_TASK_SIZE=16MiB` and `KVIKIO_NTHREADS=16`).
+
+
+```bash
+# Examples
 ./launch-run.sh -n 8 -s 3000 \
     -w presto-native-worker-gpu-v1 -c presto-coordinator-v1
+
+# Use POSIX I/O instead of GDS
+./launch-run.sh -n 8 -s 3000 \
+    -w presto-native-worker-gpu-v1 -c presto-coordinator-v1 \
+    --disable-gds
+
+# Use nsys to profile query 5 and 6 for worker 2
+./launch-run.sh -n 8 -s 3000 \
+    -w presto-native-worker-gpu-v1 -c presto-coordinator-v1 \
+    -p --nsys-worker-id 2 -q 5,6
 
 ./launch-run.sh -n 4 -s 10000 -i 3 \
     -w presto-native-worker-gpu-v1 -c presto-coordinator-v1 \
@@ -102,16 +151,13 @@ The launcher:
 
 ## Configuration
 
-### Key variables (set via launcher flags or environment)
+### Environment variables
 
-| Variable | Source | Description |
+Override any of these by exporting before running:
+
+| Variable | Default | Description |
 |---|---|---|
-| `SCALE_FACTOR` | `-s/--scale-factor` | TPC-H scale factor (required) |
-| `NODES_COUNT` | `-n/--nodes` | Number of SLURM nodes (required) |
-| `WORKER_IMAGE` | `-w/--worker-image` | Worker image name, without `.sqsh` (required) |
-| `COORD_IMAGE` | `-c/--coord-image` | Coordinator image name, without `.sqsh` (required) |
-| `NUM_ITERATIONS` | `-i/--iterations` | Benchmark iterations (default: 2) |
-| `NUM_GPUS_PER_NODE` | `-g/--num-gpus-per-node` | GPUs per node (default: 4) |
+| `NODELIST` | All nodes | List of nodes to use |
 
 ### Path defaults (`defaults.env`)
 

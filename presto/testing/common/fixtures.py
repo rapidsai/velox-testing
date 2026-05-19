@@ -14,6 +14,11 @@ def tpch_queries(request, presto_cursor):
 
     # The "fraction" portion of Q11 is a value that depends on scale factor
     # (it should be 0.0001 / scale_factor), whereas our query is currently hard-coded as 0.0001.
+    # Format with 12 decimal places to match the DuckDB reference image's
+    # substitution — both sides emit the same literal so the HAVING threshold
+    # agrees on the same value. (Note: ".10f" at SF=3000 gave only 3 significant
+    # figures, shifting the threshold by ~0.1% and producing row-count
+    # mismatches against the DuckDB reference.)
     value_ratio = 0.0001 / float(test_utils.get_scale_factor(request, presto_cursor))
     queries["Q11"] = queries["Q11"].format(SF_FRACTION=f"{value_ratio:.12f}")
 
