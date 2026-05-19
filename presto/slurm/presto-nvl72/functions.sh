@@ -109,7 +109,8 @@ ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.propertie
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
+${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
+${LOGS}:/opt/presto-server/logs${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
@@ -123,7 +124,8 @@ ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.propertie
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
+${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
+${LOGS}:/opt/presto-server/logs${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
     fi
 }
@@ -146,6 +148,13 @@ unset CONFIG NODE_CONFIG PRESTO_ETC JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPT
 
 export JAVA_HOME=/usr
 export PATH=/usr/bin:$PATH
+
+# Surface baked-in image provenance into the shared logs dir for the in-container
+# pytest in run_benchmark.sh to read via LOGS_DIR.
+if [ -f /opt/velox-testing/provenance.json ]; then
+  cp /opt/velox-testing/provenance.json "/opt/presto-server/logs/coordinator_provenance.json"
+fi
+
 /opt/presto-server/bin/launcher run & srv=$!
 
 # wait for JVM to appear
@@ -237,12 +246,16 @@ ${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
+${LOGS}:/opt/presto-server/logs,\
 /usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
 /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1 \
 -- /bin/bash -c "
 export LD_LIBRARY_PATH='${CUDF_LIB}':/usr/local/lib:\${LD_LIBRARY_PATH:-}
 if [[ '${VARIANT_TYPE}' == 'gpu' ]]; then export CUDA_VISIBLE_DEVICES=${gpu_id}; fi
 echo \"Worker ${worker_id}: CUDA_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES:-none}, NUMA_NODE=${numa_node}\"
+if [ -f /opt/velox-testing/provenance.json ]; then
+    cp /opt/velox-testing/provenance.json /opt/presto-server/logs/worker_provenance.json
+fi
 if [[ '${USE_NUMA}' == '1' ]]; then
     numactl --cpubind=${numa_node} --membind=${numa_node} /usr/bin/presto_server --etc-dir=/opt/presto-server/etc
 else
@@ -364,6 +377,7 @@ function run_queries {
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
+    export LOGS_DIR=/opt/presto-server/logs; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} \
         --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
