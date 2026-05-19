@@ -124,13 +124,14 @@ EOF
   # Apply variant-specific override files by appending them to the generated configs
   OVERRIDES_DIR="${SCRIPT_DIR}/../docker/config/template/overrides/${VARIANT_TYPE}"
   if [[ -d "${OVERRIDES_DIR}" ]]; then
-    while IFS= read -r -d '' src_file; do
+    mapfile -d '' override_files < <(find "${OVERRIDES_DIR}" -type f -print0)
+    for src_file in "${override_files[@]}"; do
       rel_path="${src_file#${OVERRIDES_DIR}/}"
       dest_file="${CONFIG_DIR}/${rel_path}"
       if [[ -f "${dest_file}" ]]; then
         cat "${src_file}" >> "${dest_file}"
       fi
-    done < <(find "${OVERRIDES_DIR}" -type f -print0)
+    done
   fi
 
   # success message
