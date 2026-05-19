@@ -228,7 +228,7 @@ run_tpch_single_benchmark() {
       BASE_FILENAME=\"benchmark_results/q'"${query_number_padded}"'_'"${device_type}"'_'"${num_drivers}"'_drivers\"
       if [[ '"${device_type}"' == "gpu" ]]; then
         CUDF_PROPERTIES_FILE=\"$(mktemp /tmp/velox-cudf.XXXXXX.properties)\"
-        printf "%s\\n" "cudf.memory_resource='"${cudf_memory_resource}"'" > \"\${CUDF_PROPERTIES_FILE}\"
+        printf "%s\\\\n" "cudf.memory_resource='"${cudf_memory_resource}"'" > \"\${CUDF_PROPERTIES_FILE}\"
         CUDF_FLAGS=\"'"${CUDF_FLAGS}"' --cudf_properties=\${CUDF_PROPERTIES_FILE}\"
       else
         CUDF_FLAGS=\"'"${CUDF_FLAGS}"'\"
