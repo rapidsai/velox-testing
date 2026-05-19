@@ -48,6 +48,8 @@ function activate_python_virtual_env() {
       init_conda
     fi
     conda activate "$(readlink -f $venv_dir)"
+    "$venv_dir/bin/python" --version
+    "$venv_dir/bin/pip" --version
   elif [[ -f "$venv_dir/pyvenv.cfg" ]]; then
     echo "Activating venv environment"
     source $venv_dir/bin/activate
@@ -88,7 +90,9 @@ function init_python_virtual_env() {
     # Installing python3.12 here leads to: "ModuleNotFoundError: No module named '_posixsubprocess'"
     # Pin ncurses<6.5 on ARM (aarch64): ncurses-6.5 has a terminfo symlink
     # conflict that makes `conda create` fail with EEXIST on nvl72 nodes.
-    conda create -q -y --prefix "$venv_dir" python=3.11 "ncurses<6.5" > /dev/null
+    conda create -q -y --prefix "$venv_dir" python=3.11 pip "ncurses<6.5" > /dev/null
+    "$venv_dir/bin/python" --version
+    "$venv_dir/bin/pip" --version
   fi
 
   activate_python_virtual_env $venv_dir
