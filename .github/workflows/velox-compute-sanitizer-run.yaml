@@ -56,11 +56,25 @@ jobs:
         with:
           persist-credentials: false
       - name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          USERNAME: ${{ github.repository_owner }}
+          PASSWORD: ${{ github.token }}
+        run: |
+          max_attempts=5
+          delay_seconds=5
+          for attempt in $(seq 1 "${max_attempts}"); do
+            if printf '%s' "${PASSWORD}" | docker login "${REGISTRY}" --username "${USERNAME}" --password-stdin; then
+              exit 0
+            fi
+            if [ "${attempt}" -eq "${max_attempts}" ]; then
+              echo "Container registry login failed after ${max_attempts} attempts." >&2
+              exit 1
+            fi
+            echo "Container registry login failed (attempt ${attempt}/${max_attempts}); retrying in ${delay_seconds}s..." >&2
+            sleep "${delay_seconds}"
+            delay_seconds=$((delay_seconds * 2))
+          done
       - name: Run compute-sanitizer ${{ inputs.tool_name }} on ${{ matrix.test_name }}
         env:
           IMAGE: ${{ inputs.velox_image }}
