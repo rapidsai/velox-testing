@@ -261,8 +261,7 @@ def _validate_orderby(df: pd.DataFrame, sort_col_indices: list[int], ascending: 
                 value_changed[safe] = cs != ps
             value_changed |= prev_null ^ curr_null
         else:
-            with np.errstate(invalid="ignore"):
-                anti_monotonic = (curr < prev) if asc else (curr > prev)
+            anti_monotonic = (curr < prev) if asc else (curr > prev)
             value_changed = curr != prev
 
         # A real violation requires both anti-monotonicity AND prior columns
