@@ -212,6 +212,13 @@ def _validate_orderby(df: pd.DataFrame, sort_col_indices: list[int], ascending: 
     throughout — every value comes from one engine and is bit-identical to
     itself.
 
+    Null handling: SQL leaves the position of NULLs in ORDER BY engine-
+    defined (Presto/Velox default to NULLS LAST for ASC, NULLS FIRST for
+    DESC, others differ), so adjacent pairs where either side is NULL are
+    not counted as violations. Two NULLs are treated as tied (do not break
+    the outer tie group); a NULL adjacent to a non-NULL value is treated as
+    a change for tie-group tracking only.
+
     Raises AssertionError pointing at the first offending row. A no-op when
     sort_col_indices is empty or the frame has 0-1 rows.
     """
@@ -223,9 +230,40 @@ def _validate_orderby(df: pd.DataFrame, sort_col_indices: list[int], ascending: 
     prior_changed = np.zeros(len(df) - 1, dtype=bool)
 
     for col_idx, asc in zip(sort_col_indices, ascending):
-        col = df.iloc[:, col_idx].to_numpy()
+        col_series = df.iloc[:, col_idx]
+        # Float columns route nulls through NaN so numpy's well-defined
+        # float comparisons (NaN < NaN -> False) keep them out of the
+        # anti-monotonic mask. Object/string/date columns can't be compared
+        # element-wise against NaN/None without raising, so we mask null-
+        # involving pairs out below.
+        if _is_float_col(col_series):
+            col = col_series.to_numpy(dtype=np.float64, na_value=np.nan)
+        else:
+            col = col_series.to_numpy()
         prev, curr = col[:-1], col[1:]
-        anti_monotonic = curr < prev if asc else curr > prev
+
+        is_null = pd.isna(col_series).to_numpy()
+        prev_null, curr_null = is_null[:-1], is_null[1:]
+        either_null = prev_null | curr_null
+
+        if either_null.any() and not _is_float_col(col_series):
+            # Object-dtype path: comparing None/NaN with anything raises
+            # TypeError. Restrict the inequality check to fully non-null
+            # pairs, and treat null<->non-null transitions as a value
+            # change (so we still break out of tie groups across them)
+            # while null<->null stays tied.
+            safe = ~either_null
+            anti_monotonic = np.zeros(len(prev), dtype=bool)
+            value_changed = np.zeros(len(prev), dtype=bool)
+            if safe.any():
+                ps, cs = prev[safe], curr[safe]
+                anti_monotonic[safe] = (cs < ps) if asc else (cs > ps)
+                value_changed[safe] = cs != ps
+            value_changed |= prev_null ^ curr_null
+        else:
+            anti_monotonic = (curr < prev) if asc else (curr > prev)
+            value_changed = curr != prev
+
         # A real violation requires both anti-monotonicity AND prior columns
         # to be tied; otherwise we're across an outer-tie boundary, where
         # this column's direction doesn't apply.
@@ -237,7 +275,7 @@ def _validate_orderby(df: pd.DataFrame, sort_col_indices: list[int], ascending: 
                 f"({'ASC' if asc else 'DESC'}) at row {i + 1}: "
                 f"got {curr[i]!r} after {prev[i]!r}"
             )
-        prior_changed = prior_changed | (curr != prev)
+        prior_changed = prior_changed | value_changed
 
 
 def _canonical_sort(df: pd.DataFrame) -> pd.DataFrame:
