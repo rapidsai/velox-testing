@@ -110,10 +110,6 @@ jobs:
       - &login_ghcr
         name: Log in to the Container registry
         uses: ./velox-testing/.github/actions/container-registry-login
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
 
       - name: Stage presto-deps build context
         run: |
@@ -368,10 +364,6 @@ jobs:
           persist-credentials: false
       - name: Log in to the Container registry
         uses: ./.github/actions/container-registry-login
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
       - name: Create and push multi-arch manifests
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
@@ -415,10 +407,6 @@ jobs:
           persist-credentials: false
       - name: Log in to the Container registry
         uses: ./.github/actions/container-registry-login
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
       - name: Create and push multi-arch manifests
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
@@ -468,10 +456,6 @@ jobs:
           persist-credentials: false
       - name: Log in to the Container registry
         uses: ./.github/actions/container-registry-login
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
       - name: Create and push multi-arch manifests
         env:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}

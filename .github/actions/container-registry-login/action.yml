@@ -3,14 +3,17 @@ description: Log in to a container registry with retry backoff.
 
 inputs:
   registry:
-    description: Container registry hostname.
-    required: true
+    description: Container registry hostname. Defaults to ghcr.io.
+    required: false
+    default: ghcr.io
   username:
-    description: Container registry username.
-    required: true
+    description: Container registry username. Defaults to github.repository_owner.
+    required: false
+    default: ''
   password:
-    description: Container registry password or token.
-    required: true
+    description: Container registry password or token. Defaults to github.token.
+    required: false
+    default: ''
   max-attempts:
     description: Maximum login attempts.
     required: false
@@ -26,9 +29,9 @@ runs:
     - name: Log in with retry
       shell: bash
       env:
-        REGISTRY: ${{ inputs.registry }}
-        USERNAME: ${{ inputs.username }}
-        PASSWORD: ${{ inputs.password }}
+        REGISTRY: ${{ inputs.registry || 'ghcr.io' }}
+        USERNAME: ${{ inputs.username || github.repository_owner }}
+        PASSWORD: ${{ inputs.password || github.token }}
         MAX_ATTEMPTS: ${{ inputs.max-attempts }}
         INITIAL_DELAY_SECONDS: ${{ inputs.initial-delay-seconds }}
       run: |

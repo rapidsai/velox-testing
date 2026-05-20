@@ -85,10 +85,6 @@ jobs:
       - &login_ghcr
         name: Log in to the Container registry
         uses: ./.github/actions/container-registry-login
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
       - name: Run CPU tests
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}

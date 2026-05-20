@@ -57,10 +57,6 @@ jobs:
           persist-credentials: false
       - name: Log in to the Container registry
         uses: ./.github/actions/container-registry-login
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
       - name: Run compute-sanitizer ${{ inputs.tool_name }} on ${{ matrix.test_name }}
         env:
           IMAGE: ${{ inputs.velox_image }}
