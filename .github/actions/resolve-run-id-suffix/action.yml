@@ -27,9 +27,9 @@ runs:
         GITHUB_EVENT_NAME: ${{ github.event_name }}
         INPUT_RUN_ID: ${{ inputs.run_id }}
       run: |
-        if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${BUILD_VARIANT}" == "manual" ]]; then
+        if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
           if [[ -z "${INPUT_RUN_ID}" ]]; then
-            echo "::error::run_id is required when build_variant is manual"
+            echo "::error::run_id is required for workflow_dispatch runs"
             exit 1
           fi
           export GITHUB_RUN_ID="${INPUT_RUN_ID}"
