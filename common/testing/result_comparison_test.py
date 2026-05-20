@@ -26,7 +26,7 @@ def test_normalize_to_expected_converts_str_dates_to_datetime64():
     When expected has datetime64 and actual has str dates,
     _normalize_to_expected converts actual to datetime64.
     """
-    actual = pd.DataFrame({0: ["1995-03-05", "1992-01-01", "1993-06-15"]})
+    actual = pd.DataFrame({0: pd.Series(["1995-03-05", "1992-01-01", "1993-06-15"], dtype=object)})
     expected = pd.DataFrame({0: pd.to_datetime(["1995-03-05", "1992-01-01", "1993-06-15"])})
 
     assert actual[0].dtype == object
@@ -42,8 +42,8 @@ def test_normalize_to_expected_handles_str_to_date_in_object_dtype():
     engines' parquet writers produce different DATE encodings).
     _normalize_to_expected converts actual's str values to datetime.date.
     """
-    actual = pd.DataFrame({0: ["1995-03-05", "1992-01-01"]})
-    expected = pd.DataFrame({0: [datetime.date(1995, 3, 5), datetime.date(1992, 1, 1)]})
+    actual = pd.DataFrame({0: pd.Series(["1995-03-05", "1992-01-01"], dtype=object)})
+    expected = pd.DataFrame({0: pd.Series([datetime.date(1995, 3, 5), datetime.date(1992, 1, 1)], dtype=object)})
 
     assert actual[0].dtype == object
     assert expected[0].dtype == object
@@ -101,6 +101,55 @@ def test_validate_orderby_handles_duplicate_column_labels():
     # by accessing columns positionally.
     df = pd.DataFrame([[1, "a"], [2, "b"], [3, "c"]], columns=["x", "x"])
     _validate_orderby(df, sort_col_indices=[0], ascending=[True])
+
+
+# ---------------------------------------------------------------------------
+# _validate_orderby null handling
+# ---------------------------------------------------------------------------
+
+
+def test_validate_orderby_object_column_with_nulls_does_not_raise():
+    # Regression: mixed object column with str and NaN used to crash with
+    # `TypeError: '<' not supported between instances of 'float' and 'str'`.
+    df = pd.DataFrame({0: ["a", "b", np.nan, "c"]})
+    _validate_orderby(df, sort_col_indices=[0], ascending=[True])
+
+
+def test_validate_orderby_object_column_all_none_does_not_raise():
+    # Regression: object column of all None used to crash with
+    # `TypeError: '<' not supported between instances of 'NoneType' and 'NoneType'`.
+    df = pd.DataFrame({0: [None, None, None]}, dtype=object)
+    _validate_orderby(df, sort_col_indices=[0], ascending=[True])
+
+
+def test_validate_orderby_object_column_null_then_value_does_not_raise():
+    # NULLS-FIRST style ordering (e.g. Presto DESC default): nulls then ASC
+    # of non-null values should pass.
+    df = pd.DataFrame({0: [None, None, "a", "b", "c"]}, dtype=object)
+    _validate_orderby(df, sort_col_indices=[0], ascending=[True])
+
+
+def test_validate_orderby_object_column_value_then_null_does_not_raise():
+    # NULLS-LAST style ordering (e.g. Presto ASC default): non-null ASC
+    # values then nulls at the tail should pass.
+    df = pd.DataFrame({0: ["a", "b", "c", None, None]}, dtype=object)
+    _validate_orderby(df, sort_col_indices=[0], ascending=[True])
+
+
+def test_validate_orderby_object_column_violation_between_non_nulls_still_raises():
+    # Null-masking only skips pairs that touch a null; real violations
+    # between two adjacent non-null values must still raise.
+    df = pd.DataFrame({0: ["b", "a", None, None]}, dtype=object)
+    with pytest.raises(AssertionError, match="ORDER BY"):
+        _validate_orderby(df, sort_col_indices=[0], ascending=[True])
+
+
+def test_validate_orderby_multi_column_nulls_in_primary_treated_as_tie_break():
+    # Primary col has nulls flanking a secondary-ordered block. Nulls should
+    # break the outer tie group (so the secondary can reset its ordering)
+    # rather than crash.
+    df = pd.DataFrame({0: [None, "x", "x", None], 1: [1, 1, 2, 1]})
+    _validate_orderby(df, sort_col_indices=[0, 1], ascending=[True, True])
 
 
 # ---------------------------------------------------------------------------
