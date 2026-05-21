@@ -11,6 +11,7 @@ BUILD_TYPE="${BUILD_TYPE:-release}"
 NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/presto-build}"
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
+RAPIDS_BUILD_ARGS=()
 
 usage() {
     cat <<EOF
@@ -23,7 +24,8 @@ on first run.
 Options:
   --release         Build in release mode (default)
   --debug           Build in debug mode
-  -j, --jobs N      Number of parallel jobs (default: nproc - 1)
+  -j, --jobs N      Number of parallel jobs (default: nproc - 1). Use -j0
+                    to size jobs like RAPIDS build scripts for sccache-dist.
   --rebuild-deps    Force rebuild of Facebook OSS dependencies
   -h, --help        Show this help message
 
@@ -42,15 +44,30 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) BUILD_TYPE="release"; shift ;;
         --debug) BUILD_TYPE="debug"; shift ;;
-        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
-        -j*) NUM_THREADS="${1#-j}"; shift ;;
+        -j|--jobs)
+            NUM_THREADS="$2"
+            if [[ "$2" == "0" ]]; then
+                RAPIDS_BUILD_ARGS+=("$1" "$2")
+            fi
+            shift 2
+            ;;
+        -j*)
+            NUM_THREADS="${1#-j}"
+            if [[ "${NUM_THREADS}" == "0" ]]; then
+                RAPIDS_BUILD_ARGS+=("-j0")
+            fi
+            shift
+            ;;
         --rebuild-deps) REBUILD_DEPS=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
     esac
 done
 
-[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(nproc --all --ignore=1)"
+if [[ "${NUM_THREADS}" == "0" ]]; then
+    eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
+    NUM_THREADS="${n_jobs}"
+fi
 
 PRESTO_DIR="${HOME}/presto/presto-native-execution"
 if [[ ! -d "${PRESTO_DIR}" ]]; then

@@ -20,6 +20,7 @@ OPTIONS:
                          By default, services will be lazily built i.e. a build
                          will only occur if there is no local image for the service.
     -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
+                         Use -j0 to size jobs like RAPIDS build scripts for sccache-dist.
     -w, --num-workers    Number of GPU workers to start (GPU variant only).
     -g, --gpu-ids        Comma-delimited list of GPU device IDs to use (e.g., "0,1,3,5").
                          Must be used with --num-workers. If not specified, defaults to "0,1,...,N-1"
@@ -62,6 +63,7 @@ EOF
 }
 
 NUM_THREADS=$(($(nproc) / 2))
+RAPIDS_BUILD_ARGS=()
 BUILD_TYPE=release
 ALL_CUDA_ARCHS=false
 export SINGLE_CONTAINER=false
@@ -99,6 +101,9 @@ parse_args() {
       -j|--num-threads)
         if [[ -n $2 ]]; then
           NUM_THREADS=$2
+          if [[ "$2" == "0" ]]; then
+            RAPIDS_BUILD_ARGS+=("$1" "$2")
+          fi
           shift 2
         else
           echo "Error: --num-threads requires a value"
@@ -223,8 +228,11 @@ if [[ -n ${BUILD_TARGET} && ! ${BUILD_TARGET} =~ ^(coordinator|c|worker|w|all|a)
   exit 1
 fi
 
-if (( NUM_THREADS <= 0 )); then
-  echo "Error: --num-threads must be a positive integer."
+if (( NUM_THREADS == 0 )); then
+  eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
+  NUM_THREADS="${n_jobs}"
+elif (( NUM_THREADS < 0 )); then
+  echo "Error: --num-threads must be a non-negative integer."
   print_help
   exit 1
 fi
