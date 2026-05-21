@@ -238,6 +238,7 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
+  --build-arg NINJA_LOAD_LIMIT=$NINJA_LOAD_LIMIT \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
   "${SCCACHE_BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}

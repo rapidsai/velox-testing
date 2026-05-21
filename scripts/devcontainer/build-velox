@@ -6,10 +6,10 @@ set -euo pipefail
 
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
-NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
+NUM_THREADS="${NUM_THREADS:-0}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
 CUDAARCHS="${CUDAARCHS:-}"
-RAPIDS_BUILD_ARGS=()
+RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
 
 usage() {
     cat <<EOF
@@ -23,8 +23,8 @@ Any -D flags are passed through to CMake via configure-velox, e.g.:
 Options:
   --release         Build in release mode (default)
   --debug           Build in debug mode
-  -j, --jobs N      Number of parallel jobs (default: nproc - 1). Use -j0
-                    to size jobs like RAPIDS build scripts for sccache-dist.
+  -j, --jobs N      Number of parallel jobs. Defaults to -j0, sized like
+                    RAPIDS build scripts for sccache-dist.
   --cuda-arch ARCH  CUDA compute capability (default: auto-detect or 75)
   -h, --help        Show this help message
 
@@ -44,16 +44,12 @@ while [[ $# -gt 0 ]]; do
         --debug) BUILD_TYPE="debug"; shift ;;
         -j|--jobs)
             NUM_THREADS="$2"
-            if [[ "$2" == "0" ]]; then
-                RAPIDS_BUILD_ARGS+=("$1" "$2")
-            fi
+            RAPIDS_BUILD_ARGS=("$1" "$2")
             shift 2
             ;;
         -j*)
             NUM_THREADS="${1#-j}"
-            if [[ "${NUM_THREADS}" == "0" ]]; then
-                RAPIDS_BUILD_ARGS+=("-j0")
-            fi
+            RAPIDS_BUILD_ARGS=("$1")
             shift
             ;;
         --cuda-arch) CUDAARCHS="$2"; shift 2 ;;
@@ -63,10 +59,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "${NUM_THREADS}" == "0" ]]; then
-    eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
-    NUM_THREADS="${n_jobs}"
-fi
+eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
+NUM_THREADS="${n_jobs}"
+LOAD_LIMIT="${n_load}"
 
 VELOX_DIR="${HOME}/velox"
 if [[ ! -d "${VELOX_DIR}" ]]; then
@@ -88,6 +83,7 @@ cd "${VELOX_DIR}"
 
 echo -e "\033[1;36mBuilding Velox\033[0m"
 echo "Threads:  ${NUM_THREADS}"
+echo "Load limit: ${LOAD_LIMIT}"
 echo ""
 
 BUILD_START=${SECONDS}

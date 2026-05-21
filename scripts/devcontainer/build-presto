@@ -8,10 +8,10 @@ source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
-NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
+NUM_THREADS="${NUM_THREADS:-0}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/presto-build}"
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
-RAPIDS_BUILD_ARGS=()
+RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
 
 usage() {
     cat <<EOF
@@ -24,8 +24,8 @@ on first run.
 Options:
   --release         Build in release mode (default)
   --debug           Build in debug mode
-  -j, --jobs N      Number of parallel jobs (default: nproc - 1). Use -j0
-                    to size jobs like RAPIDS build scripts for sccache-dist.
+  -j, --jobs N      Number of parallel jobs. Defaults to -j0, sized like
+                    RAPIDS build scripts for sccache-dist.
   --rebuild-deps    Force rebuild of Facebook OSS dependencies
   -h, --help        Show this help message
 
@@ -46,16 +46,12 @@ while [[ $# -gt 0 ]]; do
         --debug) BUILD_TYPE="debug"; shift ;;
         -j|--jobs)
             NUM_THREADS="$2"
-            if [[ "$2" == "0" ]]; then
-                RAPIDS_BUILD_ARGS+=("$1" "$2")
-            fi
+            RAPIDS_BUILD_ARGS=("$1" "$2")
             shift 2
             ;;
         -j*)
             NUM_THREADS="${1#-j}"
-            if [[ "${NUM_THREADS}" == "0" ]]; then
-                RAPIDS_BUILD_ARGS+=("-j0")
-            fi
+            RAPIDS_BUILD_ARGS=("$1")
             shift
             ;;
         --rebuild-deps) REBUILD_DEPS=true; shift ;;
@@ -64,10 +60,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "${NUM_THREADS}" == "0" ]]; then
-    eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
-    NUM_THREADS="${n_jobs}"
-fi
+eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
+NUM_THREADS="${n_jobs}"
+LOAD_LIMIT="${n_load}"
 
 PRESTO_DIR="${HOME}/presto/presto-native-execution"
 if [[ ! -d "${PRESTO_DIR}" ]]; then
@@ -273,6 +268,7 @@ echo ""
 echo -e "\033[1;36mBuilding Presto Native Execution\033[0m"
 echo "Build type:  ${BUILD_TYPE}"
 echo "Threads:     ${NUM_THREADS}"
+echo "Load limit:  ${LOAD_LIMIT}"
 echo "CUDA archs:  ${CUDAARCHS}"
 echo "Build dir:   ${BUILD_BASE_DIR}"
 echo ""
@@ -318,10 +314,16 @@ append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
 echo ""
 
 BUILD_START=${SECONDS}
-make cmake-and-build BUILD_TYPE="${BUILD_TYPE}" BUILD_DIR="" \
-    BUILD_BASE_DIR="${BUILD_BASE_DIR}" EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" \
-    NUM_THREADS="${NUM_THREADS}" USE_CCACHE=0 \
-    CMAKE_PREFIX_PATH="${FB_DEPS_PREFIX}"
+eval "cmake -B \"${BUILD_BASE_DIR}\" \
+    -DTREAT_WARNINGS_AS_ERRORS=1 \
+    -DENABLE_ALL_WARNINGS=1 \
+    -DCMAKE_PREFIX_PATH=\"${FB_DEPS_PREFIX}\" \
+    -DCMAKE_BUILD_TYPE=\"${BUILD_TYPE}\" \
+    -GNinja \
+    -DMAX_LINK_JOBS=\"${MAX_LINK_JOBS:-}\" \
+    -DMAX_HIGH_MEM_JOBS=\"${MAX_HIGH_MEM_JOBS:-}\" \
+    ${EXTRA_CMAKE_FLAGS}"
+ninja -C "${BUILD_BASE_DIR}" -j "${NUM_THREADS}" -l "${LOAD_LIMIT}"
 
 ELAPSED=$(( SECONDS - BUILD_START ))
 echo ""
