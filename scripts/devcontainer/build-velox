@@ -9,6 +9,7 @@ BUILD_TYPE="${BUILD_TYPE:-release}"
 NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
 CUDAARCHS="${CUDAARCHS:-}"
+RAPIDS_BUILD_ARGS=()
 
 usage() {
     cat <<EOF
@@ -22,7 +23,8 @@ Any -D flags are passed through to CMake via configure-velox, e.g.:
 Options:
   --release         Build in release mode (default)
   --debug           Build in debug mode
-  -j, --jobs N      Number of parallel jobs (default: nproc - 1)
+  -j, --jobs N      Number of parallel jobs (default: nproc - 1). Use -j0
+                    to size jobs like RAPIDS build scripts for sccache-dist.
   --cuda-arch ARCH  CUDA compute capability (default: auto-detect or 75)
   -h, --help        Show this help message
 
@@ -40,8 +42,20 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) BUILD_TYPE="release"; shift ;;
         --debug) BUILD_TYPE="debug"; shift ;;
-        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
-        -j*) NUM_THREADS="${1#-j}"; shift ;;
+        -j|--jobs)
+            NUM_THREADS="$2"
+            if [[ "$2" == "0" ]]; then
+                RAPIDS_BUILD_ARGS+=("$1" "$2")
+            fi
+            shift 2
+            ;;
+        -j*)
+            NUM_THREADS="${1#-j}"
+            if [[ "${NUM_THREADS}" == "0" ]]; then
+                RAPIDS_BUILD_ARGS+=("-j0")
+            fi
+            shift
+            ;;
         --cuda-arch) CUDAARCHS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         -D*) CMAKE_PASSTHROUGH+=("$1"); shift ;;
@@ -49,7 +63,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(nproc --all --ignore=1)"
+if [[ "${NUM_THREADS}" == "0" ]]; then
+    eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
+    NUM_THREADS="${n_jobs}"
+fi
 
 VELOX_DIR="${HOME}/velox"
 if [[ ! -d "${VELOX_DIR}" ]]; then
