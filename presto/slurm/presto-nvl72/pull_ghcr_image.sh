@@ -18,6 +18,17 @@
 set -e
 
 source "$(dirname "${BASH_SOURCE[0]}")/defaults.env"
+source "$(dirname "${BASH_SOURCE[0]}")/launcher_common.sh"
+
+# Image pull is CPU-only work. Resolve partition/account from the CPU section so
+# srun isn't rejected on clusters that require either flag.  We intentionally
+# don't use build_cluster_sbatch_args here: this srun runs a single task on a
+# shared node (no --cpus-per-task, no --exclusive), unlike the benchmark/analyze
+# launchers which take a whole node.
+resolve_cluster_variant cpu
+SLURM_ARGS=()
+[[ -n "${CLUSTER_DEFAULT_PARTITION:-}" ]] && SLURM_ARGS+=(--partition="${CLUSTER_DEFAULT_PARTITION}")
+[[ -n "${CLUSTER_DEFAULT_ACCOUNT:-}" ]]   && SLURM_ARGS+=(--account="${CLUSTER_DEFAULT_ACCOUNT}")
 
 usage() {
     echo "Usage: $0 <ghcr.io/org/image:tag> [--output <path/to/image.sqsh>] [--overwrite]"
@@ -97,6 +108,7 @@ ENROOT_DECOMPRESS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/enroot-decompre
 export OUTPUT_PATH ENROOT_URI OVERWRITE
 
 srun --export="ALL,PMIX_MCA_gds=^ds12,ENROOT_GZIP_PROGRAM=${ENROOT_DECOMPRESS}" \
+    "${SLURM_ARGS[@]}" \
     --nodes=1 --mem=0 --ntasks-per-node=1 \
     --mpi=pmix_v4 \
     bash -c '
