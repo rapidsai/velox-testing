@@ -84,6 +84,11 @@ srun --ntasks=1 \
   --export="ALL,MINIFORGE_HOME=/workspace/miniforge3,HOME=/workspace" \
   -- bash -c "
     set -e
+    # Pyxis/enroot may reset HOME based on the image's passwd entry, so the
+    # srun --export above isn't always honored inside the container. Force it
+    # here so pip's cache and duckdb's extension dir land on the writable
+    # /workspace bind-mount instead of the read-only image /home/\$USER.
+    export HOME=/workspace
     cd /workspace/benchmark_data_tools
     ../scripts/run_py_script.sh -p ./generate_data_files.py -- \
       -b tpch \
