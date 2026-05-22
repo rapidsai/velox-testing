@@ -42,6 +42,25 @@ unset _launcher_common_dir
 # satisfy the missing prerequisite, then exits 1. Callers invoke them after
 # arg parsing and resolve_cluster_variant but before sbatch submission so
 # failures surface immediately instead of inside a queued job.
+#
+# On clusters where some filesystems are mounted only on compute nodes (e.g.
+# /scratch on NVL72), the host-side check would always fail.  Set
+# CLUSTER_COMPUTE_ONLY_PATHS in cluster_config.env to a space-separated list
+# of path prefixes that live on compute-only mounts; preflights against those
+# paths are skipped on the host and deferred to the compute-side checks in
+# functions.sh / the .slurm scripts.
+
+# _path_is_compute_only <path>
+# Return 0 if <path> begins with any prefix listed in
+# CLUSTER_COMPUTE_ONLY_PATHS (space-separated), else 1.
+_path_is_compute_only() {
+    local path="$1" prefix
+    [[ -z "${CLUSTER_COMPUTE_ONLY_PATHS:-}" ]] && return 1
+    for prefix in ${CLUSTER_COMPUTE_ONLY_PATHS}; do
+        [[ -n "${prefix}" && "${path}" == "${prefix}"* ]] && return 0
+    done
+    return 1
+}
 
 # preflight_image <image_name_or_path> [<hint>]
 # Verify a .sqsh container image is on disk. Accepts a bare basename
@@ -55,6 +74,10 @@ preflight_image() {
         image_path="${IMAGE_DIR:?IMAGE_DIR not set in cluster_config.env}/${image}"
     else
         image_path="${IMAGE_DIR:?IMAGE_DIR not set in cluster_config.env}/${image}.sqsh"
+    fi
+    if _path_is_compute_only "${image_path}"; then
+        echo "Note: skipping host-side preflight for ${image_path} (compute-only path)" >&2
+        return 0
     fi
     if [[ ! -f "${image_path}" ]]; then
         echo "Error: container image not found at ${image_path}" >&2
@@ -71,6 +94,10 @@ preflight_dir() {
         echo "Error: ${desc} path is not set" >&2
         [[ -n "${hint}" ]] && echo "       To fix:  ${hint}" >&2
         exit 1
+    fi
+    if _path_is_compute_only "${path}"; then
+        echo "Note: skipping host-side preflight for ${desc} at ${path} (compute-only path)" >&2
+        return 0
     fi
     if [[ ! -d "${path}" ]]; then
         echo "Error: ${desc} directory not found at ${path}" >&2
@@ -180,7 +207,24 @@ preflight_metastore() {
     if [[ -n "${HIVE_METASTORE_VERSION:-}" && -n "${HIVE_METASTORE_SHARED_ROOT:-}" ]]; then
         shared_path="${HIVE_METASTORE_SHARED_ROOT}/${HIVE_METASTORE_VERSION}/tpchsf${sf}"
     fi
-    if [[ -d "${local_path}" ]] || { [[ -n "${shared_path}" ]] && [[ -d "${shared_path}" ]]; }; then
+    # An "available" candidate path is one we can verify from the host (i.e.
+    # not on a compute-only mount).  Compute-only candidates count as
+    # "unverifiable here" -- we can't say they're missing.
+    local local_unverifiable=0 shared_unverifiable=0
+    _path_is_compute_only "${local_path}" && local_unverifiable=1
+    [[ -n "${shared_path}" ]] && _path_is_compute_only "${shared_path}" && shared_unverifiable=1
+
+    # If every candidate is on a compute-only mount, defer the check entirely.
+    if [[ "${local_unverifiable}" == "1" ]] && \
+       { [[ -z "${shared_path}" ]] || [[ "${shared_unverifiable}" == "1" ]]; }; then
+        echo "Note: skipping host-side metastore preflight for SF${sf} (compute-only paths)" >&2
+        return 0
+    fi
+
+    # Otherwise: a verifiable candidate exists. Treat unverifiable candidates
+    # as "maybe present" -- they only block failure, not success.
+    if { [[ "${local_unverifiable}" == "1" ]] || [[ -d "${local_path}" ]]; } || \
+       { [[ -n "${shared_path}" ]] && { [[ "${shared_unverifiable}" == "1" ]] || [[ -d "${shared_path}" ]]; }; }; then
         return 0
     fi
     echo "Error: analyzed Hive metastore for SF${sf} not found." >&2
@@ -272,4 +316,5 @@ build_cluster_sbatch_args() {
     [[ -n "${CLUSTER_CPUS_PER_TASK:-}" ]]     && CLUSTER_SBATCH_ARGS+=(--cpus-per-task="${CLUSTER_CPUS_PER_TASK}")
     [[ -n "${CLUSTER_DEFAULT_PARTITION:-}" ]] && CLUSTER_SBATCH_ARGS+=(--partition="${CLUSTER_DEFAULT_PARTITION}")
     [[ -n "${CLUSTER_DEFAULT_ACCOUNT:-}" ]]   && CLUSTER_SBATCH_ARGS+=(--account="${CLUSTER_DEFAULT_ACCOUNT}")
+    return 0
 }
