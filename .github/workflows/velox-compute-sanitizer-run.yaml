@@ -56,11 +56,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+        uses: ./.github/actions/container-registry-login
       - name: Run compute-sanitizer ${{ inputs.tool_name }} on ${{ matrix.test_name }}
         env:
           IMAGE: ${{ inputs.velox_image }}

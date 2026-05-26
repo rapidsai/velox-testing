@@ -1,0 +1,50 @@
+name: Container registry login
+description: Log in to a container registry with retry backoff.
+
+inputs:
+  registry:
+    description: Container registry hostname. Defaults to ghcr.io.
+    required: false
+    default: ghcr.io
+  username:
+    description: Container registry username. Defaults to github.repository_owner.
+    required: false
+    default: ''
+  password:
+    description: Container registry password or token. Defaults to github.token.
+    required: false
+    default: ''
+  max-attempts:
+    description: Maximum login attempts.
+    required: false
+    default: '5'
+  initial-delay-seconds:
+    description: Initial retry delay in seconds.
+    required: false
+    default: '5'
+
+runs:
+  using: composite
+  steps:
+    - name: Log in with retry
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry || 'ghcr.io' }}
+        USERNAME: ${{ inputs.username || github.repository_owner }}
+        PASSWORD: ${{ inputs.password || github.token }}
+        MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        INITIAL_DELAY_SECONDS: ${{ inputs.initial-delay-seconds }}
+      run: |
+        delay_seconds="${INITIAL_DELAY_SECONDS}"
+        for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
+          if printf '%s' "${PASSWORD}" | docker login "${REGISTRY}" --username "${USERNAME}" --password-stdin; then
+            exit 0
+          fi
+          if [ "${attempt}" -eq "${MAX_ATTEMPTS}" ]; then
+            echo "Container registry login failed after ${MAX_ATTEMPTS} attempts." >&2
+            exit 1
+          fi
+          echo "Container registry login failed (attempt ${attempt}/${MAX_ATTEMPTS}); retrying in ${delay_seconds}s..." >&2
+          sleep "${delay_seconds}"
+          delay_seconds=$((delay_seconds * 2))
+        done

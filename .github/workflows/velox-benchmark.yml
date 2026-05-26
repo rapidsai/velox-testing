@@ -106,19 +106,15 @@ jobs:
     env:
       TPCH_DATA_DIR: ${{ github.workspace }}/benchmark-data/tpch
     steps:
-      - &login_ghcr
-        name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
-
       - &checkout_velox_testing
         name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
+
+      - &login_ghcr
+        name: Log in to the Container registry
+        uses: ./.github/actions/container-registry-login
 
       - name: Generate TPC-H benchmark data
         run: |

@@ -56,6 +56,13 @@ jobs:
           - arch: arm64
             cuda_version: *cuda13
     steps:
+      - &checkout_velox_testing
+        name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          path: velox-testing
+          persist-credentials: false
+
       - &checkout_velox
         name: Checkout Velox
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -87,11 +94,7 @@ jobs:
 
       - &login_ghcr
         name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+        uses: ./velox-testing/.github/actions/container-registry-login
 
       - name: Build and push Velox deps image
         id: push
@@ -158,13 +161,7 @@ jobs:
             build_type: cpu
             cudf: 'OFF'
     steps:
-      - &checkout_velox_testing
-        name: Checkout velox-testing
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          path: velox-testing
-          persist-credentials: false
-
+      - *checkout_velox_testing
       - *checkout_velox
       - *setup_proxy_cache
       - *setup_buildx
@@ -264,7 +261,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - *login_ghcr
+      - name: Log in to the Container registry
+        uses: ./.github/actions/container-registry-login
       - name: Create and push multi-arch manifests
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
@@ -305,7 +303,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - *login_ghcr
+      - name: Log in to the Container registry
+        uses: ./.github/actions/container-registry-login
       - name: Create and push multi-arch manifests
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
