@@ -63,7 +63,9 @@ jobs:
           TOOL_NAME: ${{ inputs.tool_name }}
           TEST_NAME: ${{ matrix.test_name }}
         run: |
-          docker pull "${IMAGE}"
+          source scripts/common.sh
+
+          docker_pull_with_retry "${IMAGE}"
           docker run --rm --gpus all \
             -v "${GITHUB_WORKSPACE}/ci/run_compute_sanitizer_test.sh:/tmp/run_compute_sanitizer_test.sh:ro" \
             "${IMAGE}" bash /tmp/run_compute_sanitizer_test.sh "${TOOL_NAME}" "${TEST_NAME}"

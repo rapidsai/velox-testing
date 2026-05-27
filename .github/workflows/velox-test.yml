@@ -92,9 +92,11 @@ jobs:
           IMAGE_TAG: ${{ matrix.image_tag }}
           RUN_ID_SUFFIX: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
         run: |
+          source scripts/common.sh
+
           IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-${IMAGE_TAG}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           echo "Testing image: ${IMAGE}"
-          docker pull "${IMAGE}"
+          docker_pull_with_retry "${IMAGE}"
           docker run --rm "${IMAGE}" bash -c \
             "cd /opt/velox-build/release && ctest -j 16 --label-exclude cuda_driver --output-on-failure --no-tests=error"
 
@@ -151,8 +153,10 @@ jobs:
           IMAGE_TAG: ${{ matrix.image_tag }}
           RUN_ID_SUFFIX: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
         run: |
+          source scripts/common.sh
+
           IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-gpu-cuda${IMAGE_TAG}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           echo "Testing image: ${IMAGE}"
-          docker pull "${IMAGE}"
+          docker_pull_with_retry "${IMAGE}"
           docker run --rm --gpus all "${IMAGE}" bash -c \
             "cd /opt/velox-build/release && ctest -j 8 --label-regex cuda_driver --output-on-failure --no-tests=error"

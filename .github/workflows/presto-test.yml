@@ -215,12 +215,14 @@ jobs:
           CUDA_VERSION: ${{ matrix.cuda_version }}
           RUN_ID_SUFFIX: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
         run: |
+          source scripts/common.sh
+
           COORD_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}${RUN_ID_SUFFIX}"
-          docker pull "${COORD_IMAGE}"
+          docker_pull_with_retry "${COORD_IMAGE}"
           docker tag "${COORD_IMAGE}" "presto-coordinator:ci"
 
           WORKER_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${RUN_ID_SUFFIX}"
-          docker pull "${WORKER_IMAGE}"
+          docker_pull_with_retry "${WORKER_IMAGE}"
           docker tag "${WORKER_IMAGE}" "presto-native-worker-gpu:ci"
 
       - name: Smoke test
