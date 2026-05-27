@@ -52,7 +52,9 @@ jobs:
         env:
           IMAGE: ${{ steps.resolve-image.outputs.velox_image }}
         run: |
-          docker pull "${IMAGE}"
+          source scripts/common.sh
+
+          docker_pull_with_retry "${IMAGE}"
           docker run --rm \
             -v "${GITHUB_WORKSPACE}/ci/discover_velox_cudf_tests.sh:/tmp/discover.sh:ro" \
             -e GITHUB_OUTPUT=/tmp/gh_output \
