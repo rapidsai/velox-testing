@@ -13,6 +13,8 @@ REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
 
 # Source benchmark-specific libraries
 source "${SCRIPT_DIR}/../benchmarks/tpch.sh"
+# Shared helpers (docker_pull_with_retry, validate_docker_image, ...)
+source "${REPO_ROOT}/scripts/common.sh"
 
 # Default values
 BENCHMARK_TYPE="tpch"
@@ -322,7 +324,7 @@ check_benchmark_data
 
 if [[ -n "${DOCKER_IMAGE}" ]]; then
   echo "Using pre-built image: ${DOCKER_IMAGE}"
-  docker pull "${DOCKER_IMAGE}"
+  docker_pull_with_retry "${DOCKER_IMAGE}"
   BUILD_TYPE="release"
   export BUILD_TYPE
 else
