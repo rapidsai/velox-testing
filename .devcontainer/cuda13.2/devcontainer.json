@@ -1,12 +1,15 @@
 {
-  "name": "velox-dev-cuda13.1",
+  "name": "velox-dev-cuda13.2",
   "build": {
     "context": "${localWorkspaceFolder}/..",
     "dockerfile": "${localWorkspaceFolder}/.devcontainer/Dockerfile",
     "args": {
-      "CUDA_VERSION": "13.1",
-      "BASE": "rapidsai/devcontainers:latest-cpp-cuda13.1-ucx1.19.0-openmpi5.0.10"
-    }
+      "CUDA_VERSION": "13.2",
+      "BASE": "rapidsai/devcontainers:latest-cpp-cuda13.2-ucx1.19.0-openmpi5.0.10"
+    },
+    "cacheFrom": [
+      "ghcr.io/rapidsai/velox-testing/devcontainer:latest-cuda13.2"
+    ]
   },
   "features": {
     "ghcr.io/devcontainers/features/sshd:1": {},
@@ -16,7 +19,7 @@
     "ghcr.io/devcontainers/features/sshd",
     "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils"
   ],
-  "initializeCommand": ["/bin/bash", "${localWorkspaceFolder}/scripts/devcontainer/initialize", "${localWorkspaceFolder}/..", "${localEnv:HOME}", "13.1"],
+  "initializeCommand": ["/bin/bash", "${localWorkspaceFolder}/scripts/devcontainer/initialize", "${localWorkspaceFolder}/..", "${localEnv:HOME}", "13.2"],
   "workspaceFolder": "/home/coder",
   "workspaceMount": "source=${localWorkspaceFolder},target=/home/coder/velox-testing,type=bind,consistency=consistent",
   "mounts": [
@@ -30,7 +33,7 @@
     "source=${localWorkspaceFolder}/../.aws,target=/home/coder/.aws,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cache,target=/home/coder/.cache,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.config,target=/home/coder/.config,type=bind,consistency=consistent",
-    "source=${localWorkspaceFolder}/../.local/share/velox-testing-cuda13.1-venvs,target=/home/coder/.local/share/venvs,type=bind,consistency=consistent"
+    "source=${localWorkspaceFolder}/../.local/share/velox-testing-cuda13.2-venvs,target=/home/coder/.local/share/venvs,type=bind,consistency=consistent"
   ],
   "hostRequirements": {
     "gpu": "optional"
@@ -40,7 +43,7 @@
   ],
   "runArgs": [
     "--rm",
-    "--name", "${localEnv:USER:anon}-velox-dev-cuda13.1",
+    "--name", "${localEnv:USER:anon}-velox-dev-cuda13.2",
     "--ulimit", "nofile=500000"
   ],
   "postCreateCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/post-create",

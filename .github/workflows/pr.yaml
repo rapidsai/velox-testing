@@ -15,6 +15,7 @@ jobs:
   pr-builder:
     needs:
       - checks
+      - devcontainer
       - detect-changes
       - test_benchmark_data_tools
     permissions:
@@ -33,6 +34,30 @@ jobs:
       enable_check_generated_files: false
       enable_check_version_files_changed: false
       enable_check_version_against_tag: false
+
+  devcontainer:
+    name: devcontainer (${{ matrix.arch }}, ${{ matrix.cuda }})
+    runs-on: linux-${{ matrix.arch }}-cpu8
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        cuda: ["13.2"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - id: build
+        name: Build devcontainer
+        uses: ./.github/actions/build-devcontainer
+        with:
+          arch: ${{ matrix.arch }}
+          cuda: ${{ matrix.cuda }}
+          push: false
 
   detect-changes:
     permissions:

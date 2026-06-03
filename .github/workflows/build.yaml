@@ -1,0 +1,91 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".devcontainer/**"
+      - ".github/actions/build-devcontainer/**"
+      - "scripts/devcontainer/**"
+      - ".github/workflows/build.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  devcontainer-amd64:
+    name: &devcontainer_name Build devcontainers
+    runs-on: linux-amd64-cpu8
+    permissions: &devcontainer_permissions
+      contents: read
+      packages: write
+    outputs:
+      hash: ${{ steps.build.outputs.hash_amd64 }}
+    steps:
+      - uses: &checkout actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with: &checkout_with
+          persist-credentials: false
+
+      - name: &login_name Login to ghcr.io
+        uses: &login docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4
+        with: &login_with
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - id: build
+        name: &build_name Build devcontainer
+        uses: &build_action ./.github/actions/build-devcontainer
+        with:
+          arch: amd64
+          cuda: &cuda '13.2'
+          push: true
+
+  devcontainer-arm64:
+    name: *devcontainer_name
+    runs-on: linux-arm64-cpu8
+    permissions: *devcontainer_permissions
+    outputs:
+      hash: ${{ steps.build.outputs.hash_arm64 }}
+    steps:
+      - uses: *checkout
+        with: *checkout_with
+
+      - name: *login_name
+        uses: *login
+        with: *login_with
+
+      - id: build
+        name: *build_name
+        uses: *build_action
+        with:
+          arch: arm64
+          cuda: *cuda
+          push: true
+
+  devcontainers:
+    name: Push devcontainer manifest
+    needs: [devcontainer-amd64, devcontainer-arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: *login_name
+        uses: *login
+        with: *login_with
+
+      - name: Push devcontainer manifest
+        shell: bash --noprofile --norc -eo pipefail {0}
+        env:
+          HASH_AMD64: ${{ needs.devcontainer-amd64.outputs.hash }}
+          HASH_ARM64: ${{ needs.devcontainer-arm64.outputs.hash }}
+        run: |
+          docker buildx imagetools create \
+            --tag ghcr.io/rapidsai/velox-testing/devcontainer:latest-cuda13.2 \
+            "${HASH_AMD64}" \
+            "${HASH_ARM64}"
