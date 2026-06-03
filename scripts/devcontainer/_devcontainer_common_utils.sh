@@ -15,7 +15,7 @@ resolve_cudaarchs() {
     fi
 }
 
-# Look up the cmake build directory for a RAPIDS library (rmm, ucxx, kvikio, cudf).
+# Look up the cmake build directory for a RAPIDS library (rmm, ucxx, kvikio, rapidsmpf, cudf).
 # Prints the path if found; prints nothing otherwise.
 get_rapids_cmake_dir() {
     local lib_name="$1"
@@ -30,15 +30,16 @@ get_rapids_cmake_dir() {
     fi
 }
 
-# Append -D flags for pre-built rmm, ucxx, kvikio, cudf to the variable whose
+# Append -D flags for pre-built rmm, ucxx, kvikio, rapidsmpf, cudf to the variable whose
 # name is passed as $1 (must already exist in the caller's scope).
 append_rapids_cmake_flags() {
     local __var="$1"
 
-    local rmm_dir ucxx_dir kvikio_dir cudf_dir
+    local rmm_dir ucxx_dir kvikio_dir rapidsmpf_dir cudf_dir
     rmm_dir=$(get_rapids_cmake_dir "rmm")
     ucxx_dir=$(get_rapids_cmake_dir "ucxx")
     kvikio_dir=$(get_rapids_cmake_dir "kvikio")
+    rapidsmpf_dir=$(get_rapids_cmake_dir "rapidsmpf")
     cudf_dir=$(get_rapids_cmake_dir "cudf")
 
     if [[ -n "${rmm_dir}" ]]; then
@@ -52,6 +53,10 @@ append_rapids_cmake_flags() {
     if [[ -n "${kvikio_dir}" ]]; then
         echo "Found kvikio build at: ${kvikio_dir}"
         printf -v "$__var" '%s %s' "${!__var}" "-Dkvikio_ROOT=${kvikio_dir}"
+    fi
+    if [[ -n "${rapidsmpf_dir}" ]]; then
+        echo "Found rapidsmpf build at: ${rapidsmpf_dir}"
+        printf -v "$__var" '%s %s' "${!__var}" "-Drapidsmpf_ROOT=${rapidsmpf_dir}"
     fi
     if [[ -n "${cudf_dir}" ]]; then
         echo "Found cudf build at: ${cudf_dir}"

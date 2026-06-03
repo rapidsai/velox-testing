@@ -60,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# RAPIDS build-utils emits shell assignments for n_jobs and n_load.
 eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
 NUM_THREADS="${n_jobs}"
 LOAD_LIMIT="${n_load}"
