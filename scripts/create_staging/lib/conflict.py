@@ -190,7 +190,10 @@ def _ask_claude(
         str(repo),
     ]
     effective = timeout if timeout is not None else cfg.claude_timeout_s
-    result = run(cmd, cwd=repo, check=True, timeout=effective)
+    # new_session=True so a timeout SIGKILLs the whole Claude process tree
+    # (including any tool subprocesses it spawned) instead of risking a
+    # pipe-drain hang that would blow past `effective` seconds.
+    result = run(cmd, cwd=repo, check=True, timeout=effective, new_session=True)
     return result.stdout or ""
 
 

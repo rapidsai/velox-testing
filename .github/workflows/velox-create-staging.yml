@@ -60,6 +60,26 @@ on:
         type: string
         required: false
         default: ''
+      claude_model:
+        description: 'Claude model slug used for conflict resolution'
+        type: string
+        required: false
+        default: 'claude-opus-4-8'
+      claude_timeout:
+        description: 'Per-file Claude CLI timeout in seconds'
+        type: string
+        required: false
+        default: '300'
+      pr_timeout:
+        description: 'Per-PR auto-resolve wall-clock timeout in seconds (0 disables the cap)'
+        type: string
+        required: false
+        default: '900'
+      job_timeout_minutes:
+        description: 'Hard ceiling (minutes) for the whole staging job'
+        type: number
+        required: false
+        default: 120
 
 jobs:
   velox-create-staging:
@@ -79,6 +99,10 @@ jobs:
       additional_repository: ${{ inputs.additional_repository }}
       additional_branch: ${{ inputs.additional_branch }}
       script_path: ./velox-testing/scripts/create_staging/create_staging.py
+      claude_model: ${{ inputs.claude_model }}
+      claude_timeout: ${{ inputs.claude_timeout }}
+      pr_timeout: ${{ inputs.pr_timeout }}
+      job_timeout_minutes: ${{ inputs.job_timeout_minutes }}
     secrets:
       fork_pat: ${{ secrets.VELOX_FORK_PAT || secrets.GITHUB_TOKEN }}
       anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}

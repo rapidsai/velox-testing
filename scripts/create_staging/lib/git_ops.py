@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -22,6 +24,17 @@ def require_cmd(cmd: str) -> None:
         raise RuntimeError(f"missing required command: {cmd}")
 
 
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    """SIGKILL the whole process group led by ``proc`` (best effort)."""
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
 def run(
     cmd: Sequence[str],
     *,
@@ -32,23 +45,57 @@ def run(
     env: Optional[dict] = None,
     input: Optional[str] = None,
     timeout: Optional[int] = None,
+    new_session: bool = False,
 ) -> subprocess.CompletedProcess:
-    """Run a command and return CompletedProcess. Stderr is always captured for diagnostics."""
-    result = subprocess.run(
+    """Run a command and return CompletedProcess. Stderr is always captured for diagnostics.
+
+    When ``new_session`` is True the child starts as its own process-group leader
+    and, on timeout, the ENTIRE group is SIGKILLed before its pipes are drained.
+    This guarantees a hard wall-clock bound even when the child spawns
+    grandchildren (e.g. a CLI that runs its own tool subprocesses): a plain
+    ``subprocess.run(timeout=...)`` only kills the direct child and can then block
+    indefinitely draining pipes that a surviving grandchild still holds open.
+    """
+    if not new_session:
+        result = subprocess.run(
+            list(cmd),
+            cwd=str(cwd) if cwd else None,
+            check=False,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.PIPE,
+            text=text,
+            env=env,
+            input=input,
+            timeout=timeout,
+        )
+        if check and result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            raise subprocess.CalledProcessError(result.returncode, list(cmd), output=result.stdout, stderr=stderr)
+        return result
+
+    proc = subprocess.Popen(
         list(cmd),
         cwd=str(cwd) if cwd else None,
-        check=False,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE,
+        stdin=subprocess.PIPE if input is not None else None,
         text=text,
         env=env,
-        input=input,
-        timeout=timeout,
+        start_new_session=True,
     )
-    if check and result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        raise subprocess.CalledProcessError(result.returncode, list(cmd), output=result.stdout, stderr=stderr)
-    return result
+    try:
+        stdout, stderr = proc.communicate(input=input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_group(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            stdout, stderr = None, None
+        raise subprocess.TimeoutExpired(list(cmd), timeout, output=stdout, stderr=stderr)
+    if check and proc.returncode != 0:
+        err = (stderr or "").strip() if text else stderr
+        raise subprocess.CalledProcessError(proc.returncode, list(cmd), output=stdout, stderr=err)
+    return subprocess.CompletedProcess(list(cmd), proc.returncode, stdout, stderr)
 
 
 def retry(

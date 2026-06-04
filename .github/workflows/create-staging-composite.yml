@@ -59,6 +59,26 @@ on:
         description: 'Path to the staging entrypoint (e.g., ./velox-testing/scripts/create_staging/create_staging.py)'
         type: string
         required: true
+      claude_model:
+        description: 'Claude model slug used for conflict resolution'
+        type: string
+        required: false
+        default: 'claude-opus-4-8'
+      claude_timeout:
+        description: 'Per-file Claude CLI timeout in seconds'
+        type: string
+        required: false
+        default: '300'
+      pr_timeout:
+        description: 'Per-PR auto-resolve wall-clock timeout in seconds (0 disables the cap)'
+        type: string
+        required: false
+        default: '900'
+      job_timeout_minutes:
+        description: 'Hard ceiling (minutes) for the whole staging job'
+        type: number
+        required: false
+        default: 120
     secrets:
       fork_pat:
         description: 'GitHub PAT for target repository'
@@ -70,6 +90,7 @@ on:
 jobs:
   create-staging:
     runs-on: linux-amd64-cpu4
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: write
     env:
@@ -77,6 +98,11 @@ jobs:
       TARGET_REPO: ${{ inputs.target_repository }}
       SCRIPT_PATH: ${{ inputs.script_path }}
       ANTHROPIC_API_KEY: ${{ secrets.anthropic_api_key }}
+      # Picked up by create_staging.py's env-aware argparse defaults
+      # (CLAUDE_MODEL / CLAUDE_TIMEOUT / PR_TIMEOUT) for every --step invocation.
+      CLAUDE_MODEL: ${{ inputs.claude_model }}
+      CLAUDE_TIMEOUT: ${{ inputs.claude_timeout }}
+      PR_TIMEOUT: ${{ inputs.pr_timeout }}
       BASE_ARGS: >-
         --mode ci
         --base-repository ${{ inputs.base_repository }}

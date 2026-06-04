@@ -42,7 +42,7 @@ Examples:
 Environment:
     GH_TOKEN        GitHub token used by `gh` and for fetch/push
     CLAUDE_BIN      Override Claude CLI binary (default: claude)
-    CLAUDE_MODEL    Claude model (default: claude-opus-4-7)
+    CLAUDE_MODEL    Claude model (default: claude-opus-4-8)
     CLAUDE_TIMEOUT  Per-file Claude timeout in seconds (default: 300)
     PR_TIMEOUT      Per-PR auto-resolve wall-clock timeout in seconds
                     (default: 900; set 0 to disable)
@@ -197,7 +197,7 @@ def _load_repo_dotenv() -> None:
 
     Python does not read ``.env`` automatically. Without ``source .env``,
     ``CLAUDE_MODEL`` etc. would be missing and argparse would fall back to
-    built-in defaults (e.g. ``claude-opus-4-7``). Existing environment
+    built-in defaults (e.g. ``claude-opus-4-8``). Existing environment
     variables always win over ``.env`` entries.
     """
     root = Path(__file__).resolve().parents[2]
