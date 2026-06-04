@@ -79,7 +79,7 @@ on:
         description: 'Hard ceiling (minutes) for the whole staging job'
         type: number
         required: false
-        default: 120
+        default: '120'
 
 jobs:
   velox-create-staging:
