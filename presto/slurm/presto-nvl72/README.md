@@ -96,6 +96,12 @@ This step only needs to repeat when the worker image's stat tracking changes
 ./launch-run.sh -n 8 -s 3000             # GPU, default 2 iterations
 ./launch-run.sh -n 4 -s 1000 -i 3        # GPU, 3 iterations
 ./launch-run.sh --cpu -n 2 -s 100        # CPU
+
+# Use POSIX I/O instead of GDS
+./launch-run.sh -n 8 -s 3000 --disable-gds
+
+# Profile queries 5 and 6 on worker 2
+./launch-run.sh -n 8 -s 3000 -p --nsys-worker-id 2 -q 5,6
 ```
 
 Submits a benchmark sbatch job, polls until completion, and prints a summary.
