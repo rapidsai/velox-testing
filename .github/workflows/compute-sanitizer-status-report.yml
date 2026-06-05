@@ -1,8 +1,6 @@
 name: Compute Sanitizer Status Report
 
 on:
-  push:
-    branches: [add-compute-sanitizer-status-report]   # TEMP: remove before merge
   schedule:
     - cron: '30 11 * * 6'  # Saturday at 11:30 UTC (after the weekly compute-sanitizer trigger finishes)
   workflow_dispatch:
