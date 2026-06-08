@@ -29,6 +29,16 @@ Usage:
         --identifier-hash abc123 \
         --cache-state warm
 
+    # With labels and notes:
+    python benchmark_reporting_tools/post_results.py /path/to/benchmark_output \
+        --sku-name PDX-H100 \
+        --storage-configuration-name pdx-lustre-sf-100 \
+        --benchmark-name tpch \
+        --identifier-hash abc123 \
+        --cache-state warm \
+        --label nightly --label cudf-main \
+        --notes "Baseline run after cuDF upgrade"
+
     # Override with explicit paths:
     python benchmark_reporting_tools/post_results.py /path/to/benchmark_output \
         --config-dir /custom/path/to/configs \
@@ -324,6 +334,19 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Override server logs directory. Default: presto/scripts/presto_logs/.",
     )
+    parser.add_argument(
+        "--label",
+        dest="labels",
+        action="append",
+        default=None,
+        metavar="LABEL",
+        help="Label to attach to the benchmark run. Can be specified multiple times.",
+    )
+    parser.add_argument(
+        "--notes",
+        default=None,
+        help="Free-text notes to attach to the benchmark run.",
+    )
 
     return parser.parse_args()
 
@@ -366,6 +389,8 @@ def _build_submission_payload(
     velox_repo: str | None = None,
     presto_branch: str | None = None,
     presto_repo: str | None = None,
+    labels: list[str] | None = None,
+    notes: str | None = None,
 ) -> dict:
     """Build a BenchmarkSubmission payload from parsed dataclasses.
 
@@ -488,7 +513,7 @@ def _build_submission_payload(
             "presto_repo": presto_repo,
         }
 
-    return {
+    payload: dict = {
         "sku_name": sku_name,
         "storage_configuration_name": storage_configuration_name,
         "benchmark_definition_name": benchmark_definition_name,
@@ -510,6 +535,11 @@ def _build_submission_payload(
         "asset_ids": asset_ids,
         "validation_status": (validation_results or {}).get("overall_status", "not-validated"),
     }
+    if labels is not None:
+        payload["labels"] = labels
+    if notes is not None:
+        payload["notes"] = notes
+    return payload
 
 
 def _build_http_client(api_url: str, api_key: str, timeout: float) -> httpx.AsyncClient:
@@ -693,6 +723,8 @@ async def _process_benchmark_dir(
     velox_repo: str | None = None,
     presto_branch: str | None = None,
     presto_repo: str | None = None,
+    labels: list[str] | None = None,
+    notes: str | None = None,
 ) -> int:
     """Process a benchmark directory and post results to API.
 
@@ -836,6 +868,8 @@ async def _process_benchmark_dir(
                 velox_repo=velox_repo,
                 presto_branch=presto_branch,
                 presto_repo=presto_repo,
+                labels=labels,
+                notes=notes,
             )
         except Exception as e:
             print(f"  Error building payload for '{bench_name}': {e}", file=sys.stderr)
@@ -927,6 +961,8 @@ async def main() -> int:
         velox_repo=args.velox_repo,
         presto_branch=args.presto_branch,
         presto_repo=args.presto_repo,
+        labels=args.labels,
+        notes=args.notes,
     )
 
     return result
