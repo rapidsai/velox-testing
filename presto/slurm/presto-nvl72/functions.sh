@@ -64,6 +64,44 @@ function generate_configs {
     echo "--add-modules=java.management,jdk.management" >> ${CONFIGS}/etc_common/jvm.config
     echo "-Dcom.sun.management.jmxremote=false" >> ${CONFIGS}/etc_common/jvm.config
     echo "-XX:-UseContainerSupport" >> ${CONFIGS}/etc_common/jvm.config
+    apply_config_overrides
+}
+
+# Apply per-run property overrides to the freshly-generated configs.
+# Reads CONFIG_OVERRIDES="key1=val1;key2=val2;..." (semicolon-separated because
+# commas are reserved by sbatch --export). Used by run-sweep.sh to permute
+# knobs.
+#
+# Policy:
+#   * Worker (etc_worker_*/config_native.properties): replace if present,
+#     append if absent. The native C++ worker recognizes cudf.* keys via
+#     CudfConfig.h and tolerates a few unrecognized ones.
+#   * Coordinator (etc_coordinator/config_native.properties): replace-ONLY.
+#     The coord on the GPU variant is Java Presto, whose config loader
+#     refuses to start when it sees unknown properties. Appending e.g.
+#     cudf.batch_size_min_threshold to the coord config bricks the run.
+function apply_config_overrides {
+    local overrides="${CONFIG_OVERRIDES:-}"
+    [[ -z "$overrides" ]] && return 0
+    local IFS=';'
+    for pair in $overrides; do
+        [[ -z "$pair" ]] && continue
+        local key="${pair%%=*}"
+        local val="${pair#*=}"
+        for f in "${CONFIGS}"/etc_worker_*/config_native.properties; do
+            [[ -f "$f" ]] || continue
+            if grep -q "^${key}=" "$f"; then
+                sed -i "s|^${key}=.*|${key}=${val}|" "$f"
+            else
+                echo "${key}=${val}" >> "$f"
+            fi
+        done
+        local coord_cfg="${CONFIGS}/etc_coordinator/config_native.properties"
+        if [[ -f "$coord_cfg" ]] && grep -q "^${key}=" "$coord_cfg"; then
+            sed -i "s|^${key}=.*|${key}=${val}|" "$coord_cfg"
+        fi
+        echo "Applied config override: ${key}=${val}"
+    done
 }
 
 # Takes a list of environment variables.  Checks that each one is set and of non-zero length.
@@ -191,7 +229,8 @@ run_coord_image "$COORD_SCRIPT" "coord"
 function run_worker {
     : "${ENABLE_GDS:=0}"
     : "${ENABLE_NSYS:=0}"
-    : "${NSYS_WORKER_ID:=0}"
+    # Migrate legacy NSYS_WORKER_ID (single int) → NSYS_WORKER_IDS (csv).
+    : "${NSYS_WORKER_IDS:=${NSYS_WORKER_ID:-0}}"
 
     [ $# -ne 4 ] && echo_error "$0 expected arguments 'gpu_id', 'image', 'node_id', and 'worker_id'"
     validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD CUDF_LIB DATA
@@ -241,7 +280,7 @@ function run_worker {
     local nsys_bin=""
     local nsys_launch_opts=""
     local vt_nsys_report_dir="/var/log/nsys"
-    if [[ "${ENABLE_NSYS}" == "1" && "${worker_id}" == "${NSYS_WORKER_ID}" ]]; then
+    if [[ "${ENABLE_NSYS}" == "1" && ",${NSYS_WORKER_IDS}," == *",${worker_id},"* ]]; then
         # nsys must be on PATH inside the worker container. The recommended approach is
         # a symlink in the image build:
         # ln -sf /opt/nvidia/nsight-systems-cli/<version>/bin/nsys /usr/local/bin/nsys
@@ -717,36 +756,41 @@ function wait_for_nsys_report_generation {
         else
             qlist=({1..22})
         fi
+        local -a wid_list
+        IFS=',' read -ra wid_list <<< "${NSYS_WORKER_IDS}"
+        local expected=$((${#qlist[@]} * ${#wid_list[@]}))
 
         declare -A prev_sizes
         local stable_count=0
         for i in {1..120}; do
             local all_stable=true
-            for qnum in "${qlist[@]}"; do
-                report="${LOGS}/nsys_worker_w${NSYS_WORKER_ID}_Q${qnum}.nsys-rep"
-                fallback="${LOGS}/nsys_worker_w${NSYS_WORKER_ID}_Q${qnum}.qdstrm"
-                if [[ -f "$report" ]]; then
-                    target="$report"
-                elif [[ -f "$fallback" ]]; then
-                    target="$fallback"
-                else
-                    echo "    w${NSYS_WORKER_ID} Q${qnum}: no file yet"
-                    all_stable=false
-                    continue
-                fi
-                cur_size=$(stat -c%s "$target" 2>/dev/null || echo 0)
-                prev=${prev_sizes["$target"]:-0}
-                echo "    w${NSYS_WORKER_ID} Q${qnum}: cur=${cur_size} prev=${prev}"
-                if (( cur_size == 0 || cur_size != prev )); then
-                    all_stable=false
-                fi
-                prev_sizes["$target"]=$cur_size
+            for wid in "${wid_list[@]}"; do
+                for qnum in "${qlist[@]}"; do
+                    report="${LOGS}/nsys_worker_w${wid}_Q${qnum}.nsys-rep"
+                    fallback="${LOGS}/nsys_worker_w${wid}_Q${qnum}.qdstrm"
+                    if [[ -f "$report" ]]; then
+                        target="$report"
+                    elif [[ -f "$fallback" ]]; then
+                        target="$fallback"
+                    else
+                        echo "    w${wid} Q${qnum}: no file yet"
+                        all_stable=false
+                        continue
+                    fi
+                    cur_size=$(stat -c%s "$target" 2>/dev/null || echo 0)
+                    prev=${prev_sizes["$target"]:-0}
+                    echo "    w${wid} Q${qnum}: cur=${cur_size} prev=${prev}"
+                    if (( cur_size == 0 || cur_size != prev )); then
+                        all_stable=false
+                    fi
+                    prev_sizes["$target"]=$cur_size
+                done
             done
             echo "  all_stable=${all_stable} stable_count=${stable_count}"
             if $all_stable; then
                 stable_count=$((stable_count + 1))
                 if (( stable_count >= 3 )); then
-                    echo "All ${#qlist[@]} nsys reports stable."
+                    echo "All ${expected} nsys reports stable."
                     break
                 fi
             else

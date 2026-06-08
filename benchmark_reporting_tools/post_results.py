@@ -526,26 +526,42 @@ def _build_http_client(api_url: str, api_key: str, timeout: float) -> httpx.Asyn
 async def _s3_presigned_put(
     upload_url: str,
     required_headers: dict[str, Any],
-    content: bytes,
+    file_path: Path,
     timeout: float,
 ) -> tuple[int, str]:
     headers = {str(k): str(v) for k, v in required_headers.items()}
+    # S3 rejects chunked Transfer-Encoding on presigned PUTs, so pin Content-Length
+    # if the presign didn't already supply it. With a Content-Length set, httpx
+    # streams the iterable body without falling back to chunked encoding.
+    headers.setdefault("Content-Length", str(file_path.stat().st_size))
+
+    async def _chunks():
+        # 4 MiB keeps each SSL_write well below OpenSSL's per-call buffer limits
+        # (a single multi-hundred-MB write triggers `[BUF] malloc failure`).
+        # httpx.AsyncClient rejects sync iterables, so this must be an async gen.
+        chunk_size = 4 * 1024 * 1024
+        with file_path.open("rb") as f:
+            while True:
+                buf = f.read(chunk_size)
+                if not buf:
+                    break
+                yield buf
+
     async with httpx.AsyncClient(timeout=timeout) as s3_client:
-        response = await s3_client.put(upload_url, headers=headers, content=content)
+        response = await s3_client.put(upload_url, headers=headers, content=_chunks())
     return response.status_code, response.text
 
 
 async def _upload_asset_presigned(
     client: httpx.AsyncClient,
-    content: bytes,
-    filename: str,
+    file_path: Path,
     title: str,
     media_type: str,
     timeout: float,
 ) -> int:
     url_resp = await client.post(
         "/api/assets/upload-url/",
-        json={"original_filename": filename, "media_type": media_type},
+        json={"original_filename": file_path.name, "media_type": media_type},
     )
     if url_resp.status_code not in (200, 201):
         raise RuntimeError(f"Failed to get upload URL: {url_resp.status_code} {url_resp.text}")
@@ -555,7 +571,7 @@ async def _upload_asset_presigned(
     s3_key = presign["s3_key"]
     required_headers = presign.get("required_headers") or {}
 
-    put_status, put_body = await _s3_presigned_put(upload_url, required_headers, content, timeout)
+    put_status, put_body = await _s3_presigned_put(upload_url, required_headers, file_path, timeout)
     if put_status not in (200, 204):
         raise RuntimeError(f"S3 PUT failed: {put_status} {put_body}")
 
@@ -607,7 +623,6 @@ async def _upload_log_files(
         async def _upload_one(log_file: Path) -> int:
             async with semaphore:
                 print(f"    Uploading {log_file.name}...", file=sys.stderr)
-                content = log_file.read_bytes()
                 if log_file.suffix == ".json":
                     media_type = "application/json"
                 elif log_file.suffix == ".nsys-rep":
@@ -615,15 +630,17 @@ async def _upload_log_files(
                 else:
                     media_type = "text/plain"
 
-                if len(content) > _LARGE_ASSET_DIRECT_UPLOAD_THRESHOLD_BYTES:
+                file_size = log_file.stat().st_size
+                if file_size > _LARGE_ASSET_DIRECT_UPLOAD_THRESHOLD_BYTES:
                     print(
-                        f"    Using presigned upload for {log_file.name} ({len(content) // (1024 * 1024)} MiB)...",
+                        f"    Using presigned upload for {log_file.name} ({file_size // (1024 * 1024)} MiB)...",
                         file=sys.stderr,
                     )
                     asset_id = await _upload_asset_presigned(
-                        client, content, log_file.name, log_file.name, media_type, timeout
+                        client, log_file, log_file.name, media_type, timeout
                     )
                 else:
+                    content = log_file.read_bytes()
                     response = await client.post(
                         "/api/assets/upload/",
                         files={"file": (log_file.name, content, media_type)},

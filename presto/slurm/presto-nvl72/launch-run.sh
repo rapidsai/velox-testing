@@ -42,8 +42,9 @@ SCRIPT_DIR="$PWD"
 ENABLE_GDS=1
 ENABLE_METRICS=0
 ENABLE_NSYS=0
-NSYS_WORKER_ID=0
+NSYS_WORKER_IDS="0"
 QUERIES=""
+CONFIG_OVERRIDES=""
 
 usage() {
     cat <<EOF
@@ -63,13 +64,18 @@ Options:
   -o, --output-path <dir>      Copy results into this directory after the run
   -q, --queries <list>         Comma-separated query filter (e.g. "1,6,21")
       --worker-env-file <path> Override worker.env (default: ./worker.env)
+      --config-overrides <s>   Semicolon-separated property overrides applied
+                               after generate_configs (e.g.
+                               "task.max-drivers-per-task=8;cudf.batch_size_min_threshold=200000")
       --cpu                    Use CPU partition/images (overrides cluster default)
       --gpu                    Use GPU partition/images (overrides cluster default)
       --no-numa                Disable NUMA pinning for workers
       --disable-gds            Disable GPU Direct Storage
   -m, --metrics                Enable metrics collection
   -p, --profile                Enable nsys profiling
-      --nsys-worker-id <n>     Worker ID to profile (default: ${NSYS_WORKER_ID})
+      --nsys-worker-ids <list> Worker IDs to profile: comma list (e.g. "0,3,5") or
+                               'all' to profile every worker (default: ${NSYS_WORKER_IDS})
+      --nsys-worker-id <n>     Alias for --nsys-worker-ids accepting a single ID
   -h, --help                   Show this help message and exit
 
 Any arguments after -- are passed directly to sbatch.
@@ -91,7 +97,9 @@ while [[ $# -gt 0 ]]; do
         -o|--output-path)         requires_value "$1" "${2:-}"; OUTPUT_PATH="$2"; shift 2 ;;
         -q|--queries)             requires_value "$1" "${2:-}"; QUERIES="$2"; shift 2 ;;
         --worker-env-file)        requires_value "$1" "${2:-}"; WORKER_ENV_FILE="$2"; shift 2 ;;
-        --nsys-worker-id)         requires_value "$1" "${2:-}"; NSYS_WORKER_ID="$2"; shift 2 ;;
+        --config-overrides)       requires_value "$1" "${2:-}"; CONFIG_OVERRIDES="$2"; shift 2 ;;
+        --nsys-worker-id)         requires_value "$1" "${2:-}"; NSYS_WORKER_IDS="$2"; shift 2 ;;
+        --nsys-worker-ids)        requires_value "$1" "${2:-}"; NSYS_WORKER_IDS="$2"; shift 2 ;;
         --cpu)         VARIANT_TYPE="cpu"; shift ;;
         --gpu)         VARIANT_TYPE="gpu"; shift ;;
         --no-numa)     USE_NUMA="0"; shift ;;
@@ -123,6 +131,13 @@ VARIANT_TYPE="${VARIANT_TYPE:-${CLUSTER_DEFAULT_VARIANT:-gpu}}"
 resolve_cluster_variant "${VARIANT_TYPE}"
 : "${NUM_GPUS_PER_NODE:=${CLUSTER_NUM_WORKERS_PER_NODE:-}}"
 : "${USE_NUMA:=${CLUSTER_USE_NUMA:-0}}"
+
+# Expand --nsys-worker-ids=all to the full 0..N-1 range now that NUM_GPUS_PER_NODE
+# is known. Done here (not at arg-parse time) because total worker count depends
+# on cluster-resolved values.
+if [[ "${NSYS_WORKER_IDS}" == "all" ]]; then
+    NSYS_WORKER_IDS=$(seq -s, 0 $((NODES_COUNT * NUM_GPUS_PER_NODE - 1)))
+fi
 
 # Validate required values before submitting
 VTYPE_UPPER="${VARIANT_TYPE^^}"
@@ -163,10 +178,15 @@ GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NOD
 build_common_export_vars
 EXPORT_VARS+=",NUM_ITERATIONS=${NUM_ITERATIONS}"
 EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS},ENABLE_METRICS=${ENABLE_METRICS}"
-EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS},NSYS_WORKER_ID=${NSYS_WORKER_ID}"
-# Comma-separated query list can't ride EXPORT_VARS (comma is the separator);
-# export it so sbatch picks it up via the ALL inheritance.
+EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
+# Comma-separated values can't ride EXPORT_VARS (comma is the sbatch --export
+# field separator); export them so sbatch picks them up via the ALL inheritance.
 [[ -n "${QUERIES}" ]] && export QUERIES
+export NSYS_WORKER_IDS
+# CONFIG_OVERRIDES uses ';' internally but values may contain commas (e.g.
+# "32MB,64MB" would break, but more pressingly any later additions); easiest
+# to keep it off EXPORT_VARS entirely.
+[[ -n "${CONFIG_OVERRIDES}" ]] && export CONFIG_OVERRIDES
 JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" "${NODELIST_ARG[@]}" \
 "${CLUSTER_SBATCH_ARGS[@]}" \
 --export="${EXPORT_VARS}" \

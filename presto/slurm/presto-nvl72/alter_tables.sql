@@ -1,0 +1,18 @@
+ALTER TABLE hive.tpchsf1000.region ADD CONSTRAINT pk_tpch_region PRIMARY KEY (r_regionkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.nation ADD CONSTRAINT pk_tpch_nation PRIMARY KEY (n_nationkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.supplier ADD CONSTRAINT pk_tpch_supplier PRIMARY KEY (s_suppkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.customer ADD CONSTRAINT pk_tpch_customer PRIMARY KEY (c_custkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.part ADD CONSTRAINT pk_tpch_part PRIMARY KEY (p_partkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.partsupp ADD CONSTRAINT pk_tpch_partsupp PRIMARY KEY (ps_partkey, ps_suppkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.orders ADD CONSTRAINT pk_tpch_orders PRIMARY KEY (o_orderkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.lineitem ADD CONSTRAINT pk_tpch_lineitem PRIMARY KEY (l_orderkey, l_linenumber) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.nation ADD CONSTRAINT fk_tpch_nation_region FOREIGN KEY (n_regionkey) REFERENCES tpchsf1000.region (r_regionkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.supplier ADD CONSTRAINT fk_tpch_supplier_nation FOREIGN KEY (s_nationkey) REFERENCES tpchsf1000.nation (n_nationkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.customer ADD CONSTRAINT fk_tpch_customer_nation FOREIGN KEY (c_nationkey) REFERENCES tpchsf1000.nation (n_nationkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.orders ADD CONSTRAINT fk_tpch_orders_customer FOREIGN KEY (o_custkey) REFERENCES tpchsf1000.customer (c_custkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.partsupp ADD CONSTRAINT fk_tpch_partsupp_part FOREIGN KEY (ps_partkey) REFERENCES tpchsf1000.part (p_partkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.partsupp ADD CONSTRAINT fk_tpch_partsupp_supplier FOREIGN KEY (ps_suppkey) REFERENCES tpchsf1000.supplier (s_suppkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.lineitem ADD CONSTRAINT fk_tpch_lineitem_orders FOREIGN KEY (l_orderkey) REFERENCES tpchsf1000.orders (o_orderkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.lineitem ADD CONSTRAINT fk_tpch_lineitem_partsupp FOREIGN KEY (l_partkey, l_suppkey) REFERENCES tpchsf1000.partsupp (ps_partkey, ps_suppkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.lineitem ADD CONSTRAINT fk_tpch_lineitem_part_derived FOREIGN KEY (l_partkey) REFERENCES tpchsf1000.part (p_partkey) DISABLED RELY NOT ENFORCED;
+ALTER TABLE hive.tpchsf1000.lineitem ADD CONSTRAINT fk_tpch_lineitem_supplier_derived FOREIGN KEY (l_suppkey) REFERENCES tpchsf1000.supplier (s_suppkey) DISABLED RELY NOT ENFORCED;

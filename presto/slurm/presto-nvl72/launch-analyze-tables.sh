@@ -94,6 +94,10 @@ SCRIPT_DIR="$PWD"
 
 build_common_export_vars
 [[ -n "${DATA_DIR}" ]] && EXPORT_VARS+=",DATA=${DATA_DIR}"
+# Forward DATASET_NAME explicitly. The slurm wrapper has `:= tpch-rs-${SF}`
+# as the default, so relying on `--export=ALL` inheritance is too fragile when
+# the on-disk layout uses the older `scale-${SF}` convention.
+[[ -n "${DATASET_NAME:-}" ]] && EXPORT_VARS+=",DATASET_NAME=${DATASET_NAME}"
 
 OUT_FMT="presto-analyze_n${NODES_COUNT}_sf${SCALE_FACTOR}_%j.out"
 ERR_FMT="presto-analyze_n${NODES_COUNT}_sf${SCALE_FACTOR}_%j.err"
