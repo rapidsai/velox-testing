@@ -10,7 +10,7 @@
 # Note: --cpus-per-task, --partition, and --account are passed as sbatch CLI
 # args by launch-gen-data.sh, sourced from ~/.cluster_config.env.
 
-set -e
+set -euo pipefail
 
 # ==============================================================================
 # TPC-H Data Generation Job Script

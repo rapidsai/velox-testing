@@ -13,7 +13,7 @@
 #
 # Usage:
 #   ./launch-analyze-tables.sh -s|--scale-factor <sf> [-n|--nodes <count>]
-#                              [-d|--data-dir <path>]
+#                              [-d|--data-dir <data-root>]
 #                              [-g|--num-workers-per-node <n>]
 #                              [-w|--worker-image <name>] [-c|--coord-image <name>]
 #                              [additional sbatch options]
@@ -26,7 +26,7 @@
 #   ./launch-analyze-tables.sh -s 3000 -n 2
 # ==============================================================================
 
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")"
 source ./defaults.env
@@ -83,8 +83,8 @@ preflight_image "${WORKER_IMAGE}" \
     "Pull it (see ./pull_ghcr_image.sh) or override with -w <name>"
 preflight_image "${COORD_IMAGE}" \
     "Pull it (see ./pull_ghcr_image.sh) or override with -c <name>"
-preflight_dir "${DATA_DIR:-${DATA}}" "TPC-H data" \
-    "./launch-gen-data.sh -s ${SCALE_FACTOR} -o ${DATA_DIR:-${DATA}}"
+preflight_dir "${DATA_DIR:-${DATA}}/tpch-rs-${SCALE_FACTOR}" "TPC-H SF${SCALE_FACTOR} data" \
+    "./launch-gen-data.sh -s ${SCALE_FACTOR} -o ${DATA_DIR:-${DATA}}/tpch-rs-${SCALE_FACTOR}"
 
 # Clean up stale logs/output files from previous runs
 rm -f logs/* *.out *.err 2>/dev/null || true

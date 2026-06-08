@@ -9,6 +9,20 @@
 # install path, so the same absolute path has to resolve inside the
 # container.  Pair this with `MINIFORGE_HOME=/workspace/miniforge3` in the
 # --export (which uses the separate VT_ROOT:/workspace mount).
+# Resolve a container image name or path to an absolute .sqsh path.
+# Accepts: bare name (appends .sqsh under IMAGE_DIR), name ending in .sqsh
+# (prepends IMAGE_DIR), or an absolute path (used as-is).
+resolve_image_path() {
+    local image="$1"
+    if [[ "${image}" == /* ]]; then
+        echo "${image}"
+    elif [[ "${image}" == *.sqsh ]]; then
+        echo "${IMAGE_DIR}/${image}"
+    else
+        echo "${IMAGE_DIR}/${image}.sqsh"
+    fi
+}
+
 miniforge_mount_arg() {
     local miniforge_dir="${VT_ROOT}/miniforge3"
     if [[ -d "${miniforge_dir}" ]]; then
@@ -89,7 +103,8 @@ function run_coord_image {
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
     local log_file="${type}.log"
 
-    local coord_image="${IMAGE_DIR}/${COORD_IMAGE}.sqsh"
+    local coord_image
+    coord_image=$(resolve_image_path "${COORD_IMAGE}")
     [ ! -f "${coord_image}" ] && echo_error "coord image does not exist at ${coord_image}"
 
     # Provide a writable base data directory for the coordinator so that the
@@ -203,7 +218,8 @@ function run_worker {
     local numa_node=$((gpu_id / ${CLUSTER_NUMA_GPUS_PER_NODE:-1}))
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id} numa_node ${numa_node}"
 
-    local worker_image="${IMAGE_DIR}/${image}.sqsh"
+    local worker_image
+    worker_image=$(resolve_image_path "${image}")
     [ ! -f "${worker_image}" ] && echo_error "worker image does not exist at ${worker_image}"
 
     # Make a copy of the worker config that can be given a unique id for this worker.
@@ -439,7 +455,7 @@ function start_cluster {
 # tpchsf<SF> tree under $HIVE_METASTORE_SHARED_ROOT/<version>/tpchsf<SF>/, and
 # subsequent benchmark runs populate from that snapshot instead of re-analyzing.
 # Paths inside a .prestoSchema file are container-relative
-# (file:/var/lib/presto/data/hive/data/user_data/scale-<SF>/<table>), so a
+# (file:/var/lib/presto/data/hive/data/user_data/tpch-rs-<SF>/<table>), so a
 # single snapshot works for any user whose DATA bind-mount lands on the same
 # in-container path.
 
@@ -661,7 +677,8 @@ function inject_benchmark_metadata {
         gpu_name="N/A"
     fi
 
-    local worker_image_path="${IMAGE_DIR}/${WORKER_IMAGE}.sqsh"
+    local worker_image_path
+    worker_image_path=$(resolve_image_path "${WORKER_IMAGE}")
     local image_digest
     echo "Computing SHA256 of ${worker_image_path}..."
     image_digest=$(sha256sum "${worker_image_path}" | awk '{print $1}') || true

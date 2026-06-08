@@ -17,16 +17,13 @@
 # ==============================================================================
 
 for _var in SCALE_FACTOR SCRIPT_DIR WORKER_IMAGE COORD_IMAGE NUM_GPUS_PER_NODE; do
-    if [ -z "${!_var:-}" ]; then
-        echo "Error: ${_var} is required." >&2
-        exit 1
-    fi
-    export "${_var}"
+    export "${_var}"="${!_var:?${_var} is required}"
 done
 unset _var
 
 # Paths
-export VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
+VT_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." >/dev/null 2>&1 && pwd -P)"
+export VT_ROOT
 source "${SCRIPT_DIR}/defaults.env"
 export DATA IMAGE_DIR HIVE_METASTORE_SHARED_ROOT HIVE_METASTORE_VERSION
 export LOGS="${SCRIPT_DIR}/logs"
@@ -36,7 +33,8 @@ export CONFIGS="${VT_ROOT}/presto/docker/config/generated/${VARIANT_TYPE}"
 
 # Computed values
 export NUM_NODES="${SLURM_JOB_NUM_NODES}"
-export COORD="$(scontrol show hostnames "${SLURM_JOB_NODELIST}" | head -n 1)"
+COORD="$(scontrol show hostnames "${SLURM_JOB_NODELIST}" | head -n 1)"
+export COORD
 export NUM_WORKERS=$((NUM_NODES * NUM_GPUS_PER_NODE))
 
 # Presto configuration

@@ -14,7 +14,7 @@
 # Pre-pull the image with: ./pull_ghcr_image.sh ghcr.io/rapidsai/velox-testing-images:tpchgen-cli
 # ==============================================================================
 
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")"
 

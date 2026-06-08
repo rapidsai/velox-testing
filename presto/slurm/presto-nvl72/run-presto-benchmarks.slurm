@@ -11,6 +11,8 @@
 # Presto TPC-H Benchmark Job Script
 # ==============================================================================
 
+set -euo pipefail
+
 # Mode-specific required vars
 if [ -z "${NUM_ITERATIONS:-}" ]; then
     echo "Error: NUM_ITERATIONS is required. Set via launcher: -i|--iterations" >&2

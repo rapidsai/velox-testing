@@ -15,7 +15,7 @@
 #   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:v1.2.3 --output /tmp/worker.sqsh
 #   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:v1.2.3 --overwrite
 
-set -e
+set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/defaults.env"
 source "$(dirname "${BASH_SOURCE[0]}")/launcher_common.sh"
@@ -112,7 +112,7 @@ srun --export="ALL,PMIX_MCA_gds=^ds12,ENROOT_GZIP_PROGRAM=${ENROOT_DECOMPRESS}" 
     --nodes=1 --mem=0 --ntasks-per-node=1 \
     --mpi=pmix_v4 \
     bash -c '
-set -e
+set -euo pipefail
 if [[ -f "$OUTPUT_PATH" ]]; then
     size=$(ls -lh "$OUTPUT_PATH" | awk "{print \$5}")
     if [[ "$OVERWRITE" == "1" ]]; then
