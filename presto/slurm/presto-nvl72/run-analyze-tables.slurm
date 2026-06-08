@@ -13,6 +13,8 @@
 # Starts coordinator + workers, registers TPC-H tables, and runs ANALYZE TABLE
 # to collect statistics for the given scale factor.
 
+set -euo pipefail
+
 source "${SCRIPT_DIR}/slurm_common.sh"
 
 # Dataset subdirectory name under DATA for table registration.

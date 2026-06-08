@@ -18,7 +18,7 @@
 #                  [additional sbatch options]
 # ==============================================================================
 
-set -e
+set -euo pipefail
 
 # Change to script directory
 cd "$(dirname "$0")"
@@ -143,8 +143,8 @@ preflight_image "${WORKER_IMAGE}" \
     "Pull it (see ./pull_ghcr_image.sh) or override with -w <name>"
 preflight_image "${COORD_IMAGE}" \
     "Pull it (see ./pull_ghcr_image.sh) or override with -c <name>"
-preflight_dir "${DATA}" "TPC-H data" \
-    "./launch-gen-data.sh -s ${SCALE_FACTOR} -o ${DATA}"
+preflight_dir "${DATA}/tpch-rs-${SCALE_FACTOR}" "TPC-H SF${SCALE_FACTOR} data" \
+    "./launch-gen-data.sh -s ${SCALE_FACTOR} -o ${DATA}/tpch-rs-${SCALE_FACTOR}"
 preflight_metastore "${SCALE_FACTOR}" "${ANALYZE_HINT}"
 
 # Submit job (include nodes/SF/iterations in file names)

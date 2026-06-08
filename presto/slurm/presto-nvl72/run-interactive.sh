@@ -12,10 +12,12 @@
 # to pin to a specific node or a range.
 #
 # Usage:
-#   ./run_interactive.sh [--cpu] [additional srun options]
+#   ./run-interactive.sh [--cpu] [additional srun options]
 #
 # Environment overrides:
 #   IMAGE, TIME_LIMIT, NODELIST — overridable per-run.
+
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/defaults.env"
@@ -42,11 +44,7 @@ resolve_cluster_variant "${VARIANT_TYPE}"
 
 : "${TIME_LIMIT:=01:00:00}"
 
-# IMAGE may be either a bare basename (resolved against IMAGE_DIR) or an
-# absolute path.  Allow both forms.
-if [[ -n "${IMAGE}" && "${IMAGE}" != /* && "${IMAGE}" != *.sqsh ]]; then
-    IMAGE="${IMAGE_DIR}/${IMAGE}.sqsh"
-fi
+IMAGE=$(resolve_image_path "${IMAGE}")
 
 VTYPE_UPPER="${VARIANT_TYPE^^}"
 [[ -z "${IMAGE}" ]]                  && { echo "Error: worker image not set — set CLUSTER_${VTYPE_UPPER}_DEFAULT_WORKER_IMAGE in cluster_config.env or export IMAGE"; exit 1; }

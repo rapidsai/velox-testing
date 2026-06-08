@@ -4,7 +4,7 @@
 
 # ==============================================================================
 # launcher_common.sh — shared cluster-config resolution for the launch-*.sh
-# and run_interactive.sh scripts.
+# and run-interactive.sh scripts.
 # ==============================================================================
 # Sourced (not executed). Assumes defaults.env has already been sourced so that
 # ~/.cluster_config.env values (CLUSTER_GPU_*, CLUSTER_CPU_*) are in the env.
@@ -62,19 +62,28 @@ _path_is_compute_only() {
     return 1
 }
 
+# resolve_image_path <image_name_or_path>
+# Resolve a container image name or path to an absolute .sqsh path.
+# Accepts: bare name (appends .sqsh under IMAGE_DIR), name ending in .sqsh
+# (prepends IMAGE_DIR), or an absolute path (used as-is).
+resolve_image_path() {
+    local image="$1"
+    if [[ "${image}" == /* ]]; then
+        echo "${image}"
+    elif [[ "${image}" == *.sqsh ]]; then
+        echo "${IMAGE_DIR:?IMAGE_DIR not set in cluster_config.env}/${image}"
+    else
+        echo "${IMAGE_DIR:?IMAGE_DIR not set in cluster_config.env}/${image}.sqsh"
+    fi
+}
+
 # preflight_image <image_name_or_path> [<hint>]
 # Verify a .sqsh container image is on disk. Accepts a bare basename
 # (resolved against IMAGE_DIR with a .sqsh suffix), a basename ending in
 # .sqsh, or an absolute path.
 preflight_image() {
     local image="$1" hint="${2:-}" image_path
-    if [[ "${image}" == /* ]]; then
-        image_path="${image}"
-    elif [[ "${image}" == *.sqsh ]]; then
-        image_path="${IMAGE_DIR:?IMAGE_DIR not set in cluster_config.env}/${image}"
-    else
-        image_path="${IMAGE_DIR:?IMAGE_DIR not set in cluster_config.env}/${image}.sqsh"
-    fi
+    image_path=$(resolve_image_path "${image}")
     if _path_is_compute_only "${image_path}"; then
         echo "Note: skipping host-side preflight for ${image_path} (compute-only path)" >&2
         return 0
@@ -305,7 +314,14 @@ build_common_export_vars() {
              CLUSTER_LIBNVIDIA_ML_HOST_PATH CLUSTER_LIBNVIDIA_ML_CONTAINER_PATH \
              CLUSTER_EXTRA_MOUNTS CLUSTER_CONFIG \
              HIVE_METASTORE_VERSION HIVE_METASTORE_SHARED_ROOT; do
-        [[ -n "${!v:-}" ]] && EXPORT_VARS+=",${v}=${!v}"
+        [[ -n "${!v:-}" ]] || continue
+        if [[ "${!v}" == *,* ]]; then
+            # Values with commas can't be inlined into --export (comma is the
+            # separator); export to the environment so --export=ALL picks them up.
+            export "${v}=${!v}"
+        else
+            EXPORT_VARS+=",${v}=${!v}"
+        fi
     done
 }
 

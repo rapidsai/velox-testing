@@ -52,7 +52,7 @@ print the command needed to satisfy it.
 ./launch-gen-data.sh -s <scale_factor> -o <output_dir>
 
 # example
-./launch-gen-data.sh -s 100 -o $DATA/scale-100
+./launch-gen-data.sh -s 100 -o $DATA/tpch-rs-100
 ```
 
 Runs `tpchgen-rs` inside the `tpchgen-cli` image on a single CPU node. Default
@@ -127,7 +127,7 @@ metastore from step 2 (either local or shared).
 | `launch-analyze-tables.sh` | Step 2: submit an `ANALYZE TABLE` job |
 | `launch-run.sh` | Step 3: submit a benchmark job |
 | `run-sweep.sh` | Loop `launch-run.sh` over (nodes × scale factors) and post results |
-| `run_interactive.sh` | `srun --pty bash` into a compute node with the worker image |
+| `run-interactive.sh` | `srun --pty bash` into a compute node with the worker image |
 | `pull_ghcr_image.sh` | Fetch a GHCR image and convert it to `.sqsh` under `IMAGE_DIR` |
 
 All launchers accept `-h/--help` for full flag listings.
@@ -150,13 +150,13 @@ All cluster-specific values come from `~/.cluster_config.env`. See
 | `CLUSTER_GPU_NUM_WORKERS_PER_NODE` / `CLUSTER_CPU_NUM_WORKERS_PER_NODE` | Workers per node |
 | `CLUSTER_GPU_DEFAULT_WORKER_IMAGE` / `CLUSTER_CPU_DEFAULT_WORKER_IMAGE` | Default worker image name |
 | `CLUSTER_GPU_DEFAULT_COORD_IMAGE` / `CLUSTER_CPU_DEFAULT_COORD_IMAGE` | Default coordinator image name |
-| `DATA` | TPC-H parquet data root (parent of `scale-<SF>/`) |
+| `DATA` | TPC-H parquet data root (parent of `tpch-rs-<SF>/`) |
 | `IMAGE_DIR` | Directory containing `.sqsh` container images |
 
 Any variable can also be exported in your shell before invoking a launcher to
 override the config for a single run.
 
-`launch-run.sh` and `run_interactive.sh` accept `--cpu` / `--gpu` flags to
+`launch-run.sh` and `run-interactive.sh` accept `--cpu` / `--gpu` flags to
 select between the `CLUSTER_GPU_*` and `CLUSTER_CPU_*` sets. The cluster-wide
 default is taken from `CLUSTER_DEFAULT_VARIANT` (set in your cluster config,
 e.g. `CLUSTER_DEFAULT_VARIANT=cpu` for CPU-only clusters); falls back to `gpu`
@@ -218,7 +218,7 @@ presto-nvl72/
 ├── launch-analyze-tables.sh     # Step 2: analyze tables
 ├── launch-run.sh                # Step 3: run benchmarks
 ├── run-sweep.sh                 # Loop benchmarks over (nodes, scale-factor)
-├── run_interactive.sh           # Interactive shell on a compute node
+├── run-interactive.sh           # Interactive shell on a compute node
 ├── pull_ghcr_image.sh           # Fetch GHCR image → .sqsh
 │
 ├── # Shared library code
