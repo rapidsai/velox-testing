@@ -44,6 +44,7 @@ ENABLE_METRICS=0
 ENABLE_NSYS=0
 NSYS_WORKER_IDS="0"
 PROFILE_ITERATIONS=""    # comma-separated iter indices; empty = combined per query
+NSYS_LAUNCH_OPTS="-t nvtx,cuda"   # trace flags passed to `nsys launch`
 QUERIES=""
 CONFIG_OVERRIDES=""
 
@@ -86,6 +87,13 @@ Options:
                                a single combined .nsys-rep per query.
                                Per-iter files are named
                                nsys_worker_w<id>_Q<n>_iter<m>.nsys-rep.
+      --nsys-launch-opts <str> Options passed to \`nsys launch\` controlling
+                               what is traced. Default: "-t nvtx,cuda".
+                               Examples:
+                                 "-t nvtx,cuda,osrt"       (add OS runtime)
+                                 "-t nvtx,cuda --sample=cpu" (add CPU sampling)
+                                 "-t nvtx,cuda --gpu-metrics-device=all"
+                                 "-t nvtx,cuda --cuda-memory-usage=true"
   -h, --help                   Show this help message and exit
 
 Any arguments after -- are passed directly to sbatch.
@@ -111,6 +119,7 @@ while [[ $# -gt 0 ]]; do
         --nsys-worker-id)         requires_value "$1" "${2:-}"; NSYS_WORKER_IDS="$2"; shift 2 ;;
         --nsys-worker-ids)        requires_value "$1" "${2:-}"; NSYS_WORKER_IDS="$2"; shift 2 ;;
         --profile-iterations)     requires_value "$1" "${2:-}"; PROFILE_ITERATIONS="$2"; shift 2 ;;
+        --nsys-launch-opts)       requires_value "$1" "${2:-}"; NSYS_LAUNCH_OPTS="$2"; shift 2 ;;
         --cpu)         VARIANT_TYPE="cpu"; shift ;;
         --gpu)         VARIANT_TYPE="gpu"; shift ;;
         --no-numa)     USE_NUMA="0"; shift ;;
@@ -199,6 +208,9 @@ EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
 [[ -n "${QUERIES}" ]] && export QUERIES
 export NSYS_WORKER_IDS
 [[ -n "${PROFILE_ITERATIONS}" ]] && export PROFILE_ITERATIONS
+# NSYS_LAUNCH_OPTS may contain spaces / equals signs / commas — ride ALL
+# inheritance rather than EXPORT_VARS so the whole quoted string survives.
+export NSYS_LAUNCH_OPTS
 # CONFIG_OVERRIDES uses ';' internally but values may contain commas (e.g.
 # "32MB,64MB" would break, but more pressingly any later additions); easiest
 # to keep it off EXPORT_VARS entirely.

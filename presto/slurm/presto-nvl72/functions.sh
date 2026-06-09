@@ -285,7 +285,11 @@ function run_worker {
         # a symlink in the image build:
         # ln -sf /opt/nvidia/nsight-systems-cli/<version>/bin/nsys /usr/local/bin/nsys
         nsys_bin="nsys"
-        nsys_launch_opts="-t nvtx,cuda"
+        # Trace flags for `nsys launch` come from NSYS_LAUNCH_OPTS, set by
+        # launch-run.sh's --nsys-launch-opts (default declared there as
+        # "-t nvtx,cuda"). Empty fallback if a caller forgot to export it —
+        # nsys then uses its own built-in default trace set.
+        nsys_launch_opts="${NSYS_LAUNCH_OPTS:-}"
     fi
 
     # To re-enable verbose GLOG logging, add these flags to the srun call below
