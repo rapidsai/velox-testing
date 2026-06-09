@@ -42,9 +42,13 @@
 #                                  Useful for flake-rate / stability studies.
 #   -v, --verbose                  Stream launch-run.sh / post_results.py output
 #                                  live (default: capture and only dump on failure)
+#   --label <str>                  Label to attach to each posted run (pass-through
+#                                  to post_results.py). Can be specified multiple
+#                                  times. Each iteration also gets an auto-generated
+#                                  --notes string summarizing the per-iteration knobs.
 #
 # Required only when posting (i.e. when --no-post is NOT set):
-#   --sku-name, --storage-configuration-name,
+#   --sku-name, --storage-configuration-prefix,
 #   --velox-branch, --velox-repo, --presto-branch, --presto-repo
 #
 # Examples:
@@ -77,12 +81,13 @@ NO_POST=0
 CONTINUE_ON_FAILURE=0
 REPEATS=1
 VERBOSE=0
+LABELS=()
 WORKER_IMAGE=""
 COORD_IMAGE=""
 NUM_WORKERS_PER_NODE=""
 
 SKU_NAME=""
-STORAGE_CONFIGURATION_NAME=""
+STORAGE_CONFIGURATION_PREFIX=""
 CACHE_STATE=""
 VELOX_BRANCH=""
 PRESTO_BRANCH=""
@@ -90,13 +95,13 @@ VELOX_REPO=""
 PRESTO_REPO=""
 
 usage() {
-    sed -n '5,54p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '5,58p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --sku-name)                    SKU_NAME="$2";                    shift 2 ;;
-        --storage-configuration-name)  STORAGE_CONFIGURATION_NAME="$2";  shift 2 ;;
+        --storage-configuration-prefix) STORAGE_CONFIGURATION_PREFIX="$2"; shift 2 ;;
         --cache-state)                 CACHE_STATE="$2";                 shift 2 ;;
         --velox-branch)                VELOX_BRANCH="$2";                shift 2 ;;
         --presto-branch)               PRESTO_BRANCH="$2";               shift 2 ;;
@@ -119,6 +124,7 @@ while [[ $# -gt 0 ]]; do
         --continue-on-failure)         CONTINUE_ON_FAILURE=1;            shift   ;;
         --repeats)                     REPEATS="$2";                     shift 2 ;;
         -v|--verbose)                  VERBOSE=1;                        shift   ;;
+        --label)                       LABELS+=("$2");                   shift 2 ;;
         -h|--help)                     usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -126,7 +132,7 @@ done
 
 # Required args only matter when we're going to post.
 if (( NO_POST == 0 )); then
-    for req in SKU_NAME STORAGE_CONFIGURATION_NAME VELOX_BRANCH PRESTO_BRANCH VELOX_REPO PRESTO_REPO; do
+    for req in SKU_NAME STORAGE_CONFIGURATION_PREFIX VELOX_BRANCH PRESTO_BRANCH VELOX_REPO PRESTO_REPO; do
         [[ -n "${!req}" ]] || { echo "Error: --${req//_/-} is required (or pass --no-post)"; exit 1; }
     done
 fi
@@ -346,6 +352,19 @@ for combo in "${combos[@]}"; do
         cfg_ov_str=$(IFS=';'; echo "${cfg_ov_pairs[*]}")
     fi
 
+    # Build the auto-notes string for post_results.py --notes. Captures all
+    # per-iteration knobs (config-property overrides applied via launch-run,
+    # plus env-var overrides written into the per-run worker.env) so the
+    # posted run records what made this iteration distinct.
+    notes_parts=("nodes=${N}" "scale_factor=${SF}" "iterations=${ITERATIONS}")
+    notes_parts+=("${cfg_ov_pairs[@]}")
+    is_set "$KVK" && notes_parts+=("KVIKIO_NTHREADS=${KVK}")
+    is_set "$SP"  && notes_parts+=("LIBCUDF_KERNEL_STREAM_POOL_SIZE=${SP}")
+    for (( i = env_start; i < env_end; i++ )); do
+        notes_parts+=("${fields[$i]}")
+    done
+    notes_str=$(IFS=", "; echo "${notes_parts[*]}")
+
     # Build the per-iteration worker.env. Start from the base file, append
     # any env-var overrides for this combination.
     sweep_worker_env="${SWEEP_TMPDIR}/worker_env_${run}"
@@ -519,14 +538,18 @@ PY
             -p "${VT_ROOT}/benchmark_reporting_tools/post_results.py"
             "${OUTPUT_DIR}"
             --sku-name "${SKU_NAME}"
-            --storage-configuration-name "${STORAGE_CONFIGURATION_NAME}"
+            --storage-configuration-name "${STORAGE_CONFIGURATION_PREFIX}${SF}"
             --cache-state "${CACHE_STATE}"
             --benchmark-name "tpch-rs-${SF}"
             --velox-branch "${VELOX_BRANCH}"
             --presto-branch "${PRESTO_BRANCH}"
             --velox-repo "${VELOX_REPO}"
             --presto-repo "${PRESTO_REPO}"
+            --notes "${notes_str}"
         )
+        for _lbl in "${LABELS[@]}"; do
+            post_args+=(--label "${_lbl}")
+        done
         post_rc=0
         if (( VERBOSE )); then
             echo ""
