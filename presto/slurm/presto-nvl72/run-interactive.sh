@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --cpu) VARIANT_TYPE="cpu"; shift ;;
         --gpu) VARIANT_TYPE="gpu"; shift ;;
-        --) shift; break ;;
+        --) shift; EXTRA_ARGS+=("$@"); break ;;
         *) EXTRA_ARGS+=("$1"); shift ;;
     esac
 done

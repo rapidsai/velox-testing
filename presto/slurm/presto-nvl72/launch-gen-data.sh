@@ -20,8 +20,8 @@ cd "$(dirname "$0")"
 
 module load slurm 2>/dev/null || true
 
-source "$(dirname "$0")/defaults.env"
-source "$(dirname "$0")/launcher_common.sh"
+source ./defaults.env
+source ./launcher_common.sh
 
 SCALE_FACTOR="100"
 # OUTPUT_DIR defaults to ${DATA}/tpch-rs-${SCALE_FACTOR} after arg parsing so
@@ -67,7 +67,7 @@ while [[ $# -gt 0 ]]; do
         -j|--parallelism)  requires_value "$1" "${2:-}"; PARALLELISM="$2"; shift 2 ;;
         -N|--nodelist)     requires_value "$1" "${2:-}"; NODELIST="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
-        --) shift; break ;;
+        --) shift; EXTRA_ARGS+=("$@"); break ;;
         *) EXTRA_ARGS+=("$1"); shift ;;
     esac
 done

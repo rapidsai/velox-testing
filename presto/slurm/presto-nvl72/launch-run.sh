@@ -99,7 +99,7 @@ while [[ $# -gt 0 ]]; do
         -m|--metrics)  ENABLE_METRICS=1; shift ;;
         -p|--profile)  ENABLE_NSYS=1; shift ;;
         -h|--help)     usage; exit 0 ;;
-        --) shift; break ;;
+        --) shift; EXTRA_ARGS+=("$@"); break ;;
         *) EXTRA_ARGS+=("$1"); shift ;;
     esac
 done
@@ -138,7 +138,6 @@ build_cluster_sbatch_args "${CLUSTER_TIME_BENCHMARK}"
 
 # Pre-flight: verify prerequisites before queueing the job.
 ANALYZE_HINT="./launch-analyze-tables.sh -s ${SCALE_FACTOR}"
-[[ "${VARIANT_TYPE}" == "cpu" ]] && ANALYZE_HINT+=" --cpu"
 preflight_image "${WORKER_IMAGE}" \
     "Pull it (see ./pull_ghcr_image.sh) or override with -w <name>"
 preflight_image "${COORD_IMAGE}" \

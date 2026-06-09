@@ -49,7 +49,7 @@ while [[ $# -gt 0 ]]; do
         -g|--num-workers-per-node) requires_value "$1" "${2:-}"; NUM_GPUS_PER_NODE="$2"; shift 2 ;;
         -w|--worker-image)         requires_value "$1" "${2:-}"; WORKER_IMAGE="$2"; shift 2 ;;
         -c|--coord-image)          requires_value "$1" "${2:-}"; COORD_IMAGE="$2"; shift 2 ;;
-        --) shift; break ;;
+        --) shift; EXTRA_ARGS+=("$@"); break ;;
         *) EXTRA_ARGS+=("$1"); shift ;;
     esac
 done
