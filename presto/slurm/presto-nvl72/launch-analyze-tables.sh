@@ -32,6 +32,25 @@ cd "$(dirname "$0")"
 source ./defaults.env
 source ./launcher_common.sh
 
+usage() {
+    cat <<EOF
+Usage: $0 -s|--scale-factor <sf> [OPTIONS] [-- <additional sbatch options>]
+
+Required:
+  -s, --scale-factor <sf>         TPC-H scale factor
+
+Optional:
+  -n, --nodes <count>             Number of Slurm nodes (default: 1)
+  -d, --data-dir <data-root>      Override data root (default: DATA from cluster_config.env)
+  -g, --num-workers-per-node <n>  Override workers per node
+  -w, --worker-image <name>       Override worker image (default: CLUSTER_CPU_DEFAULT_WORKER_IMAGE)
+  -c, --coord-image <name>        Override coordinator image (default: CLUSTER_CPU_DEFAULT_COORD_IMAGE)
+  -h, --help                      Show this help message and exit
+
+Arguments after -- are passed directly to sbatch.
+EOF
+}
+
 # Defaults
 NODES_COUNT="1"
 SCALE_FACTOR=""
@@ -49,14 +68,15 @@ while [[ $# -gt 0 ]]; do
         -g|--num-workers-per-node) requires_value "$1" "${2:-}"; NUM_GPUS_PER_NODE="$2"; shift 2 ;;
         -w|--worker-image)         requires_value "$1" "${2:-}"; WORKER_IMAGE="$2"; shift 2 ;;
         -c|--coord-image)          requires_value "$1" "${2:-}"; COORD_IMAGE="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
         --) shift; EXTRA_ARGS+=("$@"); break ;;
         *) EXTRA_ARGS+=("$1"); shift ;;
     esac
 done
 
 if [[ -z "${SCALE_FACTOR}" ]]; then
-    echo "Error: -s|--scale-factor is required"
-    echo "Usage: $0 -s <sf> [-n <nodes>] [-d <data_dir>] [sbatch options...]"
+    echo "Error: -s|--scale-factor is required" >&2
+    usage >&2
     exit 1
 fi
 

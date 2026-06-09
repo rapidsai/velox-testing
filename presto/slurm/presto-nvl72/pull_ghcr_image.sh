@@ -31,15 +31,17 @@ SLURM_ARGS=()
 [[ -n "${CLUSTER_DEFAULT_ACCOUNT:-}" ]]   && SLURM_ARGS+=(--account="${CLUSTER_DEFAULT_ACCOUNT}")
 
 usage() {
-    echo "Usage: $0 <ghcr.io/org/image:tag> [--output <path/to/image.sqsh>] [--overwrite]"
-    echo ""
-    echo "Options:"
-    echo "  --output, -o   Write the image to this exact path (overrides IMAGE_DIR)."
-    echo "  --overwrite    Re-pull even when the target .sqsh already exists."
-    echo ""
-    echo "Environment variables:"
-    echo "  IMAGE_DIR   Output directory when --output is not specified (default: \$IMAGE_DIR from defaults.env)"
-    exit 1
+    cat <<EOF
+Usage: $0 <ghcr.io/org/image:tag> [OPTIONS]
+
+Options:
+  --output, -o <path>  Write the image to this exact path (overrides IMAGE_DIR).
+  --overwrite          Re-pull even when the target .sqsh already exists.
+  -h, --help           Show this help message and exit.
+
+Environment variables:
+  IMAGE_DIR   Output directory when --output is not specified (default: \$IMAGE_DIR from defaults.env)
+EOF
 }
 
 # Parse arguments
@@ -50,7 +52,7 @@ OVERWRITE=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --output|-o)
-            [[ -n "${2:-}" ]] || { echo "Error: --output requires a value"; usage; }
+            [[ -n "${2:-}" ]] || { echo "Error: --output requires a value" >&2; usage >&2; exit 1; }
             OUTPUT_PATH="$2"
             shift 2
             ;;
@@ -58,19 +60,23 @@ while [[ $# -gt 0 ]]; do
             OVERWRITE=1
             shift
             ;;
+        -h|--help)
+            usage; exit 0
+            ;;
         -*)
-            echo "Unknown option: $1"
-            usage
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
             ;;
         *)
-            [[ -z "$IMAGE_REF" ]] || { echo "Error: unexpected argument '$1'"; usage; }
+            [[ -z "$IMAGE_REF" ]] || { echo "Error: unexpected argument '$1'" >&2; usage >&2; exit 1; }
             IMAGE_REF="$1"
             shift
             ;;
     esac
 done
 
-[[ -n "$IMAGE_REF" ]] || { echo "Error: image reference is required"; usage; }
+[[ -n "$IMAGE_REF" ]] || { echo "Error: image reference is required" >&2; usage >&2; exit 1; }
 
 # Validate it looks like a ghcr.io reference
 if [[ "$IMAGE_REF" != ghcr.io/* ]]; then

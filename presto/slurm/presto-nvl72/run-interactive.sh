@@ -23,12 +23,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/defaults.env"
 source "${SCRIPT_DIR}/launcher_common.sh"
 
+usage() {
+    cat <<EOF
+Usage: $0 [--cpu|--gpu] [-h|--help] [-- <additional srun options>]
+
+Options:
+  --cpu           Use the CPU partition and image (default: gpu, or CLUSTER_DEFAULT_VARIANT)
+  --gpu           Use the GPU partition and image
+  -h, --help      Show this help message and exit
+
+Environment overrides:
+  IMAGE           Container image path (default: CLUSTER_{GPU,CPU}_DEFAULT_WORKER_IMAGE)
+  TIME_LIMIT      srun --time value (default: 01:00:00)
+  NODELIST        Pin to a specific node or range
+
+Arguments after -- are passed directly to srun.
+EOF
+}
+
 VARIANT_TYPE=""
 EXTRA_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --cpu) VARIANT_TYPE="cpu"; shift ;;
         --gpu) VARIANT_TYPE="gpu"; shift ;;
+        -h|--help) usage; exit 0 ;;
         --) shift; EXTRA_ARGS+=("$@"); break ;;
         *) EXTRA_ARGS+=("$1"); shift ;;
     esac

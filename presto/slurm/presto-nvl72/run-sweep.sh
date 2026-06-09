@@ -46,6 +46,27 @@ PRESTO_BRANCH=""
 VELOX_REPO=""
 PRESTO_REPO=""
 
+usage() {
+    cat <<EOF
+Usage: $0 [OPTIONS]
+
+Required:
+  --sku-name <name>                   Hardware SKU name (e.g. raplab-gb200-nvl72)
+  --storage-configuration-name <name> Storage config name passed to post_results.py
+  --velox-branch <branch>             Velox branch used to build the worker image
+  --presto-branch <branch>            Presto branch used to build the worker image
+  --velox-repo <url>                  Velox repository URL
+  --presto-repo <url>                 Presto repository URL
+
+Optional:
+  -n, --nodes <counts>          Space-separated node counts to sweep (default: "8")
+  -s, --scale-factors <sfs>     Space-separated scale factors to sweep (default: "30000")
+  -i, --iterations <n>          Benchmark iterations per run (default: 3)
+  --cache-state <state>         Override cache state (default: lukewarm if 1 iter, warm if 2+)
+  -h, --help                    Show this help message and exit
+EOF
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --sku-name)                    SKU_NAME="$2";                    shift 2 ;;
@@ -58,7 +79,8 @@ while [[ $# -gt 0 ]]; do
         -n|--nodes)         read -ra NODE_COUNTS <<< "$2"; shift 2 ;;
         -s|--scale-factors) read -ra SCALE_FACTORS <<< "$2"; shift 2 ;;
         -i|--iterations)    ITERATIONS="$2";     shift 2 ;;
-        *) echo "Unknown option: $1"; exit 1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
 done
 
