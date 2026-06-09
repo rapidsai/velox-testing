@@ -43,6 +43,7 @@ ENABLE_GDS=1
 ENABLE_METRICS=0
 ENABLE_NSYS=0
 NSYS_WORKER_IDS="0"
+PROFILE_ITERATIONS=""    # comma-separated iter indices; empty = combined per query
 QUERIES=""
 CONFIG_OVERRIDES=""
 
@@ -76,6 +77,15 @@ Options:
       --nsys-worker-ids <list> Worker IDs to profile: comma list (e.g. "0,3,5") or
                                'all' to profile every worker (default: ${NSYS_WORKER_IDS})
       --nsys-worker-id <n>     Alias for --nsys-worker-ids accepting a single ID
+      --profile-iterations <list>
+                               Comma-separated 0-based iteration indices to
+                               profile in SEPARATE .nsys-rep files (e.g. "1"
+                               to skip the warmup, "0,1" to capture both
+                               iterations individually). When unset (default),
+                               every iteration of each query is captured into
+                               a single combined .nsys-rep per query.
+                               Per-iter files are named
+                               nsys_worker_w<id>_Q<n>_iter<m>.nsys-rep.
   -h, --help                   Show this help message and exit
 
 Any arguments after -- are passed directly to sbatch.
@@ -100,6 +110,7 @@ while [[ $# -gt 0 ]]; do
         --config-overrides)       requires_value "$1" "${2:-}"; CONFIG_OVERRIDES="$2"; shift 2 ;;
         --nsys-worker-id)         requires_value "$1" "${2:-}"; NSYS_WORKER_IDS="$2"; shift 2 ;;
         --nsys-worker-ids)        requires_value "$1" "${2:-}"; NSYS_WORKER_IDS="$2"; shift 2 ;;
+        --profile-iterations)     requires_value "$1" "${2:-}"; PROFILE_ITERATIONS="$2"; shift 2 ;;
         --cpu)         VARIANT_TYPE="cpu"; shift ;;
         --gpu)         VARIANT_TYPE="gpu"; shift ;;
         --no-numa)     USE_NUMA="0"; shift ;;
@@ -114,6 +125,10 @@ done
 
 [[ -z "${NODES_COUNT}"  ]] && { echo "Error: -n|--nodes is required (see --help)" >&2; exit 1; }
 [[ -z "${SCALE_FACTOR}" ]] && { echo "Error: -s|--scale-factor is required (see --help)" >&2; exit 1; }
+if [[ -n "${PROFILE_ITERATIONS}" ]] && ! [[ "${PROFILE_ITERATIONS}" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+    echo "Error: --profile-iterations expects a comma-separated list of 0-based ints; got '${PROFILE_ITERATIONS}'" >&2
+    exit 1
+fi
 
 # Clean up old output files — use rm -rf so subdirectories (e.g. query_results/)
 # are fully removed and stale benchmark_result.json cannot survive a cancelled run.
@@ -183,6 +198,7 @@ EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS}"
 # field separator); export them so sbatch picks them up via the ALL inheritance.
 [[ -n "${QUERIES}" ]] && export QUERIES
 export NSYS_WORKER_IDS
+[[ -n "${PROFILE_ITERATIONS}" ]] && export PROFILE_ITERATIONS
 # CONFIG_OVERRIDES uses ';' internally but values may contain commas (e.g.
 # "32MB,64MB" would break, but more pressingly any later additions); easiest
 # to keep it off EXPORT_VARS entirely.

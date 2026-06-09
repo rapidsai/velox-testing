@@ -404,27 +404,41 @@ if [[ -n '${nsys_bin}' ]]; then
         else
             qlist=({1..22})
         fi
+        # PROFILE_ITERATIONS = csv of 0-based iter indices, e.g. \"1\" or \"0,1\".
+        # When unset, iter_list=(\"\") — a single empty-string sentinel — which
+        # gives the legacy one-session-per-query behavior (no _iterN suffix).
+        if [[ -n \"\${PROFILE_ITERATIONS:-}\" ]]; then
+            IFS=',' read -ra iter_list <<< \"\${PROFILE_ITERATIONS}\"
+        else
+            iter_list=(\"\")
+        fi
         for qnum in \"\${qlist[@]}\"; do
-            qid=\"Q\${qnum}\"
-            while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token_w${worker_id}_\${qid} ]]; do
-                sleep 2
-            done
-            echo \"Worker ${worker_id}: start token found for \${qid}\"
-            rm ${vt_nsys_report_dir}/.nsys_start_token_w${worker_id}_\${qid}
-            ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_w${worker_id}_\${qid} -f true
-            echo \"Worker ${worker_id}: nsys start exit code: \$?\"
-            echo \"Worker ${worker_id}: post-start token created for \${qid}\"
-            touch ${vt_nsys_report_dir}/.nsys_started_token_w${worker_id}_\${qid}
+            for iter in \"\${iter_list[@]}\"; do
+                if [[ -z \"\${iter}\" ]]; then
+                    qid=\"Q\${qnum}\"
+                else
+                    qid=\"Q\${qnum}_iter\${iter}\"
+                fi
+                while [[ ! -f ${vt_nsys_report_dir}/.nsys_start_token_w${worker_id}_\${qid} ]]; do
+                    sleep 2
+                done
+                echo \"Worker ${worker_id}: start token found for \${qid}\"
+                rm ${vt_nsys_report_dir}/.nsys_start_token_w${worker_id}_\${qid}
+                ${nsys_bin} start -o ${vt_nsys_report_dir}/nsys_worker_w${worker_id}_\${qid} -f true
+                echo \"Worker ${worker_id}: nsys start exit code: \$?\"
+                echo \"Worker ${worker_id}: post-start token created for \${qid}\"
+                touch ${vt_nsys_report_dir}/.nsys_started_token_w${worker_id}_\${qid}
 
-            while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token_w${worker_id}_\${qid} ]]; do
-                sleep 2
+                while [[ ! -f ${vt_nsys_report_dir}/.nsys_stop_token_w${worker_id}_\${qid} ]]; do
+                    sleep 2
+                done
+                echo \"Worker ${worker_id}: stop token found for \${qid}\"
+                rm ${vt_nsys_report_dir}/.nsys_stop_token_w${worker_id}_\${qid}
+                ${nsys_bin} stop
+                echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
             done
-            echo \"Worker ${worker_id}: stop token found for \${qid}\"
-            rm ${vt_nsys_report_dir}/.nsys_stop_token_w${worker_id}_\${qid}
-            ${nsys_bin} stop
-            echo \"Worker ${worker_id}: nsys stop exit code: \$?\"
         done
-        echo \"Worker ${worker_id}: nsys subshell done, all queries profiled\"
+        echo \"Worker ${worker_id}: nsys subshell done, all sessions profiled\"
     ) &
 
     echo \"Worker ${worker_id}: Nsight System program at ${nsys_bin}\"
@@ -758,7 +772,15 @@ function wait_for_nsys_report_generation {
         fi
         local -a wid_list
         IFS=',' read -ra wid_list <<< "${NSYS_WORKER_IDS}"
-        local expected=$((${#qlist[@]} * ${#wid_list[@]}))
+        # Mirror the worker subshell's iter handling: empty PROFILE_ITERATIONS
+        # means single empty-string sentinel (= legacy one-file-per-query).
+        local -a iter_list
+        if [[ -n "${PROFILE_ITERATIONS:-}" ]]; then
+            IFS=',' read -ra iter_list <<< "${PROFILE_ITERATIONS}"
+        else
+            iter_list=("")
+        fi
+        local expected=$((${#qlist[@]} * ${#wid_list[@]} * ${#iter_list[@]}))
 
         declare -A prev_sizes
         local stable_count=0
@@ -766,24 +788,31 @@ function wait_for_nsys_report_generation {
             local all_stable=true
             for wid in "${wid_list[@]}"; do
                 for qnum in "${qlist[@]}"; do
-                    report="${LOGS}/nsys_worker_w${wid}_Q${qnum}.nsys-rep"
-                    fallback="${LOGS}/nsys_worker_w${wid}_Q${qnum}.qdstrm"
-                    if [[ -f "$report" ]]; then
-                        target="$report"
-                    elif [[ -f "$fallback" ]]; then
-                        target="$fallback"
-                    else
-                        echo "    w${wid} Q${qnum}: no file yet"
-                        all_stable=false
-                        continue
-                    fi
-                    cur_size=$(stat -c%s "$target" 2>/dev/null || echo 0)
-                    prev=${prev_sizes["$target"]:-0}
-                    echo "    w${wid} Q${qnum}: cur=${cur_size} prev=${prev}"
-                    if (( cur_size == 0 || cur_size != prev )); then
-                        all_stable=false
-                    fi
-                    prev_sizes["$target"]=$cur_size
+                    for iter in "${iter_list[@]}"; do
+                        if [[ -z "${iter}" ]]; then
+                            qtag="Q${qnum}"
+                        else
+                            qtag="Q${qnum}_iter${iter}"
+                        fi
+                        report="${LOGS}/nsys_worker_w${wid}_${qtag}.nsys-rep"
+                        fallback="${LOGS}/nsys_worker_w${wid}_${qtag}.qdstrm"
+                        if [[ -f "$report" ]]; then
+                            target="$report"
+                        elif [[ -f "$fallback" ]]; then
+                            target="$fallback"
+                        else
+                            echo "    w${wid} ${qtag}: no file yet"
+                            all_stable=false
+                            continue
+                        fi
+                        cur_size=$(stat -c%s "$target" 2>/dev/null || echo 0)
+                        prev=${prev_sizes["$target"]:-0}
+                        echo "    w${wid} ${qtag}: cur=${cur_size} prev=${prev}"
+                        if (( cur_size == 0 || cur_size != prev )); then
+                            all_stable=false
+                        fi
+                        prev_sizes["$target"]=$cur_size
+                    done
                 done
             done
             echo "  all_stable=${all_stable} stable_count=${stable_count}"

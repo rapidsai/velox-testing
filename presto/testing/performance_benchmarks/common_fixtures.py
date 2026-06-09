@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -99,49 +100,68 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     assert failed_queries_dict == {}
 
     def benchmark_query_function(query_id):
-        profile_output_file_path = None
+        # PROFILE_ITERATIONS (csv of 0-based ints) opts into per-iteration nsys
+        # capture: each listed iteration gets its own .nsys-rep named
+        # {query_id}_iter{N}. When unset, fall back to legacy "combined" mode —
+        # a single .nsys-rep per query spanning every iteration.
+        profile_iters_env = os.environ.get("PROFILE_ITERATIONS", "").strip()
+        if profile and profile_iters_env:
+            per_iter_profile_filter = {int(x) for x in profile_iters_env.split(",") if x.strip()}
+        else:
+            per_iter_profile_filter = None  # None == combined mode
+
+        combined_profile_path = None
         try:
-            if profile:
+            if profile and per_iter_profile_filter is None:
+                # Combined mode: one nsys session wraps the whole iteration loop.
                 # Base path without .nsys-rep extension: {dir}/{query_id}
-                profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
-                start_profiler(profile_script_path, profile_output_file_path)
+                combined_profile_path = f"{profile_output_dir_path.absolute()}/{query_id}"
+                start_profiler(profile_script_path, combined_profile_path)
             result = []
             for iteration_num in range(iterations):
-                cursor = presto_cursor.execute(
-                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
-                )
-                result.append(cursor.stats["elapsedTimeMillis"])
+                iter_profile_path = None
+                if per_iter_profile_filter is not None and iteration_num in per_iter_profile_filter:
+                    iter_profile_path = f"{profile_output_dir_path.absolute()}/{query_id}_iter{iteration_num}"
+                    start_profiler(profile_script_path, iter_profile_path)
+                try:
+                    cursor = presto_cursor.execute(
+                        "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
+                    )
+                    result.append(cursor.stats["elapsedTimeMillis"])
 
-                # Save query results to Parquet (only on first iteration)
-                if iteration_num == 0:
-                    rows = cursor.fetchall()
-                    columns = [desc[0] for desc in cursor.description]
-                    df = pd.DataFrame(rows, columns=columns)
+                    # Save query results to Parquet (only on first iteration)
+                    if iteration_num == 0:
+                        rows = cursor.fetchall()
+                        columns = [desc[0] for desc in cursor.description]
+                        df = pd.DataFrame(rows, columns=columns)
 
-                    # Save to Parquet format to match expected results
-                    results_dir = Path(f"{bench_output_dir}/query_results")
-                    results_dir.mkdir(parents=True, exist_ok=True)
-                    parquet_path = results_dir / f"{query_id.lower()}.parquet"
-                    df.to_parquet(parquet_path, index=False)
+                        # Save to Parquet format to match expected results
+                        results_dir = Path(f"{bench_output_dir}/query_results")
+                        results_dir.mkdir(parents=True, exist_ok=True)
+                        parquet_path = results_dir / f"{query_id.lower()}.parquet"
+                        df.to_parquet(parquet_path, index=False)
 
-                # Collect metrics after each query iteration if enabled
-                if metrics:
-                    presto_query_id = cursor._query.query_id
-                    if presto_query_id:
-                        collect_metrics(
-                            query_id=presto_query_id,
-                            query_name=str(query_id),
-                            hostname=hostname,
-                            port=port,
-                            output_dir=bench_output_dir,
-                        )
+                    # Collect metrics after each query iteration if enabled
+                    if metrics:
+                        presto_query_id = cursor._query.query_id
+                        if presto_query_id:
+                            collect_metrics(
+                                query_id=presto_query_id,
+                                query_name=str(query_id),
+                                hostname=hostname,
+                                port=port,
+                                output_dir=bench_output_dir,
+                            )
+                finally:
+                    if iter_profile_path is not None:
+                        stop_profiler(profile_script_path, iter_profile_path)
             raw_times_dict[query_id] = result
         except Exception as e:
             failed_queries_dict[query_id] = f"{e.error_type}: {e.error_name}"
             raw_times_dict[query_id] = None
             raise
         finally:
-            if profile and profile_output_file_path is not None:
-                stop_profiler(profile_script_path, profile_output_file_path)
+            if combined_profile_path is not None:
+                stop_profiler(profile_script_path, combined_profile_path)
 
     return benchmark_query_function
