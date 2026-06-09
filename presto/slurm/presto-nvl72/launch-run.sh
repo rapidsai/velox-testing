@@ -119,7 +119,11 @@ while [[ $# -gt 0 ]]; do
         --nsys-worker-id)         requires_value "$1" "${2:-}"; NSYS_WORKER_IDS="$2"; shift 2 ;;
         --nsys-worker-ids)        requires_value "$1" "${2:-}"; NSYS_WORKER_IDS="$2"; shift 2 ;;
         --profile-iterations)     requires_value "$1" "${2:-}"; PROFILE_ITERATIONS="$2"; shift 2 ;;
-        --nsys-launch-opts)       requires_value "$1" "${2:-}"; NSYS_LAUNCH_OPTS="$2"; shift 2 ;;
+        --nsys-launch-opts)
+            # Can't use requires_value here — it disallows dash-prefixed values,
+            # but valid nsys flags like "-t nvtx,cuda --sample=cpu" start with -.
+            [[ -n "${2:-}" ]] || { echo "Error: $1 requires a value" >&2; exit 1; }
+            NSYS_LAUNCH_OPTS="$2"; shift 2 ;;
         --cpu)         VARIANT_TYPE="cpu"; shift ;;
         --gpu)         VARIANT_TYPE="gpu"; shift ;;
         --no-numa)     USE_NUMA="0"; shift ;;
