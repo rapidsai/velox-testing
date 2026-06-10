@@ -55,7 +55,7 @@ run_coord_image "export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data
     cd /workspace/presto/scripts; \
     ./setup_benchmark_tables.sh \
         -b tpch \
-        -d ${DATASET_NAME:-scale-${SCALE_FACTOR}} \
+        -d ${DATASET_NAME} \
         -s tpchsf${SCALE_FACTOR} \
         -H ${COORD} \
         -p ${PORT} \
