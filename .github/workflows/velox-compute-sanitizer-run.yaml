@@ -33,7 +33,7 @@ on:
       velox_image:
         required: true
         type: string
-        description: "Full Velox GPU container image reference"
+        description: 'Velox GPU image to test (e.g. ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318). Leave empty to use velox-latest-gpu-cuda13.1.'
 
 env:
   REGISTRY: ghcr.io
