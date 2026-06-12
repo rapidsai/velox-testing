@@ -1,20 +1,7 @@
-name: compute-sanitizer-run
+name: Compute Sanitizer
+run-name: "Compute Sanitizer ${{ inputs.tool_name }}"
 
 on:
-  workflow_call:
-    inputs:
-      tool_name:
-        required: true
-        type: string
-        description: "Compute sanitizer tool to run (memcheck, racecheck, initcheck, synccheck)"
-      test_names:
-        required: true
-        type: string
-        description: "JSON array of test names to run"
-      velox_image:
-        required: true
-        type: string
-        description: "Full Velox GPU container image reference"
   workflow_dispatch:
     inputs:
       tool_name:
@@ -27,20 +14,74 @@ on:
           - initcheck
           - synccheck
       test_names:
-        required: true
+        required: false
         type: string
-        description: "JSON array of test names to run"
+        description: "JSON array of test names to run (discovers all tests if empty)"
+        default: ""
       velox_image:
-        required: true
+        required: false
         type: string
-        description: 'Velox GPU image to test (e.g. ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318). Leave empty to use velox-latest-gpu-cuda13.1.'
+        description: "Velox GPU image to test (e.g. ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318). Leave empty to use velox-latest-gpu-cuda13.1."
+        default: ""
+
+permissions: {}
 
 env:
   REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-images
 
 jobs:
+  resolve-image:
+    runs-on: ubuntu-latest
+    outputs:
+      velox_image: ${{ steps.resolve-image.outputs.velox_image }}
+    steps:
+      - name: Resolve image
+        id: resolve-image
+        env:
+          VELOX_IMAGE: ${{ inputs.velox_image }}
+        run: |
+          if [ -n "${VELOX_IMAGE}" ]; then
+            echo "velox_image=${VELOX_IMAGE}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "velox_image=${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda13.1" >> "${GITHUB_OUTPUT}"
+          fi
+
+  discover-sanitizer-tests:
+    if: ${{ !inputs.test_names }}
+    needs: resolve-image
+    runs-on: linux-amd64-cpu4
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      tests: ${{ steps.find-tests.outputs.tests }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Log in to the Container registry
+        uses: ./.github/actions/container-registry-login
+      - name: Discover test executables
+        id: find-tests
+        env:
+          IMAGE: ${{ needs.resolve-image.outputs.velox_image }}
+        run: |
+          source scripts/common.sh
+
+          docker_pull_with_retry "${IMAGE}"
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}/ci/discover_velox_cudf_tests.sh:/tmp/discover.sh:ro" \
+            -e GITHUB_OUTPUT=/tmp/gh_output \
+            "${IMAGE}" bash -c "bash /tmp/discover.sh && cat /tmp/gh_output" >> "${GITHUB_OUTPUT}"
+
   run-sanitizer-tests:
-    name: ${{ inputs.tool_name }} / ${{ matrix.test_name }}
+    name: Run ${{ inputs.tool_name }} on ${{ matrix.test_name }}
+    needs:
+      - resolve-image
+      - discover-sanitizer-tests
+    if: ${{ !cancelled() }}
     runs-on: linux-amd64-gpu-l4-latest-1
     permissions:
       contents: read
@@ -49,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test_name: ${{ fromJson(inputs.test_names) }}
+        test_name: ${{ fromJson(inputs.test_names || needs.discover-sanitizer-tests.outputs.tests) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -59,7 +100,7 @@ jobs:
         uses: ./.github/actions/container-registry-login
       - name: Run compute-sanitizer ${{ inputs.tool_name }} on ${{ matrix.test_name }}
         env:
-          IMAGE: ${{ inputs.velox_image }}
+          IMAGE: ${{ needs.resolve-image.outputs.velox_image }}
           TOOL_NAME: ${{ inputs.tool_name }}
           TEST_NAME: ${{ matrix.test_name }}
         run: |

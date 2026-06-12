@@ -1,97 +1,48 @@
-name: compute-sanitizer-trigger
+name: Trigger Compute Sanitizer
 
-# Runs compute-sanitizer tools on all Velox cuDF (cuda_driver) tests.
+# This workflow triggers compute-sanitizer runs for all Velox cuDF (cuda_driver) tests weekly.
 # WARNING: This is resource intensive and runs many GPU jobs.
-# For targeted testing, manually trigger compute-sanitizer-run.yaml with specific inputs.
+# For targeted testing, manually trigger velox-compute-sanitizer-run.yaml with specific tool_name and test_names.
 
 on:
   schedule:
-    - cron: '0 10 * * 6'  # Weekly on Saturday at 10:00 UTC
+    - cron: "0 10 * * 6"  # Weekly on Saturday at 10:00 UTC
   workflow_dispatch:
     inputs:
       velox_image:
-        description: 'Velox GPU image to test (e.g. ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318). Leave empty to use velox-latest-gpu-cuda13.1.'
+        description: "Velox GPU image to test (e.g. ghcr.io/rapidsai/velox-testing-images:velox-e0169a0-gpu-cuda13.1-20260318). Leave empty to use velox-latest-gpu-cuda13.1."
         type: string
         required: false
-        default: ''
+        default: ""
 
 permissions: {}
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}-images
-
 jobs:
-  discover-tests:
-    runs-on: linux-amd64-cpu4
+  trigger-sanitizer:
+    name: Trigger ${{ matrix.tool_name }}
+    runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: read
-      packages: read
-    outputs:
-      tests: ${{ steps.find-tests.outputs.tests }}
-      velox_image: ${{ steps.resolve-image.outputs.velox_image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        tool_name:
+          - memcheck
+          - racecheck
+          - synccheck
     steps:
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - name: Log in to the Container registry
-        uses: ./.github/actions/container-registry-login
-      - name: Resolve image
-        id: resolve-image
+      - name: Trigger ${{ matrix.tool_name }}
         env:
-          VELOX_IMAGE: ${{ inputs.velox_image }}
+          GH_TOKEN: ${{ github.token }}
+          TOOL_NAME: ${{ matrix.tool_name }}
+          VELOX_IMAGE: ${{ github.event.inputs.velox_image }}
         run: |
+          args=(--ref "${GITHUB_REF_NAME}" -f tool_name="${TOOL_NAME}")
           if [ -n "${VELOX_IMAGE}" ]; then
-            echo "velox_image=${VELOX_IMAGE}" >> "${GITHUB_OUTPUT}"
-          else
-            echo "velox_image=${REGISTRY}/${IMAGE_NAME}:velox-latest-gpu-cuda13.1" >> "${GITHUB_OUTPUT}"
+            args+=(-f velox_image="${VELOX_IMAGE}")
           fi
-      - name: Discover test executables
-        id: find-tests
-        env:
-          IMAGE: ${{ steps.resolve-image.outputs.velox_image }}
-        run: |
-          source scripts/common.sh
-
-          docker_pull_with_retry "${IMAGE}"
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}/ci/discover_velox_cudf_tests.sh:/tmp/discover.sh:ro" \
-            -e GITHUB_OUTPUT=/tmp/gh_output \
-            "${IMAGE}" bash -c "bash /tmp/discover.sh && cat /tmp/gh_output" >> "${GITHUB_OUTPUT}"
-
-  run-sanitizer-tests-memcheck:
-    name: compute-sanitizer memcheck
-    needs: discover-tests
-    permissions:
-      contents: read
-      packages: read
-    uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
-    with:
-      tool_name: "memcheck"
-      test_names: ${{ needs.discover-tests.outputs.tests }}
-      velox_image: ${{ needs.discover-tests.outputs.velox_image }}
-
-  run-sanitizer-tests-racecheck:
-    name: compute-sanitizer racecheck
-    needs: discover-tests
-    permissions:
-      contents: read
-      packages: read
-    uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
-    with:
-      tool_name: "racecheck"
-      test_names: ${{ needs.discover-tests.outputs.tests }}
-      velox_image: ${{ needs.discover-tests.outputs.velox_image }}
-
-  run-sanitizer-tests-synccheck:
-    name: compute-sanitizer synccheck
-    needs: discover-tests
-    permissions:
-      contents: read
-      packages: read
-    uses: ./.github/workflows/velox-compute-sanitizer-run.yaml
-    with:
-      tool_name: "synccheck"
-      test_names: ${{ needs.discover-tests.outputs.tests }}
-      velox_image: ${{ needs.discover-tests.outputs.velox_image }}
+          gh workflow run velox-compute-sanitizer-run.yaml "${args[@]}"
