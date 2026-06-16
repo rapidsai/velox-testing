@@ -14,6 +14,8 @@ export LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
 
 source "${SCRIPT_DIR}/presto_connection_defaults.sh"
 
+BENCHMARK_SCALE_FACTOR=""
+
 print_help() {
   cat << EOF
 
@@ -33,6 +35,8 @@ OPTIONS:
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
                             schema that contains the benchmark tables.
+    --scale-factor          Scale factor of the benchmark dataset. If omitted, pytest reads it from metadata.json
+                            next to the table data.
     -o, --output-dir        Directory path that will contain the output files from the benchmark run.
                             By default, output files are written to "$(pwd)/benchmark_output".
     -i, --iterations        Number of query run iterations. By default, 5 iterations are run.
@@ -140,6 +144,15 @@ parse_args() {
           shift 2
         else
           echo "Error: --schema-name requires a value"
+          exit 1
+        fi
+        ;;
+      --scale-factor)
+        if [[ -n $2 ]]; then
+          BENCHMARK_SCALE_FACTOR=$2
+          shift 2
+        else
+          echo "Error: --scale-factor requires a value"
           exit 1
         fi
         ;;
@@ -261,6 +274,10 @@ fi
 
 if [[ -n ${USER_NAME} ]]; then
   PYTEST_ARGS+=("--user ${USER_NAME}")
+fi
+
+if [[ -n ${BENCHMARK_SCALE_FACTOR} ]]; then
+  PYTEST_ARGS+=("--scale-factor ${BENCHMARK_SCALE_FACTOR}")
 fi
 
 if [[ -n ${OUTPUT_DIR} ]]; then

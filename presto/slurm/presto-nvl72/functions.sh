@@ -500,7 +500,7 @@ function run_queries {
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
-    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${extra_args[*]} \
+    ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} --scale-factor ${scale_factor} -i ${num_iterations} ${extra_args[*]} \
         --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
 }
 
