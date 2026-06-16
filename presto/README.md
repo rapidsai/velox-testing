@@ -52,11 +52,63 @@ All three repositories must be checked out as sibling directories. **Important:*
    ```
    > **Tip:** Add this export to your `~/.bashrc` to avoid setting it each time.
 
-3. Build dependencies (first time only):
+3. Prepare Presto images.
+
+   For a local source build, first build the dependency image. The start script
+   will lazily build the coordinator and worker images if they are missing.
    ```bash
    ./build_centos_deps_image.sh
    ```
-   > **Note:** Only internal team members with credentials can fetch a pre-built image (`./fetch_centos_deps_image.sh`). For most users, building locally is required.
+   > **Note:** `./fetch_centos_deps_image.sh` fetches the dependency image from
+   > internal storage and requires credentials.
+
+   Alternatively, pull prebuilt GPU images and retag them for the local start scripts:
+   ```bash
+   ./pull_presto_images.sh
+   ```
+
+   The PrestoDB defaults are:
+   - Coordinator: `prestodb/presto:coordinator-gpu-nightly`
+   - Worker: `prestodb/presto-native:gpu-nightly`
+
+   To use a different PrestoDB tag:
+   ```bash
+   ./pull_presto_images.sh --tag latest
+   ```
+   This pulls `prestodb/presto:latest` and `prestodb/presto-native:latest`.
+
+   RAPIDS CI images can also be pulled from GHCR:
+   ```bash
+   ./pull_presto_images.sh --source ci
+   ```
+
+   The CI defaults are:
+   - Coordinator: `ghcr.io/rapidsai/velox-testing-images:presto-coordinator-latest`
+   - Worker: `ghcr.io/rapidsai/velox-testing-images:presto-latest-gpu-cuda13.1`
+
+   To use a specific CI Presto/Velox tag body:
+   ```bash
+   ./pull_presto_images.sh --source ci --tag c0de72d-velox-f374779-20260616-manual-27588892754
+   ```
+   This pulls `presto-coordinator-c0de72d-20260616-manual-27588892754`
+   and `presto-c0de72d-velox-f374779-gpu-cuda13.1-20260616-manual-27588892754`.
+
+   Use `--cuda-version` to select a different CI GPU worker CUDA tag:
+   ```bash
+   ./pull_presto_images.sh --source ci --cuda-version 12.8
+   ```
+
+   Use `--no-coordinator` if you only need to refresh the worker image:
+   ```bash
+   ./pull_presto_images.sh --no-coordinator
+   ```
+
+   By default, pulled images are retagged with `${USER}`. Set `PRESTO_IMAGE_TAG`
+   or pass `--local-tag` if you want the start scripts to use a different tag:
+   ```bash
+   PRESTO_IMAGE_TAG=ci ./pull_presto_images.sh
+   PRESTO_IMAGE_TAG=ci ./start_native_gpu_presto.sh
+   ```
 
 4. Start Presto with GPU workers:
    ```bash
