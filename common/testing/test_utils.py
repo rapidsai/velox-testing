@@ -17,7 +17,12 @@ def get_queries(benchmark_type, queries_file=None):
 def get_scale_factor_from_file(file):
     with open(get_abs_file_path(__file__, file), "r") as file:
         metadata = json.load(file)
-        return metadata["scale_factor"]
+        scale_factor = metadata.get("scale_factor")
+        if scale_factor is None:
+            scale_factor = metadata.get("options", {}).get("scale_factor")
+        if scale_factor is None:
+            raise KeyError("scale_factor")
+        return scale_factor
 
 
 def get_abs_file_path(file_path, relative_path):
