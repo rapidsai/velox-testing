@@ -57,6 +57,7 @@ if [[ "${REBUILD_DEPS}" != true ]] && \
    [[ -f "${FB_DEPS_PREFIX}/lib/cmake/fizz/fizz-config.cmake" ]] && \
    [[ -f "${FB_DEPS_PREFIX}/lib/cmake/wangle/wangle-config.cmake" ]] && \
    [[ -f "${FB_DEPS_PREFIX}/lib/cmake/fbthrift/FBThriftConfig.cmake" ]] && \
+   grep -q "readLEFromBuffer" "${FB_DEPS_PREFIX}/include/thrift/lib/cpp2/protocol/ProtocolReaderWithRefill.h" && \
    [[ -f "${FB_DEPS_PREFIX}/lib/libproxygen.so" ]] && \
    [[ -f "${FB_DEPS_PREFIX}/lib/DataSketches/cmake/DataSketchesConfig.cmake" ]]; then
     echo "Facebook OSS deps found at ${FB_DEPS_PREFIX} (use --rebuild to force)"
@@ -132,6 +133,17 @@ build_pkg() {
     fi
     if [[ "${srcsubdir}" != "." ]]; then
         srcdir="${srcdir}/${srcsubdir}"
+    fi
+
+    if [[ "${name}" == "fbthrift" ]]; then
+        # Velox's FBThrift migration added CompactV1ProtocolReaderWithRefill,
+        # which needs readLEFromBuffer() from FBThrift main. The pinned FBOS
+        # tag does not have it, so apply Velox's compatibility patch until the
+        # pinned tag includes facebook/fbthrift@cfa1ba289e.
+        # Velox patch: https://github.com/facebookincubator/velox/blob/main/CMake/resolve_dependency_modules/fbthrift/compactv1-protocol-refiller.patch
+        # Upstream FBThrift: https://github.com/facebook/fbthrift/commit/cfa1ba289e
+        local patch_file="${HOME}/velox/CMake/resolve_dependency_modules/fbthrift/compactv1-protocol-refiller.patch"
+        git -C "${srcdir}" apply "${patch_file}"
     fi
 
     echo "  Configuring..."
