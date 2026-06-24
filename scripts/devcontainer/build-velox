@@ -8,6 +8,7 @@ set -euo pipefail
 BUILD_TYPE="${BUILD_TYPE:-release}"
 NUM_THREADS="${NUM_THREADS:-0}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
+FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
 CUDAARCHS="${CUDAARCHS:-}"
 RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
 
@@ -33,6 +34,7 @@ Environment variables:
   NUM_THREADS       Number of parallel jobs
   CUDAARCHS         CUDA compute capability
   BUILD_BASE_DIR    Base directory for build output (default: /opt/velox-build)
+  FB_DEPS_PREFIX    Install prefix for FB deps (default: /opt/fb-deps)
 EOF
 }
 
@@ -71,13 +73,19 @@ if [[ ! -d "${VELOX_DIR}" ]]; then
     exit 1
 fi
 
+if [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/fizz/fizz-config.cmake" ]] || \
+   [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/wangle/wangle-config.cmake" ]] || \
+   [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/fbthrift/FBThriftConfig.cmake" ]]; then
+    build-fb-deps -j "${NUM_THREADS}" --prefix "${FB_DEPS_PREFIX}"
+fi
+
 # Run configuration — forward -D flags to configure-velox
 CONFIGURE_ARGS=("--${BUILD_TYPE}")
 if [[ -n "${CUDAARCHS}" ]]; then
     CONFIGURE_ARGS+=("--cuda-arch" "${CUDAARCHS}")
 fi
 CONFIGURE_ARGS+=("${CMAKE_PASSTHROUGH[@]+"${CMAKE_PASSTHROUGH[@]}"}")
-BUILD_BASE_DIR="${BUILD_BASE_DIR}" configure-velox "${CONFIGURE_ARGS[@]}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR}" FB_DEPS_PREFIX="${FB_DEPS_PREFIX}" configure-velox "${CONFIGURE_ARGS[@]}"
 
 # Build
 cd "${VELOX_DIR}"

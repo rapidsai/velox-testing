@@ -69,6 +69,7 @@ fi
 echo "Available commands:"
 echo "  build-all-cpp -j0    - Build RAPIDS C++ libs, velox, and presto"
 echo "  build-all -j0        - Build RAPIDS C++ + Python libs, velox, and presto"
+echo "  build-fb-deps -j0    - Build Facebook OSS dependencies"
 echo "  build-velox -j0      - Build velox with cuDF support"
 echo "  build-presto -j0     - Build presto-native-execution (auto-builds FB deps)"
 echo "  test-velox           - Run velox tests"

@@ -1,0 +1,203 @@
+#!/bin/bash
+# Build Facebook OSS dependencies used by Velox Parquet and Presto native builds.
+
+set -euo pipefail
+
+FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
+NUM_THREADS="${NUM_THREADS:-0}"
+RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
+REBUILD_DEPS=false
+
+usage() {
+    cat <<EOF
+Usage: build-fb-deps [OPTIONS]
+
+Build Facebook OSS dependencies into FB_DEPS_PREFIX.
+
+Options:
+  -j, --jobs N      Number of parallel jobs. Defaults to -j0, sized like
+                    RAPIDS build scripts for sccache-dist.
+  --prefix PATH     Install prefix (default: /opt/fb-deps)
+  --rebuild         Force rebuild even if dependencies are already installed
+  -h, --help        Show this help message
+
+Environment variables:
+  FB_DEPS_PREFIX    Install prefix for FB deps (default: /opt/fb-deps)
+  NUM_THREADS       Number of parallel jobs
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -j|--jobs)
+            NUM_THREADS="$2"
+            RAPIDS_BUILD_ARGS=("$1" "$2")
+            shift 2
+            ;;
+        -j*)
+            NUM_THREADS="${1#-j}"
+            RAPIDS_BUILD_ARGS=("$1")
+            shift
+            ;;
+        --prefix)
+            FB_DEPS_PREFIX="$2"
+            shift 2
+            ;;
+        --rebuild) REBUILD_DEPS=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
+NUM_THREADS="${n_jobs}"
+
+if [[ "${REBUILD_DEPS}" != true ]] && \
+   [[ -f "${FB_DEPS_PREFIX}/lib/cmake/folly/folly-config.cmake" ]] && \
+   [[ -f "${FB_DEPS_PREFIX}/lib/cmake/fizz/fizz-config.cmake" ]] && \
+   [[ -f "${FB_DEPS_PREFIX}/lib/cmake/wangle/wangle-config.cmake" ]] && \
+   [[ -f "${FB_DEPS_PREFIX}/lib/cmake/fbthrift/FBThriftConfig.cmake" ]] && \
+   [[ -f "${FB_DEPS_PREFIX}/lib/libproxygen.so" ]] && \
+   [[ -f "${FB_DEPS_PREFIX}/lib/DataSketches/cmake/DataSketchesConfig.cmake" ]]; then
+    echo "Facebook OSS deps found at ${FB_DEPS_PREFIX} (use --rebuild to force)"
+    exit 0
+fi
+
+VELOX_VERSIONS="${HOME}/velox/scripts/setup-versions.sh"
+if [[ ! -f "${VELOX_VERSIONS}" ]]; then
+    echo "Error: Velox versions file not found at ${VELOX_VERSIONS}"
+    exit 1
+fi
+# shellcheck disable=SC1090
+source "${VELOX_VERSIONS}"
+
+require_version() {
+    local name="$1" value="$2" pattern="$3"
+    if [[ -z "${value}" ]]; then
+        echo "Error: ${name} is empty after sourcing ${VELOX_VERSIONS}"
+        exit 1
+    fi
+    if [[ ! "${value}" =~ ${pattern} ]]; then
+        echo "Error: Invalid ${name} format: ${value}"
+        exit 1
+    fi
+    echo "Using ${name}: ${value}"
+}
+
+require_version "FB_OS_VERSION" "${FB_OS_VERSION:-}" '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}$'
+require_version "XSIMD_VERSION" "${XSIMD_VERSION:-}" '^[0-9]+\.[0-9]+\.[0-9]+$'
+require_version "FAST_FLOAT_VERSION" "${FAST_FLOAT_VERSION:-}" '^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+SCRATCH_DIR="/tmp/fb-deps-build"
+if [[ "$(uname -m)" == "aarch64" ]]; then
+    CXX_FLAGS="-march=armv8-a+crc+crypto"
+else
+    CXX_FLAGS="-mavx2 -mfma -mavx -mf16c -mlzcnt -mbmi2"
+fi
+GITHUB="https://github.com"
+
+CMAKE_COMMON=(
+    -GNinja
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_INSTALL_PREFIX="${FB_DEPS_PREFIX}"
+    -DCMAKE_PREFIX_PATH="${FB_DEPS_PREFIX}"
+    -DCMAKE_CXX_STANDARD=20
+    "-DCMAKE_CXX_FLAGS=${CXX_FLAGS}"
+    -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DBUILD_TESTS=OFF
+)
+
+build_pkg() {
+    local name="$1" url="$2" srcsubdir="$3"
+    shift 3
+
+    echo ""
+    echo -e "\033[1;36mBuilding ${name}\033[0m"
+
+    local pkg_dir="${SCRATCH_DIR}/${name}"
+    rm -rf "${pkg_dir}"
+    mkdir -p "${pkg_dir}/src"
+
+    echo "  Downloading..."
+    curl -fsSL "${url}" | tar xz -C "${pkg_dir}/src"
+
+    local srcdir="${pkg_dir}/src"
+    if [[ ! -f "${srcdir}/CMakeLists.txt" ]]; then
+        local subdirs=("${srcdir}"/*)
+        if [[ ${#subdirs[@]} -eq 1 && -d "${subdirs[0]}" ]]; then
+            srcdir="${subdirs[0]}"
+        fi
+    fi
+    if [[ "${srcsubdir}" != "." ]]; then
+        srcdir="${srcdir}/${srcsubdir}"
+    fi
+
+    echo "  Configuring..."
+    cmake -Wno-dev -B "${pkg_dir}/build" -S "${srcdir}" \
+        "${CMAKE_COMMON[@]}" "$@"
+
+    echo "  Building (${NUM_THREADS} threads)..."
+    cmake --build "${pkg_dir}/build" -j "${NUM_THREADS}"
+
+    echo "  Installing..."
+    cmake --install "${pkg_dir}/build"
+
+    rm -rf "${pkg_dir}"
+}
+
+echo ""
+echo -e "\033[1;36mBuilding Facebook OSS dependencies (${FB_OS_VERSION})\033[0m"
+echo "Install prefix: ${FB_DEPS_PREFIX}"
+echo ""
+
+mkdir -p "${FB_DEPS_PREFIX}"
+rm -rf "${SCRATCH_DIR}"
+mkdir -p "${SCRATCH_DIR}"
+
+build_pkg "fast_float" \
+    "${GITHUB}/fastfloat/fast_float/archive/refs/tags/${FAST_FLOAT_VERSION}.tar.gz" \
+    "." -DFASTFLOAT_TEST=OFF
+
+build_pkg "xsimd" \
+    "${GITHUB}/xtensor-stack/xsimd/archive/refs/tags/${XSIMD_VERSION}.tar.gz" \
+    "."
+
+build_pkg "folly" \
+    "${GITHUB}/facebook/folly/releases/download/${FB_OS_VERSION}/folly-${FB_OS_VERSION}.tar.gz" \
+    "." -DBUILD_SHARED_LIBS=ON -DFOLLY_HAVE_INT128_T=ON
+
+build_pkg "fizz" \
+    "${GITHUB}/facebookincubator/fizz/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+    "fizz" -DBUILD_SHARED_LIBS=ON
+
+build_pkg "wangle" \
+    "${GITHUB}/facebook/wangle/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+    "wangle" -DBUILD_SHARED_LIBS=ON
+
+build_pkg "mvfst" \
+    "${GITHUB}/facebook/mvfst/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+    "." -DBUILD_SHARED_LIBS=ON
+
+build_pkg "fbthrift" \
+    "${GITHUB}/facebook/fbthrift/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+    "." -DBUILD_SHARED_LIBS=OFF -Denable_tests=OFF \
+    "-DCMAKE_CXX_FLAGS=${CXX_FLAGS} -fvisibility=default"
+
+build_pkg "proxygen" \
+    "${GITHUB}/facebook/proxygen/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+    "." -DBUILD_SHARED_LIBS=ON
+
+DATASKETCHES_VERSION="5.2.0"
+build_pkg "datasketches-cpp" \
+    "https://github.com/apache/datasketches-cpp/archive/refs/tags/${DATASKETCHES_VERSION}.tar.gz" \
+    "." -DBUILD_TESTS=OFF
+
+rm -rf "${SCRATCH_DIR}"
+
+echo "${FB_DEPS_PREFIX}/lib" | sudo tee /etc/ld.so.conf.d/fb-deps.conf >/dev/null
+sudo ldconfig
+
+echo ""
+echo -e "\033[1;32mFacebook OSS dependencies installed\033[0m"
