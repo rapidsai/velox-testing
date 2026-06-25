@@ -39,6 +39,7 @@ LIST_ONLY=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        -j*) NUM_THREADS="${1#-j}"; shift ;;
         --filter) FILTER="$2"; shift 2 ;;
         --exclude) EXCLUDE="$2"; shift 2 ;;
         --cuda) CUDA_ONLY=true; shift ;;
