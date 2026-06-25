@@ -197,7 +197,6 @@ jobs:
             --benchmark-type "${TEST_TYPE}" \
             --data-dir-path "${DATA_DIR}" \
             --scale-factor "${SCALE_FACTOR}" \
-            --convert-decimals-to-floats
           echo "--- metadata ---"
           cat "${DATA_DIR}/metadata.json"
           echo "--- generated files ---"

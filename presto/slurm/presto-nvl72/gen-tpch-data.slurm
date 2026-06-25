@@ -94,7 +94,6 @@ srun --ntasks=1 \
       -b tpch \
       -d /data_out/${OUTPUT_BASENAME} \
       -s ${SCALE_FACTOR} \
-      --convert-decimals-to-floats \
       -j ${PARALLELISM} \
       --verbose
   "

@@ -122,7 +122,6 @@ jobs:
             --benchmark-type tpch \
             --data-dir-path "${TPCH_DATA_DIR}" \
             --scale-factor 10 \
-            --convert-decimals-to-floats
           echo "--- metadata ---"
           cat "${TPCH_DATA_DIR}/metadata.json"
           echo "--- generated files ---"
