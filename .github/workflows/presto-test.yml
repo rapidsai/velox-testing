@@ -196,7 +196,7 @@ jobs:
           benchmark_data_tools/scripts/generate_dataset.sh \
             --benchmark-type "${TEST_TYPE}" \
             --data-dir-path "${DATA_DIR}" \
-            --scale-factor "${SCALE_FACTOR}" \
+            --scale-factor "${SCALE_FACTOR}"
           echo "--- metadata ---"
           cat "${DATA_DIR}/metadata.json"
           echo "--- generated files ---"

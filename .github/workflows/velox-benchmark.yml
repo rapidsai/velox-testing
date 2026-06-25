@@ -121,7 +121,7 @@ jobs:
           benchmark_data_tools/scripts/generate_dataset.sh \
             --benchmark-type tpch \
             --data-dir-path "${TPCH_DATA_DIR}" \
-            --scale-factor 10 \
+            --scale-factor 10
           echo "--- metadata ---"
           cat "${TPCH_DATA_DIR}/metadata.json"
           echo "--- generated files ---"
