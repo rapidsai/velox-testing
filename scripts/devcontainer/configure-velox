@@ -82,8 +82,10 @@ EXTRA_CMAKE_FLAGS+=" -DVELOX_MONO_LIBRARY=OFF"
 EXTRA_CMAKE_FLAGS+=" -DVELOX_BUILD_SHARED=OFF"
 EXTRA_CMAKE_FLAGS+=" -DCMAKE_PREFIX_PATH=${FB_DEPS_PREFIX}"
 
-# All dependencies built from source — standalone velox is fully self-contained
-EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=BUNDLED"
+# Use Folly from prebuilt FB deps
+EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=SYSTEM"
+
+# Build the dependencies below from bundled sources
 EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DGTest_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -DDuckDB_SOURCE=BUNDLED"
