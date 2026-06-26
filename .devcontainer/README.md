@@ -58,7 +58,7 @@ All repos are bind-mounted into the container under `/home/coder/`.
 ```
 source: ~/velox
 build:  /opt/velox-build/<release|debug>
-mode:   VELOX_MONO_LIBRARY=ON, VELOX_BUILD_SHARED=ON
+mode:   VELOX_MONO_LIBRARY=OFF, VELOX_BUILD_SHARED=OFF
 ```
 
 `build-presto` builds Presto and Velox together:
