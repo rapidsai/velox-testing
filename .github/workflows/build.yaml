@@ -43,7 +43,7 @@ jobs:
         uses: &build_action ./.github/actions/build-devcontainer
         with:
           arch: amd64
-          cuda: &cuda '13.2'
+          cuda: &cuda '13.3'
           push: true
 
   devcontainer-arm64:
@@ -86,6 +86,6 @@ jobs:
           HASH_ARM64: ${{ needs.devcontainer-arm64.outputs.hash }}
         run: |
           docker buildx imagetools create \
-            --tag ghcr.io/rapidsai/velox-testing/devcontainer:latest-cuda13.2 \
+            --tag ghcr.io/rapidsai/velox-testing/devcontainer:latest-cuda13.3 \
             "${HASH_AMD64}" \
             "${HASH_ARM64}"
