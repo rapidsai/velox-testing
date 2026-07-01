@@ -17,7 +17,13 @@ from duckdb_utils import create_table
 
 
 def execute_query_and_compare_results(
-    request_config, queries, query_id, query_engine, query_engine_rows, query_engine_columns
+    request_config,
+    queries,
+    query_id,
+    query_engine,
+    query_engine_rows,
+    query_engine_columns,
+    query_engine_column_types=None,
 ):
     query = queries[query_id]
 
@@ -46,7 +52,7 @@ def execute_query_and_compare_results(
     if not request_config.getoption("--skip-reference-comparison"):
         engine_df = pd.DataFrame(query_engine_rows, columns=query_engine_columns)
         duckdb_df = duckdb_relation.df()
-        compare_result_frames(engine_df, duckdb_df, query)
+        compare_result_frames(engine_df, duckdb_df, query, query_engine_column_types)
 
 
 def show_result_preview(columns, rows, preview_rows_count, result_source, query_id):
