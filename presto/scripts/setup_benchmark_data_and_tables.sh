@@ -9,7 +9,7 @@ SCRIPT_DESCRIPTION="This script generates benchmark data and sets up related tab
 Generated data will reside under the PRESTO_DATA_DIR path in a directory with name that matches
 the value set for the --data-dir-name argument."
 
-SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100 -f 100 -c"
+SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100 -f 100"
 
 SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-f, --scale-factor                  The scale factor of the generated dataset.
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.

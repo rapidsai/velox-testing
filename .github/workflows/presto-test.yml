@@ -193,11 +193,15 @@ jobs:
           SCALE_FACTOR: ${{ matrix.scale_factor }}
         run: |
           DATA_DIR="${GITHUB_WORKSPACE}/common/testing/integration_tests/data/${TEST_TYPE}"
-          benchmark_data_tools/scripts/generate_dataset.sh \
-            --benchmark-type "${TEST_TYPE}" \
-            --data-dir-path "${DATA_DIR}" \
-            --scale-factor "${SCALE_FACTOR}" \
-            --convert-decimals-to-floats
+          DATA_GEN_ARGS=(
+            --benchmark-type "${TEST_TYPE}"
+            --data-dir-path "${DATA_DIR}"
+            --scale-factor "${SCALE_FACTOR}"
+          )
+          if [[ "${TEST_TYPE}" == "tpcds" ]]; then
+            DATA_GEN_ARGS+=(--convert-decimals-to-floats)
+          fi
+          benchmark_data_tools/scripts/generate_dataset.sh "${DATA_GEN_ARGS[@]}"
           echo "--- metadata ---"
           cat "${DATA_DIR}/metadata.json"
           echo "--- generated files ---"

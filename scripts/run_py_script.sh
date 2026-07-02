@@ -23,7 +23,7 @@ OPTIONS:
 
 EXAMPLES:
     $0 -p ../benchmark_data_tools/generate_data_files.py --scale-factor 10 \
-    --benchmark-type tpch --data-dir-path my_tpch_data --convert-decimals-to-floats
+    --benchmark-type tpch --data-dir-path my_tpch_data
     $0 -h
 
 EOF
