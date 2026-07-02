@@ -153,6 +153,34 @@ _CLUSTER_TAG_TO_ENGINE = {
     "java": "presto-java",
 }
 
+_PROVENANCE_FIELDS = frozenset({
+    "presto_sha", "presto_branch", "presto_repo",
+    "velox_sha", "velox_branch", "velox_repo",
+})
+
+
+def _provenance_file_path() -> Path | None:
+    """Locate the provenance JSON file.
+
+    The worker/coordinator startup scripts copy /opt/velox-testing/provenance.json
+    into the shared logs dir as ``worker_provenance.json`` / ``coordinator_provenance.json``.
+    In Docker the dir is bind-mounted to the host; in SLURM/Enroot both the worker
+    container and the pytest-running coord container mount ${LOGS} at the same path.
+
+    Prefer the worker file (full presto+velox fields) over the coordinator (presto
+    only). Fall back to the in-image path for callers running directly inside a
+    container that has the file baked in.
+    """
+    logs_dir = os.environ.get("LOGS_DIR")
+    if logs_dir:
+        ld = Path(logs_dir)
+        for name in ("worker_provenance.json", "coordinator_provenance.json"):
+            candidate = ld / name
+            if candidate.is_file():
+                return candidate
+    fallback = Path("/opt/velox-testing/provenance.json")
+    return fallback if fallback.is_file() else None
+
 
 def _get_engine(hostname: str, port: int) -> str:
     """Determine worker engine type from the coordinator's cluster-tag.
@@ -218,6 +246,21 @@ def _get_num_drivers() -> int | None:
     return None
 
 
+def _get_image_provenance() -> dict:
+    """Return provenance fields from the baked-in file, or {} if absent or unreadable."""
+    provenance_file = _provenance_file_path()
+    if provenance_file is None:
+        return {}
+    try:
+        data = json.loads(provenance_file.read_text())
+        result = {k: v for k, v in data.items() if k in _PROVENANCE_FIELDS and v}
+        _debug(f"provenance from {provenance_file}: {result}")
+        return result
+    except Exception as e:
+        _debug(f"failed to read provenance file: {e}")
+        return {}
+
+
 def gather_run_context(
     hostname: str,
     port: int,
@@ -263,5 +306,7 @@ def gather_run_context(
 
     # Always 1 for single-run invocations; reserved for future multi-execution support.
     ctx["execution_number"] = 1
+
+    ctx.update(_get_image_provenance())
 
     return ctx

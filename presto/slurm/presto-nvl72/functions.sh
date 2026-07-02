@@ -135,7 +135,8 @@ ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.propertie
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
+${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
+${LOGS}:/opt/presto-server/logs${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
     else
         srun -w $COORD --ntasks=1 --overlap \
@@ -149,8 +150,9 @@ ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.propertie
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
+${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 ${LOGS}:/var/log/nsys,\
-${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
+${LOGS}:/opt/presto-server/logs${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
     fi
 }
@@ -173,6 +175,13 @@ unset CONFIG NODE_CONFIG PRESTO_ETC JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPT
 
 export JAVA_HOME=/usr
 export PATH=/usr/bin:$PATH
+
+# Surface baked-in image provenance into the shared logs dir for the in-container
+# pytest in run_benchmark.sh to read via LOGS_DIR.
+if [ -f /opt/velox-testing/provenance.json ]; then
+  cp /opt/velox-testing/provenance.json "/opt/presto-server/logs/coordinator_provenance.json"
+fi
+
 /opt/presto-server/bin/launcher run & srv=$!
 
 # wait for JVM to appear
@@ -345,6 +354,7 @@ ${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
 ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
+${LOGS}:/opt/presto-server/logs,\
 ${WORKER_ENV_FILE}:${vt_worker_env_file},\
 ${LOGS}:${vt_cufile_log_dir},\
 ${LOGS}:${vt_nsys_report_dir}${driver_mounts}${gds_mounts:+,${gds_mounts}}${worker_extra_mounts} \
@@ -372,6 +382,10 @@ echo \"Worker ${worker_id}: KVIKIO_COMPAT_MODE=\${KVIKIO_COMPAT_MODE:-unset}\"
 echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
 echo \"Worker ${worker_id}: KVIKIO_TASK_SIZE=\${KVIKIO_TASK_SIZE:-unset}\"
 echo \"Worker ${worker_id}: KVIKIO_NTHREADS=\${KVIKIO_NTHREADS:-unset}\"
+
+if [ -f /opt/velox-testing/provenance.json ]; then
+    cp /opt/velox-testing/provenance.json /opt/presto-server/logs/worker_provenance.json
+fi
 
 if [[ -n '${nsys_bin}' ]]; then
     (
@@ -573,6 +587,7 @@ function run_queries {
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
+    export LOGS_DIR=/opt/presto-server/logs; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${extra_args[*]} \
         --hostname ${COORD} --port $PORT -o ${container_script_dir}/result_dir --skip-drop-cache" "cli"
