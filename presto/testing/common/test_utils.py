@@ -58,9 +58,15 @@ def get_scale_factor(request, presto_cursor):
     if not os.path.exists(meta_file):
         raise pytest.UsageError(
             f"Could not find metadata file in data repository '{repository_path}'.\n"
-            "Metadata file must be called 'metadata.json' and have the following format:\n"
+            "Metadata file must be called 'metadata.json' and have one of the following formats:\n"
             "{\n"
             '  "scale_factor": <scale_factor>\n'
+            "}\n"
+            "or\n"
+            "{\n"
+            '  "options": {\n'
+            '    "scale_factor": <scale_factor>\n'
+            "  }\n"
             "}\n"
             "where <scale_factor> is a floating point number."
         )
