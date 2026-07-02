@@ -12,6 +12,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
       - github_token
       - aws_credentials
 {% endif %}
+  entrypoint: ["bash", "/opt/presto_profiling_wrapper.sh"]
   runtime: nvidia
   cap_add:
     - IPC_LOCK
@@ -98,7 +99,7 @@ services:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu
 {%- if workers %}
-    command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
+    command: [{% for gpu_id in workers %}"{{ gpu_id }}"{% if not loop.last %}, {% endif %}{% endfor %}]
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE:-}

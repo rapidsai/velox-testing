@@ -6,6 +6,7 @@ services:
       - ${PRESTO_DATA_DIR:-/dev/null}:/var/lib/presto/data/hive/data/user_data
       - ${LOGS_DIR:-/dev/null}:/opt/presto-server/logs
       - ./launch_presto_servers.sh:/opt/launch_presto_servers.sh:ro
+      - ./presto_profiling_wrapper.sh:/opt/presto_profiling_wrapper.sh:ro
 
   presto-base-java:
     extends:
