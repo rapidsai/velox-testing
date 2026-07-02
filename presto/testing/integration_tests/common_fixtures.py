@@ -28,9 +28,11 @@ def setup_and_teardown(request, presto_cursor):
 
     should_create_tables = not has_schema_name
     if should_create_tables:
-        schemas_dir = get_abs_file_path(__file__, f"../common/schemas/{benchmark_type}")
         data_sub_directory = f"integration_test/{benchmark_type}"
-        create_hive_tables.create_tables(presto_cursor, schema_name, schemas_dir, data_sub_directory)
+        data_dir = get_abs_file_path(__file__, f"../../../common/testing/integration_tests/data/{benchmark_type}")
+        create_hive_tables.create_tables_from_data(
+            presto_cursor, schema_name, benchmark_type, data_dir, data_sub_directory
+        )
 
     tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
     for (table,) in tables:

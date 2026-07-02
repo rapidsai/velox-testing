@@ -3,8 +3,15 @@
 
 import argparse
 import os
+import sys
+import tempfile
+from pathlib import Path
 
 import prestodb
+
+sys.path.append(str(Path(__file__).resolve().parents[3] / "benchmark_data_tools"))
+
+from generate_table_schemas import generate_table_schemas
 
 
 def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directory):
@@ -18,6 +25,12 @@ def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directo
                 file_path=f"/var/lib/presto/data/hive/data/{data_sub_directory}/{table_name}", schema=schema_name
             )
         )
+
+
+def create_tables_from_data(presto_cursor, schema_name, benchmark_type, data_dir_path, data_sub_directory):
+    with tempfile.TemporaryDirectory() as schemas_dir:
+        generate_table_schemas(benchmark_type, schemas_dir, data_dir_path, False)
+        create_tables(presto_cursor, schema_name, schemas_dir, data_sub_directory)
 
 
 def get_table_schemas(schemas_dir):
