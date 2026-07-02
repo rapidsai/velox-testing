@@ -31,6 +31,9 @@ class DataGenArgs:
     keep_original_dataset: bool
     approx_row_group_bytes: int
     codec_definitions: str = None
+    parquet_version: str = "v2"
+    nationkey_type: str = "i32"
+    regionkey_type: str = "i32"
 
 
 @pytest.fixture
