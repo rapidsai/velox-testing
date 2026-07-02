@@ -117,12 +117,28 @@ jobs:
           cp -r velox/scripts presto-deps-context/velox/scripts
           cp -r velox/CMake presto-deps-context/velox/CMake
 
+          # Harden the dependency-install layer against transient network blips.
+          # The upstream Presto/Velox setup scripts run many unguarded downloads
+          # (curl tarballs, dnf repos, wget mirrors); rather than fork those
+          # scripts we inject retry/timeout config into the staged Dockerfile:
+          #   - CURL_OPTIONS is honoured by velox's wget_and_untar (curl -L ...)
+          #   - dnf.conf retries/timeout/minrate cover dnf installs (incl. CUDA repo)
+          #   - /etc/wgetrc covers the remaining direct `wget` downloads (e.g. minio)
+          dockerfile=presto-deps-context/scripts/dockerfiles/centos-dependency.dockerfile
+          sed -i \
+            -e '/^ENV UCX_VERSION/a ENV CURL_OPTIONS="--retry 5 --retry-delay 5 --retry-all-errors --retry-connrefused --connect-timeout 30"' \
+            -e '/^ENV UCX_VERSION/a RUN { echo retries=10; echo timeout=60; echo minrate=500; } >> /etc/dnf/dnf.conf && { echo tries=5; echo timeout=30; echo waitretry=5; echo retry_connrefused=on; echo read_timeout=300; } >> /etc/wgetrc' \
+            "$dockerfile"
+          grep -q '^ENV CURL_OPTIONS=' "$dockerfile" || { echo "::error::failed to inject network-retry config (anchor 'ENV UCX_VERSION' not found in upstream dockerfile)"; exit 1; }
+          echo "---- patched dependency install section ----"
+          sed -n '/^ENV UCX_VERSION/,/rm -rf build/p' "$dockerfile"
+
       - name: Build and push Presto deps image
         id: push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
         with:
           context: presto-deps-context
-          file: presto/presto-native-execution/scripts/dockerfiles/centos-dependency.dockerfile
+          file: presto-deps-context/scripts/dockerfiles/centos-dependency.dockerfile
           build-args: |
             CUDA_VERSION=${{ matrix.cuda_version }}
             ARM_BUILD_TARGET=generic
