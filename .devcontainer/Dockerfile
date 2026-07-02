@@ -21,6 +21,7 @@ RUN apt-get update -y && \
     libc-ares-dev \
     libboost-context-dev \
     libboost-filesystem-dev \
+    libboost-iostreams-dev \
     libboost-program-options-dev \
     libboost-regex-dev \
     libboost-url-dev \
@@ -49,6 +50,8 @@ RUN apt-get update -y && \
     gperf \
     ninja-build \
     ccache \
+    # rapidsmpf dependencies
+    libnuma-dev \
     && rm -rf /tmp/* /var/tmp/* /var/cache/apt/* /var/lib/apt/lists/*
 
 # Set GCC 14 as default (GCC 13 has false-positive -Wstringop-overflow in fmt)

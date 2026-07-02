@@ -6,9 +6,11 @@ set -euo pipefail
 
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
-NUM_THREADS="${NUM_THREADS:-$(nproc --all --ignore=1)}"
+NUM_THREADS="${NUM_THREADS:-0}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
+FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
 CUDAARCHS="${CUDAARCHS:-}"
+RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
 
 usage() {
     cat <<EOF
@@ -22,7 +24,8 @@ Any -D flags are passed through to CMake via configure-velox, e.g.:
 Options:
   --release         Build in release mode (default)
   --debug           Build in debug mode
-  -j, --jobs N      Number of parallel jobs (default: nproc - 1)
+  -j, --jobs N      Number of parallel jobs. Defaults to -j0, sized like
+                    RAPIDS build scripts for sccache-dist.
   --cuda-arch ARCH  CUDA compute capability (default: auto-detect or 75)
   -h, --help        Show this help message
 
@@ -31,6 +34,7 @@ Environment variables:
   NUM_THREADS       Number of parallel jobs
   CUDAARCHS         CUDA compute capability
   BUILD_BASE_DIR    Base directory for build output (default: /opt/velox-build)
+  FB_DEPS_PREFIX    Install prefix for FB deps (default: /opt/fb-deps)
 EOF
 }
 
@@ -40,8 +44,16 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) BUILD_TYPE="release"; shift ;;
         --debug) BUILD_TYPE="debug"; shift ;;
-        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
-        -j*) NUM_THREADS="${1#-j}"; shift ;;
+        -j|--jobs)
+            NUM_THREADS="$2"
+            RAPIDS_BUILD_ARGS=("$1" "$2")
+            shift 2
+            ;;
+        -j*)
+            NUM_THREADS="${1#-j}"
+            RAPIDS_BUILD_ARGS=("$1")
+            shift
+            ;;
         --cuda-arch) CUDAARCHS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         -D*) CMAKE_PASSTHROUGH+=("$1"); shift ;;
@@ -49,7 +61,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ "${NUM_THREADS}" == "0" ]] && NUM_THREADS="$(ulimit -Hn)"
+# RAPIDS build-utils emits shell assignments for n_jobs and n_load.
+eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
+NUM_THREADS="${n_jobs}"
+LOAD_LIMIT="${n_load}"
 
 VELOX_DIR="${HOME}/velox"
 if [[ ! -d "${VELOX_DIR}" ]]; then
@@ -58,19 +73,26 @@ if [[ ! -d "${VELOX_DIR}" ]]; then
     exit 1
 fi
 
+if [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/fizz/fizz-config.cmake" ]] || \
+   [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/wangle/wangle-config.cmake" ]] || \
+   [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/fbthrift/FBThriftConfig.cmake" ]]; then
+    build-fb-deps -j "${NUM_THREADS}" --prefix "${FB_DEPS_PREFIX}"
+fi
+
 # Run configuration — forward -D flags to configure-velox
 CONFIGURE_ARGS=("--${BUILD_TYPE}")
 if [[ -n "${CUDAARCHS}" ]]; then
     CONFIGURE_ARGS+=("--cuda-arch" "${CUDAARCHS}")
 fi
 CONFIGURE_ARGS+=("${CMAKE_PASSTHROUGH[@]+"${CMAKE_PASSTHROUGH[@]}"}")
-BUILD_BASE_DIR="${BUILD_BASE_DIR}" configure-velox "${CONFIGURE_ARGS[@]}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR}" FB_DEPS_PREFIX="${FB_DEPS_PREFIX}" configure-velox "${CONFIGURE_ARGS[@]}"
 
 # Build
 cd "${VELOX_DIR}"
 
 echo -e "\033[1;36mBuilding Velox\033[0m"
 echo "Threads:  ${NUM_THREADS}"
+echo "Load limit: ${LOAD_LIMIT}"
 echo ""
 
 BUILD_START=${SECONDS}

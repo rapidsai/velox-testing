@@ -38,7 +38,14 @@ LIST_ONLY=false
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        -j|--jobs)
+            NUM_THREADS="$2"
+            shift 2
+            ;;
+        -j*)
+            NUM_THREADS="${1#-j}"
+            shift
+            ;;
         --filter) FILTER="$2"; shift 2 ;;
         --exclude) EXCLUDE="$2"; shift 2 ;;
         --cuda) CUDA_ONLY=true; shift ;;
@@ -47,6 +54,10 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1"; usage; exit 1 ;;
     esac
 done
+
+if [[ "${NUM_THREADS}" == "0" ]]; then
+    NUM_THREADS="$(nproc --all)"
+fi
 
 BUILD_DIR="${BUILD_BASE_DIR}/${BUILD_TYPE}"
 if [[ ! -d "${BUILD_DIR}" ]]; then

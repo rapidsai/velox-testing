@@ -1,0 +1,35 @@
+name: Build devcontainer
+description: Build a Velox Testing devcontainer image
+
+inputs:
+  arch:
+    description: CPU architecture to build
+    required: true
+  cuda:
+    description: CUDA version to build
+    required: true
+  push:
+    description: Whether to push the image
+    required: true
+
+outputs:
+  hash_amd64:
+    value: ${{ steps.build.outputs.hash_amd64 }}
+  hash_arm64:
+    value: ${{ steps.build.outputs.hash_arm64 }}
+
+runs:
+  using: composite
+  steps:
+    - id: build
+      name: Build devcontainer
+      uses: rapidsai/shared-actions/build-devcontainer@main  # zizmor: ignore[unpinned-uses]
+      with:
+        arch: ${{ inputs.arch }}
+        repo: ghcr.io/rapidsai/velox-testing/devcontainer
+        push: ${{ inputs.push }}
+        retries: '3'
+        tag: cuda${{ inputs.cuda }}
+        version: latest
+        workspace-dir: .
+        devcontainer-json: .devcontainer/cuda${{ inputs.cuda }}/devcontainer.json
