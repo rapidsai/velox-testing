@@ -48,6 +48,8 @@ if [[ "$PUSH" == true ]]; then
     docker rmi "$IMAGE_NAME"
     echo "Pushing $REGISTRY_IMAGE..."
     docker push "$REGISTRY_IMAGE"
+    echo "Cleaning up..."
+    docker rmi "$REGISTRY_IMAGE"
 else
     echo "Cleaning up..."
     docker rmi "$IMAGE_NAME"
