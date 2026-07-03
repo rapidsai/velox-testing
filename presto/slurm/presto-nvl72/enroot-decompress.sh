@@ -6,6 +6,8 @@
 # Used as ENROOT_GZIP_PROGRAM to support both gzip and OCI tar+zstd layers.
 # Called by enroot as: enroot-decompress.sh -d -f -c  (args are ignored)
 
+set -euo pipefail
+
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 

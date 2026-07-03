@@ -1,1 +1,4 @@
 * @rapidsai/velox-testing-codeowners
+
+# Ops code owners
+/SECURITY.md             @rapidsai/ops-codeowners

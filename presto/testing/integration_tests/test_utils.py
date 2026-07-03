@@ -24,6 +24,7 @@ def execute_query_and_compare_results(request_config, presto_cursor, queries, qu
     presto_cursor.execute(explain_statement + query)
     presto_rows = presto_cursor.fetchall()
     presto_columns = [desc[0] for desc in presto_cursor.description]
+    presto_column_types = [desc[1] for desc in presto_cursor.description]
 
     if explain or explain_analyze:
         if request_config.getoption("--store-presto-results"):
@@ -33,4 +34,6 @@ def execute_query_and_compare_results(request_config, presto_cursor, queries, qu
             df.to_csv(plan_path, index=False)
         return
 
-    base_execute_query_and_compare_results(request_config, queries, query_id, "presto", presto_rows, presto_columns)
+    base_execute_query_and_compare_results(
+        request_config, queries, query_id, "presto", presto_rows, presto_columns, presto_column_types
+    )

@@ -26,31 +26,9 @@ echo "Setting up Presto environment..."
 setup
 
 # ==============================================================================
-# Start Coordinator
+# Start Coordinator + Workers
 # ==============================================================================
-echo "Starting Presto coordinator on ${COORD}..."
-run_coordinator
-wait_until_coordinator_is_running
-
-# ==============================================================================
-# Start Workers
-# ==============================================================================
-echo "Starting ${NUM_WORKERS} Presto workers across ${NUM_NODES} nodes..."
-
-worker_id=0
-for node in $(scontrol show hostnames "$SLURM_JOB_NODELIST"); do
-    for gpu_id in $(seq 0 $((NUM_GPUS_PER_NODE - 1))); do
-        echo "  Starting worker ${worker_id} on node ${node} GPU ${gpu_id}"
-        run_worker "${gpu_id}" "$WORKER_IMAGE" "${node}" "$worker_id"
-        worker_id=$((worker_id + 1))
-    done
-done
-
-# ==============================================================================
-# Wait for Workers to Register
-# ==============================================================================
-echo "Waiting for ${NUM_WORKERS} workers to register with coordinator..."
-wait_for_workers_to_register $NUM_WORKERS
+start_cluster
 
 # ==============================================================================
 # Run Queries

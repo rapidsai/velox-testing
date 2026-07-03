@@ -109,11 +109,7 @@ jobs:
 
       - &login_ghcr
         name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+        uses: ./velox-testing/.github/actions/container-registry-login
 
       - name: Stage presto-deps build context
         run: |
@@ -389,11 +385,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+        uses: ./.github/actions/container-registry-login
       - name: Create and push multi-arch manifests
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
@@ -436,11 +428,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+        uses: ./.github/actions/container-registry-login
       - name: Create and push multi-arch manifests
         env:
           VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
@@ -489,11 +477,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Log in to the Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+        uses: ./.github/actions/container-registry-login
       - name: Create and push multi-arch manifests
         env:
           PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
