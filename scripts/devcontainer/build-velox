@@ -96,8 +96,8 @@ echo "Load limit: ${LOAD_LIMIT}"
 echo ""
 
 BUILD_START=${SECONDS}
-make build BUILD_DIR="${BUILD_TYPE}" BUILD_BASE_DIR="${BUILD_BASE_DIR}" \
-    NUM_THREADS="${NUM_THREADS}"
+cmake --build "${BUILD_BASE_DIR}/${BUILD_TYPE}" -j "${NUM_THREADS}" -- \
+    -l "${LOAD_LIMIT}"
 
 ELAPSED=$(( SECONDS - BUILD_START ))
 echo ""

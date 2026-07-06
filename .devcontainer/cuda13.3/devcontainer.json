@@ -44,6 +44,7 @@
   "runArgs": [
     "--rm",
     "--name", "${localEnv:USER:anon}-velox-dev-cuda13.3",
+    "--pids-limit", "65536",
     "--ulimit", "nofile=500000"
   ],
   "postCreateCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/post-create",
