@@ -293,6 +293,7 @@ EXTRA_CMAKE_FLAGS+=" -DgRPC_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=SYSTEM"
 EXTRA_CMAKE_FLAGS+=" -DArrow_SOURCE=BUNDLED"
 EXTRA_CMAKE_FLAGS+=" -Dgeos_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Ds2geometry_SOURCE=BUNDLED"
 
 # Auto-detect pre-built RAPIDS libraries (cudf, rmm, kvikio)
 append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
