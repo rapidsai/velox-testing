@@ -10,6 +10,7 @@ parquet files). See compare_result_frames for full comparison semantics.
 """
 
 import datetime
+import re
 import warnings
 from typing import Literal
 
@@ -170,6 +171,15 @@ def _is_float_col(series: pd.Series) -> bool:
     return pd.api.types.is_float_dtype(series)
 
 
+def _decimal_abs_tolerance(type_name: str | None) -> float | None:
+    if not type_name:
+        return None
+    match = re.fullmatch(r"decimal\(\d+,(\d+)\)", type_name.lower().replace(" ", ""))
+    if not match:
+        return None
+    return 0.5 * 10 ** -int(match.group(1))
+
+
 def _orderby_differs_from_prev(orderby_df: pd.DataFrame) -> np.ndarray:
     """
     Return a boolean array of length len(orderby_df) - 1 where element i is
@@ -293,7 +303,7 @@ def _canonical_sort(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values(by=labels, na_position="last").reset_index(drop=True)
 
 
-def _column_mismatches(a_col: pd.Series, b_col: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+def _column_mismatches(a_col: pd.Series, b_col: pd.Series, abs_tol: float = ABS_TOL) -> tuple[np.ndarray, np.ndarray]:
     """
     Return (bad_indices, null_mismatch_mask) for a single-column comparison.
 
@@ -309,7 +319,7 @@ def _column_mismatches(a_col: pd.Series, b_col: pd.Series) -> tuple[np.ndarray, 
         a = a_col.to_numpy(dtype=np.float64, na_value=np.nan)
         b = b_col.to_numpy(dtype=np.float64, na_value=np.nan)
         with np.errstate(invalid="ignore"):
-            value_mismatch = np.abs(a - b) > ABS_TOL + REL_TOL * np.maximum(np.abs(a), np.abs(b))
+            value_mismatch = np.abs(a - b) > abs_tol + REL_TOL * np.maximum(np.abs(a), np.abs(b))
         # NaN arithmetic returns NaN, and NaN > tol is False, so any cell
         # involving a null is automatically excluded from value_mismatch.
     else:
@@ -321,19 +331,21 @@ def _column_mismatches(a_col: pd.Series, b_col: pd.Series) -> tuple[np.ndarray, 
     return np.flatnonzero(null_mismatch | value_mismatch), null_mismatch
 
 
-def _format_mismatch(row_idx: int, col_idx: int, a_col: pd.Series, b_col: pd.Series, is_null_mismatch: bool) -> str:
+def _format_mismatch(
+    row_idx: int, col_idx: int, a_col: pd.Series, b_col: pd.Series, is_null_mismatch: bool, abs_tol: float = ABS_TOL
+) -> str:
     v1, v2 = a_col.iloc[row_idx], b_col.iloc[row_idx]
     if is_null_mismatch:
         return f"Row {row_idx}, col {col_idx}: {v1!r} vs {v2!r} (null mismatch)"
     if _is_float_col(a_col):
         fv1, fv2 = float(v1), float(v2)
         diff = abs(fv1 - fv2)
-        tol = ABS_TOL + REL_TOL * max(abs(fv1), abs(fv2))
+        tol = abs_tol + REL_TOL * max(abs(fv1), abs(fv2))
         return f"Row {row_idx}, col {col_idx}: {fv1} vs {fv2} (diff={diff:.2e}, tol={tol:.2e})"
     return f"Row {row_idx}, col {col_idx}: {v1!r} vs {v2!r}"
 
 
-def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
+def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame, abs_tolerances: list[float] | None = None) -> None:
     """
     Column-by-column vectorized comparison. Float columns use rel_tol=1e-5,
     abs_tol=1e-8; non-float columns use exact equality. Both DataFrames must
@@ -353,10 +365,11 @@ def _assert_frames_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> None:
     for col_idx in range(df1.shape[1]):
         a_col = df1.iloc[:, col_idx]
         b_col = df2.iloc[:, col_idx]
-        bad_idx, null_mismatch = _column_mismatches(a_col, b_col)
+        abs_tol = abs_tolerances[col_idx] if abs_tolerances else ABS_TOL
+        bad_idx, null_mismatch = _column_mismatches(a_col, b_col, abs_tol)
         for idx in bad_idx[: MAX_MISMATCHES - len(mismatches)]:
             i = int(idx)
-            mismatches.append(_format_mismatch(i, col_idx, a_col, b_col, bool(null_mismatch[i])))
+            mismatches.append(_format_mismatch(i, col_idx, a_col, b_col, bool(null_mismatch[i]), abs_tol))
         if len(mismatches) >= MAX_MISMATCHES:
             break
 
@@ -395,6 +408,7 @@ def compare_result_frames(
     actual: pd.DataFrame,
     expected: pd.DataFrame,
     query_sql: str,
+    actual_column_types: list[str] | None = None,
 ) -> None:
     """
     Full comparison pipeline. Raises AssertionError on any mismatch.
@@ -420,6 +434,7 @@ def compare_result_frames(
             f"  expected: {list(expected.columns)}"
         )
     expected_col_names = list(expected.columns)
+    abs_tolerances = [_decimal_abs_tolerance(type_name) or ABS_TOL for type_name in actual_column_types or []]
 
     # 2. Coerce actual's dtypes/value types to match expected's
     actual = _normalize_to_expected(actual, expected)
@@ -453,15 +468,18 @@ def compare_result_frames(
         _assert_frames_equal(
             _canonical_sort(actual.iloc[:last_start]),
             _canonical_sort(expected.iloc[:last_start]),
+            abs_tolerances,
         )
+        tail_abs_tolerances = [abs_tolerances[i] for i in sort_col_indices] if abs_tolerances else None
         _assert_frames_equal(
             _canonical_sort(actual.iloc[last_start:]).iloc[:, sort_col_indices],
             _canonical_sort(expected.iloc[last_start:]).iloc[:, sort_col_indices],
+            tail_abs_tolerances,
         )
         return
 
     # 7. No LIMIT: canonical-sort both frames and compare in full.
-    _assert_frames_equal(_canonical_sort(actual), _canonical_sort(expected))
+    _assert_frames_equal(_canonical_sort(actual), _canonical_sort(expected), abs_tolerances)
 
 
 # ---------------------------------------------------------------------------

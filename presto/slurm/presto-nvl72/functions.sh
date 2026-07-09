@@ -2,6 +2,38 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# Echo the ",<host_path>:<host_path>" bind-mount fragment for the host's
+# miniforge3 install if it exists, else nothing.  Used by every container
+# that needs to run Python via init_python_virtual_env / run_py_script.sh:
+# miniforge's conda + python scripts have shebangs hardcoded to the host
+# install path, so the same absolute path has to resolve inside the
+# container.  Pair this with `MINIFORGE_HOME=/workspace/miniforge3` in the
+# --export (which uses the separate VT_ROOT:/workspace mount).
+# Resolve a container image name or path to an absolute .sqsh path.
+# Accepts: bare name (appends .sqsh under IMAGE_DIR), name ending in .sqsh
+# (prepends IMAGE_DIR), or an absolute path (used as-is).
+resolve_image_path() {
+    local image="$1"
+    if [[ "${image}" == /* ]]; then
+        echo "${image}"
+    elif [[ "${image}" == *.sqsh ]]; then
+        echo "${IMAGE_DIR}/${image}"
+    else
+        echo "${IMAGE_DIR}/${image}.sqsh"
+    fi
+}
+
+miniforge_mount_arg() {
+    local miniforge_dir="${VT_ROOT}/miniforge3"
+    if [[ -d "${miniforge_dir}" ]]; then
+        printf ',%s:%s' "${miniforge_dir}" "${miniforge_dir}"
+    fi
+    # Always succeed: callers like `extra_mounts="$(miniforge_mount_arg)"` run
+    # under `set -e`, where a non-zero return code from this helper would
+    # silently kill the calling script.
+    return 0
+}
+
 # Validates job preconditions and assigns default values for presto execution.
 function setup {
     [ -z "${SLURM_JOB_NAME:-}" ] && echo "required argument '--job-name' not specified" && exit 1
@@ -71,7 +103,8 @@ function run_coord_image {
     [ "$type" != "coord" ] && [ "$type" != "cli" ] && echo_error "coord type must be coord/cli"
     local log_file="${type}.log"
 
-    local coord_image="${IMAGE_DIR}/${COORD_IMAGE}.sqsh"
+    local coord_image
+    coord_image=$(resolve_image_path "${COORD_IMAGE}")
     [ ! -f "${coord_image}" ] && echo_error "coord image does not exist at ${coord_image}"
 
     # Provide a writable base data directory for the coordinator so that the
@@ -81,17 +114,10 @@ function run_coord_image {
     local coord_data="${SCRIPT_DIR}/coord_data"
     mkdir -p "${coord_data}"
 
-    # Miniforge is installed at ${VT_ROOT}/miniforge3. Its conda/python scripts
-    # have shebangs hardcoded to the host-absolute install path. We bind-mount
-    # miniforge at that same absolute path inside the container so shebangs
-    # resolve correctly regardless of where /workspace points.
-    local miniforge_dir="${VT_ROOT}/miniforge3"
-    local extra_mounts=""
-    if [ -d "${miniforge_dir}" ]; then
-        extra_mounts=",${miniforge_dir}:${miniforge_dir}"
-    fi
-    if [ -d "/scratch" ]; then
-        extra_mounts="${extra_mounts},/scratch:/scratch"
+    local extra_mounts
+    extra_mounts="$(miniforge_mount_arg)"
+    if [[ -n "${CLUSTER_EXTRA_MOUNTS:-}" ]]; then
+        extra_mounts="${extra_mounts},${CLUSTER_EXTRA_MOUNTS}"
     fi
 
     # Coordinator runs as a background process, whereas we want to wait for cli
@@ -186,14 +212,14 @@ function run_worker {
     validate_environment_preconditions LOGS CONFIGS VT_ROOT COORD CUDF_LIB DATA
 
     local gpu_id=$1 image=$2 node=$3 worker_id=$4
-    # GB200 NVL72 compute tray: 2 Grace CPUs x 2 Blackwell GPUs per CPU.
-    # CPU NUMA 0 = cores 0-71 (Grace 0, GPUs 0-1).
-    # CPU NUMA 1 = cores 72-143 (Grace 1, GPUs 2-3).
-    # Pairs each worker with the CPU socket its GPU is attached to over NVLink-C2C.
-    local numa_node=$((gpu_id / 2))
+    # Pair each worker with the CPU NUMA domain its GPU is attached to.
+    # CLUSTER_NUMA_GPUS_PER_NODE controls how many GPUs share each NUMA domain
+    # (e.g., 2 means GPUs 0-1 on NUMA 0, GPUs 2-3 on NUMA 1).
+    local numa_node=$((gpu_id / ${CLUSTER_NUMA_GPUS_PER_NODE:-1}))
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id} numa_node ${numa_node}"
 
-    local worker_image="${IMAGE_DIR}/${image}.sqsh"
+    local worker_image
+    worker_image=$(resolve_image_path "${image}")
     [ ! -f "${worker_image}" ] && echo_error "worker image does not exist at ${worker_image}"
 
     # Make a copy of the worker config that can be given a unique id for this worker.
@@ -214,8 +240,11 @@ function run_worker {
     local vt_cufile_log_dir="/var/log/cufile"
     local vt_cufile_log="${vt_cufile_log_dir}/cufile_worker_${worker_id}.log"
 
+    # GDS (GPU Direct Storage) is a GPU-only feature.  On CPU variant, skip
+    # the cufile/nvidia-fs bind-mounts even when ENABLE_GDS=1 — /etc/cufile.json
+    # does not exist on CPU hosts and pyxis would fail container start.
     local gds_mounts=""
-    if [[ "${ENABLE_GDS}" == "1" ]]; then
+    if [[ "${ENABLE_GDS}" == "1" && "${VARIANT_TYPE}" == "gpu" ]]; then
         export MELLANOX_VISIBLE_DEVICES=all
         gds_mounts="/etc/cufile.json:/etc/cufile.json:ro"
         for dev in /dev/nvidia-fs*; do
@@ -250,12 +279,30 @@ function run_worker {
     #
     # NVIDIA_VISIBLE_DEVICES=all triggers the enroot 98-nvidia.sh hook which calls
     # nvidia-container-cli configure --device=all --compute.  This mounts all GPU
-    # devices and all required host driver libraries (580.105.08: libcuda, libnvidia-
-    # gpucomp, libnvidia-nvvm, libnvidia-ptxjitcompiler, libnvidia-ml, etc.) and runs
-    # ldconfig inside the container.  The manual libcuda bind-mount then overrides the
-    # compat library with the host driver so cudaMallocAsync works.
+    # devices and all required host driver libraries and runs ldconfig inside the
+    # container.  The manual libcuda bind-mount (when set) overrides the compat
+    # library with the host driver so cudaMallocAsync works.
     # CUDA_VISIBLE_DEVICES=${gpu_id} inside the container restricts each worker to
     # its assigned GPU while still allowing the CUDA driver to enumerate all devices.
+    local driver_mounts=""
+    if [[ -n "${CLUSTER_LIBCUDA_HOST_PATH:-}" && -n "${CLUSTER_LIBCUDA_CONTAINER_PATH:-}" ]]; then
+        driver_mounts="${driver_mounts},${CLUSTER_LIBCUDA_HOST_PATH}:${CLUSTER_LIBCUDA_CONTAINER_PATH}"
+    fi
+    if [[ -n "${CLUSTER_LIBNVIDIA_ML_HOST_PATH:-}" && -n "${CLUSTER_LIBNVIDIA_ML_CONTAINER_PATH:-}" ]]; then
+        driver_mounts="${driver_mounts},${CLUSTER_LIBNVIDIA_ML_HOST_PATH}:${CLUSTER_LIBNVIDIA_ML_CONTAINER_PATH}"
+    fi
+    local worker_extra_mounts=""
+    if [[ -n "${CLUSTER_EXTRA_MOUNTS:-}" ]]; then
+        worker_extra_mounts=",${CLUSTER_EXTRA_MOUNTS}"
+    fi
+
+    # NVIDIA_VISIBLE_DEVICES triggers enroot's 98-nvidia.sh hook, which requires
+    # nvidia-container-cli on the host.  CPU-only nodes typically don't have it,
+    # so the hook fails container start.  Skip the export on the CPU variant.
+    local nvidia_env=""
+    if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
+        nvidia_env=",NVIDIA_VISIBLE_DEVICES=all,NVIDIA_DRIVER_CAPABILITIES=compute,utility"
+    fi
 
     # Notes on nsys profiling
     #
@@ -289,7 +336,7 @@ function run_worker {
     srun -N1 -w $node --ntasks=1 --overlap \
 --container-image=${worker_image} \
 --container-remap-root \
---export=ALL,NVIDIA_VISIBLE_DEVICES=all,NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+--export=ALL${nvidia_env} \
 --container-mounts=${VT_ROOT}:/workspace,\
 ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${worker_node}:/opt/presto-server/etc/node.properties,\
@@ -300,10 +347,7 @@ ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 ${WORKER_ENV_FILE}:${vt_worker_env_file},\
 ${LOGS}:${vt_cufile_log_dir},\
-${LOGS}:${vt_nsys_report_dir},\
-/usr/lib/aarch64-linux-gnu/libcuda.so.580.105.08:/usr/local/cuda-13.0/compat/libcuda.so.1,\
-/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.105.08:/usr/local/lib/libnvidia-ml.so.1\
-${gds_mounts:+,${gds_mounts}} \
+${LOGS}:${vt_nsys_report_dir}${driver_mounts}${gds_mounts:+,${gds_mounts}}${worker_extra_mounts} \
 -- /bin/bash -c "
 export LD_LIBRARY_PATH='${CUDF_LIB}':/usr/local/lib:\${LD_LIBRARY_PATH:-}
 
@@ -380,13 +424,38 @@ fi
 }
 
 # ----------------------------------------------------------------------------
+# Cluster lifecycle
+# ----------------------------------------------------------------------------
+# Start the coordinator, wait for it to come up, fan out NUM_GPUS_PER_NODE
+# workers per node across $SLURM_JOB_NODELIST, then block until all
+# $NUM_WORKERS register.  Used by both the benchmark and analyze flows.
+function start_cluster {
+    echo "Starting Presto coordinator on ${COORD}..."
+    run_coordinator
+    wait_until_coordinator_is_running
+
+    echo "Starting ${NUM_WORKERS} Presto workers across ${NUM_NODES} nodes..."
+    local worker_id=0 node gpu_id
+    for node in $(scontrol show hostnames "$SLURM_JOB_NODELIST"); do
+        for gpu_id in $(seq 0 $((NUM_GPUS_PER_NODE - 1))); do
+            echo "  Starting worker ${worker_id} on node ${node} GPU ${gpu_id}"
+            run_worker "${gpu_id}" "$WORKER_IMAGE" "${node}" "$worker_id"
+            worker_id=$((worker_id + 1))
+        done
+    done
+
+    echo "Waiting for ${NUM_WORKERS} workers to register with coordinator..."
+    wait_for_workers_to_register "$NUM_WORKERS"
+}
+
+# ----------------------------------------------------------------------------
 # Shared Hive metastore: publish/populate
 # ----------------------------------------------------------------------------
 # When HIVE_METASTORE_VERSION is set, analyze runs publish their post-ANALYZE
 # tpchsf<SF> tree under $HIVE_METASTORE_SHARED_ROOT/<version>/tpchsf<SF>/, and
 # subsequent benchmark runs populate from that snapshot instead of re-analyzing.
 # Paths inside a .prestoSchema file are container-relative
-# (file:/var/lib/presto/data/hive/data/user_data/scale-<SF>/<table>), so a
+# (file:/var/lib/presto/data/hive/data/user_data/tpch-rs-<SF>/<table>), so a
 # single snapshot works for any user whose DATA bind-mount lands on the same
 # in-container path.
 
@@ -459,9 +528,14 @@ function run_queries {
     local num_iterations=$1
     local scale_factor=$2
 
+    # SCRIPT_DIR is host-side; translate to its container-side equivalent
+    # (VT_ROOT is bind-mounted as /workspace) so the path stays correct even
+    # if this directory is renamed away from `presto-nvl72`.
+    local container_script_dir="${SCRIPT_DIR/${VT_ROOT}//workspace}"
+
     local extra_args=()
     [[ "${ENABLE_METRICS}" == "1" ]] && extra_args+=("-m")
-    [[ "${ENABLE_NSYS}" == "1" ]] && extra_args+=("-p" "--profile-script-path" "/workspace/presto/slurm/presto-nvl72/profiler_functions.sh")
+    [[ "${ENABLE_NSYS}" == "1" ]] && extra_args+=("-p" "--profile-script-path" "${container_script_dir}/profiler_functions.sh")
     [[ -n "${QUERIES:-}" ]] && extra_args+=("-q" "${QUERIES}")
 
     source "${SCRIPT_DIR}/defaults.env"
@@ -501,7 +575,7 @@ function run_queries {
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${extra_args[*]} \
-        --hostname ${COORD} --port $PORT -o /workspace/presto/slurm/presto-nvl72/result_dir --skip-drop-cache" "cli"
+        --hostname ${COORD} --port $PORT -o ${container_script_dir}/result_dir --skip-drop-cache" "cli"
 }
 
 # Check if the coordinator is running via curl.  Fail after 10 retries.
@@ -603,7 +677,8 @@ function inject_benchmark_metadata {
         gpu_name="N/A"
     fi
 
-    local worker_image_path="${IMAGE_DIR}/${WORKER_IMAGE}.sqsh"
+    local worker_image_path
+    worker_image_path=$(resolve_image_path "${WORKER_IMAGE}")
     local image_digest
     echo "Computing SHA256 of ${worker_image_path}..."
     image_digest=$(sha256sum "${worker_image_path}" | awk '{print $1}') || true

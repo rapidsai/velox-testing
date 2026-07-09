@@ -15,20 +15,33 @@
 #   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:v1.2.3 --output /tmp/worker.sqsh
 #   ./pull_ghcr_image.sh ghcr.io/myorg/presto-worker:v1.2.3 --overwrite
 
-set -e
+set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/defaults.env"
+source "$(dirname "${BASH_SOURCE[0]}")/launcher_common.sh"
+
+# Image pull is CPU-only work. Resolve partition/account from the CPU section so
+# srun isn't rejected on clusters that require either flag.  We intentionally
+# don't use build_cluster_sbatch_args here: this srun runs a single task on a
+# shared node (no --cpus-per-task, no --exclusive), unlike the benchmark/analyze
+# launchers which take a whole node.
+resolve_cluster_variant cpu
+SLURM_ARGS=()
+[[ -n "${CLUSTER_DEFAULT_PARTITION:-}" ]] && SLURM_ARGS+=(--partition="${CLUSTER_DEFAULT_PARTITION}")
+[[ -n "${CLUSTER_DEFAULT_ACCOUNT:-}" ]]   && SLURM_ARGS+=(--account="${CLUSTER_DEFAULT_ACCOUNT}")
 
 usage() {
-    echo "Usage: $0 <ghcr.io/org/image:tag> [--output <path/to/image.sqsh>] [--overwrite]"
-    echo ""
-    echo "Options:"
-    echo "  --output, -o   Write the image to this exact path (overrides IMAGE_DIR)."
-    echo "  --overwrite    Re-pull even when the target .sqsh already exists."
-    echo ""
-    echo "Environment variables:"
-    echo "  IMAGE_DIR   Output directory when --output is not specified (default: \$IMAGE_DIR from defaults.env)"
-    exit 1
+    cat <<EOF
+Usage: $0 <ghcr.io/org/image:tag> [OPTIONS]
+
+Options:
+  --output, -o <path>  Write the image to this exact path (overrides IMAGE_DIR).
+  --overwrite          Re-pull even when the target .sqsh already exists.
+  -h, --help           Show this help message and exit.
+
+Environment variables:
+  IMAGE_DIR   Output directory when --output is not specified (default: \$IMAGE_DIR from defaults.env)
+EOF
 }
 
 # Parse arguments
@@ -39,7 +52,7 @@ OVERWRITE=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --output|-o)
-            [[ -n "${2:-}" ]] || { echo "Error: --output requires a value"; usage; }
+            [[ -n "${2:-}" ]] || { echo "Error: --output requires a value" >&2; usage >&2; exit 1; }
             OUTPUT_PATH="$2"
             shift 2
             ;;
@@ -47,19 +60,23 @@ while [[ $# -gt 0 ]]; do
             OVERWRITE=1
             shift
             ;;
+        -h|--help)
+            usage; exit 0
+            ;;
         -*)
-            echo "Unknown option: $1"
-            usage
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
             ;;
         *)
-            [[ -z "$IMAGE_REF" ]] || { echo "Error: unexpected argument '$1'"; usage; }
+            [[ -z "$IMAGE_REF" ]] || { echo "Error: unexpected argument '$1'" >&2; usage >&2; exit 1; }
             IMAGE_REF="$1"
             shift
             ;;
     esac
 done
 
-[[ -n "$IMAGE_REF" ]] || { echo "Error: image reference is required"; usage; }
+[[ -n "$IMAGE_REF" ]] || { echo "Error: image reference is required" >&2; usage >&2; exit 1; }
 
 # Validate it looks like a ghcr.io reference
 if [[ "$IMAGE_REF" != ghcr.io/* ]]; then
@@ -97,10 +114,11 @@ ENROOT_DECOMPRESS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/enroot-decompre
 export OUTPUT_PATH ENROOT_URI OVERWRITE
 
 srun --export="ALL,PMIX_MCA_gds=^ds12,ENROOT_GZIP_PROGRAM=${ENROOT_DECOMPRESS}" \
+    "${SLURM_ARGS[@]}" \
     --nodes=1 --mem=0 --ntasks-per-node=1 \
     --mpi=pmix_v4 \
     bash -c '
-set -e
+set -euo pipefail
 if [[ -f "$OUTPUT_PATH" ]]; then
     size=$(ls -lh "$OUTPUT_PATH" | awk "{print \$5}")
     if [[ "$OVERWRITE" == "1" ]]; then

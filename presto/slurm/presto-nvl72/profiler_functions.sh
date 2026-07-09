@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-set -e
+set -euo pipefail
 
 function start_profiler() {
   local -r qid=$(basename "$1")
