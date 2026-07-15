@@ -43,6 +43,8 @@ OPTIONS:
     --profile-script-path   Path to a custom profiler functions script. Defaults to ./profiler_functions.sh.
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
+    --write-results-to-file Write query results with distributed Hive CTAS operations instead of returning them
+                            through the coordinator. PRESTO_OUTPUT_DIR must be set and mounted when the cluster starts.
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
     --reference-results-dir Path to a directory containing reference (expected) parquet files.
@@ -57,6 +59,8 @@ OPTIONS:
                             Set to the full host path of the expected results directory
                             (e.g. PRESTO_EXPECTED_RESULTS_DIR=/data/sf100_expected).
                             Warning (not error) if set but the directory does not exist.
+    PRESTO_OUTPUT_DIR       Writable host directory used for distributed CTAS result datasets. This must be set
+                            before both cluster startup and this script when --write-results-to-file is enabled.
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
                             Use when engine is misdetected or the run fails.
@@ -68,6 +72,7 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
     $0 -b tpch -s bench_sf100 --metrics
+    PRESTO_OUTPUT_DIR=/results $0 -b tpch -s bench_sf100 --write-results-to-file
     $0 -b tpch -s bench_sf100 --verbose
 
 EOF
@@ -191,6 +196,10 @@ parse_args() {
         SKIP_ANALYZE_CHECK=true
         shift
         ;;
+      --write-results-to-file)
+        WRITE_RESULTS_TO_FILE=true
+        shift
+        ;;
       -m|--metrics)
         METRICS=true
         shift
@@ -230,6 +239,26 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   echo "Error: A schema name must be set. Use the -s or --schema-name argument."
   print_help
   exit 1
+fi
+
+if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
+  if [[ -z "${PRESTO_OUTPUT_DIR}" ]]; then
+    echo "Error: PRESTO_OUTPUT_DIR must be set when --write-results-to-file is enabled." >&2
+    exit 1
+  fi
+  mkdir -p "${PRESTO_OUTPUT_DIR}"
+  PRESTO_OUTPUT_DIR="$(readlink -f "${PRESTO_OUTPUT_DIR}")"
+  export PRESTO_OUTPUT_DIR
+  if [[ ! -d "${PRESTO_OUTPUT_DIR}" || ! -w "${PRESTO_OUTPUT_DIR}" ]]; then
+    echo "Error: PRESTO_OUTPUT_DIR must be a writable directory: ${PRESTO_OUTPUT_DIR}" >&2
+    exit 1
+  fi
+  if [[ -n ${TAG} ]]; then
+    CTAS_RESULTS_SCHEMA="benchmark_results_${TAG,,}"
+  else
+    CTAS_RESULTS_SCHEMA="benchmark_results"
+  fi
+  CTAS_RESULTS_DIR="${PRESTO_OUTPUT_DIR}/${CTAS_RESULTS_SCHEMA}"
 fi
 
 # Fail fast if an explicit --reference-results-dir was given but doesn't exist.
@@ -299,6 +328,10 @@ if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-analyze-check")
 fi
 
+if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
+  PYTEST_ARGS+=("--write-results-to-file")
+fi
+
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
 trap delete_python_virtual_env EXIT
@@ -320,6 +353,52 @@ echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+
+normalize_ctas_result_permissions() {
+  local host_results_dir=$1
+  local container_results_dir="/var/lib/presto/data/hive/benchmark_output/${CTAS_RESULTS_SCHEMA}"
+
+  if [[ ! -d "${host_results_dir}" ]]; then
+    echo "Error: CTAS result directory not found: ${host_results_dir}" >&2
+    return 1
+  fi
+
+  # Slurm and non-remapped local files are normally owned by the invoking user.
+  find "${host_results_dir}" -type f -name '*.parquet' -exec chmod a+r {} + 2>/dev/null || true
+  local parquet_file
+  parquet_file="$(find "${host_results_dir}" -type f -name '*.parquet' -print -quit 2>/dev/null || true)"
+  if [[ -n "${parquet_file}" && -z "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
+    return 0
+  fi
+
+  # Docker-remapped native workers create local files as mode 0600 under their
+  # remapped identity. Adjust permissions in place inside each worker; no data
+  # is copied through the coordinator or benchmark client.
+  if command -v docker >/dev/null 2>&1; then
+    local container
+    while IFS= read -r container; do
+      [[ -n ${container} ]] || continue
+      docker exec "${container}" find "${container_results_dir}" -type d \
+        -exec chmod a+rx {} + 2>/dev/null || true
+      docker exec "${container}" find "${container_results_dir}" -type f -name '*.parquet' \
+        -exec chmod a+r {} + 2>/dev/null || true
+    done < <(docker ps --format '{{.Names}}' | grep -E '^presto-.*worker')
+  fi
+
+  parquet_file="$(find "${host_results_dir}" -type f -name '*.parquet' -print -quit 2>/dev/null || true)"
+  if [[ -z "${parquet_file}" ]]; then
+    echo "Error: No CTAS Parquet result files found in ${host_results_dir}" >&2
+    return 1
+  fi
+  if [[ -n "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
+    echo "Error: CTAS result files are not readable from the benchmark host: ${host_results_dir}" >&2
+    return 1
+  fi
+}
+
+if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
+  normalize_ctas_result_permissions "${CTAS_RESULTS_DIR}"
+fi
 
 # Snapshot logs and engine configs into the benchmark output directory so that
 # post_results.py has self-contained, run-specific data even when multiple runs
@@ -363,10 +442,18 @@ else
   if [[ -n ${QUERIES} ]]; then
     VALIDATE_ARGS+=(--queries "${QUERIES}")
   fi
+  if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
+    VALIDATE_ARGS+=(--actual-results-dir "${CTAS_RESULTS_DIR}")
+  fi
 
   ACTUAL_OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/benchmark_output}"
   [[ -n ${TAG} ]] && ACTUAL_OUTPUT_DIR="${ACTUAL_OUTPUT_DIR}/${TAG}"
-  echo "[Validation] Running validation: ${ACTUAL_OUTPUT_DIR}/query_results vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
+  if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
+    ACTUAL_RESULTS_DIR="${CTAS_RESULTS_DIR}"
+  else
+    ACTUAL_RESULTS_DIR="${ACTUAL_OUTPUT_DIR}/query_results"
+  fi
+  echo "[Validation] Running validation: ${ACTUAL_RESULTS_DIR} vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
   "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet \
     -p "${VALIDATE_SCRIPT}" \
     -r "${VALIDATE_REQUIREMENTS}" \

@@ -1,6 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+import re
+import shutil
+from contextlib import suppress
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,11 +14,88 @@ import prestodb
 import pytest
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
+from common.testing.performance_benchmarks.conftest import get_output_dir
 from common.testing.performance_benchmarks.profiler_utils import start_profiler, stop_profiler
 
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
 from .run_context import gather_run_context
+
+CTAS_CATALOG = "hive_output"
+
+
+@dataclass(frozen=True)
+class CtasResults:
+    catalog: str
+    schema: str
+
+
+def ctas_schema_name(tag):
+    if tag and not re.fullmatch(r"[A-Za-z0-9_]+", tag):
+        raise ValueError("CTAS result tags must contain only alphanumeric and underscore characters")
+    return f"benchmark_results_{tag.lower()}" if tag else "benchmark_results"
+
+
+def strip_trailing_semicolon(query):
+    return query.rstrip().removesuffix(";").rstrip()
+
+
+def ctas_table_name(query_id, iteration_num):
+    return query_id.lower() if iteration_num == 0 else f"{query_id.lower()}_iteration_{iteration_num + 1}"
+
+
+def build_ctas_query(benchmark_type, query_id, query, catalog, schema, table):
+    return (
+        f"--{benchmark_type}_{query_id}--\n"
+        f"CREATE TABLE {catalog}.{schema}.{table} WITH (format = 'PARQUET') AS\n"
+        f"{strip_trailing_semicolon(query)}"
+    )
+
+
+def _drop_results_schema(cursor, catalog, schema):
+    schemas = {row[0] for row in cursor.execute(f"SHOW SCHEMAS FROM {catalog}").fetchall()}
+    if schema not in schemas:
+        return
+    tables = cursor.execute(f"SHOW TABLES FROM {catalog}.{schema}").fetchall()
+    for (table,) in tables:
+        cursor.execute(f'DROP TABLE IF EXISTS {catalog}.{schema}."{table}"').fetchall()
+    cursor.execute(f"DROP SCHEMA {catalog}.{schema}").fetchall()
+
+
+@pytest.fixture(scope="session")
+def ctas_results(request):
+    if not request.config.getoption("--write-results-to-file"):
+        return None
+
+    output_dir = os.environ.get("PRESTO_OUTPUT_DIR")
+    if not output_dir:
+        pytest.exit("PRESTO_OUTPUT_DIR must be set when --write-results-to-file is enabled.", returncode=2)
+
+    tag = request.config.getoption("--tag")
+    schema = ctas_schema_name(tag)
+    host_results_dir = Path(output_dir).expanduser() / schema
+
+    conn = prestodb.dbapi.connect(
+        host=request.config.getoption("--hostname"),
+        port=request.config.getoption("--port"),
+        user=request.config.getoption("--user"),
+        catalog="hive",
+    )
+    cursor = conn.cursor()
+    try:
+        # Drop registered managed tables before removing any unregistered files
+        # that may have survived an interrupted run.
+        _drop_results_schema(cursor, CTAS_CATALOG, schema)
+        if host_results_dir.exists():
+            shutil.rmtree(host_results_dir)
+        cursor.execute(f"CREATE SCHEMA {CTAS_CATALOG}.{schema}").fetchall()
+    except Exception as error:
+        pytest.exit(f"Failed to prepare CTAS result output: {error}", returncode=2)
+    finally:
+        cursor.close()
+        conn.close()
+
+    return CtasResults(catalog=CTAS_CATALOG, schema=schema)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -71,13 +153,13 @@ def presto_cursor(request):
 
 
 @pytest.fixture(scope="module")
-def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_collector):
+def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_collector, ctas_results):
     iterations = request.config.getoption("--iterations")
     profile = request.config.getoption("--profile")
     profile_script_path = request.config.getoption("--profile-script-path")
     metrics = request.config.getoption("--metrics")
     benchmark_type = request.node.obj.BENCHMARK_TYPE
-    bench_output_dir = request.config.getoption("--output-dir")
+    bench_output_dir = get_output_dir(request.config)
     hostname = request.config.getoption("--hostname")
     port = request.config.getoption("--port")
 
@@ -100,6 +182,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
 
     def benchmark_query_function(query_id):
         profile_output_file_path = None
+        scratch_table = None
         try:
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
@@ -107,13 +190,27 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
             for iteration_num in range(iterations):
-                cursor = presto_cursor.execute(
-                    "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
-                )
-                result.append(cursor.stats["elapsedTimeMillis"])
+                if ctas_results is not None:
+                    table = ctas_table_name(query_id, iteration_num)
+                    scratch_table = table if iteration_num > 0 else None
+                    query = build_ctas_query(
+                        benchmark_type,
+                        query_id,
+                        benchmark_queries[query_id],
+                        ctas_results.catalog,
+                        ctas_results.schema,
+                        table,
+                    )
+                else:
+                    query = "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
 
-                # Save query results to Parquet (only on first iteration)
-                if iteration_num == 0:
+                cursor = presto_cursor.execute(query)
+
+                if ctas_results is not None:
+                    # CTAS returns only its update count to the client. Consuming it
+                    # ensures all worker writes have completed before recording stats.
+                    cursor.fetchall()
+                elif iteration_num == 0:
                     rows = cursor.fetchall()
                     columns = [desc[0] for desc in cursor.description]
                     df = pd.DataFrame(rows, columns=columns)
@@ -123,6 +220,8 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                     results_dir.mkdir(parents=True, exist_ok=True)
                     parquet_path = results_dir / f"{query_id.lower()}.parquet"
                     df.to_parquet(parquet_path, index=False)
+
+                result.append(cursor.stats["elapsedTimeMillis"])
 
                 # Collect metrics after each query iteration if enabled
                 if metrics:
@@ -135,12 +234,25 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                             port=port,
                             output_dir=bench_output_dir,
                         )
+
+                if scratch_table is not None:
+                    presto_cursor.execute(
+                        f"DROP TABLE IF EXISTS {ctas_results.catalog}.{ctas_results.schema}.{scratch_table}"
+                    ).fetchall()
+                    scratch_table = None
             raw_times_dict[query_id] = result
         except Exception as e:
-            failed_queries_dict[query_id] = f"{e.error_type}: {e.error_name}"
+            error_type = getattr(e, "error_type", type(e).__name__)
+            error_name = getattr(e, "error_name", str(e))
+            failed_queries_dict[query_id] = f"{error_type}: {error_name}"
             raw_times_dict[query_id] = None
             raise
         finally:
+            if scratch_table is not None and ctas_results is not None:
+                with suppress(Exception):
+                    presto_cursor.execute(
+                        f"DROP TABLE IF EXISTS {ctas_results.catalog}.{ctas_results.schema}.{scratch_table}"
+                    ).fetchall()
             if profile and profile_output_file_path is not None:
                 stop_profiler(profile_script_path, profile_output_file_path)
 

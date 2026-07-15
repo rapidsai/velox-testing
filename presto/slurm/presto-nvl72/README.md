@@ -102,11 +102,18 @@ This step only needs to repeat when the worker image's stat tracking changes
 
 # Profile queries 5 and 6 on worker 2
 ./launch-run.sh -n 8 -s 3000 -p --nsys-worker-id 2 -q 5,6
+
+# Have workers write distributed Parquet results to separate shared storage
+PRESTO_OUTPUT_DIR=/shared/writable/presto-results \
+  ./launch-run.sh -n 8 -s 3000 --write-results-to-file
 ```
 
 Submits a benchmark sbatch job, polls until completion, and prints a summary.
 Results land under `result_dir/`. See `./launch-run.sh --help` for the full
-flag list (queries filter, output path, GDS toggle, profiling, metrics, …).
+flag list (queries filter, output path, CTAS result writing, GDS toggle,
+profiling, metrics, …). In CTAS mode, benchmark reports remain in
+`result_dir/`, while `benchmark_results_<tag>/qN/` Parquet datasets are written
+beneath `PRESTO_OUTPUT_DIR` (`benchmark_results/qN/` without a tag).
 
 **Prerequisites:** worker + coord images on disk; data from step 1; analyzed
 metastore from step 2 (either local or shared).

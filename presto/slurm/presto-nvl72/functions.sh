@@ -2,6 +2,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+CTAS_CONTAINER_OUTPUT_DIR=/var/lib/presto/data/hive/benchmark_output
+
+ctas_output_mount_arg() {
+    if [[ "${WRITE_RESULTS_TO_FILE:-0}" == "1" ]]; then
+        validate_environment_preconditions PRESTO_OUTPUT_DIR
+        printf ',%s:%s' "${PRESTO_OUTPUT_DIR}" "${CTAS_CONTAINER_OUTPUT_DIR}"
+    fi
+    return 0
+}
+
 # Echo the ",<host_path>:<host_path>" bind-mount fragment for the host's
 # miniforge3 install if it exists, else nothing.  Used by every container
 # that needs to run Python via init_python_virtual_env / run_py_script.sh:
@@ -116,6 +126,7 @@ function run_coord_image {
 
     local extra_mounts
     extra_mounts="$(miniforge_mount_arg)"
+    extra_mounts+="$(ctas_output_mount_arg)"
     if [[ -n "${CLUSTER_EXTRA_MOUNTS:-}" ]]; then
         extra_mounts="${extra_mounts},${CLUSTER_EXTRA_MOUNTS}"
     fi
@@ -134,7 +145,7 @@ ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
-${DATA}:/var/lib/presto/data/hive/data/user_data,\
+${DATA}:/var/lib/presto/data/hive/data/user_data:ro,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1 &
     else
@@ -148,7 +159,7 @@ ${CONFIGS}/etc_common:/opt/presto-server/etc,\
 ${CONFIGS}/etc_coordinator/node.properties:/opt/presto-server/etc/node.properties,\
 ${CONFIGS}/etc_coordinator/config_native.properties:/opt/presto-server/etc/config.properties,\
 ${CONFIGS}/etc_coordinator/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties,\
-${DATA}:/var/lib/presto/data/hive/data/user_data,\
+${DATA}:/var/lib/presto/data/hive/data/user_data:ro,\
 ${LOGS}:/var/log/nsys,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore${extra_mounts} \
 -- bash -lc "unset JAVA_HOME; export JAVA_HOME=/usr/lib/jvm/jre-17-openjdk; export PATH=/usr/lib/jvm/jre-17-openjdk/bin:\$PATH; ${script}" >> ${LOGS}/${log_file} 2>&1
@@ -292,8 +303,9 @@ function run_worker {
         driver_mounts="${driver_mounts},${CLUSTER_LIBNVIDIA_ML_HOST_PATH}:${CLUSTER_LIBNVIDIA_ML_CONTAINER_PATH}"
     fi
     local worker_extra_mounts=""
+    worker_extra_mounts="$(ctas_output_mount_arg)"
     if [[ -n "${CLUSTER_EXTRA_MOUNTS:-}" ]]; then
-        worker_extra_mounts=",${CLUSTER_EXTRA_MOUNTS}"
+        worker_extra_mounts+=",${CLUSTER_EXTRA_MOUNTS}"
     fi
 
     # NVIDIA_VISIBLE_DEVICES triggers enroot's 98-nvidia.sh hook, which requires
@@ -343,7 +355,7 @@ ${worker_node}:/opt/presto-server/etc/node.properties,\
 ${worker_config}:/opt/presto-server/etc/config.properties,\
 ${worker_hive}:/opt/presto-server/etc/catalog/hive.properties,\
 ${worker_data}:/var/lib/presto/data,\
-${DATA}:/var/lib/presto/data/hive/data/user_data,\
+${DATA}:/var/lib/presto/data/hive/data/user_data:ro,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 ${WORKER_ENV_FILE}:${vt_worker_env_file},\
 ${LOGS}:${vt_cufile_log_dir},\
@@ -537,6 +549,7 @@ function run_queries {
     [[ "${ENABLE_METRICS}" == "1" ]] && extra_args+=("-m")
     [[ "${ENABLE_NSYS}" == "1" ]] && extra_args+=("-p" "--profile-script-path" "${container_script_dir}/profiler_functions.sh")
     [[ -n "${QUERIES:-}" ]] && extra_args+=("-q" "${QUERIES}")
+    [[ "${WRITE_RESULTS_TO_FILE:-0}" == "1" ]] && extra_args+=("--write-results-to-file")
 
     source "${SCRIPT_DIR}/defaults.env"
 
@@ -571,6 +584,7 @@ function run_queries {
     export PORT=$PORT; \
     export HOSTNAME=$COORD; \
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
+    export PRESTO_OUTPUT_DIR=${CTAS_CONTAINER_OUTPUT_DIR}; \
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
     cd /workspace/presto/scripts; \

@@ -14,7 +14,7 @@
 #                  [-i|--iterations <n>] [--cpu] [-g|--num-workers-per-node <n>]
 #                  [-w|--worker-image <name>] [-c|--coord-image <name>]
 #                  [-o|--output-path <dir>] [-q|--queries <filter>]
-#                  [--disable-gds] [-m|--metrics] [-p|--profile]
+#                  [--write-results-to-file] [--disable-gds] [-m|--metrics] [-p|--profile]
 #                  [additional sbatch options]
 # ==============================================================================
 
@@ -42,6 +42,7 @@ SCRIPT_DIR="$PWD"
 ENABLE_GDS=1
 ENABLE_METRICS=0
 ENABLE_NSYS=0
+WRITE_RESULTS_TO_FILE=0
 NSYS_WORKER_ID=0
 QUERIES=""
 
@@ -62,6 +63,7 @@ Options:
   -c, --coord-image <name>     Override coordinator image from cluster config
   -o, --output-path <dir>      Copy results into this directory after the run
   -q, --queries <list>         Comma-separated query filter (e.g. "1,6,21")
+      --write-results-to-file  Write distributed Parquet results with CTAS. Requires PRESTO_OUTPUT_DIR.
       --worker-env-file <path> Override worker.env (default: ./worker.env)
       --cpu                    Use CPU partition/images (overrides cluster default)
       --gpu                    Use GPU partition/images (overrides cluster default)
@@ -96,6 +98,7 @@ while [[ $# -gt 0 ]]; do
         --gpu)         VARIANT_TYPE="gpu"; shift ;;
         --no-numa)     USE_NUMA="0"; shift ;;
         --disable-gds) ENABLE_GDS=0; shift ;;
+        --write-results-to-file) WRITE_RESULTS_TO_FILE=1; shift ;;
         -m|--metrics)  ENABLE_METRICS=1; shift ;;
         -p|--profile)  ENABLE_NSYS=1; shift ;;
         -h|--help)     usage; exit 0 ;;
@@ -106,6 +109,16 @@ done
 
 [[ -z "${NODES_COUNT}"  ]] && { echo "Error: -n|--nodes is required (see --help)" >&2; exit 1; }
 [[ -z "${SCALE_FACTOR}" ]] && { echo "Error: -s|--scale-factor is required (see --help)" >&2; exit 1; }
+
+if [[ "${WRITE_RESULTS_TO_FILE}" == "1" ]]; then
+    [[ -n "${PRESTO_OUTPUT_DIR:-}" ]] || { echo "Error: PRESTO_OUTPUT_DIR is required with --write-results-to-file" >&2; exit 1; }
+    mkdir -p "${PRESTO_OUTPUT_DIR}"
+    PRESTO_OUTPUT_DIR="$(readlink -f "${PRESTO_OUTPUT_DIR}")"
+    [[ -d "${PRESTO_OUTPUT_DIR}" && -w "${PRESTO_OUTPUT_DIR}" ]] || {
+        echo "Error: PRESTO_OUTPUT_DIR must be a writable shared directory: ${PRESTO_OUTPUT_DIR}" >&2
+        exit 1
+    }
+fi
 
 # Clean up old output files — use rm -rf so subdirectories (e.g. query_results/)
 # are fully removed and stale benchmark_result.json cannot survive a cancelled run.
@@ -163,6 +176,10 @@ build_common_export_vars
 EXPORT_VARS+=",NUM_ITERATIONS=${NUM_ITERATIONS}"
 EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS},ENABLE_METRICS=${ENABLE_METRICS}"
 EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS},NSYS_WORKER_ID=${NSYS_WORKER_ID}"
+EXPORT_VARS+=",WRITE_RESULTS_TO_FILE=${WRITE_RESULTS_TO_FILE}"
+if [[ "${WRITE_RESULTS_TO_FILE}" == "1" ]]; then
+    EXPORT_VARS+=",PRESTO_OUTPUT_DIR=${PRESTO_OUTPUT_DIR}"
+fi
 # Comma-separated query list can't ride EXPORT_VARS (comma is the separator);
 # export it so sbatch picks it up via the ALL inheritance.
 [[ -n "${QUERIES}" ]] && export QUERIES
