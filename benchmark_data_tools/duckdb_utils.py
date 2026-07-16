@@ -34,8 +34,7 @@ def ensure_remote_access(path) -> None:
 
 
 def read_scale_factor(metadata_uri: str):
-    """Read the scale_factor field from a metadata.json at ``metadata_uri``.
-    """
+    """Read the scale_factor field from a metadata.json at ``metadata_uri``."""
     # For local data
     if not str(metadata_uri).startswith("s3://"):
         with open(metadata_uri) as file:
