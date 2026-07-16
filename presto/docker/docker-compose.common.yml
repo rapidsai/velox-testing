@@ -25,9 +25,8 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
-      # Region for the AWS default chain. Must match the data bucket / hive.s3.endpoint.
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-2}
-      - AWS_REGION=${AWS_REGION:-us-east-2}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
+      - AWS_REGION=${AWS_REGION:-}
     volumes:
       - ./launch_coordinator.sh:/opt/launch_coordinator.sh:ro
     entrypoint: [ "bash", "/opt/launch_coordinator.sh" ]
@@ -53,7 +52,5 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
-      # KvikIO's S3 endpoint builds https://<bucket>.s3.<region>.amazonaws.com/<obj>
-      # from an s3:// URL and REQUIRES a region. Must match the data bucket / hive.s3.endpoint.
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-2}
-      - AWS_REGION=${AWS_REGION:-us-east-2}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
+      - AWS_REGION=${AWS_REGION:-}
