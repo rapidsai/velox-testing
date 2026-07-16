@@ -30,4 +30,4 @@ CREATE TABLE hive.{schema}.call_center (
     cc_country VARCHAR,
     cc_gmt_offset DOUBLE,
     cc_tax_percentage DOUBLE
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

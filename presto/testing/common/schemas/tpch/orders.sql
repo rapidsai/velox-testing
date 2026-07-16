@@ -8,4 +8,4 @@ CREATE TABLE hive.{schema}.orders (
     o_clerk VARCHAR NOT NULL,
     o_shippriority INTEGER NOT NULL,
     o_comment VARCHAR NOT NULL
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

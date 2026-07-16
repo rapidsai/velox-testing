@@ -12,4 +12,4 @@ CREATE TABLE hive.{schema}.customer_address (
     ca_country VARCHAR,
     ca_gmt_offset DOUBLE,
     ca_location_type VARCHAR
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

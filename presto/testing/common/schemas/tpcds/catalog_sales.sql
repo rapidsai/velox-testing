@@ -33,4 +33,4 @@ CREATE TABLE hive.{schema}.catalog_sales (
     cs_net_paid_inc_ship DOUBLE,
     cs_net_paid_inc_ship_tax DOUBLE,
     cs_net_profit DOUBLE
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

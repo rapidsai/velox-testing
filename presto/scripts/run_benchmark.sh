@@ -24,6 +24,8 @@ This script runs the specified type of benchmark.
 OPTIONS:
     -h, --help              Show this help message.
     -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
+    -f, --scale-factor      Scale factor of the benchmark data. Required for remote (e.g. S3) tables to
+                            skip reading a local metadata.json to derive it. Optional for local tables.
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
     --queries-file          Path to a custom JSON file containing query definitions. When specified, queries are loaded
@@ -95,6 +97,15 @@ parse_args() {
           shift 2
         else
           echo "Error: --queries requires a value"
+          exit 1
+        fi
+        ;;
+      -f|--scale-factor)
+        if [[ -n $2 ]]; then
+          SCALE_FACTOR=$2
+          shift 2
+        else
+          echo "Error: --scale-factor requires a value"
           exit 1
         fi
         ;;
@@ -245,6 +256,10 @@ PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
+fi
+
+if [[ -n ${SCALE_FACTOR} ]]; then
+  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
 fi
 
 if [[ -n ${QUERIES_FILE} ]]; then

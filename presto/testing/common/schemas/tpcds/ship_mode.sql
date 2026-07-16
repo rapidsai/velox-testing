@@ -5,4 +5,4 @@ CREATE TABLE hive.{schema}.ship_mode (
     sm_code VARCHAR,
     sm_carrier VARCHAR,
     sm_contract VARCHAR
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')
