@@ -167,6 +167,46 @@ There are two common approaches:
    ```
    This allows you to run benchmarks and tests without regenerating data for each scale factor—simply specify the schema name.
 
+## Remote Data Sources (AWS S3)
+
+Benchmarks and integration tests can run directly against Parquet data stored in S3. Only the Hive metastore needs to stay local.
+
+### Prerequisites
+
+Set up AWS S3 credentials. The AWS region is required.
+
+```bash
+export AWS_DEFAULT_REGION=us-east-2 # region of your bucket (required)
+eval "$(aws configure export-credentials --format env)" # AWS_ACCESS_KEY_ID / SECRET / SESSION_TOKEN
+```
+
+### Workflow
+
+1. Start Presto (GPU is shown. CPU works too):
+   ```bash
+   cd velox-testing/presto/scripts
+   ./start_native_gpu_presto.sh
+   ```
+
+2. Register the external tables at the S3 location:
+   ```bash
+   ./register_external_tables.sh --help  # See all options
+   ./register_external_tables.sh -b tpch -s tpch_sf100_s3 -l s3://my-bucket/velox/sf100
+   ```
+
+3. Run ANALYZE on CPU Presto:
+   ```bash
+   ./analyze_tables.sh -s tpch_sf100_s3
+   ```
+
+4. Run benchmarks or integration tests against the schema:
+   ```bash
+   ./run_benchmark.sh  -b tpch -s tpch_sf100_s3
+   ./run_integ_test.sh -b tpch -s tpch_sf100_s3
+   ```
+
+The scale factor is auto-detected from a `metadata.json` at the data location, regardless of local or remote. Any URI scheme accepted by the engine works with `register_external_tables.sh` (e.g. `file:`, `s3://`).
+
 ## Configuration
 
 Configuration files for Presto are managed through a template system in:
