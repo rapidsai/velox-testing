@@ -14,6 +14,6 @@ def test_generated_files_use_v2_page_format(setup_and_teardown):
 
     for file_path in get_all_parquet_relative_file_paths(data_dir_path):
         metadata = pq.ParquetFile(f"{data_dir_path}/{file_path}").metadata
-        assert float(metadata.format_version) >= 2.0, (
+        assert int(float(metadata.format_version)) == 2, (
             f"Expected Parquet v2 format for '{file_path}', got '{metadata.format_version}'"
         )
