@@ -79,6 +79,27 @@ def test_validator_keeps_single_file_result_order_sensitive(tmp_path: Path):
     assert "Engine violated ORDER BY" in result["queries"]["q1"]["message"]
 
 
+@pytest.mark.parametrize("query_numbers", [None, [1]])
+def test_validator_rejects_file_and_dataset_for_same_query(tmp_path: Path, query_numbers):
+    results_dir = tmp_path / "actual"
+    query_dir = results_dir / "q1"
+    query_dir.mkdir(parents=True)
+    pd.DataFrame({"value": [1]}).to_parquet(query_dir / "part-00000.parquet", index=False)
+    pd.DataFrame({"value": [1]}).to_parquet(results_dir / "q1.parquet", index=False)
+
+    expected_dir = tmp_path / "expected"
+    expected_dir.mkdir()
+    pd.DataFrame({"value": [1]}).to_parquet(expected_dir / "q01.parquet", index=False)
+
+    result = validate(results_dir, expected_dir, {"Q1": "SELECT value FROM source"}, query_numbers=query_numbers)
+
+    assert result["overall_status"] == "failed"
+    assert result["queries"]["q1"] == {
+        "status": "failed",
+        "message": "multiple result representations found: q1, q1.parquet",
+    }
+
+
 def test_drop_results_schema_removes_managed_tables_first():
     cursor = FakeCursor(
         {

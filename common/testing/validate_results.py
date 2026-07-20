@@ -65,8 +65,20 @@ def validate(
         print(f"No result Parquet files or datasets found in {results_dir}", file=sys.stderr)
         return {"overall_status": "not-validated", "queries": {}}
 
+    results_by_query: dict[str, list[Path]] = {}
     for result_file in result_files:
-        query_id = result_file.stem  # e.g. "q1" for q1 or q1.parquet
+        results_by_query.setdefault(result_file.stem, []).append(result_file)
+
+    for query_id, query_paths in sorted(results_by_query.items(), key=lambda item: int(item[0].lstrip("q"))):
+        if len(query_paths) != 1:
+            names = ", ".join(sorted(path.name for path in query_paths))
+            msg = f"multiple result representations found: {names}"
+            print(f"[Validation] {query_id.upper():4s}: FAIL     {msg}")
+            query_results[query_id] = {"status": "failed", "message": msg}
+            failed += 1
+            continue
+
+        result_file = query_paths[0]
         q_num = int(query_id.lstrip("q"))
 
         # Accepted naming conventions for expected files (tried in order):
