@@ -12,6 +12,8 @@ from pathlib import Path
 import pandas as pd
 import prestodb
 import pytest
+import sqlglot
+from sqlglot import exp
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.conftest import get_output_dir
@@ -44,11 +46,56 @@ def ctas_table_name(query_id, iteration_num):
     return query_id.lower() if iteration_num == 0 else f"{query_id.lower()}_iteration_{iteration_num + 1}"
 
 
+def alias_ctas_output_expressions(query):
+    """Give every explicit CTAS output expression a unique column name."""
+    query = strip_trailing_semicolon(query)
+    parsed = sqlglot.parse_one(query, read="presto")
+    select = next(parsed.find_all(exp.Select))
+    expressions = list(select.expressions)
+
+    reserved_names = {
+        expression.alias_or_name.casefold()
+        for expression in expressions
+        if isinstance(expression, (exp.Alias, exp.Column)) and not expression.is_star
+    }
+    used_names = set()
+    changed = False
+
+    for position, expression in enumerate(expressions, start=1):
+        if expression.is_star:
+            continue
+
+        name = expression.alias_or_name if isinstance(expression, (exp.Alias, exp.Column)) else ""
+        normalized_name = name.casefold()
+        if name and normalized_name not in used_names:
+            used_names.add(normalized_name)
+            continue
+
+        base_alias = f"result_column_{position}"
+        alias = base_alias
+        suffix = 2
+        while alias.casefold() in reserved_names or alias.casefold() in used_names:
+            alias = f"{base_alias}_{suffix}"
+            suffix += 1
+
+        if isinstance(expression, exp.Alias):
+            expression.set("alias", exp.to_identifier(alias))
+        else:
+            expressions[position - 1] = exp.alias_(expression, alias, copy=False)
+        used_names.add(alias.casefold())
+        changed = True
+
+    if not changed:
+        return query
+    select.set("expressions", expressions)
+    return parsed.sql(dialect="presto")
+
+
 def build_ctas_query(benchmark_type, query_id, query, catalog, schema, table):
     return (
         f"--{benchmark_type}_{query_id}--\n"
         f"CREATE TABLE {catalog}.{schema}.{table} WITH (format = 'PARQUET') AS\n"
-        f"{strip_trailing_semicolon(query)}"
+        f"{alias_ctas_output_expressions(query)}"
     )
 
 
