@@ -64,6 +64,22 @@ def test_validator_reads_distributed_parquet_dataset(tmp_path: Path):
     assert result["queries"]["q1"]["status"] == "passed"
 
 
+def test_validator_accepts_empty_distributed_q15_dataset(tmp_path: Path):
+    results_dir = tmp_path / "actual"
+    query_dir = results_dir / "q15"
+    query_dir.mkdir(parents=True)
+    (query_dir / ".prestoSchema").write_text("{}")
+
+    expected_dir = tmp_path / "expected"
+    expected_dir.mkdir()
+    pd.DataFrame({"supplier_no": [1]}).to_parquet(expected_dir / "q15.parquet", index=False)
+
+    result = validate(results_dir, expected_dir, {"Q15": "SELECT supplier_no FROM source"})
+
+    assert result["overall_status"] == "expected-failure"
+    assert result["queries"]["q15"]["status"] == "expected-failure"
+
+
 def test_validator_keeps_single_file_result_order_sensitive(tmp_path: Path):
     results_dir = tmp_path / "actual"
     results_dir.mkdir()

@@ -364,10 +364,12 @@ normalize_ctas_result_permissions() {
   fi
 
   # Slurm and non-remapped local files are normally owned by the invoking user.
+  find "${host_results_dir}" -type d -exec chmod a+rx {} + 2>/dev/null || true
   find "${host_results_dir}" -type f -name '*.parquet' -exec chmod a+r {} + 2>/dev/null || true
-  local parquet_file
-  parquet_file="$(find "${host_results_dir}" -type f -name '*.parquet' -print -quit 2>/dev/null || true)"
-  if [[ -n "${parquet_file}" && -z "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
+  local committed_table
+  committed_table="$(find "${host_results_dir}" -mindepth 1 -maxdepth 1 -type d -name 'q[0-9]*' \
+    -exec test -f '{}/.prestoSchema' \; -print -quit 2>/dev/null || true)"
+  if [[ -n "${committed_table}" && -z "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
     return 0
   fi
 
@@ -385,9 +387,10 @@ normalize_ctas_result_permissions() {
     done < <(docker ps --format '{{.Names}}' | grep -E '^presto-.*worker')
   fi
 
-  parquet_file="$(find "${host_results_dir}" -type f -name '*.parquet' -print -quit 2>/dev/null || true)"
-  if [[ -z "${parquet_file}" ]]; then
-    echo "Error: No CTAS Parquet result files found in ${host_results_dir}" >&2
+  committed_table="$(find "${host_results_dir}" -mindepth 1 -maxdepth 1 -type d -name 'q[0-9]*' \
+    -exec test -f '{}/.prestoSchema' \; -print -quit 2>/dev/null || true)"
+  if [[ -z "${committed_table}" ]]; then
+    echo "Error: No committed CTAS result tables found in ${host_results_dir}" >&2
     return 1
   fi
   if [[ -n "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
