@@ -108,7 +108,13 @@ def validate(
             not_validated += 1
             continue
 
-        status, msg = validate_query_result(query_id, actual, expected, query_sql)
+        status, msg = validate_query_result(
+            query_id,
+            actual,
+            expected,
+            query_sql,
+            actual_order_preserved=result_file.is_file(),
+        )
 
         if status == "not-validated":
             query_results[query_id] = {"status": "not-validated", "message": msg}

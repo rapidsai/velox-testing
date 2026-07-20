@@ -50,16 +50,33 @@ def test_validator_reads_distributed_parquet_dataset(tmp_path: Path):
     results_dir = tmp_path / "actual"
     query_dir = results_dir / "q1"
     query_dir.mkdir(parents=True)
-    pd.DataFrame({"value": [1, 2]}).to_parquet(query_dir / "part-00000.parquet", index=False)
+    # Distributed writer files do not preserve the query's global row order.
+    pd.DataFrame({"value": [3, 4]}).to_parquet(query_dir / "part-00000.parquet", index=False)
+    pd.DataFrame({"value": [1, 2]}).to_parquet(query_dir / "part-00001.parquet", index=False)
+
+    expected_dir = tmp_path / "expected"
+    expected_dir.mkdir()
+    pd.DataFrame({"value": [1, 2, 3, 4]}).to_parquet(expected_dir / "q01.parquet", index=False)
+
+    result = validate(results_dir, expected_dir, {"Q1": "SELECT value FROM source ORDER BY value"})
+
+    assert result["overall_status"] == "passed"
+    assert result["queries"]["q1"]["status"] == "passed"
+
+
+def test_validator_keeps_single_file_result_order_sensitive(tmp_path: Path):
+    results_dir = tmp_path / "actual"
+    results_dir.mkdir()
+    pd.DataFrame({"value": [2, 1]}).to_parquet(results_dir / "q1.parquet", index=False)
 
     expected_dir = tmp_path / "expected"
     expected_dir.mkdir()
     pd.DataFrame({"value": [1, 2]}).to_parquet(expected_dir / "q01.parquet", index=False)
 
-    result = validate(results_dir, expected_dir, {"Q1": "SELECT value FROM source"})
+    result = validate(results_dir, expected_dir, {"Q1": "SELECT value FROM source ORDER BY value"})
 
-    assert result["overall_status"] == "passed"
-    assert result["queries"]["q1"]["status"] == "passed"
+    assert result["overall_status"] == "failed"
+    assert "Engine violated ORDER BY" in result["queries"]["q1"]["message"]
 
 
 def test_drop_results_schema_removes_managed_tables_first():

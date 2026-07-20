@@ -12,8 +12,11 @@ import pytest
 from common.testing.result_comparison import (
     _canonical_sort,
     _find_last_tie_start,
+    _get_orderby_sort_spec,
     _normalize_to_expected,
+    _restore_orderby,
     _validate_orderby,
+    compare_result_frames,
 )
 
 # ---------------------------------------------------------------------------
@@ -101,6 +104,36 @@ def test_validate_orderby_handles_duplicate_column_labels():
     # by accessing columns positionally.
     df = pd.DataFrame([[1, "a"], [2, "b"], [3, "c"]], columns=["x", "x"])
     _validate_orderby(df, sort_col_indices=[0], ascending=[True])
+
+
+def test_restore_orderby_uses_mixed_directions_and_explicit_null_placement():
+    df = pd.DataFrame(
+        {
+            "a": [2, 1, None, 1, 1],
+            "b": [4, 1, 9, None, 3],
+            "payload": ["a2", "a1-low", "null-a", "a1-null", "a1-high"],
+        }
+    )
+    indices, ascending, nulls_first = _get_orderby_sort_spec(
+        "SELECT a, b, payload FROM source ORDER BY a ASC NULLS LAST, b DESC NULLS FIRST",
+        list(df.columns),
+    )
+
+    restored = _restore_orderby(df, indices, ascending, nulls_first)
+
+    assert restored["payload"].tolist() == ["a1-null", "a1-high", "a1-low", "a2", "null-a"]
+
+
+def test_compare_restores_unordered_limit_result_before_tie_handling():
+    actual = pd.DataFrame({"score": [5.0, 10.0, 5.0], "payload": ["different-tie", "top", "left-tie"]})
+    expected = pd.DataFrame({"score": [10.0, 5.0, 5.0], "payload": ["top", "left-tie", "right-tie"]})
+
+    compare_result_frames(
+        actual,
+        expected,
+        "SELECT score, payload FROM source ORDER BY score DESC LIMIT 3",
+        actual_order_preserved=False,
+    )
 
 
 # ---------------------------------------------------------------------------

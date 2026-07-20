@@ -34,22 +34,19 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 # ---------------------------------------------------------------------------
 
 
-def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> tuple[list[int], list[bool]]:
-    """
-    Extract ORDER BY column positions and directions from SQL using sqlglot.
-
-    Returns (indices, ascending) where ascending[i] is True iff indices[i]
-    is sorted ASC. Returns ([], []) when there is no ORDER BY, or when any
-    ORDER BY expression is too complex to map to a result column (CASE,
-    aggregate, etc.).
-    """
-    expr = sqlglot.parse_one(query_sql)
+def _get_orderby_sort_spec(
+    query_sql: str,
+    expected_col_names: list[str],
+) -> tuple[list[int], list[bool], list[bool]]:
+    """Resolve ORDER BY expressions to positional columns and sort options."""
+    expr = sqlglot.parse_one(query_sql, read="presto")
     order = next((e for e in expr.find_all(sqlglot.exp.Order)), None)
     if not order:
-        return [], []
+        return [], [], []
 
     sort_col_indices: list[int] = []
     ascending: list[bool] = []
+    nulls_first: list[bool] = []
 
     for ordered in order.expressions:
         key = ordered.this
@@ -76,10 +73,25 @@ def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> tu
                 f"ORDER BY expression {key.sql()!r} couldn't be mapped to a result column; "
                 "ORDER BY validation and tie-boundary handling will be skipped for this query."
             )
-            return [], []
+            return [], [], []
 
         sort_col_indices.append(resolved_idx)
         ascending.append(not is_desc)
+        nulls_first.append(bool(ordered.args.get("nulls_first")))
+
+    return sort_col_indices, ascending, nulls_first
+
+
+def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> tuple[list[int], list[bool]]:
+    """
+    Extract ORDER BY column positions and directions from SQL using sqlglot.
+
+    Returns (indices, ascending) where ascending[i] is True iff indices[i]
+    is sorted ASC. Returns ([], []) when there is no ORDER BY, or when any
+    ORDER BY expression is too complex to map to a result column (CASE,
+    aggregate, etc.).
+    """
+    sort_col_indices, ascending, _ = _get_orderby_sort_spec(query_sql, expected_col_names)
 
     return sort_col_indices, ascending
 
@@ -223,11 +235,10 @@ def _validate_orderby(df: pd.DataFrame, sort_col_indices: list[int], ascending: 
     itself.
 
     Null handling: SQL leaves the position of NULLs in ORDER BY engine-
-    defined (Presto/Velox default to NULLS LAST for ASC, NULLS FIRST for
-    DESC, others differ), so adjacent pairs where either side is NULL are
-    not counted as violations. Two NULLs are treated as tied (do not break
-    the outer tie group); a NULL adjacent to a non-NULL value is treated as
-    a change for tie-group tracking only.
+    defined unless NULLS FIRST/LAST is explicit, so adjacent pairs where
+    either side is NULL are not counted as violations. Two NULLs are treated
+    as tied (do not break the outer tie group); a NULL adjacent to a non-NULL
+    value is treated as a change for tie-group tracking only.
 
     Raises AssertionError pointing at the first offending row. A no-op when
     sort_col_indices is empty or the frame has 0-1 rows.
@@ -286,6 +297,32 @@ def _validate_orderby(df: pd.DataFrame, sort_col_indices: list[int], ascending: 
                 f"got {curr[i]!r} after {prev[i]!r}"
             )
         prior_changed = prior_changed | value_changed
+
+
+def _restore_orderby(
+    df: pd.DataFrame,
+    sort_col_indices: list[int],
+    ascending: list[bool],
+    nulls_first: list[bool],
+) -> pd.DataFrame:
+    """Reconstruct SQL result order after unordered distributed storage."""
+    if not sort_col_indices or len(df) <= 1:
+        return df.reset_index(drop=True)
+
+    # Apply stable sorts from the least-significant key to the most-significant
+    # key. Access columns positionally because SQL results may contain duplicate
+    # column labels.
+    row_order = np.arange(len(df))
+    for col_idx, asc, null_first in reversed(list(zip(sort_col_indices, ascending, nulls_first))):
+        values = df.iloc[row_order, col_idx].reset_index(drop=True)
+        permutation = values.sort_values(
+            ascending=asc,
+            na_position="first" if null_first else "last",
+            kind="stable",
+        ).index.to_numpy()
+        row_order = row_order[permutation]
+
+    return df.iloc[row_order].reset_index(drop=True)
 
 
 def _canonical_sort(df: pd.DataFrame) -> pd.DataFrame:
@@ -409,6 +446,7 @@ def compare_result_frames(
     expected: pd.DataFrame,
     query_sql: str,
     actual_column_types: list[str] | None = None,
+    actual_order_preserved: bool = True,
 ) -> None:
     """
     Full comparison pipeline. Raises AssertionError on any mismatch.
@@ -420,7 +458,8 @@ def compare_result_frames(
       1. Validate column count and capture expected column names.
       2. Normalize dtypes / value types.
       3. Validate row count.
-      4. Parse ORDER BY / LIMIT from SQL.
+      4. Parse ORDER BY / LIMIT from SQL and reconstruct logical order when
+         the actual rows came from unordered distributed storage.
       5. Validate each engine respected ORDER BY (per-frame, strict equality).
       6. With LIMIT: peel the tied tail in engine order, then canonical-sort
          each piece. Compare front fully; compare tail's ORDER BY values only.
@@ -443,9 +482,13 @@ def compare_result_frames(
     if len(actual) != len(expected):
         raise AssertionError(f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)")
 
-    # 4. Parse ORDER BY / LIMIT
-    sort_col_indices, ascending = get_orderby_col_indices(query_sql, expected_col_names)
+    # 4. Parse ORDER BY / LIMIT. A distributed Parquet dataset has no physical
+    # row-order guarantee, so reconstruct its logical SQL order before applying
+    # the same ordered-result checks used for coordinator-returned results.
+    sort_col_indices, ascending, nulls_first = _get_orderby_sort_spec(query_sql, expected_col_names)
     limit = get_limit(query_sql)
+    if not actual_order_preserved:
+        actual = _restore_orderby(actual, sort_col_indices, ascending, nulls_first)
 
     # 5. Per-frame ORDER BY validation — engine order is intact here.
     _validate_orderby(actual, sort_col_indices, ascending)
@@ -492,6 +535,7 @@ def validate_query_result(
     actual: pd.DataFrame,
     expected: pd.DataFrame,
     query_sql: str,
+    actual_order_preserved: bool = True,
 ) -> tuple[ValidationStatus, str | None]:
     """
     Compare actual vs expected for one query. Returns (status, message).
@@ -509,7 +553,7 @@ def validate_query_result(
         )
 
     try:
-        compare_result_frames(actual, expected, query_sql)
+        compare_result_frames(actual, expected, query_sql, actual_order_preserved=actual_order_preserved)
         return "passed", None
     except Exception as e:
         return "failed", f"{type(e).__name__}: {e}"[:500]
