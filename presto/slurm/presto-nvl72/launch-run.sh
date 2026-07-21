@@ -77,8 +77,9 @@ Options:
 Any arguments after -- are passed directly to sbatch.
 
 Cluster config (~/.cluster_config.env or \$CLUSTER_CONFIG) supplies partition,
-account, time limits, image names, and per-variant defaults. See
-cluster_config.env.example.
+account, time limits, image names, per-variant defaults, and the optional
+PRESTO_EXPECTED_RESULTS_DIR. Expected results are mounted read-only into the
+CLI container. See cluster_config.env.example.
 EOF
 }
 
@@ -157,6 +158,12 @@ preflight_image "${COORD_IMAGE}" \
     "Pull it (see ./pull_ghcr_image.sh) or override with -c <name>"
 preflight_dir "${DATA}/tpch-rs-${SCALE_FACTOR}" "TPC-H SF${SCALE_FACTOR} data" \
     "./launch-gen-data.sh -s ${SCALE_FACTOR} -o ${DATA}/tpch-rs-${SCALE_FACTOR}"
+if [[ -n "${PRESTO_EXPECTED_RESULTS_DIR:-}" ]]; then
+    [[ "${PRESTO_EXPECTED_RESULTS_DIR}" == /* ]] || {
+        echo "Error: PRESTO_EXPECTED_RESULTS_DIR must be an absolute host path: ${PRESTO_EXPECTED_RESULTS_DIR}" >&2
+        exit 1
+    }
+fi
 preflight_metastore "${SCALE_FACTOR}" "${ANALYZE_HINT}"
 
 # Submit job (include nodes/SF/iterations in file names)
@@ -179,6 +186,9 @@ EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS},NSYS_WORKER_ID=${NSYS_WORKER_ID}"
 EXPORT_VARS+=",WRITE_RESULTS_TO_FILE=${WRITE_RESULTS_TO_FILE}"
 if [[ "${WRITE_RESULTS_TO_FILE}" == "1" ]]; then
     EXPORT_VARS+=",PRESTO_OUTPUT_DIR=${PRESTO_OUTPUT_DIR}"
+fi
+if [[ -n "${PRESTO_EXPECTED_RESULTS_DIR:-}" ]]; then
+    EXPORT_VARS+=",PRESTO_EXPECTED_RESULTS_DIR=${PRESTO_EXPECTED_RESULTS_DIR}"
 fi
 # Comma-separated query list can't ride EXPORT_VARS (comma is the separator);
 # export it so sbatch picks it up via the ALL inheritance.

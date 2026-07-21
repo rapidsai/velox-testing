@@ -115,6 +115,18 @@ profiling, metrics, …). In CTAS mode, benchmark reports remain in
 `result_dir/`, while `benchmark_results_<tag>/qN/` Parquet datasets are written
 beneath `PRESTO_OUTPUT_DIR` (`benchmark_results/qN/` without a tag).
 
+To validate benchmark output, set the host-side reference directory in
+`~/.cluster_config.env`:
+
+```bash
+PRESTO_EXPECTED_RESULTS_DIR=/shared/reference-results/tpch-sf3000
+```
+
+When the directory exists, `launch-run.sh` mounts it read-only at
+`/var/lib/presto/expected-results` in the CLI container. If it does not exist,
+the run continues without validation. The directory may be outside `VT_ROOT`;
+no `CLUSTER_EXTRA_MOUNTS` entry is needed.
+
 **Prerequisites:** worker + coord images on disk; data from step 1; analyzed
 metastore from step 2 (either local or shared).
 
@@ -159,6 +171,7 @@ All cluster-specific values come from `~/.cluster_config.env`. See
 | `CLUSTER_GPU_DEFAULT_COORD_IMAGE` / `CLUSTER_CPU_DEFAULT_COORD_IMAGE` | Default coordinator image name |
 | `DATA` | TPC-H parquet data root (parent of `tpch-rs-<SF>/`) |
 | `IMAGE_DIR` | Directory containing `.sqsh` container images |
+| `PRESTO_EXPECTED_RESULTS_DIR` | Optional host directory of expected Parquet results, mounted read-only for validation |
 
 Any variable can also be exported in your shell before invoking a launcher to
 override the config for a single run.
