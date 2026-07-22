@@ -35,10 +35,18 @@
 #   tmux new -s nightly-presto
 #   ./nightly-benchmark.sh
 #
-# To trigger immediately (e.g. for testing), override RUN_HOUR_UTC:
-#   RUN_HOUR_UTC=$(date -u +%H) ./nightly-benchmark.sh
+# To trigger immediately (e.g. for testing), pass --now:
+#   ./nightly-benchmark.sh --now
 
 set -euo pipefail
+
+RUN_NOW=0
+for arg in "$@"; do
+    case "${arg}" in
+        --now) RUN_NOW=1 ;;
+        *) echo "Unknown option: ${arg}" >&2; exit 1 ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
@@ -131,7 +139,8 @@ post_results() {
         --sku-name "${SKU_NAME}" \
         --storage-configuration-name "${storage_config}" \
         --cache-state "warm" \
-        --benchmark-name "${benchmark_name}"
+        --benchmark-name "${benchmark_name}" \
+        --label "nightly"
 }
 
 cleanup_images() {
@@ -176,7 +185,8 @@ run_nightly() {
 # Main loop
 # ------------------------------------------------------------------------------
 while true; do
-    sleep_until_next_run
+    [[ "${RUN_NOW}" -eq 1 ]] || sleep_until_next_run
+    RUN_NOW=0
     (run_nightly) || echo_warning "Nightly run FAILED — will retry tomorrow"
     cleanup_images || true
 done
