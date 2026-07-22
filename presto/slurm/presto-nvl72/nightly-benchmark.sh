@@ -58,10 +58,13 @@ source "${SCRIPT_DIR}/echo_helpers.sh"
 
 # ------------------------------------------------------------------------------
 # Image constants — the -latest tags are only updated by nightly pinned CI runs
+# Override COORD_TAG / WORKER_TAG in the environment to pull a specific image:
+#   COORD_TAG=presto-coordinator-pr-338 WORKER_TAG=presto-pr-338-gpu-cuda13.1 \
+#     ./nightly-benchmark.sh --now
 # ------------------------------------------------------------------------------
 REGISTRY="ghcr.io/rapidsai/velox-testing-images"
-COORD_TAG="presto-coordinator-latest"
-WORKER_TAG="presto-latest-gpu-cuda13.1"
+: "${COORD_TAG:=presto-coordinator-latest}"
+: "${WORKER_TAG:=presto-latest-gpu-cuda13.1}"
 
 # ------------------------------------------------------------------------------
 # Configuration
@@ -107,7 +110,6 @@ sleep_until_next_run() {
 }
 
 pull_images() {
-    mkdir -p "${NIGHTLY_IMAGE_DIR}"
     echo "Pulling coordinator image (${COORD_TAG})..."
     "${SCRIPT_DIR}/pull_ghcr_image.sh" \
         "${REGISTRY}:${COORD_TAG}" \
@@ -166,9 +168,13 @@ run_nightly() {
 
     echo ""
     echo "--- Run 1/2: 1-node, 4-GPU, tpch-sf1000 ---"
-    run_benchmark 1 4 1000 "${output_1k}"
-    echo "Posting results for tpch-1k..."
-    post_results "${output_1k}" "tpch-1k" "${STORAGE_CONFIG_1K}"
+    run_benchmark 1 4 1000 "${output_1k}" || true
+    if [[ -d "${output_1k}" ]]; then
+        echo "Posting results for tpch-1k..."
+        post_results "${output_1k}" "tpch-rs-1000" "${STORAGE_CONFIG_1K}"
+    else
+        echo_warning "SF1000 benchmark produced no results — skipping result posting for tpch-1k"
+    fi
 
     echo ""
     echo "Waiting ${INTER_RUN_SLEEP}s for UCX ports to be released before next run..."
@@ -176,9 +182,13 @@ run_nightly() {
 
     echo ""
     echo "--- Run 2/2: 2-node, 8-GPU (4/node), tpch-sf3000 ---"
-    run_benchmark 2 4 3000 "${output_3k}"
-    echo "Posting results for tpch-3k..."
-    post_results "${output_3k}" "tpch-3k" "${STORAGE_CONFIG_3K}"
+    run_benchmark 2 4 3000 "${output_3k}" || true
+    if [[ -d "${output_3k}" ]]; then
+        echo "Posting results for tpch-3k..."
+        post_results "${output_3k}" "tpch-rs-3000" "${STORAGE_CONFIG_3K}"
+    else
+        echo_warning "SF3000 benchmark produced no results — skipping result posting for tpch-3k"
+    fi
 
     echo ""
     echo_success "=== Nightly benchmark complete: ${date_tag} ==="

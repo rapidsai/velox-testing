@@ -319,7 +319,8 @@ fi
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+pytest_exit=0
+pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]} || pytest_exit=$?
 
 # Snapshot logs and engine configs into the benchmark output directory so that
 # post_results.py has self-contained, run-specific data even when multiple runs
@@ -372,3 +373,5 @@ else
     -r "${VALIDATE_REQUIREMENTS}" \
     -- "${VALIDATE_ARGS[@]}"
 fi
+
+exit ${pytest_exit}
