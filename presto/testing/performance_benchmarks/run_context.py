@@ -153,10 +153,16 @@ _CLUSTER_TAG_TO_ENGINE = {
     "java": "presto-java",
 }
 
-_PROVENANCE_FIELDS = frozenset({
-    "presto_sha", "presto_branch", "presto_repo",
-    "velox_sha", "velox_branch", "velox_repo",
-})
+_PROVENANCE_FIELDS = frozenset(
+    {
+        "presto_sha",
+        "presto_branch",
+        "presto_repo",
+        "velox_sha",
+        "velox_branch",
+        "velox_repo",
+    }
+)
 
 
 def _provenance_file_path() -> Path | None:
