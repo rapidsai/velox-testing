@@ -134,22 +134,14 @@ jobs:
 
       - name: Apply provenance labels to Presto deps image
         id: push
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        uses: ./velox-testing/.github/actions/apply-provenance-labels
         with:
-          context: velox-testing/presto/docker
-          file: velox-testing/presto/docker/provenance_labels.dockerfile
-          build-args: |
-            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}-${{ matrix.arch }}
-            PRESTO_SHA=${{ inputs.presto_sha }}
-            PRESTO_BRANCH=
-            PRESTO_REPOSITORY=${{ inputs.presto_repository }}
-            VELOX_SHA=${{ inputs.velox_sha }}
-            VELOX_BRANCH=
-            VELOX_REPOSITORY=${{ inputs.velox_repository }}
-          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}-${{ matrix.arch }}
+          base_image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}-${{ matrix.arch }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:presto-deps-${{ inputs.presto_short_sha }}-velox-${{ inputs.velox_short_sha }}-cuda${{ matrix.cuda_version }}-${{ inputs.date }}-${{ inputs.build_variant }}-${{ github.run_id }}-${{ matrix.arch }}
+          presto_sha: ${{ inputs.presto_sha }}
+          presto_repository: ${{ inputs.presto_repository }}
+          velox_sha: ${{ inputs.velox_sha }}
+          velox_repository: ${{ inputs.velox_repository }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
@@ -211,22 +203,12 @@ jobs:
 
       - name: Apply provenance labels to Presto coordinator image
         id: push
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        uses: ./velox-testing/.github/actions/apply-provenance-labels
         with:
-          context: velox-testing/presto/docker
-          file: velox-testing/presto/docker/provenance_labels.dockerfile
-          build-args: |
-            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
-            PRESTO_SHA=${{ inputs.presto_sha }}
-            PRESTO_BRANCH=
-            PRESTO_REPOSITORY=${{ inputs.presto_repository }}
-            VELOX_SHA=
-            VELOX_BRANCH=
-            VELOX_REPOSITORY=
-          outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+          base_image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+          presto_sha: ${{ inputs.presto_sha }}
+          presto_repository: ${{ inputs.presto_repository }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
