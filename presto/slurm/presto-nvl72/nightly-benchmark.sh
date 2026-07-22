@@ -50,6 +50,9 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+# Set RESULTS_BASE before sourcing defaults.env so that the VT_WORKSPACE
+# slash-to-dash flattening logic doesn't produce a path that doesn't exist.
+: "${RESULTS_BASE:=${VT_ROOT}/results}"
 source "${SCRIPT_DIR}/defaults.env"
 source "${SCRIPT_DIR}/echo_helpers.sh"
 
