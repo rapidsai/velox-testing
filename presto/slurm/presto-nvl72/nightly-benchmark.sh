@@ -18,10 +18,6 @@
 #   SKU_NAME                  Hardware SKU name (--sku-name for post_results.py)
 #   STORAGE_CONFIG_1K         --storage-configuration-name for the sf1000 run
 #   STORAGE_CONFIG_3K         --storage-configuration-name for the sf3000 run
-#   VELOX_BRANCH              Velox branch/commit used to build the worker image
-#   VELOX_REPO                Velox repository URL
-#   PRESTO_BRANCH             Presto branch/commit used to build the coordinator image
-#   PRESTO_REPO               Presto repository URL
 #
 # Note: BENCHMARK_API_URL and BENCHMARK_API_KEY must also be set in the
 # environment so that post_results.py can authenticate with the DB.
@@ -34,10 +30,6 @@
 #   export SKU_NAME="..."
 #   export STORAGE_CONFIG_1K="..."
 #   export STORAGE_CONFIG_3K="..."
-#   export VELOX_BRANCH="..."
-#   export VELOX_REPO="..."
-#   export PRESTO_BRANCH="..."
-#   export PRESTO_REPO="..."
 #   export BENCHMARK_API_URL="..."
 #   export BENCHMARK_API_KEY="..."
 #   tmux new -s nightly-presto
@@ -73,8 +65,7 @@ WORKER_SQSH="${NIGHTLY_IMAGE_DIR}/presto-gpu-cuda13.1-nightly.sqsh"
 INTER_RUN_SLEEP=90
 
 # Validate required env vars before entering the loop
-for req in SKU_NAME STORAGE_CONFIG_1K STORAGE_CONFIG_3K \
-           VELOX_BRANCH VELOX_REPO PRESTO_BRANCH PRESTO_REPO; do
+for req in SKU_NAME STORAGE_CONFIG_1K STORAGE_CONFIG_3K; do
     [[ -n "${!req:-}" ]] || echo_error "Required env var ${req} is not set"
 done
 
@@ -140,11 +131,7 @@ post_results() {
         --sku-name "${SKU_NAME}" \
         --storage-configuration-name "${storage_config}" \
         --cache-state "warm" \
-        --benchmark-name "${benchmark_name}" \
-        --velox-branch "${VELOX_BRANCH}" \
-        --velox-repo "${VELOX_REPO}" \
-        --presto-branch "${PRESTO_BRANCH}" \
-        --presto-repo "${PRESTO_REPO}"
+        --benchmark-name "${benchmark_name}"
 }
 
 cleanup_images() {
