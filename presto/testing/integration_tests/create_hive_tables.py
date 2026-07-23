@@ -77,5 +77,5 @@ if __name__ == "__main__":
         catalog="hive",
     )
     cursor = conn.cursor()
-    data_sub_directory = f"user_data/{args.data_dir_name}"
+    data_sub_directory = "" if args.external_location_base else f"user_data/{args.data_dir_name}"
     create_tables(cursor, args.schema_name, args.schemas_dir_path, data_sub_directory, args.external_location_base)

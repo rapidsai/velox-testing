@@ -9,18 +9,40 @@ import duckdb
 import duckdb_utils as duck
 
 
-def generate_table_schemas(benchmark_type, schemas_dir_path, data_dir_name, verbose):
+def _sample_table(benchmark_type, table_name, data_path):
+    """Load a small sample of a table's Parquet into DuckDB so its schema can be read
+    back via DESCRIBE. ``data_path`` may be a local directory or a remote (e.g. s3://)
+    prefix."""
+    if benchmark_type == "tpch":
+        # For tpch we use the optional NOT NULL qualifier on all columns.
+        duck.create_not_null_table_from_sample(table_name, data_path)
+    else:
+        duck.create_table_from_sample(table_name, data_path)
+
+
+def generate_table_schemas(
+    benchmark_type,
+    schemas_dir_path,
+    data_dir_name=None,
+    verbose=False,
+    external_location_base=None,
+    table_names=None,
+):
     tables = duckdb.sql("SHOW TABLES").fetchall()
     assert len(tables) == 0
 
-    for file in os.listdir(data_dir_name):
-        sub_dir = os.path.join(data_dir_name, file)
-        if os.path.isdir(sub_dir):
-            if benchmark_type == "tpch":
-                # For tpch we use the optional NOT NULL qualifier on all columns.
-                duck.create_not_null_table_from_sample(os.path.basename(file), sub_dir)
-            else:
-                duck.create_table_from_sample(os.path.basename(file), sub_dir)
+    if external_location_base:
+        # Derive the schema from the Parquet that actually lives at the external
+        # location. A remote prefix cannot be listed, so the table names are supplied
+        # by the caller.
+        base = external_location_base.rstrip("/")
+        for table_name in table_names:
+            _sample_table(benchmark_type, table_name, f"{base}/{table_name}")
+    else:
+        for file in os.listdir(data_dir_name):
+            sub_dir = os.path.join(data_dir_name, file)
+            if os.path.isdir(sub_dir):
+                _sample_table(benchmark_type, os.path.basename(file), sub_dir)
 
     Path(schemas_dir_path).mkdir(parents=True, exist_ok=True)
 
@@ -74,12 +96,42 @@ if __name__ == "__main__":
         "-d",
         "--data-dir-name",
         type=str,
-        required=True,
-        help="The name of the directory that contains the benchmark data.",
+        required=False,
+        default=None,
+        help="Path to a local directory that contains the benchmark data (one subdirectory per "
+        "table). Mutually exclusive with --external-location-base.",
+    )
+    parser.add_argument(
+        "--external-location-base",
+        type=str,
+        required=False,
+        default=None,
+        help="URI base whose per-table subdirectories hold the Parquet data (e.g. "
+        "s3://bucket/prefix/scale-1000). The schema is derived from that data instead of a local "
+        "directory. Requires --table-names.",
+    )
+    parser.add_argument(
+        "--table-names",
+        nargs="+",
+        default=None,
+        help="Table names to generate schemas for. Required with --external-location-base since a "
+        "remote prefix cannot be listed.",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", required=False, default=False, help="Extra verbose logging"
     )
     args = parser.parse_args()
 
-    generate_table_schemas(args.benchmark_type, args.schemas_dir_path, args.data_dir_name, args.verbose)
+    if bool(args.data_dir_name) == bool(args.external_location_base):
+        parser.error("Provide exactly one of --data-dir-name or --external-location-base")
+    if args.external_location_base and not args.table_names:
+        parser.error("--table-names is required when --external-location-base is set")
+
+    generate_table_schemas(
+        args.benchmark_type,
+        args.schemas_dir_path,
+        data_dir_name=args.data_dir_name,
+        verbose=args.verbose,
+        external_location_base=args.external_location_base,
+        table_names=args.table_names,
+    )

@@ -11,8 +11,8 @@ print_help() {
 Usage: $0 [OPTIONS]
 
 Registers benchmark external tables in a Presto Hive schema whose data lives at an
-arbitrary EXTERNAL_LOCATION URI. The location scheme is not interpreted here, so any
-URI works (e.g. file:, s3://).
+EXTERNAL_LOCATION URI (e.g. s3://, file:). Each table's column types are derived from
+the Parquet at the location (via DuckDB).
 
 The tables are created with EXTERNAL_LOCATION = <base>/<table_name>, where <base>
 is the --external-location-base value (which must already include the scale-factor
@@ -129,11 +129,30 @@ set_presto_coordinator_defaults
 source "${SCRIPT_DIR}/common_functions.sh"
 wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 
-SCHEMAS_DIR=$(readlink -f "${SCRIPT_DIR}/../testing/common/schemas/${BENCHMARK_TYPE}")
+STATIC_SCHEMAS_DIR=$(readlink -f "${SCRIPT_DIR}/../testing/common/schemas/${BENCHMARK_TYPE}")
+mapfile -t TABLE_NAMES < <(cd "$STATIC_SCHEMAS_DIR" && ls -1 *.sql | sed 's/\.sql$//')
+
+SCHEMA_GEN_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../benchmark_data_tools/generate_table_schemas.py")
 CREATE_TABLES_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../testing/integration_tests/create_hive_tables.py")
 REQUIREMENTS_PATH=$(readlink -f "${SCRIPT_DIR}/../testing/requirements.txt")
 
+TEMP_SCHEMA_DIR=$(readlink -f "${SCRIPT_DIR}/temp-external-schema-dir")
+function cleanup() {
+  rm -rf "$TEMP_SCHEMA_DIR"
+}
+trap cleanup EXIT
+rm -rf "$TEMP_SCHEMA_DIR"
+
 echo "Registering ${BENCHMARK_TYPE} tables in schema '${SCHEMA_NAME}' at base: ${EXTERNAL_LOCATION_BASE}"
+
+"${SCRIPT_DIR}/../../scripts/run_py_script.sh" \
+  -p "$SCHEMA_GEN_SCRIPT_PATH" \
+  -r "$REQUIREMENTS_PATH" \
+  -- \
+  --benchmark-type "$BENCHMARK_TYPE" \
+  --schemas-dir-path "$TEMP_SCHEMA_DIR" \
+  --external-location-base "$EXTERNAL_LOCATION_BASE" \
+  --table-names "${TABLE_NAMES[@]}"
 
 # HOSTNAME/PORT are read by create_hive_tables.py to connect to the coordinator.
 HOSTNAME="$HOST_NAME" PORT="$PORT" "${SCRIPT_DIR}/../../scripts/run_py_script.sh" \
@@ -141,7 +160,7 @@ HOSTNAME="$HOST_NAME" PORT="$PORT" "${SCRIPT_DIR}/../../scripts/run_py_script.sh
   -r "$REQUIREMENTS_PATH" \
   -- \
   --schema-name "$SCHEMA_NAME" \
-  --schemas-dir-path "$SCHEMAS_DIR" \
+  --schemas-dir-path "$TEMP_SCHEMA_DIR" \
   --external-location-base "$EXTERNAL_LOCATION_BASE"
 
 echo "Done registering ${BENCHMARK_TYPE} external tables in hive.${SCHEMA_NAME}"

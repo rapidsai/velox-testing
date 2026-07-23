@@ -33,15 +33,22 @@ def ensure_remote_access(path) -> None:
     _s3_configured = True
 
 
+def _extract_scale_factor(metadata: dict):
+    """Return the scale factor from parsed metadata, whether it is a top-level field or
+    nested under 'options'."""
+    return metadata.get("scale_factor") or metadata.get("options", {}).get("scale_factor")
+
+
 def read_scale_factor(metadata_uri: str):
     """Read the scale_factor field from a metadata.json at ``metadata_uri``."""
     # For local data
     if not str(metadata_uri).startswith("s3://"):
         with open(metadata_uri) as file:
-            return json.load(file)["scale_factor"]
+            return _extract_scale_factor(json.load(file))
     # For remote data
     ensure_remote_access(metadata_uri)
-    return duckdb.sql(f"SELECT scale_factor FROM read_json_auto('{metadata_uri}')").fetchone()[0]
+    raw = duckdb.sql(f"SELECT content FROM read_text('{metadata_uri}')").fetchone()[0]
+    return _extract_scale_factor(json.loads(raw))
 
 
 def quote_ident(name: str) -> str:
