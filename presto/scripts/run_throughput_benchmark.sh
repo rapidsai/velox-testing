@@ -174,7 +174,15 @@ fi
 
 set_presto_coordinator_defaults
 
-PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
+OUTPUT_DIR=${OUTPUT_DIR:-"$(pwd)/throughput_benchmark_output"}
+
+# Reuse performance_benchmarks/conftest.py while preserving throughput
+# semantics: no cache drop and no power-run hot/lukewarm iteration model.
+PYTEST_ARGS=(
+  "--schema-name ${SCHEMA_NAME}"
+  "--iterations 1"
+  "--skip-drop-cache"
+)
 
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")
@@ -242,11 +250,11 @@ wait_for_worker_node_registration "$HOST_NAME" "$PORT"
 echo "Running throughput bench"
 echo "  schema=${SCHEMA_NAME} streams=${NUM_STREAMS:-1} suite_repeats=${SUITE_REPEATS:-1} repetitions=${REPETITIONS_PER_QUERY:-1} seed=${RUN_SEED:-1}"
 
-THROUGHPUT_TEST_DIR=${TEST_DIR}/throughput_benchmarks
+PERFORMANCE_TEST_DIR=${TEST_DIR}/performance_benchmarks
 # Ensure repo root is importable (common.* / presto.testing.*)
 export PYTHONPATH="$(readlink -f "${SCRIPT_DIR}/../.."):${PYTHONPATH:-}"
 
-pytest -q -s ${THROUGHPUT_TEST_DIR}/tpch_throughput_test.py ${PYTEST_ARGS[*]}
+pytest -q -s ${PERFORMANCE_TEST_DIR}/tpch_throughput_test.py ${PYTEST_ARGS[*]}
 
 EFFECTIVE_OUTPUT_DIR="$(readlink -f "${OUTPUT_DIR:-$(pwd)/throughput_benchmark_output}")"
 if [[ -n "${TAG}" ]]; then
