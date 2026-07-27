@@ -16,6 +16,7 @@
 #                              [-d|--data-dir <data-root>]
 #                              [-g|--num-workers-per-node <n>]
 #                              [-w|--worker-image <name>] [-c|--coord-image <name>]
+#                              [--worker-env-file <path>]
 #                              [additional sbatch options]
 #
 # Examples:
@@ -68,6 +69,7 @@ while [[ $# -gt 0 ]]; do
         -g|--num-workers-per-node) requires_value "$1" "${2:-}"; NUM_GPUS_PER_NODE="$2"; shift 2 ;;
         -w|--worker-image)         requires_value "$1" "${2:-}"; WORKER_IMAGE="$2"; shift 2 ;;
         -c|--coord-image)          requires_value "$1" "${2:-}"; COORD_IMAGE="$2"; shift 2 ;;
+        --worker-env-file)         requires_value "$1" "${2:-}"; WORKER_ENV_FILE="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         --) shift; EXTRA_ARGS+=("$@"); break ;;
         *) EXTRA_ARGS+=("$1"); shift ;;
@@ -99,6 +101,10 @@ resolve_cluster_variant cpu
 build_cluster_sbatch_args "${CLUSTER_TIME_ANALYZE}"
 
 # Pre-flight: verify prerequisites before queueing the job.
+preflight_file "${WORKER_ENV_FILE}" "worker environment" \
+    "Set WORKER_ENV_FILE or pass --worker-env-file <path>"
+WORKER_ENV_FILE="$(canonicalize_file_path "${WORKER_ENV_FILE}")"
+preflight_image_roles "${WORKER_IMAGE}" "${COORD_IMAGE}"
 preflight_image "${WORKER_IMAGE}" \
     "Pull it (see ./pull_ghcr_image.sh) or override with -w <name>"
 preflight_image "${COORD_IMAGE}" \
