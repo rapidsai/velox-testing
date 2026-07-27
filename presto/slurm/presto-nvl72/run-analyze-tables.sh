@@ -15,6 +15,17 @@ set -exuo pipefail
 source $SCRIPT_DIR/echo_helpers.sh
 source $SCRIPT_DIR/functions.sh
 
+function on_exit {
+    local rc=$?
+    trap - EXIT
+    if ! stop_cluster; then
+        echo "Cluster cleanup did not complete cleanly." >&2
+        [[ "${rc}" == "0" ]] && rc=1
+    fi
+    exit "${rc}"
+}
+trap on_exit EXIT
+
 # ==============================================================================
 # Setup: generate configs and prepare directories
 # ==============================================================================
