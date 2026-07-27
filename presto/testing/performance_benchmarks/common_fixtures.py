@@ -16,6 +16,23 @@ from .metrics_collector import collect_metrics
 from .run_context import gather_run_context
 
 
+def _session_properties_from_env():
+    raw = os.environ.get("PRESTO_SESSION_PROPERTIES", "").strip()
+    if not raw:
+        return None
+
+    properties = {}
+    for entry in raw.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            raise ValueError(f"Invalid PRESTO_SESSION_PROPERTIES entry: {entry!r}")
+        key, value = entry.split("=", 1)
+        properties[key.strip()] = value.strip()
+    return properties
+
+
 @pytest.fixture(scope="session", autouse=True)
 def run_context_collector(request):
     """Gather Presto-specific run context and attach it to the session.
@@ -66,7 +83,14 @@ def presto_cursor(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema = request.config.getoption("--schema-name")
-    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
+    conn = prestodb.dbapi.connect(
+        host=hostname,
+        port=port,
+        user=user,
+        catalog="hive",
+        schema=schema,
+        session_properties=_session_properties_from_env(),
+    )
     return conn.cursor()
 
 
@@ -102,7 +126,8 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
         profile_output_file_path = None
         try:
             if profile:
-                # Base path without .nsys-rep extension: {dir}/{query_id}
+                # Combined mode: one profiler session wraps the whole iteration loop.
+                # Base path (without a backend-specific extension): {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
@@ -124,20 +149,25 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                     parquet_path = results_dir / f"{query_id.lower()}.parquet"
                     df.to_parquet(parquet_path, index=False)
 
-                # Collect metrics after each query iteration if enabled
-                if metrics:
-                    presto_query_id = cursor._query.query_id
-                    if presto_query_id:
-                        collect_metrics(
-                            query_id=presto_query_id,
-                            query_name=str(query_id),
-                            hostname=hostname,
-                            port=port,
-                            output_dir=bench_output_dir,
-                        )
+            # Keep post-query REST collection outside a per-iteration
+            # profiler interval. Otherwise CPU samples after query
+            # completion describe metrics collection and worker idling,
+            # rather than the engine work the profile is meant to measure.
+            if metrics:
+                presto_query_id = cursor._query.query_id
+                if presto_query_id:
+                    collect_metrics(
+                        query_id=presto_query_id,
+                        query_name=str(query_id),
+                        hostname=hostname,
+                        port=port,
+                        output_dir=bench_output_dir,
+                    )
             raw_times_dict[query_id] = result
         except Exception as e:
-            failed_queries_dict[query_id] = f"{e.error_type}: {e.error_name}"
+            error_type = getattr(e, "error_type", type(e).__name__)
+            error_name = getattr(e, "error_name", str(e))
+            failed_queries_dict[query_id] = f"{error_type}: {error_name}"
             raw_times_dict[query_id] = None
             raise
         finally:

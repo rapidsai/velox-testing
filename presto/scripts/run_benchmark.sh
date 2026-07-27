@@ -39,7 +39,8 @@ OPTIONS:
     -t, --tag               Tag associated with the benchmark run. When a tag is specified, benchmark output will be
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
-    -p, --profile           Enable profiling of benchmark queries.
+    -p, --profile           Enable profiling of benchmark queries. Profiled runs stop after
+                            the first failed query so a profiler failure does not waste the suite.
     --profile-script-path   Path to a custom profiler functions script. Defaults to ./profiler_functions.sh.
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
@@ -284,7 +285,7 @@ if [[ "${PROFILE}" == "true" ]]; then
   if [[ -z "${PROFILE_SCRIPT_PATH}" ]]; then
     PROFILE_SCRIPT_PATH="$(readlink -f ${SCRIPT_DIR}/profiler_functions.sh)"
   fi
-  PYTEST_ARGS+=("--profile --profile-script-path ${PROFILE_SCRIPT_PATH}")
+  PYTEST_ARGS+=("--profile --profile-script-path ${PROFILE_SCRIPT_PATH}" "--maxfail=1")
 fi
 
 if [[ "${METRICS}" == "true" ]]; then
@@ -301,7 +302,9 @@ fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
 
-trap delete_python_virtual_env EXIT
+if [[ "${PRESTO_BENCHMARK_KEEP_VENV:-0}" != "1" ]]; then
+  trap delete_python_virtual_env EXIT
+fi
 
 init_python_virtual_env
 
