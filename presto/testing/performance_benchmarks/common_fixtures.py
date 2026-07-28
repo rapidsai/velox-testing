@@ -257,18 +257,21 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                     # CTAS returns only its update count to the client. Consuming it
                     # ensures all worker writes have completed before recording stats.
                     cursor.fetchall()
-                elif iteration_num == 0:
-                    rows = cursor.fetchall()
-                    columns = [desc[0] for desc in cursor.description]
-                    df = pd.DataFrame(rows, columns=columns)
+                    result.append(cursor.stats["elapsedTimeMillis"])
+                else:
+                    # Preserve the historical non-CTAS timing point: record stats
+                    # immediately after execute(), before consuming result pages.
+                    result.append(cursor.stats["elapsedTimeMillis"])
+                    if iteration_num == 0:
+                        rows = cursor.fetchall()
+                        columns = [desc[0] for desc in cursor.description]
+                        df = pd.DataFrame(rows, columns=columns)
 
-                    # Save to Parquet format to match expected results
-                    results_dir = Path(f"{bench_output_dir}/query_results")
-                    results_dir.mkdir(parents=True, exist_ok=True)
-                    parquet_path = results_dir / f"{query_id.lower()}.parquet"
-                    df.to_parquet(parquet_path, index=False)
-
-                result.append(cursor.stats["elapsedTimeMillis"])
+                        # Save to Parquet format to match expected results
+                        results_dir = Path(f"{bench_output_dir}/query_results")
+                        results_dir.mkdir(parents=True, exist_ok=True)
+                        parquet_path = results_dir / f"{query_id.lower()}.parquet"
+                        df.to_parquet(parquet_path, index=False)
 
                 # Collect metrics after each query iteration if enabled
                 if metrics:

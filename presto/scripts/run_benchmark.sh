@@ -352,7 +352,8 @@ fi
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+PYTEST_EXIT=0
+pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]} || PYTEST_EXIT=$?
 
 normalize_ctas_result_permissions() {
   local host_results_dir=$1
@@ -399,8 +400,9 @@ normalize_ctas_result_permissions() {
   fi
 }
 
+NORMALIZE_EXIT=0
 if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
-  normalize_ctas_result_permissions "${CTAS_RESULTS_DIR}"
+  normalize_ctas_result_permissions "${CTAS_RESULTS_DIR}" || NORMALIZE_EXIT=$?
 fi
 
 # Snapshot logs and engine configs into the benchmark output directory so that
@@ -432,6 +434,7 @@ VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../testing/requirements.txt"
 # Resolve reference results directory.
 # PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
 # Explicit --reference-results-dir was already validated before the benchmark ran.
+VALIDATION_EXIT=0
 if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
   echo "[Validation] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
 else
@@ -460,5 +463,14 @@ else
   "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet \
     -p "${VALIDATE_SCRIPT}" \
     -r "${VALIDATE_REQUIREMENTS}" \
-    -- "${VALIDATE_ARGS[@]}"
+    -- "${VALIDATE_ARGS[@]}" || VALIDATION_EXIT=$?
 fi
+
+# Preserve the benchmark failure as the primary exit status while still
+# attempting CTAS permission normalization, artifact collection, and validation.
+if [[ ${PYTEST_EXIT} -ne 0 ]]; then
+  exit "${PYTEST_EXIT}"
+elif [[ ${NORMALIZE_EXIT} -ne 0 ]]; then
+  exit "${NORMALIZE_EXIT}"
+fi
+exit "${VALIDATION_EXIT}"

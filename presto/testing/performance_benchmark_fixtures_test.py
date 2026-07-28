@@ -40,17 +40,12 @@ def test_ctas_names_and_sql():
     assert ctas_table_name("Q7", 2) == "q7_iteration_3"
     assert strip_trailing_semicolon("SELECT 1;\n") == "SELECT 1"
     assert build_ctas_query("tpch", "Q7", "SELECT 1;", "hive_output", "results", "q7") == (
-        "--tpch_Q7--\n"
-        "CREATE TABLE hive_output.results.q7 WITH (format = 'PARQUET') AS\n"
-        "SELECT 1 AS result_column_1"
+        "--tpch_Q7--\nCREATE TABLE hive_output.results.q7 WITH (format = 'PARQUET') AS\nSELECT 1 AS result_column_1"
     )
 
 
 def test_ctas_aliases_unnamed_and_duplicate_output_expressions():
-    query = (
-        "SELECT c_name, sum(l_quantity), c_name, count(*) AS row_count "
-        "FROM customer, lineitem GROUP BY c_name"
-    )
+    query = "SELECT c_name, sum(l_quantity), c_name, count(*) AS row_count FROM customer, lineitem GROUP BY c_name"
 
     rewritten = alias_ctas_output_expressions(query)
 

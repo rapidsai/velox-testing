@@ -57,9 +57,7 @@ def validate(
                 path for path in (results_dir / f"q{q_num}.parquet", results_dir / f"q{q_num}") if path.exists()
             )
     else:
-        result_files = sorted(
-            path for path in results_dir.iterdir() if re.fullmatch(r"q\d+(?:\.parquet)?", path.name)
-        )
+        result_files = sorted(path for path in results_dir.iterdir() if re.fullmatch(r"q\d+(?:\.parquet)?", path.name))
 
     if not result_files:
         print(f"No result Parquet files or datasets found in {results_dir}", file=sys.stderr)
@@ -103,6 +101,8 @@ def validate(
             failed += 1
             continue
 
+        # PyArrow treats a CTAS dataset containing only `.prestoSchema` as an
+        # empty, schema-less frame; the empty-result handling below covers it.
         actual = pd.read_parquet(result_file)
         expected = pd.read_parquet(expected_file)
 

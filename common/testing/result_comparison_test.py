@@ -124,6 +124,20 @@ def test_restore_orderby_uses_mixed_directions_and_explicit_null_placement():
     assert restored["payload"].tolist() == ["a1-null", "a1-high", "a1-low", "a2", "null-a"]
 
 
+def test_restore_orderby_defaults_to_presto_nulls_last_for_desc():
+    df = pd.DataFrame({"score": [None, 1, 2], "payload": ["null", "low", "high"]})
+    indices, ascending, nulls_first = _get_orderby_sort_spec(
+        "SELECT score, payload FROM source ORDER BY score DESC",
+        list(df.columns),
+    )
+
+    restored = _restore_orderby(df, indices, ascending, nulls_first)
+
+    assert ascending == [False]
+    assert nulls_first == [False]
+    assert restored["payload"].tolist() == ["high", "low", "null"]
+
+
 def test_compare_restores_unordered_limit_result_before_tie_handling():
     actual = pd.DataFrame({"score": [5.0, 10.0, 5.0], "payload": ["different-tie", "top", "left-tie"]})
     expected = pd.DataFrame({"score": [10.0, 5.0, 5.0], "payload": ["top", "left-tie", "right-tie"]})
@@ -156,15 +170,15 @@ def test_validate_orderby_object_column_all_none_does_not_raise():
 
 
 def test_validate_orderby_object_column_null_then_value_does_not_raise():
-    # NULLS-FIRST style ordering (e.g. Presto DESC default): nulls then ASC
-    # of non-null values should pass.
+    # Explicit NULLS-FIRST style ordering: nulls then ASC of non-null values
+    # should pass.
     df = pd.DataFrame({0: [None, None, "a", "b", "c"]}, dtype=object)
     _validate_orderby(df, sort_col_indices=[0], ascending=[True])
 
 
 def test_validate_orderby_object_column_value_then_null_does_not_raise():
-    # NULLS-LAST style ordering (e.g. Presto ASC default): non-null ASC
-    # values then nulls at the tail should pass.
+    # Presto's default NULLS-LAST ordering: non-null values then nulls at the
+    # tail should pass regardless of sort direction.
     df = pd.DataFrame({0: ["a", "b", "c", None, None]}, dtype=object)
     _validate_orderby(df, sort_col_indices=[0], ascending=[True])
 
