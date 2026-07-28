@@ -16,6 +16,9 @@ import json
 import pathlib
 import sys
 
+if len(sys.argv) < 2:
+    sys.exit("Usage: summarize_coordinator_queries.py <output_dir>")
+
 out = pathlib.Path(sys.argv[1])
 summary_rows = [
     [
@@ -30,8 +33,12 @@ summary_rows = [
 ]
 
 for path in sorted((out / "queries").glob("*.json")):
-    with path.open() as f:
-        query = json.load(f)
+    try:
+        with path.open() as f:
+            query = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Warning: skipping {path.name}: {e}", file=sys.stderr)
+        continue
 
     stats = query.get("queryStats") or {}
     error_code = query.get("errorCode") or {}

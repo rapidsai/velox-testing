@@ -396,8 +396,10 @@ function run_worker {
     [[ "${container_script_dir}" == /workspace/* ]] || \
         echo_error "SCRIPT_DIR must be below VT_ROOT (${VT_ROOT}) so the NUMA launcher is visible in the worker container: ${SCRIPT_DIR}"
     local vt_numa_launcher="${container_script_dir}/numa-worker-launch.sh"
-    [[ -f "${SCRIPT_DIR}/numa-worker-launch.sh" ]] || \
-        echo_error "NUMA worker launcher not found: ${SCRIPT_DIR}/numa-worker-launch.sh"
+    if [[ "${USE_NUMA:-0}" == "1" ]]; then
+        [[ -f "${SCRIPT_DIR}/numa-worker-launch.sh" ]] || \
+            echo_error "NUMA worker launcher not found: ${SCRIPT_DIR}/numa-worker-launch.sh"
+    fi
 
     # GDS (GPU Direct Storage) is a GPU-only feature.  On CPU variant, skip
     # the cufile/nvidia-fs bind-mounts even when ENABLE_GDS=1 — /etc/cufile.json
@@ -479,6 +481,8 @@ function run_worker {
         export MELLANOX_VISIBLE_DEVICES="${CLUSTER_MELLANOX_VISIBLE_DEVICES}"
     elif [[ "${VARIANT_TYPE}" == "gpu" || "${worker_ucx_net_device}" == *mlx5_* ]]; then
         export MELLANOX_VISIBLE_DEVICES=all
+    else
+        unset MELLANOX_VISIBLE_DEVICES
     fi
 
     # Notes on nsys profiling

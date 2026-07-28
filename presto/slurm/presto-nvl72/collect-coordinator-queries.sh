@@ -12,7 +12,7 @@ cd "${SCRIPT_DIR}"
 source ./defaults.env
 
 PORT="${PORT:-${CLUSTER_DEFAULT_PORT:-9200}}"
-OUT_DIR="${OUT_DIR:-result_dir/coordinator_queries}"
+OUT_DIR="${OUT_DIR:-}"
 JOB_ID=""
 SERVER=""
 
@@ -25,7 +25,8 @@ Fetches the coordinator's retained /v1/query list and one full
 /v1/query/<query_id> JSON file per query into output_dir.
 
 Defaults:
-  output_dir: ${OUT_DIR}
+  output_dir: result_dir_<job_id>/coordinator_queries  (job ID mode)
+              coordinator_queries                       (--server mode)
   port:       ${PORT}
 EOF
 }
@@ -72,6 +73,16 @@ done
 if [[ -z "${JOB_ID}" && -z "${SERVER}" ]]; then
     usage >&2
     exit 2
+fi
+
+# Default output directory incorporates the job ID when available so each run
+# lands in the same result_dir_<jobid>/ tree as the benchmark output.
+if [[ -z "${OUT_DIR}" ]]; then
+    if [[ -n "${JOB_ID}" ]]; then
+        OUT_DIR="result_dir_${JOB_ID}/coordinator_queries"
+    else
+        OUT_DIR="coordinator_queries"
+    fi
 fi
 
 if [[ -n "${JOB_ID}" ]]; then

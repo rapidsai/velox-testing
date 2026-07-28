@@ -82,14 +82,10 @@ def read_folded(path: Path) -> Counter[tuple[str, ...]]:
                 stack_text, count_text = line.rsplit(maxsplit=1)
                 count = int(count_text)
             except (ValueError, TypeError) as error:
-                raise ValueError(
-                    f"{path}:{line_number}: invalid folded-stack record"
-                ) from error
+                raise ValueError(f"{path}:{line_number}: invalid folded-stack record") from error
             stack = tuple(stack_text.split(";"))
             if count <= 0 or not stack or any(not frame for frame in stack):
-                raise ValueError(
-                    f"{path}:{line_number}: invalid folded-stack record"
-                )
+                raise ValueError(f"{path}:{line_number}: invalid folded-stack record")
             stacks[stack] += count
     return stacks
 
@@ -143,17 +139,13 @@ def render_html(root: Node, max_depth: int, destination: Path, title: str) -> No
 
     def draw_children(node: Node, x: float, depth: int, parent_path: str) -> None:
         cursor = x
-        for child_index, child in enumerate(
-            sorted(node.children.values(), key=lambda item: item.name)
-        ):
+        for child_index, child in enumerate(sorted(node.children.values(), key=lambda item: item.name)):
             child_width = child.count * scale
             y = height - bottom - (depth + 1) * frame_height
             node_path = f"{parent_path}/{child_index}" if parent_path else str(child_index)
             name_attr = html.escape(child.name, quote=True)
             percentage = 100.0 * child.count / root.count
-            tooltip = html.escape(
-                f"{child.name} — {child.count} samples ({percentage:.2f}%)", quote=True
-            )
+            tooltip = html.escape(f"{child.name} — {child.count} samples ({percentage:.2f}%)", quote=True)
             if child_width >= 0.3:
                 elements.append(
                     f'<g class="frame" data-name="{name_attr}" '
@@ -164,7 +156,7 @@ def render_html(root: Node, max_depth: int, destination: Path, title: str) -> No
                     f'<rect x="{cursor:.3f}" y="{y}" width="{child_width:.3f}" '
                     f'height="{frame_height - 1}" fill="{frame_color(child.name)}"/>'
                     f'<text x="{cursor + 3:.3f}" y="{y + 13}">'
-                    f'{html.escape(shorten(child.name, child_width))}</text></g>'
+                    f"{html.escape(shorten(child.name, child_width))}</text></g>"
                 )
             draw_children(child, cursor, depth + 1, node_path)
             cursor += child_width
@@ -199,7 +191,7 @@ svg {{ width: 100%; height: auto; border: 1px solid #ddd; background: white; }}
 <span id="zoom-status">Showing all frames</span>
 <p>{root.count} sampled call chains. Click a frame to zoom; hover for sample count and percentage.</p>
 <svg id="flamegraph" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
-{''.join(elements)}
+{"".join(elements)}
 </svg>
 <script>
 const search = document.getElementById('search');
@@ -286,7 +278,7 @@ search.addEventListener('input', () => {{
 </body>
 </html>
 """
-    destination.write_text(document)
+    destination.write_text(document, encoding="utf-8")
 
 
 def write_folded(stacks: Counter[tuple[str, ...]], destination: Path) -> None:
@@ -298,11 +290,7 @@ def write_folded(stacks: Counter[tuple[str, ...]], destination: Path) -> None:
 def known_sample_count(stacks: Counter[tuple[str, ...]]) -> int:
     """Count samples containing at least one symbolized frame."""
 
-    return sum(
-        count
-        for stack, count in stacks.items()
-        if any(not frame.startswith("[unknown:") for frame in stack)
-    )
+    return sum(count for stack, count in stacks.items() if any(not frame.startswith("[unknown:") for frame in stack))
 
 
 def main() -> int:
@@ -337,11 +325,7 @@ def main() -> int:
         parser.error("--folded cannot be used with --input-folded")
 
     try:
-        stacks = (
-            collapse_perf_script(args.input)
-            if args.input is not None
-            else read_folded(args.input_folded)
-        )
+        stacks = collapse_perf_script(args.input) if args.input is not None else read_folded(args.input_folded)
     except ValueError as error:
         parser.error(str(error))
     if not stacks:

@@ -154,12 +154,10 @@ if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
       echo_error "ERROR: CPU NUMA binding was requested, but no NUMA node with both CPUs and memory was discovered."
     fi
 
-    # Match the launcher's balanced contiguous placement. Normal mode sizes
-    # every homogeneous worker config for the smallest share assigned anywhere
-    # on the host. The explicitly requested legacy reproduction retains the
-    # old full-host sizing mismatch. Placement yields 0; 0,1; and 0,0,1,1 for
-    # one, two, and four workers on a two-socket Grace host without treating
-    # HBM nodes as CPU sockets.
+    # Match the launcher's balanced contiguous placement. Workers are sized
+    # to the smallest share assigned anywhere on the host. Placement yields
+    # 0; 0,1; and 0,0,1,1 for one, two, and four workers on a two-socket
+    # Grace host without treating HBM nodes as CPU sockets.
     declare -a cpu_numa_worker_counts=()
     local_worker_id=0
     while (( local_worker_id < CPU_WORKERS_PER_HOST )); do
@@ -347,7 +345,7 @@ if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
 
   : "${CPU_QUERY_MEM_GB:=$((CPU_SYSTEM_MEM_GB * 70 / 100))}"
   : "${CPU_SYSTEM_MEM_LIMIT_GB:=$((RAM_PER_WORKER_GB - CPU_SYSTEM_MEM_LIMIT_HEADROOM_GB))}"
-  : "${CPU_LOCAL_EXCHANGE_BUFFER_BYTES:=536870912}"
+  : "${CPU_LOCAL_EXCHANGE_BUFFER:=512MB}"
   : "${CPU_EXCHANGE_MAX_RESPONSE_SIZE:=64MB}"
   : "${CPU_LARGEST_SIZE_CLASS_PAGES:=256}"
   : "${CPU_TABLE_SCAN_SHUFFLE_STRATEGY:=DISABLED}"
@@ -377,7 +375,7 @@ if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
   echo "CPU auto-tune: policy=${CPU_RESOURCE_POLICY} layout=${CPU_NUMA_WORKER_LAYOUT} total-workers=${NUM_WORKERS} workers-per-host=${CPU_WORKERS_PER_HOST} NPROC=${NPROC} PHYSICAL_CORES=${PHYSICAL_CORES} SMT_RATIO=${SMT_RATIO}"
   echo "               memory-per-worker-gb=${RAM_PER_WORKER_GB} system-memory-gb=${CPU_SYSTEM_MEM_GB} query-memory-gb=${CPU_QUERY_MEM_GB} system-mem-limit-gb=${CPU_SYSTEM_MEM_LIMIT_GB}"
   echo "               task.max-drivers-per-task=${CPU_DRIVERS} async-data-cache-enabled=${CPU_ASYNC_DATA_CACHE} largest-size-class-pages=${CPU_LARGEST_SIZE_CLASS_PAGES}"
-  echo "               local-exchange.max-buffer-size=${CPU_LOCAL_EXCHANGE_BUFFER_BYTES} exchange.max-buffer-size=${CPU_EXCHANGE_BUFFER} sink.max-buffer-size=${CPU_SINK_BUFFER} exchange.max-response-size=${CPU_EXCHANGE_MAX_RESPONSE_SIZE}"
+  echo "               local-exchange.max-buffer-size=${CPU_LOCAL_EXCHANGE_BUFFER} exchange.max-buffer-size=${CPU_EXCHANGE_BUFFER} sink.max-buffer-size=${CPU_SINK_BUFFER} exchange.max-response-size=${CPU_EXCHANGE_MAX_RESPONSE_SIZE}"
   echo "               optimizer.table-scan-shuffle-strategy=${CPU_TABLE_SCAN_SHUFFLE_STRATEGY} node-scheduler.schedule-splits-based-on-task-load=${CPU_SCHEDULE_SPLITS_BASED_ON_TASK_LOAD} node-scheduler.max-splits-per-task=${CPU_MAX_SPLITS_PER_TASK}"
   echo "               query.max-execution-time=${CPU_QUERY_MAX_EXECUTION_TIME}"
 
@@ -399,7 +397,7 @@ if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
     set_or_append_property "query.max-memory-per-node" "${CPU_QUERY_MEM_GB}GB" "${cfg}"
     set_or_append_property "task.max-drivers-per-task" "${CPU_DRIVERS}" "${cfg}"
     set_or_append_property "async-data-cache-enabled" "${CPU_ASYNC_DATA_CACHE}" "${cfg}"
-    set_or_append_property "local-exchange.max-buffer-size" "${CPU_LOCAL_EXCHANGE_BUFFER_BYTES}" "${cfg}"
+    set_or_append_property "local-exchange.max-buffer-size" "${CPU_LOCAL_EXCHANGE_BUFFER}" "${cfg}"
     set_or_append_property "exchange.max-buffer-size" "${CPU_EXCHANGE_BUFFER}" "${cfg}"
     set_or_append_property "sink.max-buffer-size" "${CPU_SINK_BUFFER}" "${cfg}"
     set_or_append_property "exchange.max-response-size" "${CPU_EXCHANGE_MAX_RESPONSE_SIZE}" "${cfg}"
