@@ -236,6 +236,12 @@ function run_worker {
     mkdir -p ${worker_data}/hive/data/user_data
     mkdir -p ${VT_ROOT}/.hive_metastore
 
+    # Provide a writable directory for libcudf's JIT/RTC cache. The container
+    # root filesystem is read-only squashfs, so /root/.libcudf is not writable
+    # without this mount.
+    local libcudf_cache="${SCRIPT_DIR}/libcudf_cache_${worker_id}"
+    mkdir -p "${libcudf_cache}"
+
     local vt_worker_env_file="/var/worker_env_file"
     local vt_cufile_log_dir="/var/log/cufile"
     local vt_cufile_log="${vt_cufile_log_dir}/cufile_worker_${worker_id}.log"
@@ -347,7 +353,8 @@ ${DATA}:/var/lib/presto/data/hive/data/user_data,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 ${WORKER_ENV_FILE}:${vt_worker_env_file},\
 ${LOGS}:${vt_cufile_log_dir},\
-${LOGS}:${vt_nsys_report_dir}${driver_mounts}${gds_mounts:+,${gds_mounts}}${worker_extra_mounts} \
+${LOGS}:${vt_nsys_report_dir},\
+${libcudf_cache}:/root/.libcudf${driver_mounts}${gds_mounts:+,${gds_mounts}}${worker_extra_mounts} \
 -- /bin/bash -c "
 export LD_LIBRARY_PATH='${CUDF_LIB}':/usr/local/lib:\${LD_LIBRARY_PATH:-}
 
