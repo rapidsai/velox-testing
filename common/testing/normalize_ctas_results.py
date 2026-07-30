@@ -32,6 +32,10 @@ def _query_directories(source_dir: Path) -> list[Path]:
 
 def _source_output_names(query_sql: str, physical_names: list[str]) -> list[str]:
     """Return names from an explicit SELECT projection for ORDER BY lookup."""
+    # Explicit CTAS projections are stored with unique positional names (c1,
+    # c2, ...), but ORDER BY still refers to names from the original SELECT.
+    # Recover those logical names so ORDER BY expressions can be mapped to the
+    # correct physical column positions without changing the stored schema.
     parsed = sqlglot.parse_one(query_sql, read="presto")
     select = next(parsed.find_all(exp.Select))
     has_wildcard = any(
