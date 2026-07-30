@@ -12,9 +12,9 @@ import pytest
 from common.testing.result_comparison import (
     _canonical_sort,
     _find_last_tie_start,
-    _get_orderby_sort_spec,
     _normalize_to_expected,
-    _restore_orderby,
+    get_orderby_sort_spec,
+    restore_orderby,
     _validate_orderby,
 )
 
@@ -113,24 +113,24 @@ def test_restore_orderby_uses_mixed_directions_and_explicit_null_placement():
             "payload": ["a2", "a1-low", "null-a", "a1-null", "a1-high"],
         }
     )
-    indices, ascending, nulls_first = _get_orderby_sort_spec(
+    indices, ascending, nulls_first = get_orderby_sort_spec(
         "SELECT a, b, payload FROM source ORDER BY a ASC NULLS LAST, b DESC NULLS FIRST",
         list(df.columns),
     )
 
-    restored = _restore_orderby(df, indices, ascending, nulls_first)
+    restored = restore_orderby(df, indices, ascending, nulls_first)
 
     assert restored["payload"].tolist() == ["a1-null", "a1-high", "a1-low", "a2", "null-a"]
 
 
 def test_restore_orderby_defaults_to_presto_nulls_last_for_desc():
     df = pd.DataFrame({"score": [None, 1, 2], "payload": ["null", "low", "high"]})
-    indices, ascending, nulls_first = _get_orderby_sort_spec(
+    indices, ascending, nulls_first = get_orderby_sort_spec(
         "SELECT score, payload FROM source ORDER BY score DESC",
         list(df.columns),
     )
 
-    restored = _restore_orderby(df, indices, ascending, nulls_first)
+    restored = restore_orderby(df, indices, ascending, nulls_first)
 
     assert ascending == [False]
     assert nulls_first == [False]

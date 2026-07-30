@@ -19,7 +19,7 @@ from sqlglot import exp
 # Allow importing from the repo root when this file is executed directly.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from common.testing.result_comparison import _get_orderby_sort_spec, _restore_orderby
+from common.testing.result_comparison import get_orderby_sort_spec, restore_orderby
 from common.testing.test_utils import get_queries
 
 
@@ -50,7 +50,7 @@ def _write_canonical_result(query_dir: Path, target: Path, query_sql: str | None
 
     if parquet_parts and query_sql is not None:
         column_names = _source_output_names(query_sql, pq.read_schema(parquet_parts[0]).names)
-        sort_spec = _get_orderby_sort_spec(query_sql, column_names)
+        sort_spec = get_orderby_sort_spec(query_sql, column_names)
 
     temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}")
     try:
@@ -61,7 +61,7 @@ def _write_canonical_result(query_dir: Path, target: Path, query_sql: str | None
         else:
             frame = pd.read_parquet(query_dir)
             if sort_spec[0]:
-                frame = _restore_orderby(frame, *sort_spec)
+                frame = restore_orderby(frame, *sort_spec)
             frame.to_parquet(temporary, index=False)
         os.replace(temporary, target)
     finally:

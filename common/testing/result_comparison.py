@@ -34,7 +34,7 @@ ValidationStatus = Literal["passed", "failed", "expected-failure", "not-validate
 # ---------------------------------------------------------------------------
 
 
-def _get_orderby_sort_spec(
+def get_orderby_sort_spec(
     query_sql: str,
     expected_col_names: list[str],
 ) -> tuple[list[int], list[bool], list[bool]]:
@@ -91,7 +91,7 @@ def get_orderby_col_indices(query_sql: str, expected_col_names: list[str]) -> tu
     ORDER BY expression is too complex to map to a result column (CASE,
     aggregate, etc.).
     """
-    sort_col_indices, ascending, _ = _get_orderby_sort_spec(query_sql, expected_col_names)
+    sort_col_indices, ascending, _ = get_orderby_sort_spec(query_sql, expected_col_names)
 
     return sort_col_indices, ascending
 
@@ -299,7 +299,7 @@ def _validate_orderby(df: pd.DataFrame, sort_col_indices: list[int], ascending: 
         prior_changed = prior_changed | value_changed
 
 
-def _restore_orderby(
+def restore_orderby(
     df: pd.DataFrame,
     sort_col_indices: list[int],
     ascending: list[bool],
@@ -481,7 +481,7 @@ def compare_result_frames(
         raise AssertionError(f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)")
 
     # 4. Parse ORDER BY / LIMIT.
-    sort_col_indices, ascending, _ = _get_orderby_sort_spec(query_sql, expected_col_names)
+    sort_col_indices, ascending, _ = get_orderby_sort_spec(query_sql, expected_col_names)
     limit = get_limit(query_sql)
 
     # 5. Per-frame ORDER BY validation — engine order is intact here.

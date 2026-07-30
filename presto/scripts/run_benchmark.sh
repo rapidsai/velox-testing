@@ -43,7 +43,7 @@ OPTIONS:
     --profile-script-path   Path to a custom profiler functions script. Defaults to ./profiler_functions.sh.
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
-    --run-as-ctas-queries  Run queries as distributed Hive CTAS operations instead of returning results
+    --run-as-ctas-queries   Run queries as distributed Hive CTAS operations instead of returning results
                             through the coordinator. PRESTO_CTAS_SCRATCH_DIR must be set and mounted when the cluster starts.
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.

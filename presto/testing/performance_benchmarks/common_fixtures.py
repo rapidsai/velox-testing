@@ -277,6 +277,9 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             raw_times_dict[query_id] = None
             raise
         finally:
+            # scratch_table is non-None here only when an exception cut the loop
+            # short before the in-loop DROP ran. The in-loop path resets it to
+            # None after a successful drop, so this path is the exception handler.
             if scratch_table is not None and ctas_results is not None:
                 with suppress(Exception):
                     presto_cursor.execute(

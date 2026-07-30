@@ -54,7 +54,7 @@ def validate(
         result_files = [results_dir / f"q{q_num}.parquet" for q_num in query_numbers]
         result_files = [path for path in result_files if path.exists()]
     else:
-        result_files = sorted(path for path in results_dir.iterdir() if re.fullmatch(r"q\d+\.parquet", path.name))
+        result_files = [path for path in results_dir.iterdir() if re.fullmatch(r"q\d+\.parquet", path.name)]
 
     if not result_files:
         print(f"No result Parquet files found in {results_dir}", file=sys.stderr)
