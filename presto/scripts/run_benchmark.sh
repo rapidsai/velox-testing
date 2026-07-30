@@ -43,8 +43,8 @@ OPTIONS:
     --profile-script-path   Path to a custom profiler functions script. Defaults to ./profiler_functions.sh.
     --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
-    --write-results-to-file Write query results with distributed Hive CTAS operations instead of returning them
-                            through the coordinator. PRESTO_OUTPUT_DIR must be set and mounted when the cluster starts.
+    --run-as-ctas-queries  Run queries as distributed Hive CTAS operations instead of returning results
+                            through the coordinator. PRESTO_CTAS_SCRATCH_DIR must be set and mounted when the cluster starts.
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
     --reference-results-dir Path to a directory containing reference (expected) parquet files.
@@ -59,8 +59,9 @@ OPTIONS:
                             Set to the full host path of the expected results directory
                             (e.g. PRESTO_EXPECTED_RESULTS_DIR=/data/sf100_expected).
                             Warning (not error) if set but the directory does not exist.
-    PRESTO_OUTPUT_DIR       Writable host directory used for distributed CTAS result datasets. This must be set
-                            before both cluster startup and this script when --write-results-to-file is enabled.
+    PRESTO_CTAS_SCRATCH_DIR
+                            Writable host scratch directory used for temporary distributed CTAS results. This must be set
+                            before both cluster startup and this script when --run-as-ctas-queries is enabled.
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
                             Use when engine is misdetected or the run fails.
@@ -72,7 +73,7 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
     $0 -b tpch -s bench_sf100 --metrics
-    PRESTO_OUTPUT_DIR=/results $0 -b tpch -s bench_sf100 --write-results-to-file
+    PRESTO_CTAS_SCRATCH_DIR=/results $0 -b tpch -s bench_sf100 --run-as-ctas-queries
     $0 -b tpch -s bench_sf100 --verbose
 
 EOF
@@ -196,8 +197,8 @@ parse_args() {
         SKIP_ANALYZE_CHECK=true
         shift
         ;;
-      --write-results-to-file)
-        WRITE_RESULTS_TO_FILE=true
+      --run-as-ctas-queries)
+        RUN_AS_CTAS_QUERIES=true
         shift
         ;;
       -m|--metrics)
@@ -241,16 +242,16 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
-if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
-  if [[ -z "${PRESTO_OUTPUT_DIR}" ]]; then
-    echo "Error: PRESTO_OUTPUT_DIR must be set when --write-results-to-file is enabled." >&2
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
+  if [[ -z "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR must be set when --run-as-ctas-queries is enabled." >&2
     exit 1
   fi
-  mkdir -p "${PRESTO_OUTPUT_DIR}"
-  PRESTO_OUTPUT_DIR="$(readlink -f "${PRESTO_OUTPUT_DIR}")"
-  export PRESTO_OUTPUT_DIR
-  if [[ ! -d "${PRESTO_OUTPUT_DIR}" || ! -w "${PRESTO_OUTPUT_DIR}" ]]; then
-    echo "Error: PRESTO_OUTPUT_DIR must be a writable directory: ${PRESTO_OUTPUT_DIR}" >&2
+  mkdir -p "${PRESTO_CTAS_SCRATCH_DIR}"
+  PRESTO_CTAS_SCRATCH_DIR="$(readlink -f "${PRESTO_CTAS_SCRATCH_DIR}")"
+  export PRESTO_CTAS_SCRATCH_DIR
+  if [[ ! -d "${PRESTO_CTAS_SCRATCH_DIR}" || ! -w "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR must be a writable directory: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
     exit 1
   fi
   if [[ -n ${TAG} ]]; then
@@ -258,7 +259,7 @@ if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
   else
     CTAS_RESULTS_SCHEMA="benchmark_results"
   fi
-  CTAS_RESULTS_DIR="${PRESTO_OUTPUT_DIR}/${CTAS_RESULTS_SCHEMA}"
+  CTAS_SCRATCH_RESULTS_DIR="${PRESTO_CTAS_SCRATCH_DIR}/${CTAS_RESULTS_SCHEMA}"
 fi
 
 # Fail fast if an explicit --reference-results-dir was given but doesn't exist.
@@ -328,8 +329,8 @@ if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-analyze-check")
 fi
 
-if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
-  PYTEST_ARGS+=("--write-results-to-file")
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
+  PYTEST_ARGS+=("--run-as-ctas-queries")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
@@ -355,7 +356,7 @@ BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 PYTEST_EXIT=0
 pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]} || PYTEST_EXIT=$?
 
-normalize_ctas_result_permissions() {
+ensure_ctas_scratch_readable() {
   local host_results_dir=$1
   local container_results_dir="/var/lib/presto/data/hive/benchmark_output/${CTAS_RESULTS_SCHEMA}"
 
@@ -400,9 +401,9 @@ normalize_ctas_result_permissions() {
   fi
 }
 
-NORMALIZE_EXIT=0
-if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
-  normalize_ctas_result_permissions "${CTAS_RESULTS_DIR}" || NORMALIZE_EXIT=$?
+CTAS_PERMISSION_EXIT=0
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
+  ensure_ctas_scratch_readable "${CTAS_SCRATCH_RESULTS_DIR}" || CTAS_PERMISSION_EXIT=$?
 fi
 
 # Snapshot logs and engine configs into the benchmark output directory so that
@@ -413,6 +414,21 @@ if [[ -n "${TAG}" ]]; then
   EFFECTIVE_BENCHMARK_DIR="${EFFECTIVE_OUTPUT_DIR}/${TAG}"
 else
   EFFECTIVE_BENCHMARK_DIR="${EFFECTIVE_OUTPUT_DIR}"
+fi
+
+CTAS_NORMALIZATION_EXIT=0
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && ${CTAS_PERMISSION_EXIT} -eq 0 ]]; then
+  NORMALIZE_ARGS=(
+    --source-dir "${CTAS_SCRATCH_RESULTS_DIR}"
+    --output-dir "${EFFECTIVE_BENCHMARK_DIR}/query_results"
+    --benchmark-type "${BENCHMARK_TYPE}"
+  )
+  if [[ -n ${QUERIES_FILE} ]]; then
+    NORMALIZE_ARGS+=(--queries-file "${QUERIES_FILE}")
+  fi
+  echo "[CTAS] Normalizing temporary results into ${EFFECTIVE_BENCHMARK_DIR}/query_results"
+  python "${SCRIPT_DIR}/../../common/testing/normalize_ctas_results.py" \
+    "${NORMALIZE_ARGS[@]}" || CTAS_NORMALIZATION_EXIT=$?
 fi
 
 if [[ -d "${LOGS_DIR}" ]]; then
@@ -435,7 +451,9 @@ VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../testing/requirements.txt"
 # PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
 # Explicit --reference-results-dir was already validated before the benchmark ran.
 VALIDATION_EXIT=0
-if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && ( ${CTAS_PERMISSION_EXIT} -ne 0 || ${CTAS_NORMALIZATION_EXIT} -ne 0 ) ]]; then
+  echo "[Validation] Skipped because CTAS result normalization failed."
+elif [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
   echo "[Validation] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
 else
   VALIDATE_ARGS=(--output-dir "${OUTPUT_DIR:-$(pwd)/benchmark_output}" --benchmark-type "${BENCHMARK_TYPE}")
@@ -448,17 +466,7 @@ else
   if [[ -n ${QUERIES} ]]; then
     VALIDATE_ARGS+=(--queries "${QUERIES}")
   fi
-  if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
-    VALIDATE_ARGS+=(--actual-results-dir "${CTAS_RESULTS_DIR}")
-  fi
-
-  ACTUAL_OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/benchmark_output}"
-  [[ -n ${TAG} ]] && ACTUAL_OUTPUT_DIR="${ACTUAL_OUTPUT_DIR}/${TAG}"
-  if [[ "${WRITE_RESULTS_TO_FILE}" == "true" ]]; then
-    ACTUAL_RESULTS_DIR="${CTAS_RESULTS_DIR}"
-  else
-    ACTUAL_RESULTS_DIR="${ACTUAL_OUTPUT_DIR}/query_results"
-  fi
+  ACTUAL_RESULTS_DIR="${EFFECTIVE_BENCHMARK_DIR}/query_results"
   echo "[Validation] Running validation: ${ACTUAL_RESULTS_DIR} vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
   "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet \
     -p "${VALIDATE_SCRIPT}" \
@@ -467,10 +475,12 @@ else
 fi
 
 # Preserve the benchmark failure as the primary exit status while still
-# attempting CTAS permission normalization, artifact collection, and validation.
+# attempting CTAS normalization, artifact collection, and validation.
 if [[ ${PYTEST_EXIT} -ne 0 ]]; then
   exit "${PYTEST_EXIT}"
-elif [[ ${NORMALIZE_EXIT} -ne 0 ]]; then
-  exit "${NORMALIZE_EXIT}"
+elif [[ ${CTAS_PERMISSION_EXIT} -ne 0 ]]; then
+  exit "${CTAS_PERMISSION_EXIT}"
+elif [[ ${CTAS_NORMALIZATION_EXIT} -ne 0 ]]; then
+  exit "${CTAS_NORMALIZATION_EXIT}"
 fi
 exit "${VALIDATION_EXIT}"

@@ -7,7 +7,7 @@ KVIKIO_ARRAY=(8)
 DRIVERS_ARRAY=(2)
 WORKERS_ARRAY=(1)
 SCHEMA_ARRAY=()
-WRITE_RESULTS_TO_FILE=false
+RUN_AS_CTAS_QUERIES=false
 parse_args() {
   while [[ $# -gt 0 ]]; do
       case $1 in
@@ -56,8 +56,8 @@ parse_args() {
                 exit 1
             fi
             ;;
-        --write-results-to-file)
-            WRITE_RESULTS_TO_FILE=true
+        --run-as-ctas-queries)
+            RUN_AS_CTAS_QUERIES=true
             shift
             ;;
         *)
@@ -81,13 +81,13 @@ if [[ -z ${PRESTO_DATA_DIR} ]]; then
     exit 1
 fi
 
-if [[ "${WRITE_RESULTS_TO_FILE}" == "true" && -z "${PRESTO_OUTPUT_DIR:-}" ]]; then
-    echo "Error: PRESTO_OUTPUT_DIR is required with --write-results-to-file."
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && -z "${PRESTO_CTAS_SCRATCH_DIR:-}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR is required with --run-as-ctas-queries."
     exit 1
 fi
 
 BENCHMARK_OUTPUT_ARGS=()
-[[ "${WRITE_RESULTS_TO_FILE}" == "true" ]] && BENCHMARK_OUTPUT_ARGS+=(--write-results-to-file)
+[[ "${RUN_AS_CTAS_QUERIES}" == "true" ]] && BENCHMARK_OUTPUT_ARGS+=(--run-as-ctas-queries)
 
 for schema in "${SCHEMA_ARRAY[@]}"; do
     for kvikio in "${KVIKIO_ARRAY[@]}"; do

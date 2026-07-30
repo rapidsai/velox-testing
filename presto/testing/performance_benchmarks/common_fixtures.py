@@ -33,6 +33,7 @@ class CtasResults:
 
 
 def ctas_schema_name(tag):
+    """Return the isolated scratch schema for this benchmark tag."""
     if tag and not re.fullmatch(r"[A-Za-z0-9_]+", tag):
         raise ValueError("CTAS result tags must contain only alphanumeric and underscore characters")
     return f"benchmark_results_{tag.lower()}" if tag else "benchmark_results"
@@ -46,56 +47,31 @@ def ctas_table_name(query_id, iteration_num):
     return query_id.lower() if iteration_num == 0 else f"{query_id.lower()}_iteration_{iteration_num + 1}"
 
 
-def alias_ctas_output_expressions(query):
-    """Give every explicit CTAS output expression a unique column name."""
-    query = strip_trailing_semicolon(query)
-    parsed = sqlglot.parse_one(query, read="presto")
+def ctas_output_column_aliases(query):
+    """Return unique CTAS aliases without modifying the original SELECT.
+
+    A wildcard's expanded column count depends on source schema metadata, so
+    wildcard projections keep their original output names instead.
+    """
+    parsed = sqlglot.parse_one(strip_trailing_semicolon(query), read="presto")
     select = next(parsed.find_all(exp.Select))
-    expressions = list(select.expressions)
-
-    reserved_names = {
-        expression.alias_or_name.casefold()
-        for expression in expressions
-        if isinstance(expression, (exp.Alias, exp.Column)) and not expression.is_star
-    }
-    used_names = set()
-    changed = False
-
-    for position, expression in enumerate(expressions, start=1):
-        if expression.is_star:
-            continue
-
-        name = expression.alias_or_name if isinstance(expression, (exp.Alias, exp.Column)) else ""
-        normalized_name = name.casefold()
-        if name and normalized_name not in used_names:
-            used_names.add(normalized_name)
-            continue
-
-        base_alias = f"result_column_{position}"
-        alias = base_alias
-        suffix = 2
-        while alias.casefold() in reserved_names or alias.casefold() in used_names:
-            alias = f"{base_alias}_{suffix}"
-            suffix += 1
-
-        if isinstance(expression, exp.Alias):
-            expression.set("alias", exp.to_identifier(alias))
-        else:
-            expressions[position - 1] = exp.alias_(expression, alias, copy=False)
-        used_names.add(alias.casefold())
-        changed = True
-
-    if not changed:
-        return query
-    select.set("expressions", expressions)
-    return parsed.sql(dialect="presto")
+    if any(
+        isinstance(projection := expression.this if isinstance(expression, exp.Alias) else expression, exp.Star)
+        or (isinstance(projection, exp.Column) and isinstance(projection.this, exp.Star))
+        for expression in select.expressions
+    ):
+        return None
+    return [f"c{position}" for position in range(1, len(select.expressions) + 1)]
 
 
 def build_ctas_query(benchmark_type, query_id, query, catalog, schema, table):
+    query = strip_trailing_semicolon(query)
+    aliases = ctas_output_column_aliases(query)
+    column_aliases = f" ({', '.join(aliases)})" if aliases else ""
     return (
         f"--{benchmark_type}_{query_id}--\n"
-        f"CREATE TABLE {catalog}.{schema}.{table} WITH (format = 'PARQUET') AS\n"
-        f"{alias_ctas_output_expressions(query)}"
+        f"CREATE TABLE {catalog}.{schema}.{table}{column_aliases} WITH (format = 'PARQUET') AS\n"
+        f"{query}"
     )
 
 
@@ -111,16 +87,16 @@ def _drop_results_schema(cursor, catalog, schema):
 
 @pytest.fixture(scope="session")
 def ctas_results(request):
-    if not request.config.getoption("--write-results-to-file"):
+    if not request.config.getoption("--run-as-ctas-queries"):
         return None
 
-    output_dir = os.environ.get("PRESTO_OUTPUT_DIR")
-    if not output_dir:
-        pytest.exit("PRESTO_OUTPUT_DIR must be set when --write-results-to-file is enabled.", returncode=2)
+    scratch_dir = os.environ.get("PRESTO_CTAS_SCRATCH_DIR")
+    if not scratch_dir:
+        pytest.exit("PRESTO_CTAS_SCRATCH_DIR must be set when --run-as-ctas-queries is enabled.", returncode=2)
 
     tag = request.config.getoption("--tag")
     schema = ctas_schema_name(tag)
-    host_results_dir = Path(output_dir).expanduser() / schema
+    host_results_dir = Path(scratch_dir).expanduser() / schema
 
     conn = prestodb.dbapi.connect(
         host=request.config.getoption("--hostname"),
@@ -238,6 +214,9 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
             result = []
             for iteration_num in range(iterations):
                 if ctas_results is not None:
+                    # Retain the first iteration as the query result. Later
+                    # iterations use short-lived tables so every measured
+                    # execution performs the same CTAS work.
                     table = ctas_table_name(query_id, iteration_num)
                     scratch_table = table if iteration_num > 0 else None
                     query = build_ctas_query(

@@ -48,7 +48,7 @@ def pytest_addoption(parser):
     parser.addoption("--metrics", action="store_true", default=False)
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
     parser.addoption("--skip-analyze-check", action="store_true", default=False)
-    parser.addoption("--write-results-to-file", action="store_true", default=False)
+    parser.addoption("--run-as-ctas-queries", action="store_true", default=False)
 
 
 def pytest_configure(config):

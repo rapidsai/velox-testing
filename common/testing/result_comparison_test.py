@@ -16,7 +16,6 @@ from common.testing.result_comparison import (
     _normalize_to_expected,
     _restore_orderby,
     _validate_orderby,
-    compare_result_frames,
 )
 
 # ---------------------------------------------------------------------------
@@ -136,18 +135,6 @@ def test_restore_orderby_defaults_to_presto_nulls_last_for_desc():
     assert ascending == [False]
     assert nulls_first == [False]
     assert restored["payload"].tolist() == ["high", "low", "null"]
-
-
-def test_compare_restores_unordered_limit_result_before_tie_handling():
-    actual = pd.DataFrame({"score": [5.0, 10.0, 5.0], "payload": ["different-tie", "top", "left-tie"]})
-    expected = pd.DataFrame({"score": [10.0, 5.0, 5.0], "payload": ["top", "left-tie", "right-tie"]})
-
-    compare_result_frames(
-        actual,
-        expected,
-        "SELECT score, payload FROM source ORDER BY score DESC LIMIT 3",
-        actual_order_preserved=False,
-    )
 
 
 # ---------------------------------------------------------------------------

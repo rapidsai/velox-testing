@@ -37,7 +37,7 @@ def validate(
     """Run validation and return a results dict.
 
     Args:
-        results_dir:    Directory containing qN.parquet files or distributed qN datasets.
+        results_dir:    Directory containing qN.parquet files.
         expected_dir:   Directory containing expected parquet files.
         queries:        Dict mapping query IDs (e.g. "Q1") to SQL strings.
         query_numbers:  Optional list of query numbers to validate.  When provided,
@@ -51,32 +51,17 @@ def validate(
     passed = failed = not_validated = expected_failures = 0
 
     if query_numbers is not None:
-        result_files = []
-        for q_num in query_numbers:
-            result_files.extend(
-                path for path in (results_dir / f"q{q_num}.parquet", results_dir / f"q{q_num}") if path.exists()
-            )
+        result_files = [results_dir / f"q{q_num}.parquet" for q_num in query_numbers]
+        result_files = [path for path in result_files if path.exists()]
     else:
-        result_files = sorted(path for path in results_dir.iterdir() if re.fullmatch(r"q\d+(?:\.parquet)?", path.name))
+        result_files = sorted(path for path in results_dir.iterdir() if re.fullmatch(r"q\d+\.parquet", path.name))
 
     if not result_files:
-        print(f"No result Parquet files or datasets found in {results_dir}", file=sys.stderr)
+        print(f"No result Parquet files found in {results_dir}", file=sys.stderr)
         return {"overall_status": "not-validated", "queries": {}}
 
-    results_by_query: dict[str, list[Path]] = {}
-    for result_file in result_files:
-        results_by_query.setdefault(result_file.stem, []).append(result_file)
-
-    for query_id, query_paths in sorted(results_by_query.items(), key=lambda item: int(item[0].lstrip("q"))):
-        if len(query_paths) != 1:
-            names = ", ".join(sorted(path.name for path in query_paths))
-            msg = f"multiple result representations found: {names}"
-            print(f"[Validation] {query_id.upper():4s}: FAIL     {msg}")
-            query_results[query_id] = {"status": "failed", "message": msg}
-            failed += 1
-            continue
-
-        result_file = query_paths[0]
+    for result_file in sorted(result_files, key=lambda path: int(path.stem.lstrip("q"))):
+        query_id = result_file.stem
         q_num = int(query_id.lstrip("q"))
 
         # Accepted naming conventions for expected files (tried in order):
@@ -101,8 +86,6 @@ def validate(
             failed += 1
             continue
 
-        # PyArrow treats a CTAS dataset containing only `.prestoSchema` as an
-        # empty, schema-less frame; the empty-result handling below covers it.
         actual = pd.read_parquet(result_file)
         expected = pd.read_parquet(expected_file)
 
@@ -120,13 +103,7 @@ def validate(
             not_validated += 1
             continue
 
-        status, msg = validate_query_result(
-            query_id,
-            actual,
-            expected,
-            query_sql,
-            actual_order_preserved=result_file.is_file(),
-        )
+        status, msg = validate_query_result(query_id, actual, expected, query_sql)
 
         if status == "not-validated":
             query_results[query_id] = {"status": "not-validated", "message": msg}
@@ -168,7 +145,7 @@ def validate(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Validate TPC-H/TPC-DS query results against expected Parquet files or datasets.",
+        description="Validate TPC-H/TPC-DS query results against expected Parquet files.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -176,12 +153,6 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         required=True,
         help="Benchmark output directory (same as pytest --output-dir).",
-    )
-    parser.add_argument(
-        "--actual-results-dir",
-        default=None,
-        help="Optional directory containing actual qN Parquet files or dataset directories. "
-        "Defaults to query_results beneath --output-dir/--tag.",
     )
     parser.add_argument(
         "--tag",
@@ -223,7 +194,7 @@ if __name__ == "__main__":
 
     output_dir = Path(args.output_dir)
     report_dir = output_dir / args.tag if args.tag else output_dir
-    results_dir = Path(args.actual_results_dir) if args.actual_results_dir else report_dir / "query_results"
+    results_dir = report_dir / "query_results"
     output_path = report_dir / "validation_results.json"
 
     if not results_dir.is_dir():

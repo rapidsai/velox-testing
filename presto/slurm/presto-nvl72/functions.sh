@@ -2,13 +2,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-CTAS_CONTAINER_OUTPUT_DIR=/var/lib/presto/data/hive/benchmark_output
+CTAS_CONTAINER_SCRATCH_DIR=/var/lib/presto/data/hive/benchmark_output
 EXPECTED_RESULTS_CONTAINER_DIR=/var/lib/presto/expected-results
 
-ctas_output_mount_arg() {
-    if [[ "${WRITE_RESULTS_TO_FILE:-0}" == "1" ]]; then
-        validate_environment_preconditions PRESTO_OUTPUT_DIR
-        printf ',%s:%s' "${PRESTO_OUTPUT_DIR}" "${CTAS_CONTAINER_OUTPUT_DIR}"
+ctas_scratch_mount_arg() {
+    if [[ "${RUN_AS_CTAS_QUERIES:-0}" == "1" ]]; then
+        validate_environment_preconditions PRESTO_CTAS_SCRATCH_DIR
+        printf ',%s:%s' "${PRESTO_CTAS_SCRATCH_DIR}" "${CTAS_CONTAINER_SCRATCH_DIR}"
     fi
     return 0
 }
@@ -134,7 +134,7 @@ function run_coord_image {
 
     local extra_mounts
     extra_mounts="$(miniforge_mount_arg)"
-    extra_mounts+="$(ctas_output_mount_arg)"
+    extra_mounts+="$(ctas_scratch_mount_arg)"
     [[ "${type}" == "cli" ]] && extra_mounts+="$(expected_results_mount_arg)"
     if [[ -n "${CLUSTER_EXTRA_MOUNTS:-}" ]]; then
         extra_mounts="${extra_mounts},${CLUSTER_EXTRA_MOUNTS}"
@@ -312,7 +312,7 @@ function run_worker {
         driver_mounts="${driver_mounts},${CLUSTER_LIBNVIDIA_ML_HOST_PATH}:${CLUSTER_LIBNVIDIA_ML_CONTAINER_PATH}"
     fi
     local worker_extra_mounts=""
-    worker_extra_mounts="$(ctas_output_mount_arg)"
+    worker_extra_mounts="$(ctas_scratch_mount_arg)"
     if [[ -n "${CLUSTER_EXTRA_MOUNTS:-}" ]]; then
         worker_extra_mounts+=",${CLUSTER_EXTRA_MOUNTS}"
     fi
@@ -566,7 +566,7 @@ function run_queries {
     [[ "${ENABLE_METRICS}" == "1" ]] && extra_args+=("-m")
     [[ "${ENABLE_NSYS}" == "1" ]] && extra_args+=("-p" "--profile-script-path" "${container_script_dir}/profiler_functions.sh")
     [[ -n "${QUERIES:-}" ]] && extra_args+=("-q" "${QUERIES}")
-    [[ "${WRITE_RESULTS_TO_FILE:-0}" == "1" ]] && extra_args+=("--write-results-to-file")
+    [[ "${RUN_AS_CTAS_QUERIES:-0}" == "1" ]] && extra_args+=("--run-as-ctas-queries")
 
     source "${SCRIPT_DIR}/defaults.env"
 
@@ -598,7 +598,7 @@ function run_queries {
     export PORT=$PORT; \
     export HOSTNAME=$COORD; \
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
-    export PRESTO_OUTPUT_DIR=${CTAS_CONTAINER_OUTPUT_DIR}; \
+    export PRESTO_CTAS_SCRATCH_DIR=${CTAS_CONTAINER_SCRATCH_DIR}; \
     export PRESTO_EXPECTED_RESULTS_DIR=${container_expected_results_dir}; \
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \

@@ -44,7 +44,7 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
     SCCACHE_AUTH_DIR     Directory containing sccache auth files (default: ~/.sccache-auth/).
-    PRESTO_OUTPUT_DIR    Optional writable host directory mounted for distributed CTAS benchmark results.
+    PRESTO_CTAS_SCRATCH_DIR    Optional writable host scratch directory mounted for temporary CTAS benchmark results.
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -218,14 +218,14 @@ parse_args() {
 
 parse_args "$@"
 
-if [[ -n "${PRESTO_OUTPUT_DIR:-}" ]]; then
-  mkdir -p "${PRESTO_OUTPUT_DIR}"
-  PRESTO_OUTPUT_DIR="$(readlink -f "${PRESTO_OUTPUT_DIR}")"
-  if [[ ! -d "${PRESTO_OUTPUT_DIR}" || ! -w "${PRESTO_OUTPUT_DIR}" ]]; then
-    echo "Error: PRESTO_OUTPUT_DIR must be a writable directory: ${PRESTO_OUTPUT_DIR}" >&2
+if [[ -n "${PRESTO_CTAS_SCRATCH_DIR:-}" ]]; then
+  mkdir -p "${PRESTO_CTAS_SCRATCH_DIR}"
+  PRESTO_CTAS_SCRATCH_DIR="$(readlink -f "${PRESTO_CTAS_SCRATCH_DIR}")"
+  if [[ ! -d "${PRESTO_CTAS_SCRATCH_DIR}" || ! -w "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR must be a writable directory: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
     exit 1
   fi
-  export PRESTO_OUTPUT_DIR
+  export PRESTO_CTAS_SCRATCH_DIR
 fi
 
 if [[ -n ${BUILD_TARGET} && ! ${BUILD_TARGET} =~ ^(coordinator|c|worker|w|all|a)$ ]]; then

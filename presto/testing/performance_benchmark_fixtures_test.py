@@ -8,8 +8,8 @@ import pytest
 
 from presto.testing.performance_benchmarks.common_fixtures import (
     _drop_results_schema,
-    alias_ctas_output_expressions,
     build_ctas_query,
+    ctas_output_column_aliases,
     ctas_schema_name,
     ctas_table_name,
     strip_trailing_semicolon,
@@ -40,42 +40,42 @@ def test_ctas_names_and_sql():
     assert ctas_table_name("Q7", 2) == "q7_iteration_3"
     assert strip_trailing_semicolon("SELECT 1;\n") == "SELECT 1"
     assert build_ctas_query("tpch", "Q7", "SELECT 1;", "hive_output", "results", "q7") == (
-        "--tpch_Q7--\nCREATE TABLE hive_output.results.q7 WITH (format = 'PARQUET') AS\nSELECT 1 AS result_column_1"
+        "--tpch_Q7--\nCREATE TABLE hive_output.results.q7 (c1) WITH (format = 'PARQUET') AS\nSELECT 1"
     )
 
 
-def test_ctas_aliases_unnamed_and_duplicate_output_expressions():
+def test_ctas_uses_positional_aliases_for_explicit_output_expressions():
     query = "SELECT c_name, sum(l_quantity), c_name, count(*) AS row_count FROM customer, lineitem GROUP BY c_name"
 
-    rewritten = alias_ctas_output_expressions(query)
-
-    assert rewritten == (
-        "SELECT c_name, SUM(l_quantity) AS result_column_2, "
-        "c_name AS result_column_3, COUNT(*) AS row_count "
-        "FROM customer, lineitem GROUP BY c_name"
+    assert ctas_output_column_aliases(query) == ["c1", "c2", "c3", "c4"]
+    assert build_ctas_query("tpch", "Q18", query, "hive_output", "results", "q18").endswith(
+        "(c1, c2, c3, c4) WITH (format = 'PARQUET') AS\n" + query
     )
 
 
-def test_ctas_alias_rewrite_leaves_stars_for_presto_to_expand():
-    assert alias_ctas_output_expressions("SELECT nested.* FROM (SELECT 1 AS value) nested") == (
-        "SELECT nested.* FROM (SELECT 1 AS value) nested"
+def test_ctas_alias_list_leaves_stars_for_presto_to_expand():
+    query = "SELECT nested.* FROM (SELECT 1 AS value) nested"
+
+    assert ctas_output_column_aliases(query) is None
+    assert build_ctas_query("tpcds", "Q88", query, "hive_output", "results", "q88") == (
+        "--tpcds_Q88--\nCREATE TABLE hive_output.results.q88 WITH (format = 'PARQUET') AS\n" + query
     )
 
 
 @pytest.mark.parametrize("benchmark_type", ["tpch", "tpcds"])
-def test_ctas_alias_rewrite_parses_all_builtin_queries(benchmark_type):
+def test_ctas_alias_list_parses_all_builtin_queries(benchmark_type):
     repo_root = Path(__file__).parents[2]
     query_path = repo_root / "common" / "testing" / "queries" / benchmark_type / "queries.json"
     queries = json.loads(query_path.read_text())
 
-    rewritten = {
-        query_id: alias_ctas_output_expressions(query.replace("{SF_FRACTION}", "0.0001"))
+    aliases = {
+        query_id: ctas_output_column_aliases(query.replace("{SF_FRACTION}", "0.0001"))
         for query_id, query in queries.items()
     }
 
-    assert rewritten.keys() == queries.keys()
+    assert aliases.keys() == queries.keys()
     if benchmark_type == "tpch":
-        assert "SUM(l_quantity) AS result_column_6" in rewritten["Q18"]
+        assert aliases["Q18"] == ["c1", "c2", "c3", "c4", "c5", "c6"]
 
 
 def test_drop_results_schema_removes_managed_tables_first():

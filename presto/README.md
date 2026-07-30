@@ -51,12 +51,12 @@ All three repositories must be checked out as sibling directories. **Important:*
    export PRESTO_DATA_DIR=/path/to/your/benchmark/data
    ```
 
-   Benchmark source data is mounted read-only. To have workers write large query
-   results directly as distributed Parquet datasets, also select a separate
-   writable directory before starting the cluster:
+   Benchmark source data is mounted read-only. To run large-result queries as
+   distributed CTAS writes, also select a separate writable scratch directory
+   before starting the cluster:
 
    ```bash
-   export PRESTO_OUTPUT_DIR=/path/to/writable/benchmark-results
+   export PRESTO_CTAS_SCRATCH_DIR=/path/to/writable/benchmark-results
    ```
    > **Tip:** Add this export to your `~/.bashrc` to avoid setting it each time.
 
@@ -104,12 +104,13 @@ pytest tpch_test.py
    ```
    > This step is necessary because aggregation for statistics collection is not yet supported on GPU. Collecting statistics improves performance and reduces OOM errors for GPU execution.
 
-4. Run a benchmark. Add `--write-results-to-file` to write distributed
-   `benchmark_results_<tag>/qN/` Parquet datasets beneath `PRESTO_OUTPUT_DIR`
-   (`benchmark_results/qN/` when no tag is supplied):
+4. Run a benchmark. Add `--run-as-ctas-queries` to keep distributed result
+   transfer out of the measured query. Workers first write beneath
+   `PRESTO_CTAS_SCRATCH_DIR`; after timing, the script combines each result into
+   the same `query_results/qN.parquet` layout used by the default mode:
 
    ```bash
-   ./run_benchmark.sh -b tpch -s bench_sf100 --write-results-to-file
+   ./run_benchmark.sh -b tpch -s bench_sf100 --run-as-ctas-queries
    ```
 
 5. For the standard coordinator-returned result mode, run:

@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Convert temporary distributed CTAS tables into canonical qN.parquet files."""
+
+import argparse
+import os
+import re
+import shutil
+import sys
+from pathlib import Path
+
+import pandas as pd
+import pyarrow.parquet as pq
+import sqlglot
+from sqlglot import exp
+
+# Allow importing from the repo root when this file is executed directly.
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from common.testing.result_comparison import _get_orderby_sort_spec, _restore_orderby
+from common.testing.test_utils import get_queries
+
+
+def _query_directories(source_dir: Path) -> list[Path]:
+    return sorted(
+        (path for path in source_dir.iterdir() if path.is_dir() and re.fullmatch(r"q\d+", path.name)),
+        key=lambda path: int(path.name[1:]),
+    )
+
+
+def _source_output_names(query_sql: str, physical_names: list[str]) -> list[str]:
+    """Return names from an explicit SELECT projection for ORDER BY lookup."""
+    parsed = sqlglot.parse_one(query_sql, read="presto")
+    select = next(parsed.find_all(exp.Select))
+    has_wildcard = any(
+        isinstance(projection := expression.this if isinstance(expression, exp.Alias) else expression, exp.Star)
+        or (isinstance(projection, exp.Column) and isinstance(projection.this, exp.Star))
+        for expression in select.expressions
+    )
+    if len(select.expressions) != len(physical_names) or has_wildcard:
+        return physical_names
+    return [expression.alias_or_name or physical_names[position] for position, expression in enumerate(select.expressions)]
+
+
+def _write_canonical_result(query_dir: Path, target: Path, query_sql: str | None) -> None:
+    parquet_parts = sorted(query_dir.rglob("*.parquet"))
+    sort_spec: tuple[list[int], list[bool], list[bool]] = ([], [], [])
+
+    if parquet_parts and query_sql is not None:
+        column_names = _source_output_names(query_sql, pq.read_schema(parquet_parts[0]).names)
+        sort_spec = _get_orderby_sort_spec(query_sql, column_names)
+
+    temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}")
+    try:
+        # A single unordered part is already a canonical Parquet file. Copying
+        # it avoids decoding and rewriting large results.
+        if len(parquet_parts) == 1 and not sort_spec[0]:
+            shutil.copy2(parquet_parts[0], temporary)
+        else:
+            frame = pd.read_parquet(query_dir)
+            if sort_spec[0]:
+                frame = _restore_orderby(frame, *sort_spec)
+            frame.to_parquet(temporary, index=False)
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def normalize_ctas_results(
+    source_dir: Path,
+    output_dir: Path,
+    queries: dict[str, str],
+) -> list[Path]:
+    """Convert each committed qN CTAS table into one canonical Parquet file."""
+    query_dirs = _query_directories(source_dir)
+    if not query_dirs:
+        raise ValueError(f"No committed CTAS result tables found in {source_dir}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    normalized: list[Path] = []
+    for query_dir in query_dirs:
+        target = output_dir / f"{query_dir.name}.parquet"
+        _write_canonical_result(query_dir, target, queries.get(query_dir.name.upper()))
+        shutil.rmtree(query_dir)
+        normalized.append(target)
+    return normalized
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-dir", required=True, type=Path, help="Directory containing temporary qN CTAS tables.")
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        type=Path,
+        help="Canonical query_results directory that will receive qN.parquet files.",
+    )
+    parser.add_argument("--benchmark-type", required=True, choices=["tpch", "tpcds"])
+    parser.add_argument("--queries-file", default=None, help="Optional custom query-definition JSON file.")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    try:
+        outputs = normalize_ctas_results(
+            args.source_dir,
+            args.output_dir,
+            get_queries(args.benchmark_type, args.queries_file),
+        )
+    except (OSError, ValueError) as error:
+        print(f"Error: Failed to normalize CTAS results: {error}", file=sys.stderr)
+        sys.exit(1)
+    for output in outputs:
+        print(f"Normalized CTAS result: {output}")

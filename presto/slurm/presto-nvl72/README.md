@@ -103,17 +103,18 @@ This step only needs to repeat when the worker image's stat tracking changes
 # Profile queries 5 and 6 on worker 2
 ./launch-run.sh -n 8 -s 3000 -p --nsys-worker-id 2 -q 5,6
 
-# Have workers write distributed Parquet results to separate shared storage
-PRESTO_OUTPUT_DIR=/shared/writable/presto-results \
-  ./launch-run.sh -n 8 -s 3000 --write-results-to-file
+# Use separate shared scratch storage for distributed CTAS writes
+PRESTO_CTAS_SCRATCH_DIR=/shared/writable/presto-results \
+  ./launch-run.sh -n 8 -s 3000 --run-as-ctas-queries
 ```
 
 Submits a benchmark sbatch job, polls until completion, and prints a summary.
 Results land under `result_dir/`. See `./launch-run.sh --help` for the full
-flag list (queries filter, output path, CTAS result writing, GDS toggle,
-profiling, metrics, …). In CTAS mode, benchmark reports remain in
-`result_dir/`, while `benchmark_results_<tag>/qN/` Parquet datasets are written
-beneath `PRESTO_OUTPUT_DIR` (`benchmark_results/qN/` without a tag).
+flag list (queries filter, output path, CTAS execution, GDS toggle, profiling,
+metrics, …). In CTAS mode, workers write temporary distributed results beneath
+`PRESTO_CTAS_SCRATCH_DIR`. After query timing, those parts are combined into
+the normal `result_dir/query_results/qN.parquet` files, alongside the benchmark
+reports.
 
 To validate benchmark output, set the host-side reference directory in
 `~/.cluster_config.env`:

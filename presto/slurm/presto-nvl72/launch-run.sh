@@ -14,7 +14,7 @@
 #                  [-i|--iterations <n>] [--cpu] [-g|--num-workers-per-node <n>]
 #                  [-w|--worker-image <name>] [-c|--coord-image <name>]
 #                  [-o|--output-path <dir>] [-q|--queries <filter>]
-#                  [--write-results-to-file] [--disable-gds] [-m|--metrics] [-p|--profile]
+#                  [--run-as-ctas-queries] [--disable-gds] [-m|--metrics] [-p|--profile]
 #                  [additional sbatch options]
 # ==============================================================================
 
@@ -42,7 +42,7 @@ SCRIPT_DIR="$PWD"
 ENABLE_GDS=1
 ENABLE_METRICS=0
 ENABLE_NSYS=0
-WRITE_RESULTS_TO_FILE=0
+RUN_AS_CTAS_QUERIES=0
 NSYS_WORKER_ID=0
 QUERIES=""
 
@@ -63,7 +63,7 @@ Options:
   -c, --coord-image <name>     Override coordinator image from cluster config
   -o, --output-path <dir>      Copy results into this directory after the run
   -q, --queries <list>         Comma-separated query filter (e.g. "1,6,21")
-      --write-results-to-file  Write distributed Parquet results with CTAS. Requires PRESTO_OUTPUT_DIR.
+      --run-as-ctas-queries     Run queries as distributed CTAS writes. Requires PRESTO_CTAS_SCRATCH_DIR.
       --worker-env-file <path> Override worker.env (default: ./worker.env)
       --cpu                    Use CPU partition/images (overrides cluster default)
       --gpu                    Use GPU partition/images (overrides cluster default)
@@ -77,9 +77,8 @@ Options:
 Any arguments after -- are passed directly to sbatch.
 
 Cluster config (~/.cluster_config.env or \$CLUSTER_CONFIG) supplies partition,
-account, time limits, image names, per-variant defaults, and the optional
-PRESTO_EXPECTED_RESULTS_DIR. Expected results are mounted read-only into the
-CLI container. See cluster_config.env.example.
+account, time limits, image names, per-variant defaults, and optional CTAS
+scratch and expected-result directories. See cluster_config.env.example.
 EOF
 }
 
@@ -99,7 +98,7 @@ while [[ $# -gt 0 ]]; do
         --gpu)         VARIANT_TYPE="gpu"; shift ;;
         --no-numa)     USE_NUMA="0"; shift ;;
         --disable-gds) ENABLE_GDS=0; shift ;;
-        --write-results-to-file) WRITE_RESULTS_TO_FILE=1; shift ;;
+        --run-as-ctas-queries) RUN_AS_CTAS_QUERIES=1; shift ;;
         -m|--metrics)  ENABLE_METRICS=1; shift ;;
         -p|--profile)  ENABLE_NSYS=1; shift ;;
         -h|--help)     usage; exit 0 ;;
@@ -111,12 +110,12 @@ done
 [[ -z "${NODES_COUNT}"  ]] && { echo "Error: -n|--nodes is required (see --help)" >&2; exit 1; }
 [[ -z "${SCALE_FACTOR}" ]] && { echo "Error: -s|--scale-factor is required (see --help)" >&2; exit 1; }
 
-if [[ "${WRITE_RESULTS_TO_FILE}" == "1" ]]; then
-    [[ -n "${PRESTO_OUTPUT_DIR:-}" ]] || { echo "Error: PRESTO_OUTPUT_DIR is required with --write-results-to-file" >&2; exit 1; }
-    mkdir -p "${PRESTO_OUTPUT_DIR}"
-    PRESTO_OUTPUT_DIR="$(readlink -f "${PRESTO_OUTPUT_DIR}")"
-    [[ -d "${PRESTO_OUTPUT_DIR}" && -w "${PRESTO_OUTPUT_DIR}" ]] || {
-        echo "Error: PRESTO_OUTPUT_DIR must be a writable shared directory: ${PRESTO_OUTPUT_DIR}" >&2
+if [[ "${RUN_AS_CTAS_QUERIES}" == "1" ]]; then
+    [[ -n "${PRESTO_CTAS_SCRATCH_DIR:-}" ]] || { echo "Error: PRESTO_CTAS_SCRATCH_DIR is required with --run-as-ctas-queries" >&2; exit 1; }
+    mkdir -p "${PRESTO_CTAS_SCRATCH_DIR}"
+    PRESTO_CTAS_SCRATCH_DIR="$(readlink -f "${PRESTO_CTAS_SCRATCH_DIR}")"
+    [[ -d "${PRESTO_CTAS_SCRATCH_DIR}" && -w "${PRESTO_CTAS_SCRATCH_DIR}" ]] || {
+        echo "Error: PRESTO_CTAS_SCRATCH_DIR must be a writable shared directory: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
         exit 1
     }
 fi
@@ -183,9 +182,9 @@ build_common_export_vars
 EXPORT_VARS+=",NUM_ITERATIONS=${NUM_ITERATIONS}"
 EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS},ENABLE_METRICS=${ENABLE_METRICS}"
 EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS},NSYS_WORKER_ID=${NSYS_WORKER_ID}"
-EXPORT_VARS+=",WRITE_RESULTS_TO_FILE=${WRITE_RESULTS_TO_FILE}"
-if [[ "${WRITE_RESULTS_TO_FILE}" == "1" ]]; then
-    EXPORT_VARS+=",PRESTO_OUTPUT_DIR=${PRESTO_OUTPUT_DIR}"
+EXPORT_VARS+=",RUN_AS_CTAS_QUERIES=${RUN_AS_CTAS_QUERIES}"
+if [[ "${RUN_AS_CTAS_QUERIES}" == "1" ]]; then
+    EXPORT_VARS+=",PRESTO_CTAS_SCRATCH_DIR=${PRESTO_CTAS_SCRATCH_DIR}"
 fi
 if [[ -n "${PRESTO_EXPECTED_RESULTS_DIR:-}" ]]; then
     EXPORT_VARS+=",PRESTO_EXPECTED_RESULTS_DIR=${PRESTO_EXPECTED_RESULTS_DIR}"

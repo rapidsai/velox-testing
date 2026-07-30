@@ -446,7 +446,6 @@ def compare_result_frames(
     expected: pd.DataFrame,
     query_sql: str,
     actual_column_types: list[str] | None = None,
-    actual_order_preserved: bool = True,
 ) -> None:
     """
     Full comparison pipeline. Raises AssertionError on any mismatch.
@@ -458,8 +457,7 @@ def compare_result_frames(
       1. Validate column count and capture expected column names.
       2. Normalize dtypes / value types.
       3. Validate row count.
-      4. Parse ORDER BY / LIMIT from SQL and reconstruct logical order when
-         the actual rows came from unordered distributed storage.
+      4. Parse ORDER BY / LIMIT from SQL.
       5. Validate each engine respected ORDER BY (per-frame, strict equality).
       6. With LIMIT: peel the tied tail in engine order, then canonical-sort
          each piece. Compare front fully; compare tail's ORDER BY values only.
@@ -482,13 +480,9 @@ def compare_result_frames(
     if len(actual) != len(expected):
         raise AssertionError(f"Row count mismatch: {len(actual)} (actual) vs {len(expected)} (expected)")
 
-    # 4. Parse ORDER BY / LIMIT. A distributed Parquet dataset has no physical
-    # row-order guarantee, so reconstruct its logical SQL order before applying
-    # the same ordered-result checks used for coordinator-returned results.
-    sort_col_indices, ascending, nulls_first = _get_orderby_sort_spec(query_sql, expected_col_names)
+    # 4. Parse ORDER BY / LIMIT.
+    sort_col_indices, ascending, _ = _get_orderby_sort_spec(query_sql, expected_col_names)
     limit = get_limit(query_sql)
-    if not actual_order_preserved:
-        actual = _restore_orderby(actual, sort_col_indices, ascending, nulls_first)
 
     # 5. Per-frame ORDER BY validation — engine order is intact here.
     _validate_orderby(actual, sort_col_indices, ascending)
@@ -535,7 +529,6 @@ def validate_query_result(
     actual: pd.DataFrame,
     expected: pd.DataFrame,
     query_sql: str,
-    actual_order_preserved: bool = True,
 ) -> tuple[ValidationStatus, str | None]:
     """
     Compare actual vs expected for one query. Returns (status, message).
@@ -553,7 +546,7 @@ def validate_query_result(
         )
 
     try:
-        compare_result_frames(actual, expected, query_sql, actual_order_preserved=actual_order_preserved)
+        compare_result_frames(actual, expected, query_sql)
         return "passed", None
     except Exception as e:
         return "failed", f"{type(e).__name__}: {e}"[:500]
