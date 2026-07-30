@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 
 from presto.testing.performance_benchmarks.common_fixtures import (
+    CTAS_SCHEMA,
     _drop_results_schema,
     build_ctas_query,
     ctas_output_column_aliases,
-    ctas_schema_name,
     ctas_table_name,
     strip_trailing_semicolon,
 )
@@ -32,10 +32,7 @@ class FakeCursor:
 
 
 def test_ctas_names_and_sql():
-    assert ctas_schema_name(None) == "benchmark_results"
-    assert ctas_schema_name("GPU_SF100") == "benchmark_results_gpu_sf100"
-    with pytest.raises(ValueError, match="alphanumeric"):
-        ctas_schema_name("../other")
+    assert CTAS_SCHEMA == "benchmark_results"
     assert ctas_table_name("Q7", 0) == "q7"
     assert ctas_table_name("Q7", 2) == "q7_iteration_3"
     assert strip_trailing_semicolon("SELECT 1;\n") == "SELECT 1"

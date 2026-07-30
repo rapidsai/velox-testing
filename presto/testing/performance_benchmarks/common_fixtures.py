@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import re
 import shutil
 from contextlib import suppress
 from dataclasses import dataclass
@@ -24,19 +23,15 @@ from .metrics_collector import collect_metrics
 from .run_context import gather_run_context
 
 CTAS_CATALOG = "hive_output"
+# This schema is temporary and reset before every CTAS benchmark. The regular
+# benchmark --tag applies only to permanent output artifacts.
+CTAS_SCHEMA = "benchmark_results"
 
 
 @dataclass(frozen=True)
 class CtasResults:
     catalog: str
     schema: str
-
-
-def ctas_schema_name(tag):
-    """Return the isolated scratch schema for this benchmark tag."""
-    if tag and not re.fullmatch(r"[A-Za-z0-9_]+", tag):
-        raise ValueError("CTAS result tags must contain only alphanumeric and underscore characters")
-    return f"benchmark_results_{tag.lower()}" if tag else "benchmark_results"
 
 
 def strip_trailing_semicolon(query):
@@ -94,8 +89,7 @@ def ctas_results(request):
     if not scratch_dir:
         pytest.exit("PRESTO_CTAS_SCRATCH_DIR must be set when --run-as-ctas-queries is enabled.", returncode=2)
 
-    tag = request.config.getoption("--tag")
-    schema = ctas_schema_name(tag)
+    schema = CTAS_SCHEMA
     host_results_dir = Path(scratch_dir).expanduser() / schema
 
     conn = prestodb.dbapi.connect(

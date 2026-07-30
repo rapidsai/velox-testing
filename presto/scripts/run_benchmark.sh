@@ -11,6 +11,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # LOGS_DIR points to the directory where server log files (including nvidia-smi
 # output) are written so that run_context.py can parse GPU info.
 export LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
+# CTAS scratch is reset for every run; --tag only organizes permanent output.
+CTAS_RESULTS_SCHEMA="benchmark_results"
 
 source "${SCRIPT_DIR}/presto_connection_defaults.sh"
 
@@ -253,11 +255,6 @@ if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
   if [[ ! -d "${PRESTO_CTAS_SCRATCH_DIR}" || ! -w "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
     echo "Error: PRESTO_CTAS_SCRATCH_DIR must be a writable directory: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
     exit 1
-  fi
-  if [[ -n ${TAG} ]]; then
-    CTAS_RESULTS_SCHEMA="benchmark_results_${TAG,,}"
-  else
-    CTAS_RESULTS_SCHEMA="benchmark_results"
   fi
   CTAS_SCRATCH_RESULTS_DIR="${PRESTO_CTAS_SCRATCH_DIR}/${CTAS_RESULTS_SCHEMA}"
 fi
