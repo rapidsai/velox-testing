@@ -11,6 +11,7 @@ import json
 import sys
 
 from . import slack as slack_mod
+from .logs import strip_code_fences
 
 # ---- Emoji constants -------------------------------------------------------
 
@@ -207,13 +208,17 @@ def format_failure_detail(
     n_groups = len(stacktraces)
     for gidx, (st, cause, fix) in enumerate(stacktraces):
         suffix = f" {gidx + 1}/{n_groups}" if n_groups > 1 else ""
-        display_st = st or "(no stacktrace available)"
+        # Strip any fences around the stacktrace; nesting them
+        # inside our own fence renders an empty code block and pushes the real
+        # stacktrace outside it.
+        body = [ln for ln in strip_code_fences(st).splitlines()[:5] if ln.strip()]
+        if not body:
+            body = ["(no stacktrace available)"]
 
         out.print(f"    *Stacktrace{suffix}:*")
         out.print("```")
-        for line in display_st.splitlines()[:5]:
-            if line.strip():
-                out.print(line)
+        for line in body:
+            out.print(line)
         out.print("```")
 
         if analyze_cause:

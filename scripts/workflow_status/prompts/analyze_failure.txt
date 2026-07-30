@@ -22,7 +22,8 @@ Based on your analysis, provide:
 2. CAUSE: The specific root cause (mention file/class/function names, exact error like type mismatch, missing symbol, failed test names, etc.)
 3. FIX: A concrete suggested fix or investigation step{fix_extra}
 
-Respond in exactly this format (no markdown except for STACKTRACE which can be multiline):
+Respond in exactly this format. Use NO markdown formatting: STACKTRACE may span
+multiple lines, but do NOT wrap it (or anything else) in ``` code fences.
 STACKTRACE:<3-5 most relevant root-cause error lines only, end with END_STACKTRACE on its own line>
 END_STACKTRACE
 CAUSE:<your specific root cause description - single line>
