@@ -128,7 +128,7 @@ def _process_failed_job(
             job_log_content,
             since_date,
             config,
-            prefix="    \u2022 ",
+            prefix="\u2022 ",
         )
 
     stacktraces: list[tuple[str, str, str]] = []
@@ -334,16 +334,16 @@ def main() -> None:
                     tracker.record_dedup_skip(len(dup_indices))
                     dup_buf = OutputBuffer()
                     dup_buf.print()
-                    dup_buf.print("  _Same error also appears in:_")
+                    dup_buf.print("_Same error also appears in:_")
                     for di in dup_indices:
                         dup_job = failed_jobs[di]
                         dup_name = dup_job.get("name", "unknown")
                         dup_job_id = dup_job.get("databaseId", "")
                         if dup_job_id and run_url:
                             dup_url = f"{run_url}/job/{dup_job_id}"
-                            dup_buf.print(f"  \u2022 `{dup_name}` \u2192 {dup_url}")
+                            dup_buf.print(f"\u2022 `{dup_name}` \u2192 {dup_url}")
                         else:
-                            dup_buf.print(f"  \u2022 `{dup_name}`")
+                            dup_buf.print(f"\u2022 `{dup_name}`")
                     detail_text += dup_buf.text()
 
                 results_map[didx] = detail_text
