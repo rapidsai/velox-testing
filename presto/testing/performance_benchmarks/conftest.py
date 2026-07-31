@@ -33,6 +33,7 @@ from .common_fixtures import (
 
 def pytest_addoption(parser):
     parser.addoption("--queries")
+    parser.addoption("--exclude-queries", default="")
     parser.addoption("--queries-file")  # path to a custom JSON file containing query definitions
     parser.addoption("--schema-name", required=True)
     parser.addoption("--scale-factor")
@@ -47,6 +48,17 @@ def pytest_addoption(parser):
     parser.addoption("--metrics", action="store_true", default=False)
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
     parser.addoption("--skip-analyze-check", action="store_true", default=False)
+    parser.addoption("--num-streams", default=1, type=int)
+    parser.addoption("--suite-repeats", default=1, type=int)
+    parser.addoption("--repetitions-per-query", default=1, type=int)
+    parser.addoption("--run-seed", default=1, type=int)
+    parser.addoption("--reference-results-dir", default=None)
+    parser.addoption(
+        "--no-save-results",
+        action="store_true",
+        default=False,
+        help="Do not write query_results parquet files.",
+    )
 
 
 def pytest_configure(config):
