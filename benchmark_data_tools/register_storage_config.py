@@ -1,12 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#     "httpx",
-# ]
-# ///
 """
 CLI for registering a benchmark dataset as a storage configuration in the API.
 
