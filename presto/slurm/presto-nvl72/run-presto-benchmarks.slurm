@@ -20,6 +20,11 @@ if [ -z "${NUM_ITERATIONS:-}" ]; then
 fi
 export NUM_ITERATIONS
 
+# Never write a new job into the previous run's directory. The job-specific
+# path remains immutable after completion, so an scp/rsync of an older result
+# cannot be interrupted by a later launch.
+export RESULT_DIR="${SCRIPT_DIR}/result_dir_${SLURM_JOB_ID}"
+
 source "${SCRIPT_DIR}/slurm_common.sh"
 
 # Single-node execution mode (workers and coordinator share the same node)
