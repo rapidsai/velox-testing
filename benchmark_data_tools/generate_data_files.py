@@ -25,6 +25,7 @@ _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
 _PROBE_MEMORY_PERCENT = 20
 _MIN_MEMORY_LIMIT = 1 * 1024**3
+_TPCHGEN_PARQUET_VERSION = 2
 
 
 def generate_partition(
@@ -56,7 +57,7 @@ def generate_partition(
         "--format",
         "parquet",
         "--parquet-version",
-        "2",
+        str(_TPCHGEN_PARQUET_VERSION),
         "--parquet-row-group-bytes",
         str(approx_row_group_bytes),
     ]
@@ -232,9 +233,6 @@ def rearrange_directory(raw_data_path, num_partitions):
         for dir_name in os.listdir(part_dir_path):
             os.rmdir(f"{part_dir_path}/{dir_name}")
         os.rmdir(part_dir_path)
-
-
-_TPCHGEN_PARQUET_VERSION = 2
 
 
 def write_metadata(args, codec_defs=None, generator_version=None):
