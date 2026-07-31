@@ -58,7 +58,7 @@ def _detect_storage_system(path: Path) -> str | None:
     """Detect the storage system type for the filesystem containing path."""
     try:
         result = subprocess.run(
-            ["findmnt", "-n", "-o", "FSTYPE", str(path.resolve())],
+            ["findmnt", "--target", str(path.resolve()), "-n", "-o", "FSTYPE"],
             capture_output=True,
             text=True,
         )
