@@ -90,6 +90,8 @@ exec > >(tee -a "${LOG_FILE}") 2>&1
 
 echo "Nightly benchmark daemon started (logging to ${LOG_FILE})"
 echo "  RUN_HOUR_UTC=${RUN_HOUR_UTC}  ITERATIONS=${ITERATIONS}"
+echo "  COORD_TAG=${COORD_TAG}  WORKER_TAG=${WORKER_TAG}"
+echo "  (override COORD_TAG / WORKER_TAG in the environment to use a different image)"
 
 # ------------------------------------------------------------------------------
 # Functions
@@ -171,7 +173,8 @@ run_nightly() {
     run_benchmark 1 4 1000 "${output_1k}" || true
     if [[ -d "${output_1k}" ]]; then
         echo "Posting results for tpch-1k..."
-        post_results "${output_1k}" "tpch-rs-1000" "${STORAGE_CONFIG_1K}"
+        post_results "${output_1k}" "tpch-rs-1000" "${STORAGE_CONFIG_1K}" \
+            || echo_warning "Failed to post tpch-1k results"
     else
         echo_warning "SF1000 benchmark produced no results — skipping result posting for tpch-1k"
     fi
@@ -185,7 +188,8 @@ run_nightly() {
     run_benchmark 2 4 3000 "${output_3k}" || true
     if [[ -d "${output_3k}" ]]; then
         echo "Posting results for tpch-3k..."
-        post_results "${output_3k}" "tpch-rs-3000" "${STORAGE_CONFIG_3K}"
+        post_results "${output_3k}" "tpch-rs-3000" "${STORAGE_CONFIG_3K}" \
+            || echo_warning "Failed to post tpch-3k results"
     else
         echo_warning "SF3000 benchmark produced no results — skipping result posting for tpch-3k"
     fi
@@ -197,6 +201,7 @@ run_nightly() {
 # ------------------------------------------------------------------------------
 # Main loop
 # ------------------------------------------------------------------------------
+trap 'cleanup_images || true; exit 130' INT TERM
 while true; do
     [[ "${RUN_NOW}" -eq 1 ]] || sleep_until_next_run
     RUN_NOW=0
