@@ -792,6 +792,13 @@ async def _process_benchmark_dir(
             "provided value.",
             file=sys.stderr,
         )
+    elif resolved_storage_config is None:
+        print(
+            f"  Warning: --storage-configuration-name '{storage_configuration_name}' could not "
+            "be validated — no registered storage_configuration_name found in metadata.json. "
+            "Run register_storage_config.py to register this dataset.",
+            file=sys.stderr,
+        )
 
     # Fall back to the container image_digest captured in the benchmark
     # results context when no explicit identifier_hash was provided on the CLI.
