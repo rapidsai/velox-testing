@@ -480,7 +480,7 @@ if __name__ == "__main__":
     reg.add_argument(
         "--register-machine",
         default=None,
-        help="Machine or cluster where the dataset is accessible (e.g. 'pdx'). Required when --register is set.",
+        help="Machine or cluster where the dataset is accessible (e.g. 'my-cluster'). Required when --register is set.",
     )
     reg.add_argument(
         "--register-name",

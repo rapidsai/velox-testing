@@ -10,19 +10,19 @@ written back into metadata.json for use by post_results.py.
 
 The storage configuration name is auto-generated as:
     {machine}-{storage_system}-{benchmark_type}-sf{scale_factor}
-e.g.: pdx-lustre-tpch-sf100
+e.g.: my-cluster-lustre-tpch-sf100
 
 Usage:
     python benchmark_data_tools/register_storage_config.py /path/to/dataset \\
-        --machine pdx
+        --machine my-cluster
 
     # With explicit name override:
     python benchmark_data_tools/register_storage_config.py /path/to/dataset \\
-        --machine pdx --name pdx-lustre-tpch-sf100
+        --machine my-cluster --name my-cluster-lustre-tpch-sf100
 
     # Dry run (no API calls):
     python benchmark_data_tools/register_storage_config.py /path/to/dataset \\
-        --machine pdx --dry-run
+        --machine my-cluster --dry-run
 
 Environment variables:
     BENCHMARK_API_URL: API base URL
@@ -349,7 +349,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--machine",
         required=True,
-        help="Machine or cluster where the dataset is accessible (e.g. 'pdx', 'umb-219-B200'). "
+        help="Machine or cluster where the dataset is accessible (e.g. 'my-cluster', 'my-cluster-B200'). "
         "Used as a label and in the auto-generated name.",
     )
     parser.add_argument(
