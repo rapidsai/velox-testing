@@ -13,7 +13,12 @@
 #   resolve_cluster_variant <gpu|cpu>
 #       Reads CLUSTER_{GPU,CPU}_* and populates the generic CLUSTER_DEFAULT_*,
 #       CLUSTER_CPUS_PER_TASK, CLUSTER_NUM_WORKERS_PER_NODE, CLUSTER_TIME_*,
-#       CLUSTER_DEFAULT_PORT, CLUSTER_UCX_NET_DEVICES, CLUSTER_USE_NUMA,
+#       CLUSTER_DEFAULT_PORT, CLUSTER_UCX_NET_DEVICES,
+#       CLUSTER_UCX_NET_DEVICES_BY_LOCAL_WORKER,
+#       CLUSTER_UCX_NET_DEVICES_BY_GPU,
+#       CLUSTER_INTERNAL_ADDRESS_INTERFACE,
+#       CLUSTER_INTERNAL_ADDRESS_INTERFACE_BY_GPU,
+#       CLUSTER_MELLANOX_VISIBLE_DEVICES, CLUSTER_USE_NUMA,
 #       CLUSTER_EXTRA_MOUNTS, CLUSTER_NUMA_GPUS_PER_NODE, CLUSTER_LIB*_PATH
 #       variables, plus COORD_IMAGE / WORKER_IMAGE. Pre-existing values are
 #       preserved (so command-line flags and shell exports still win).
@@ -57,9 +62,29 @@ _path_is_compute_only() {
     local path="$1" prefix
     [[ -z "${CLUSTER_COMPUTE_ONLY_PATHS:-}" ]] && return 1
     for prefix in ${CLUSTER_COMPUTE_ONLY_PATHS}; do
-        [[ -n "${prefix}" && "${path}" == "${prefix}"* ]] && return 0
+        # Match the prefix itself or a path below it, but not a sibling such as
+        # /scratch-old when the configured prefix is /scratch.
+        prefix="${prefix%/}"
+        [[ -n "${prefix}" && ( "${path}" == "${prefix}" || "${path}" == "${prefix}/"* ) ]] && return 0
     done
     return 1
+}
+
+# canonicalize_file_path <path>
+# Print an absolute path. Existing paths are normalized through their physical
+# parent directory; compute-only paths that are invisible on the login node are
+# made absolute without requiring that parent to exist locally.
+canonicalize_file_path() {
+    local path="$1" parent base
+    if [[ "${path}" != /* ]]; then
+        path="${PWD}/${path}"
+    fi
+    parent="$(dirname -- "${path}")"
+    base="$(basename -- "${path}")"
+    if [[ -d "${parent}" ]]; then
+        parent="$(cd -- "${parent}" && pwd -P)"
+    fi
+    printf '%s/%s\n' "${parent%/}" "${base}"
 }
 
 # resolve_image_path <image_name_or_path>
@@ -95,6 +120,22 @@ preflight_image() {
     fi
 }
 
+# preflight_image_roles <worker_image> <coordinator_image>
+# Catch the common -w/-c transposition before consuming a Slurm allocation.
+# This is deliberately a narrow name-based check: generated images in this
+# repository contain "coordinator" only in the Java coordinator artifact.
+preflight_image_roles() {
+    local worker_image="$1" coord_image="$2"
+    local worker_lower="${worker_image,,}" coord_lower="${coord_image,,}"
+    if [[ "${worker_lower}" == *coordinator* && "${coord_lower}" != *coordinator* ]]; then
+        echo "Error: worker and coordinator images appear to be reversed." >&2
+        echo "       -w/--worker-image: ${worker_image}" >&2
+        echo "       -c/--coord-image:  ${coord_image}" >&2
+        echo "       Pass the *-coordinator-* image to -c and the *-cpu-* or *-gpu-* image to -w." >&2
+        exit 1
+    fi
+}
+
 # preflight_dir <path> <description> [<hint>]
 # Verify a directory exists. <description> is used in the error message.
 preflight_dir() {
@@ -110,6 +151,26 @@ preflight_dir() {
     fi
     if [[ ! -d "${path}" ]]; then
         echo "Error: ${desc} directory not found at ${path}" >&2
+        [[ -n "${hint}" ]] && echo "       To fix:  ${hint}" >&2
+        exit 1
+    fi
+}
+
+# preflight_file <path> <description> [<hint>]
+# Verify a regular file exists. <description> is used in the error message.
+preflight_file() {
+    local path="$1" desc="$2" hint="${3:-}"
+    if [[ -z "${path}" ]]; then
+        echo "Error: ${desc} path is not set" >&2
+        [[ -n "${hint}" ]] && echo "       To fix:  ${hint}" >&2
+        exit 1
+    fi
+    if _path_is_compute_only "${path}"; then
+        echo "Note: skipping host-side preflight for ${desc} at ${path} (compute-only path)" >&2
+        return 0
+    fi
+    if [[ ! -f "${path}" ]]; then
+        echo "Error: ${desc} file not found at ${path}" >&2
         [[ -n "${hint}" ]] && echo "       To fix:  ${hint}" >&2
         exit 1
     fi
@@ -278,6 +339,11 @@ resolve_cluster_variant() {
     _resolve_var CLUSTER_TIME_ANALYZE         "${prefix}_TIME_ANALYZE"
     _resolve_var CLUSTER_DEFAULT_PORT         "${prefix}_DEFAULT_PORT"
     _resolve_var CLUSTER_UCX_NET_DEVICES      "${prefix}_UCX_NET_DEVICES"
+    _resolve_var CLUSTER_UCX_NET_DEVICES_BY_LOCAL_WORKER "${prefix}_UCX_NET_DEVICES_BY_LOCAL_WORKER"
+    _resolve_var CLUSTER_UCX_NET_DEVICES_BY_GPU "${prefix}_UCX_NET_DEVICES_BY_GPU"
+    _resolve_var CLUSTER_INTERNAL_ADDRESS_INTERFACE "${prefix}_INTERNAL_ADDRESS_INTERFACE"
+    _resolve_var CLUSTER_INTERNAL_ADDRESS_INTERFACE_BY_GPU "${prefix}_INTERNAL_ADDRESS_INTERFACE_BY_GPU"
+    _resolve_var CLUSTER_MELLANOX_VISIBLE_DEVICES "${prefix}_MELLANOX_VISIBLE_DEVICES"
     _resolve_var CLUSTER_EXTRA_MOUNTS         "${prefix}_EXTRA_MOUNTS"
     _resolve_var COORD_IMAGE                  "${prefix}_DEFAULT_COORD_IMAGE"
     _resolve_var WORKER_IMAGE                 "${prefix}_DEFAULT_WORKER_IMAGE"
@@ -309,20 +375,26 @@ build_common_export_vars() {
     EXPORT_VARS+=",WORKER_ENV_FILE=${WORKER_ENV_FILE}"
     EXPORT_VARS+=",CLUSTER_DEFAULT_PORT=${CLUSTER_DEFAULT_PORT}"
     local v
-    for v in CLUSTER_UCX_NET_DEVICES CLUSTER_NUMA_GPUS_PER_NODE \
+    for v in CLUSTER_INTERNAL_ADDRESS_INTERFACE \
+             CLUSTER_MELLANOX_VISIBLE_DEVICES CLUSTER_NUMA_GPUS_PER_NODE \
              CLUSTER_LIBCUDA_HOST_PATH CLUSTER_LIBCUDA_CONTAINER_PATH \
              CLUSTER_LIBNVIDIA_ML_HOST_PATH CLUSTER_LIBNVIDIA_ML_CONTAINER_PATH \
-             CLUSTER_EXTRA_MOUNTS CLUSTER_CONFIG \
+             CLUSTER_CONFIG \
              HIVE_METASTORE_VERSION HIVE_METASTORE_SHARED_ROOT; do
-        [[ -n "${!v:-}" ]] || continue
-        if [[ "${!v}" == *,* ]]; then
-            # Values with commas can't be inlined into --export (comma is the
-            # separator); export to the environment so --export=ALL picks them up.
-            export "${v}=${!v}"
-        else
-            EXPORT_VARS+=",${v}=${!v}"
-        fi
+        [[ -n "${!v:-}" ]] && EXPORT_VARS+=",${v}=${!v}"
     done
+    # Values in these variables may contain commas (rail lists/mount lists), so
+    # they cannot be embedded directly in sbatch's comma-delimited --export
+    # argument. Export them into the caller and let the leading ALL carry each
+    # value without re-tokenizing it.
+    for v in CLUSTER_UCX_NET_DEVICES \
+             CLUSTER_UCX_NET_DEVICES_BY_LOCAL_WORKER \
+             CLUSTER_UCX_NET_DEVICES_BY_GPU CLUSTER_EXTRA_MOUNTS \
+             CLUSTER_INTERNAL_ADDRESS_INTERFACE_BY_GPU \
+             PRESTO_INTERNAL_ADDRESS_INTERFACE_BY_GPU; do
+        [[ -n "${!v:-}" ]] && export "${v}"
+    done
+    return 0
 }
 
 build_cluster_sbatch_args() {
