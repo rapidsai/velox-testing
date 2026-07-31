@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
     dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
-    dnf install -y nsight-systems-cli-2025.5.1 numactl
+    dnf install -y nsight-systems-cli-2026.3.1 numactl
 
 ARG GPU=ON
 ARG BUILD_TYPE=release
