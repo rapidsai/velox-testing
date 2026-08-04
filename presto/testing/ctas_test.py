@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from presto.testing.performance_benchmarks.ctas import (
@@ -12,6 +13,7 @@ from presto.testing.performance_benchmarks.ctas import (
     ctas_output_column_aliases,
     ctas_table_name,
     drop_results_schema,
+    finalize_ctas_results,
     strip_trailing_semicolon,
 )
 
@@ -92,3 +94,18 @@ def test_drop_results_schema_removes_managed_tables_first():
         'DROP TABLE IF EXISTS hive_output.benchmark_results."q2_iteration_2"',
         "DROP SCHEMA hive_output.benchmark_results",
     ]
+
+
+def test_finalize_ctas_results_prepares_and_normalizes_output(tmp_path):
+    source_dir = tmp_path / "benchmark_results"
+    query_dir = source_dir / "q1"
+    query_dir.mkdir(parents=True)
+    (query_dir / ".prestoSchema").write_text("{}")
+    pd.DataFrame({"c1": [2, 1]}).to_parquet(query_dir / "part-00000.parquet", index=False)
+
+    output_dir = tmp_path / "query_results"
+    outputs = finalize_ctas_results(source_dir, output_dir, {"Q1": "SELECT value FROM source ORDER BY value"})
+
+    assert outputs == [output_dir / "q1.parquet"]
+    assert pd.read_parquet(outputs[0])["c1"].tolist() == [1, 2]
+    assert not query_dir.exists()

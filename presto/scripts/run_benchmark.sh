@@ -11,8 +11,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # LOGS_DIR points to the directory where server log files (including nvidia-smi
 # output) are written so that run_context.py can parse GPU info.
 export LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
-# CTAS scratch is reset for every run; --tag only organizes permanent output.
-CTAS_RESULTS_SCHEMA="benchmark_results"
 
 source "${SCRIPT_DIR}/presto_connection_defaults.sh"
 
@@ -259,7 +257,6 @@ if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
     echo "Error: PRESTO_CTAS_SCRATCH_DIR must be writable: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
     exit 1
   fi
-  CTAS_SCRATCH_RESULTS_DIR="${PRESTO_CTAS_SCRATCH_DIR}/${CTAS_RESULTS_SCHEMA}"
 fi
 
 # Fail fast if an explicit --reference-results-dir was given but doesn't exist.
@@ -356,65 +353,6 @@ BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 PYTEST_EXIT=0
 pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]} || PYTEST_EXIT=$?
 
-ensure_ctas_scratch_accessible() {
-  local host_results_dir=$1
-  local container_results_dir="/var/lib/presto/data/hive/ctas_scratch_output/${CTAS_RESULTS_SCHEMA}"
-
-  if [[ ! -d "${host_results_dir}" ]]; then
-    echo "Error: CTAS result directory not found: ${host_results_dir}" >&2
-    return 1
-  fi
-
-  # Slurm and non-remapped local files are normally owned by the invoking user.
-  # Normalization reads the Parquet files and removes each temporary table, so
-  # it needs write access to the table directories as well as read access to
-  # the files.
-  find "${host_results_dir}" -type d -exec chmod a+rwx {} + 2>/dev/null || true
-  find "${host_results_dir}" -type f -name '*.parquet' -exec chmod a+r {} + 2>/dev/null || true
-  local committed_table
-  committed_table="$(find "${host_results_dir}" -mindepth 1 -maxdepth 1 -type d -name 'q[0-9]*' \
-    -exec test -f '{}/.prestoSchema' \; -print -quit 2>/dev/null || true)"
-  if [[ -n "${committed_table}" \
-    && -z "$(find "${host_results_dir}" -type d ! -writable -print -quit 2>/dev/null || true)" \
-    && -z "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
-    return 0
-  fi
-
-  # Docker-remapped native workers create local files as mode 0600 under their
-  # remapped identity. Adjust permissions in place inside each worker; no data
-  # is copied through the coordinator or benchmark client.
-  if command -v docker >/dev/null 2>&1; then
-    local container
-    while IFS= read -r container; do
-      [[ -n ${container} ]] || continue
-      docker exec "${container}" find "${container_results_dir}" -type d \
-        -exec chmod a+rwx {} + 2>/dev/null || true
-      docker exec "${container}" find "${container_results_dir}" -type f -name '*.parquet' \
-        -exec chmod a+r {} + 2>/dev/null || true
-    done < <(docker ps --format '{{.Names}}' | grep -E '^presto-.*worker')
-  fi
-
-  committed_table="$(find "${host_results_dir}" -mindepth 1 -maxdepth 1 -type d -name 'q[0-9]*' \
-    -exec test -f '{}/.prestoSchema' \; -print -quit 2>/dev/null || true)"
-  if [[ -z "${committed_table}" ]]; then
-    echo "Error: No committed CTAS result tables found in ${host_results_dir}" >&2
-    return 1
-  fi
-  if [[ -n "$(find "${host_results_dir}" -type d ! -writable -print -quit 2>/dev/null || true)" ]]; then
-    echo "Error: CTAS result directories are not writable from the benchmark host: ${host_results_dir}" >&2
-    return 1
-  fi
-  if [[ -n "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
-    echo "Error: CTAS result files are not readable from the benchmark host: ${host_results_dir}" >&2
-    return 1
-  fi
-}
-
-CTAS_PERMISSION_EXIT=0
-if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
-  ensure_ctas_scratch_accessible "${CTAS_SCRATCH_RESULTS_DIR}" || CTAS_PERMISSION_EXIT=$?
-fi
-
 # Snapshot logs and engine configs into the benchmark output directory so that
 # post_results.py has self-contained, run-specific data even when multiple runs
 # are posted after the fact.
@@ -423,21 +361,6 @@ if [[ -n "${TAG}" ]]; then
   EFFECTIVE_BENCHMARK_DIR="${EFFECTIVE_OUTPUT_DIR}/${TAG}"
 else
   EFFECTIVE_BENCHMARK_DIR="${EFFECTIVE_OUTPUT_DIR}"
-fi
-
-CTAS_NORMALIZATION_EXIT=0
-if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && ${CTAS_PERMISSION_EXIT} -eq 0 ]]; then
-  NORMALIZE_ARGS=(
-    --source-dir "${CTAS_SCRATCH_RESULTS_DIR}"
-    --output-dir "${EFFECTIVE_BENCHMARK_DIR}/query_results"
-    --benchmark-type "${BENCHMARK_TYPE}"
-  )
-  if [[ -n ${QUERIES_FILE} ]]; then
-    NORMALIZE_ARGS+=(--queries-file "${QUERIES_FILE}")
-  fi
-  echo "[CTAS] Normalizing temporary results into ${EFFECTIVE_BENCHMARK_DIR}/query_results"
-  python "${SCRIPT_DIR}/../../common/testing/normalize_ctas_results.py" \
-    "${NORMALIZE_ARGS[@]}" || CTAS_NORMALIZATION_EXIT=$?
 fi
 
 if [[ -d "${LOGS_DIR}" ]]; then
@@ -460,8 +383,8 @@ VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../testing/requirements.txt"
 # PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
 # Explicit --reference-results-dir was already validated before the benchmark ran.
 VALIDATION_EXIT=0
-if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && ( ${CTAS_PERMISSION_EXIT} -ne 0 || ${CTAS_NORMALIZATION_EXIT} -ne 0 ) ]]; then
-  echo "[Validation] Skipped because CTAS result normalization failed."
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && ${PYTEST_EXIT} -ne 0 ]]; then
+  echo "[Validation] Skipped because the CTAS benchmark or result normalization failed."
 elif [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
   echo "[Validation] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
 else
@@ -484,12 +407,8 @@ else
 fi
 
 # Preserve the benchmark failure as the primary exit status while still
-# attempting CTAS normalization, artifact collection, and validation.
+# attempting artifact collection and validation.
 if [[ ${PYTEST_EXIT} -ne 0 ]]; then
   exit "${PYTEST_EXIT}"
-elif [[ ${CTAS_PERMISSION_EXIT} -ne 0 ]]; then
-  exit "${CTAS_PERMISSION_EXIT}"
-elif [[ ${CTAS_NORMALIZATION_EXIT} -ne 0 ]]; then
-  exit "${CTAS_NORMALIZATION_EXIT}"
 fi
 exit "${VALIDATION_EXIT}"

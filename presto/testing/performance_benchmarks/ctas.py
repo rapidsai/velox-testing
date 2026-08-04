@@ -3,10 +3,14 @@
 
 """Helpers for running Presto benchmark queries as temporary CTAS tables."""
 
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 import sqlglot
 from sqlglot import exp
+
+from common.testing.normalize_ctas_results import normalize_ctas_results
 
 CTAS_CATALOG = "hive_output"
 # This schema is temporary and reset before every CTAS benchmark. The regular
@@ -67,3 +71,10 @@ def drop_results_schema(cursor, catalog, schema):
     for (table,) in tables:
         cursor.execute(f'DROP TABLE IF EXISTS {catalog}.{schema}."{table}"').fetchall()
     cursor.execute(f"DROP SCHEMA {catalog}.{schema}").fetchall()
+
+
+def finalize_ctas_results(source_dir: Path, output_dir: Path, queries: dict[str, str]) -> list[Path]:
+    """Prepare worker output for host access and write canonical result files."""
+    script = Path(__file__).parents[2] / "scripts" / "prepare_ctas_results.sh"
+    subprocess.run(["bash", script, source_dir], check=True)
+    return normalize_ctas_results(source_dir, output_dir, queries)

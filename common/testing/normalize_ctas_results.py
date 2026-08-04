@@ -1,14 +1,11 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Convert temporary distributed CTAS tables into canonical qN.parquet files."""
 
-import argparse
 import os
 import re
 import shutil
-import sys
 from pathlib import Path
 
 import pandas as pd
@@ -16,11 +13,7 @@ import pyarrow.parquet as pq
 import sqlglot
 from sqlglot import exp
 
-# Allow importing from the repo root when this file is executed directly.
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 from common.testing.result_comparison import get_orderby_sort_spec, restore_orderby
-from common.testing.test_utils import get_queries
 
 
 def _query_directories(source_dir: Path) -> list[Path]:
@@ -93,32 +86,3 @@ def normalize_ctas_results(
         shutil.rmtree(query_dir)
         normalized.append(target)
     return normalized
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-dir", required=True, type=Path, help="Directory containing temporary qN CTAS tables.")
-    parser.add_argument(
-        "--output-dir",
-        required=True,
-        type=Path,
-        help="Canonical query_results directory that will receive qN.parquet files.",
-    )
-    parser.add_argument("--benchmark-type", required=True, choices=["tpch", "tpcds"])
-    parser.add_argument("--queries-file", default=None, help="Optional custom query-definition JSON file.")
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    args = parse_args()
-    try:
-        outputs = normalize_ctas_results(
-            args.source_dir,
-            args.output_dir,
-            get_queries(args.benchmark_type, args.queries_file),
-        )
-    except (OSError, ValueError) as error:
-        print(f"Error: Failed to normalize CTAS results: {error}", file=sys.stderr)
-        sys.exit(1)
-    for output in outputs:
-        print(f"Normalized CTAS result: {output}")

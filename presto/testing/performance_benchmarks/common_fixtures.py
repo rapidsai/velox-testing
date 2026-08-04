@@ -23,6 +23,7 @@ from .ctas import (
     build_ctas_query,
     ctas_table_name,
     drop_results_schema,
+    finalize_ctas_results,
 )
 from .metrics_collector import collect_metrics
 from .run_context import gather_run_context
@@ -38,10 +39,11 @@ def write_query_result(cursor, output_dir, query_id):
     frame.to_parquet(results_dir / f"{query_id.lower()}.parquet", index=False)
 
 
-@pytest.fixture(scope="session")
-def ctas_results(request):
+@pytest.fixture(scope="module")
+def ctas_results(request, benchmark_queries):
     if not request.config.getoption("--run-as-ctas-queries"):
-        return None
+        yield None
+        return
 
     scratch_dir = os.environ.get("PRESTO_CTAS_SCRATCH_DIR")
     if not scratch_dir:
@@ -70,7 +72,16 @@ def ctas_results(request):
         cursor.close()
         conn.close()
 
-    return CtasResults(catalog=CTAS_CATALOG, schema=schema)
+    yield CtasResults(catalog=CTAS_CATALOG, schema=schema)
+
+    output_dir = get_output_dir(request.config) / "query_results"
+    print(f"[CTAS] Normalizing temporary results into {output_dir}")
+    try:
+        outputs = finalize_ctas_results(host_results_dir, output_dir, benchmark_queries)
+    except Exception as error:
+        pytest.fail(f"Failed to normalize CTAS results: {error}", pytrace=False)
+    for output in outputs:
+        print(f"Normalized CTAS result: {output}")
 
 
 @pytest.fixture(scope="session", autouse=True)
