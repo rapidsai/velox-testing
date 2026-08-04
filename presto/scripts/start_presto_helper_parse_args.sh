@@ -43,7 +43,17 @@ OPTIONS:
                          differences that could lead to build failures).
 
 ENVIRONMENT VARIABLES:
-    SCCACHE_AUTH_DIR     Directory containing sccache auth files (default: ~/.sccache-auth/).
+    SCCACHE_AUTH_DIR          Directory containing sccache auth files (default: ~/.sccache-auth/).
+    USE_NUMA                  Set to 1 to bind CPU workers to NUMA nodes (cpu variant only).
+                              Workers are distributed across CPU-bearing nodes in contiguous
+                              balanced groups; nodes with only HBM/GPU memory are excluded.
+                              Requires a host with discoverable NUMA topology (default: 0).
+    CPU_WORKERS_PER_HOST      Number of CPU workers sharing this host's resources. Defaults to
+                              NUM_WORKERS for local Docker runs. Set explicitly in multi-host
+                              Slurm deployments where workers are spread across nodes (cpu only).
+    NPROC                     Override logical CPU count (default: nproc). Useful for testing.
+    RAM_GB                    Override total host memory in GB (default: auto-detected). Useful
+                              for testing.
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache

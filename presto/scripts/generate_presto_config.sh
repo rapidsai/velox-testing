@@ -70,6 +70,9 @@ function duplicate_worker_configs() {
 # Variant override files append properties after the common templates. Keep
 # subsequent topology tuning idempotent whether a key came from either source
 # or is being introduced here for the first time.
+# Values must not contain sed metacharacters (& or \). All callers in this
+# script pass integers, booleans, or simple strings (e.g. 512MB, 10m) so this
+# is safe without escaping.
 function set_or_append_property() {
   local key=$1 value=$2 cfg=$3
   if grep -q "^${key}=" "${cfg}"; then
@@ -106,6 +109,9 @@ fi
 NUMA_NODES="${VISIBLE_NUMA_NODE_COUNT:-0}"
 (( NUMA_NODES > 0 )) || NUMA_NODES=1
 
+# Diagnostic only — logged in the auto-tune summary below for SMT context.
+# Neither variable is applied to any Presto property; CPU_DRIVERS defaults to
+# logical threads per worker and can be overridden explicitly via CPU_DRIVERS=N.
 PHYSICAL_CORES=0
 if command -v lscpu >/dev/null 2>&1; then
   PHYSICAL_CORES=$(lscpu -p 2>/dev/null \
