@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.profiler_utils import start_profiler, stop_profiler
+from common.testing.result_comparison import normalize_decimal_columns
 
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
@@ -116,13 +118,17 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 if iteration_num == 0:
                     rows = cursor.fetchall()
                     columns = [desc[0] for desc in cursor.description]
+                    column_types = [desc[1] for desc in cursor.description]
                     df = pd.DataFrame(rows, columns=columns)
+                    df = normalize_decimal_columns(df, column_types)
 
                     # Save to Parquet format to match expected results
                     results_dir = Path(f"{bench_output_dir}/query_results")
                     results_dir.mkdir(parents=True, exist_ok=True)
                     parquet_path = results_dir / f"{query_id.lower()}.parquet"
                     df.to_parquet(parquet_path, index=False)
+                    types_path = results_dir / f"{query_id.lower()}.types.json"
+                    types_path.write_text(json.dumps(column_types))
 
                 # Collect metrics after each query iteration if enabled
                 if metrics:

@@ -12,6 +12,7 @@ parquet files). See compare_result_frames for full comparison semantics.
 import datetime
 import re
 import warnings
+from decimal import Decimal
 from typing import Literal
 
 import numpy as np
@@ -160,6 +161,23 @@ def _normalize_to_expected(actual: pd.DataFrame, expected: pd.DataFrame) -> pd.D
             # parse the strings and yield datetime.date to match.
             out.isetitem(i, pd.to_datetime(a_col).dt.date)
     return out
+
+
+def normalize_decimal_columns(frame: pd.DataFrame, column_types: list[str] | None) -> pd.DataFrame:
+    """Restore DECIMAL values using engine types rather than value inference."""
+    if not column_types:
+        return frame
+
+    frame = frame.copy()
+    for i, type_name in enumerate(column_types):
+        if i >= frame.shape[1] or _decimal_abs_tolerance(type_name) is None:
+            continue
+        column = frame.iloc[:, i]
+        frame.isetitem(
+            i,
+            column.map(lambda value: value if pd.isna(value) else Decimal(str(value))),
+        )
+    return frame
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +436,7 @@ def compare_result_frames(
 
     Steps:
       1. Validate column count and capture expected column names.
-      2. Normalize dtypes / value types.
+      2. Restore declared DECIMAL columns and normalize dtypes / value types.
       3. Validate row count.
       4. Parse ORDER BY / LIMIT from SQL.
       5. Validate each engine respected ORDER BY (per-frame, strict equality).
@@ -436,7 +454,10 @@ def compare_result_frames(
     expected_col_names = list(expected.columns)
     abs_tolerances = [_decimal_abs_tolerance(type_name) or ABS_TOL for type_name in actual_column_types or []]
 
-    # 2. Coerce actual's dtypes/value types to match expected's
+    # 2. Restore typed decimal values before generic dtype alignment. Presto's
+    # Python client and benchmark Parquet files represent DECIMAL as strings.
+    actual = normalize_decimal_columns(actual, actual_column_types)
+    expected = normalize_decimal_columns(expected, actual_column_types)
     actual = _normalize_to_expected(actual, expected)
 
     # 3. Row count
@@ -492,6 +513,7 @@ def validate_query_result(
     actual: pd.DataFrame,
     expected: pd.DataFrame,
     query_sql: str,
+    actual_column_types: list[str] | None = None,
 ) -> tuple[ValidationStatus, str | None]:
     """
     Compare actual vs expected for one query. Returns (status, message).
@@ -509,7 +531,7 @@ def validate_query_result(
         )
 
     try:
-        compare_result_frames(actual, expected, query_sql)
+        compare_result_frames(actual, expected, query_sql, actual_column_types)
         return "passed", None
     except Exception as e:
         return "failed", f"{type(e).__name__}: {e}"[:500]
