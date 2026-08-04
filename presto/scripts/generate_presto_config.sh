@@ -47,9 +47,6 @@ function duplicate_worker_configs() {
   rm -rf ${worker_config}
   cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
 
-  # single-node-execution-enabled and cudf.exchange are reconciled for all
-  # workers by the block below duplicate_worker_configs; no need to set them here.
-
   # Each worker node needs to have it's own http-server port.  This isn't used, but
   # the cudf.exchange server port is currently hard-coded to be the server port +3
   # and that needs to be unique for each worker.
