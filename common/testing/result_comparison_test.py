@@ -4,6 +4,7 @@
 """Unit tests for result_comparison.py."""
 
 import datetime
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,8 @@ from common.testing.result_comparison import (
     _find_last_tie_start,
     _normalize_to_expected,
     _validate_orderby,
+    compare_result_frames,
+    normalize_decimal_columns,
 )
 
 # ---------------------------------------------------------------------------
@@ -52,6 +55,31 @@ def test_normalize_to_expected_handles_str_to_date_in_object_dtype():
     assert result[0].dtype == object
     assert isinstance(result[0].iloc[0], datetime.date)
     assert (result[0] == expected[0]).all()
+
+
+def test_normalize_decimal_columns_uses_declared_types():
+    actual = pd.DataFrame({"amount": ["9.99", "10.00"], "identifier": ["9", "10"]})
+    expected = actual.copy()
+
+    actual = normalize_decimal_columns(actual, ["decimal(7,2)", "varchar"])
+    expected = normalize_decimal_columns(expected, ["decimal(7,2)", "varchar"])
+
+    assert isinstance(actual["amount"].iloc[0], Decimal)
+    assert actual["amount"].iloc[0] < actual["amount"].iloc[1]
+    assert actual["identifier"].iloc[0] > actual["identifier"].iloc[1]
+    assert expected.equals(actual)
+
+
+def test_compare_result_frames_validates_decimal_order_numerically():
+    actual = pd.DataFrame({"amount": ["1135171.38", "971187.80"]})
+    expected = actual.copy()
+
+    compare_result_frames(
+        actual,
+        expected,
+        "SELECT amount FROM t ORDER BY amount DESC",
+        ["decimal(14,2)"],
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
+import pyarrow.types as pat
 
 # Allow importing from the repo root (common/testing/result_comparison)
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -25,6 +27,22 @@ from common.testing.test_utils import get_queries
 # ---------------------------------------------------------------------------
 # Main validation loop
 # ---------------------------------------------------------------------------
+
+
+def _get_column_types(result_file: Path) -> list[str] | None:
+    types_file = result_file.with_suffix(".types.json")
+    if types_file.exists():
+        return json.loads(types_file.read_text())
+
+    inferred_types = []
+    has_decimal = False
+    for field in pq.ParquetFile(result_file).schema_arrow:
+        if pat.is_decimal(field.type):
+            inferred_types.append(f"decimal({field.type.precision},{field.type.scale})")
+            has_decimal = True
+        else:
+            inferred_types.append(str(field.type))
+    return inferred_types if has_decimal else None
 
 
 def validate(
@@ -86,6 +104,7 @@ def validate(
 
         actual = pd.read_parquet(result_file)
         expected = pd.read_parquet(expected_file)
+        actual_column_types = _get_column_types(result_file)
 
         if expected.empty and all(t is object for t in expected.dtypes):
             msg = f"expected file is empty (no schema): {expected_file.name}"
@@ -101,7 +120,7 @@ def validate(
             not_validated += 1
             continue
 
-        status, msg = validate_query_result(query_id, actual, expected, query_sql)
+        status, msg = validate_query_result(query_id, actual, expected, query_sql, actual_column_types)
 
         if status == "not-validated":
             query_results[query_id] = {"status": "not-validated", "message": msg}
