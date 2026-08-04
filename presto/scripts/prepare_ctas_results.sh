@@ -13,11 +13,17 @@ if [[ ! -d "${HOST_RESULTS_DIR}" ]]; then
   exit 1
 fi
 
+# A committed Hive table contains .prestoSchema even when the query produced no
+# rows and therefore no Parquet parts. Use that marker instead of requiring an
+# output file.
 has_committed_table() {
   find "${HOST_RESULTS_DIR}" -mindepth 1 -maxdepth 1 -type d -name 'q[0-9]*' \
     -exec test -f '{}/.prestoSchema' \; -print -quit 2>/dev/null
 }
 
+# Host-side normalization must read every Parquet part and remove the temporary
+# table afterward. Return success when a file is unreadable or a directory is
+# not writable, triggering Docker-side permission repair.
 has_inaccessible_results() {
   [[ -n "$(find "${HOST_RESULTS_DIR}" -type d ! -writable -print -quit 2>/dev/null || true)" \
     || -n "$(find "${HOST_RESULTS_DIR}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]
