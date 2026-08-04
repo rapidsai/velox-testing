@@ -47,23 +47,16 @@ function duplicate_worker_configs() {
   rm -rf ${worker_config}
   cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
 
-  # Some configs should only be applied if we are in a multi-worker environment.
-  if [[ ${NUM_WORKERS} -gt 1 ]]; then
-    sed -i "s+single-node-execution-enabled.*+single-node-execution-enabled=false+g" ${coord_native_config} ${worker_native_config}
-    # cuDF exchange is GPU-only. CPU distributed exchange is selected by the
-    # plan transport plus VELOX_UCX_CPU_EXCHANGE, not this worker property.
-    if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
-      sed -i "s+cudf.exchange=false+cudf.exchange=true+g" ${worker_native_config}
-    fi
-  fi
+  # single-node-execution-enabled and cudf.exchange are reconciled for all
+  # workers by the block below duplicate_worker_configs; no need to set them here.
 
   # Each worker node needs to have it's own http-server port.  This isn't used, but
   # the cudf.exchange server port is currently hard-coded to be the server port +3
   # and that needs to be unique for each worker.
-  sed -i "s+http-server\.http\.port.*+http-server\.http\.port=${http_port}+g" ${worker_native_config}
-  sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=${exch_port}+g" ${worker_native_config}
+  set_or_append_property "http-server.http.port" "${http_port}" "${worker_native_config}"
+  set_or_append_property "cudf.exchange.server.port" "${exch_port}" "${worker_native_config}"
   # Give each worker a unique id.
-  sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
+  set_or_append_property "node.id" "worker_${worker_id}" "${worker_config}/node.properties"
 }
 
 # set_or_append_property <key> <value> <file>
