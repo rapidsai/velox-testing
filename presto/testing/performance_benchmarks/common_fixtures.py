@@ -4,80 +4,38 @@
 import os
 import shutil
 from contextlib import suppress
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import prestodb
 import pytest
-import sqlglot
-from sqlglot import exp
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.conftest import get_output_dir
 from common.testing.performance_benchmarks.profiler_utils import start_profiler, stop_profiler
 
 from ..integration_tests.analyze_tables import check_tables_analyzed
+from .ctas import (
+    CTAS_CATALOG,
+    CTAS_SCHEMA,
+    CtasResults,
+    build_ctas_query,
+    ctas_table_name,
+    drop_results_schema,
+)
 from .metrics_collector import collect_metrics
 from .run_context import gather_run_context
 
-CTAS_CATALOG = "hive_output"
-# This schema is temporary and reset before every CTAS benchmark. The regular
-# benchmark --tag applies only to permanent output artifacts.
-CTAS_SCHEMA = "benchmark_results"
 
+def write_query_result(cursor, output_dir, query_id):
+    rows = cursor.fetchall()
+    columns = [description[0] for description in cursor.description]
+    frame = pd.DataFrame(rows, columns=columns)
 
-@dataclass(frozen=True)
-class CtasResults:
-    catalog: str
-    schema: str
-
-
-def strip_trailing_semicolon(query):
-    return query.rstrip().removesuffix(";").rstrip()
-
-
-def ctas_table_name(query_id, iteration_num):
-    return query_id.lower() if iteration_num == 0 else f"{query_id.lower()}_iteration_{iteration_num + 1}"
-
-
-def ctas_output_column_aliases(query):
-    """Return unique CTAS aliases without modifying the original SELECT.
-
-    A wildcard's expanded column count depends on source schema metadata, so
-    wildcard projections keep their original output names instead.
-    """
-    parsed = sqlglot.parse_one(strip_trailing_semicolon(query), read="presto")
-    select = next(parsed.find_all(exp.Select))
-    if any(
-        isinstance(projection := expression.this if isinstance(expression, exp.Alias) else expression, exp.Star)
-        or (isinstance(projection, exp.Column) and isinstance(projection.this, exp.Star))
-        for expression in select.expressions
-    ):
-        return None
-    return [f"c{position}" for position in range(1, len(select.expressions) + 1)]
-
-
-def build_ctas_query(benchmark_type, query_id, query, catalog, schema, table):
-    query = strip_trailing_semicolon(query)
-    aliases = ctas_output_column_aliases(query)
-    column_aliases = f" ({', '.join(aliases)})" if aliases else ""
-    return (
-        f"--{benchmark_type}_{query_id}--\n"
-        f"CREATE TABLE {catalog}.{schema}.{table}{column_aliases} WITH (format = 'PARQUET') AS\n"
-        f"{query}"
-    )
-
-
-def _drop_results_schema(cursor, catalog, schema):
-    schemas = {row[0] for row in cursor.execute(f"SHOW SCHEMAS FROM {catalog}").fetchall()}
-    if schema not in schemas:
-        return
-    tables = cursor.execute(f"SHOW TABLES FROM {catalog}.{schema}").fetchall()
-    for (table,) in tables:
-        cursor.execute(f'DROP TABLE IF EXISTS {catalog}.{schema}."{table}"').fetchall()
-    cursor.execute(f"DROP SCHEMA {catalog}.{schema}").fetchall()
+    results_dir = Path(output_dir) / "query_results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(results_dir / f"{query_id.lower()}.parquet", index=False)
 
 
 @pytest.fixture(scope="session")
@@ -102,7 +60,7 @@ def ctas_results(request):
     try:
         # Drop registered managed tables before removing any unregistered files
         # that may have survived an interrupted run.
-        _drop_results_schema(cursor, CTAS_CATALOG, schema)
+        drop_results_schema(cursor, CTAS_CATALOG, schema)
         if host_results_dir.exists():
             shutil.rmtree(host_results_dir)
         cursor.execute(f"CREATE SCHEMA {CTAS_CATALOG}.{schema}").fetchall()
@@ -236,15 +194,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                     # immediately after execute(), before consuming result pages.
                     result.append(cursor.stats["elapsedTimeMillis"])
                     if iteration_num == 0:
-                        rows = cursor.fetchall()
-                        columns = [desc[0] for desc in cursor.description]
-                        df = pd.DataFrame(rows, columns=columns)
-
-                        # Save to Parquet format to match expected results
-                        results_dir = Path(f"{bench_output_dir}/query_results")
-                        results_dir.mkdir(parents=True, exist_ok=True)
-                        parquet_path = results_dir / f"{query_id.lower()}.parquet"
-                        df.to_parquet(parquet_path, index=False)
+                        write_query_result(cursor, bench_output_dir, query_id)
 
                 # Collect metrics after each query iteration if enabled
                 if metrics:

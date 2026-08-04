@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from presto.testing.performance_benchmarks.common_fixtures import (
+from presto.testing.performance_benchmarks.ctas import (
     CTAS_SCHEMA,
-    _drop_results_schema,
     build_ctas_query,
     ctas_output_column_aliases,
     ctas_table_name,
+    drop_results_schema,
     strip_trailing_semicolon,
 )
 
@@ -83,7 +83,7 @@ def test_drop_results_schema_removes_managed_tables_first():
         }
     )
 
-    _drop_results_schema(cursor, "hive_output", "benchmark_results")
+    drop_results_schema(cursor, "hive_output", "benchmark_results")
 
     assert cursor.statements == [
         "SHOW SCHEMAS FROM hive_output",

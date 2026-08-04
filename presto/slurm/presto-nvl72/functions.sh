@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-CTAS_CONTAINER_SCRATCH_DIR=/var/lib/presto/data/hive/benchmark_output
+CTAS_CONTAINER_SCRATCH_DIR=/var/lib/presto/data/hive/ctas_scratch_output
 EXPECTED_RESULTS_CONTAINER_DIR=/var/lib/presto/expected-results
 
 ctas_scratch_mount_arg() {

@@ -30,6 +30,13 @@ def _query_directories(source_dir: Path) -> list[Path]:
     )
 
 
+def _is_wildcard_projection(expression: exp.Expression) -> bool:
+    projection = expression.this if isinstance(expression, exp.Alias) else expression
+    return isinstance(projection, exp.Star) or (
+        isinstance(projection, exp.Column) and isinstance(projection.this, exp.Star)
+    )
+
+
 def _source_output_names(query_sql: str, physical_names: list[str]) -> list[str]:
     """Return names from an explicit SELECT projection for ORDER BY lookup."""
     # Explicit CTAS projections are stored with unique positional names (c1,
@@ -38,11 +45,7 @@ def _source_output_names(query_sql: str, physical_names: list[str]) -> list[str]
     # correct physical column positions without changing the stored schema.
     parsed = sqlglot.parse_one(query_sql, read="presto")
     select = next(parsed.find_all(exp.Select))
-    has_wildcard = any(
-        isinstance(projection := expression.this if isinstance(expression, exp.Alias) else expression, exp.Star)
-        or (isinstance(projection, exp.Column) and isinstance(projection.this, exp.Star))
-        for expression in select.expressions
-    )
+    has_wildcard = any(_is_wildcard_projection(expression) for expression in select.expressions)
     if len(select.expressions) != len(physical_names) or has_wildcard:
         return physical_names
     return [expression.alias_or_name or physical_names[position] for position, expression in enumerate(select.expressions)]

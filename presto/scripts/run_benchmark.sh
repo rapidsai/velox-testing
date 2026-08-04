@@ -249,11 +249,14 @@ if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
     echo "Error: PRESTO_CTAS_SCRATCH_DIR must be set when --run-as-ctas-queries is enabled." >&2
     exit 1
   fi
-  mkdir -p "${PRESTO_CTAS_SCRATCH_DIR}"
+  if [[ ! -d "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR must exist and be mounted before running CTAS benchmarks: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
+    exit 1
+  fi
   PRESTO_CTAS_SCRATCH_DIR="$(readlink -f "${PRESTO_CTAS_SCRATCH_DIR}")"
   export PRESTO_CTAS_SCRATCH_DIR
-  if [[ ! -d "${PRESTO_CTAS_SCRATCH_DIR}" || ! -w "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
-    echo "Error: PRESTO_CTAS_SCRATCH_DIR must be a writable directory: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
+  if [[ ! -w "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR must be writable: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
     exit 1
   fi
   CTAS_SCRATCH_RESULTS_DIR="${PRESTO_CTAS_SCRATCH_DIR}/${CTAS_RESULTS_SCHEMA}"
@@ -353,9 +356,9 @@ BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 PYTEST_EXIT=0
 pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]} || PYTEST_EXIT=$?
 
-ensure_ctas_scratch_readable() {
+ensure_ctas_scratch_accessible() {
   local host_results_dir=$1
-  local container_results_dir="/var/lib/presto/data/hive/benchmark_output/${CTAS_RESULTS_SCHEMA}"
+  local container_results_dir="/var/lib/presto/data/hive/ctas_scratch_output/${CTAS_RESULTS_SCHEMA}"
 
   if [[ ! -d "${host_results_dir}" ]]; then
     echo "Error: CTAS result directory not found: ${host_results_dir}" >&2
@@ -363,12 +366,17 @@ ensure_ctas_scratch_readable() {
   fi
 
   # Slurm and non-remapped local files are normally owned by the invoking user.
-  find "${host_results_dir}" -type d -exec chmod a+rx {} + 2>/dev/null || true
+  # Normalization reads the Parquet files and removes each temporary table, so
+  # it needs write access to the table directories as well as read access to
+  # the files.
+  find "${host_results_dir}" -type d -exec chmod a+rwx {} + 2>/dev/null || true
   find "${host_results_dir}" -type f -name '*.parquet' -exec chmod a+r {} + 2>/dev/null || true
   local committed_table
   committed_table="$(find "${host_results_dir}" -mindepth 1 -maxdepth 1 -type d -name 'q[0-9]*' \
     -exec test -f '{}/.prestoSchema' \; -print -quit 2>/dev/null || true)"
-  if [[ -n "${committed_table}" && -z "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
+  if [[ -n "${committed_table}" \
+    && -z "$(find "${host_results_dir}" -type d ! -writable -print -quit 2>/dev/null || true)" \
+    && -z "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
     return 0
   fi
 
@@ -380,7 +388,7 @@ ensure_ctas_scratch_readable() {
     while IFS= read -r container; do
       [[ -n ${container} ]] || continue
       docker exec "${container}" find "${container_results_dir}" -type d \
-        -exec chmod a+rx {} + 2>/dev/null || true
+        -exec chmod a+rwx {} + 2>/dev/null || true
       docker exec "${container}" find "${container_results_dir}" -type f -name '*.parquet' \
         -exec chmod a+r {} + 2>/dev/null || true
     done < <(docker ps --format '{{.Names}}' | grep -E '^presto-.*worker')
@@ -392,6 +400,10 @@ ensure_ctas_scratch_readable() {
     echo "Error: No committed CTAS result tables found in ${host_results_dir}" >&2
     return 1
   fi
+  if [[ -n "$(find "${host_results_dir}" -type d ! -writable -print -quit 2>/dev/null || true)" ]]; then
+    echo "Error: CTAS result directories are not writable from the benchmark host: ${host_results_dir}" >&2
+    return 1
+  fi
   if [[ -n "$(find "${host_results_dir}" -type f -name '*.parquet' ! -readable -print -quit 2>/dev/null || true)" ]]; then
     echo "Error: CTAS result files are not readable from the benchmark host: ${host_results_dir}" >&2
     return 1
@@ -400,7 +412,7 @@ ensure_ctas_scratch_readable() {
 
 CTAS_PERMISSION_EXIT=0
 if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
-  ensure_ctas_scratch_readable "${CTAS_SCRATCH_RESULTS_DIR}" || CTAS_PERMISSION_EXIT=$?
+  ensure_ctas_scratch_accessible "${CTAS_SCRATCH_RESULTS_DIR}" || CTAS_PERMISSION_EXIT=$?
 fi
 
 # Snapshot logs and engine configs into the benchmark output directory so that

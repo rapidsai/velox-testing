@@ -87,7 +87,9 @@ if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && -z "${PRESTO_CTAS_SCRATCH_DIR:-}" ]]
 fi
 
 BENCHMARK_OUTPUT_ARGS=()
-[[ "${RUN_AS_CTAS_QUERIES}" == "true" ]] && BENCHMARK_OUTPUT_ARGS+=(--run-as-ctas-queries)
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
+    BENCHMARK_OUTPUT_ARGS+=(--run-as-ctas-queries)
+fi
 
 for schema in "${SCHEMA_ARRAY[@]}"; do
     for kvikio in "${KVIKIO_ARRAY[@]}"; do
