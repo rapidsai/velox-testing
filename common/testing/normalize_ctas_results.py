@@ -41,7 +41,9 @@ def _source_output_names(query_sql: str, physical_names: list[str]) -> list[str]
     has_wildcard = any(_is_wildcard_projection(expression) for expression in select.expressions)
     if len(select.expressions) != len(physical_names) or has_wildcard:
         return physical_names
-    return [expression.alias_or_name or physical_names[position] for position, expression in enumerate(select.expressions)]
+    return [
+        expression.alias_or_name or physical_names[position] for position, expression in enumerate(select.expressions)
+    ]
 
 
 def _write_canonical_result(query_dir: Path, target: Path, query_sql: str | None) -> None:

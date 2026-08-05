@@ -13,9 +13,9 @@ from common.testing.result_comparison import (
     _canonical_sort,
     _find_last_tie_start,
     _normalize_to_expected,
+    _validate_orderby,
     get_orderby_sort_spec,
     restore_orderby,
-    _validate_orderby,
 )
 
 # ---------------------------------------------------------------------------
