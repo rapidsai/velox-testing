@@ -41,6 +41,7 @@ presto/slurm/presto-nvl72/result_dir_*/
 presto/slurm/presto-nvl72/latest_result_dir.txt
 presto/slurm/presto-nvl72/kept_results/
 presto/slurm/presto-nvl72/worker_data*
+presto/slurm/presto-nvl72/libcudf_cache_*/
 
 devstate*
 **/.env
