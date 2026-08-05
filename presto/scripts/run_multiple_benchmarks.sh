@@ -7,6 +7,7 @@ KVIKIO_ARRAY=(8)
 DRIVERS_ARRAY=(2)
 WORKERS_ARRAY=(1)
 SCHEMA_ARRAY=()
+RUN_AS_CTAS_QUERIES=false
 parse_args() {
   while [[ $# -gt 0 ]]; do
       case $1 in
@@ -55,6 +56,10 @@ parse_args() {
                 exit 1
             fi
             ;;
+        --run-as-ctas-queries)
+            RUN_AS_CTAS_QUERIES=true
+            shift
+            ;;
         *)
             echo "Error: Unknown argument $1"
             print_help
@@ -76,13 +81,23 @@ if [[ -z ${PRESTO_DATA_DIR} ]]; then
     exit 1
 fi
 
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && -z "${PRESTO_CTAS_SCRATCH_DIR:-}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR is required with --run-as-ctas-queries."
+    exit 1
+fi
+
+BENCHMARK_OUTPUT_ARGS=()
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
+    BENCHMARK_OUTPUT_ARGS+=(--run-as-ctas-queries)
+fi
+
 for schema in "${SCHEMA_ARRAY[@]}"; do
     for kvikio in "${KVIKIO_ARRAY[@]}"; do
         for drivers in "${DRIVERS_ARRAY[@]}"; do
             for workers in "${WORKERS_ARRAY[@]}"; do
                     echo "Running combo: num_workers = $workers, kvikio_threads = $kvikio, num_drivers = $drivers, schema = $schema"
                     ./start_native_gpu_presto.sh -w $workers --kvikio-threads $kvikio --num-drivers $drivers
-                    ./run_benchmark.sh -b tpch -s ${schema} --tag "${schema}_${workers}wk_${drivers}dr_${kvikio}kv"
+                    ./run_benchmark.sh -b tpch -s ${schema} --tag "${schema}_${workers}wk_${drivers}dr_${kvikio}kv" "${BENCHMARK_OUTPUT_ARGS[@]}"
                     ./stop_presto.sh
             done
         done

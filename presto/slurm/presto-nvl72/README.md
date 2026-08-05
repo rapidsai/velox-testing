@@ -102,11 +102,31 @@ This step only needs to repeat when the worker image's stat tracking changes
 
 # Profile queries 5 and 6 on worker 2
 ./launch-run.sh -n 8 -s 3000 -p --nsys-worker-id 2 -q 5,6
+
+# Use separate shared scratch storage for distributed CTAS writes
+PRESTO_CTAS_SCRATCH_DIR=/shared/writable/presto-results \
+  ./launch-run.sh -n 8 -s 3000 --run-as-ctas-queries
 ```
 
 Submits a benchmark sbatch job, polls until completion, and prints a summary.
 Results land under `result_dir/`. See `./launch-run.sh --help` for the full
-flag list (queries filter, output path, GDS toggle, profiling, metrics, …).
+flag list (queries filter, output path, CTAS execution, GDS toggle, profiling,
+metrics, …). In CTAS mode, workers write temporary distributed results beneath
+`PRESTO_CTAS_SCRATCH_DIR`. After query timing, those parts are combined into
+the normal `result_dir/query_results/qN.parquet` files, alongside the benchmark
+reports.
+
+To validate benchmark output, set the host-side reference directory in
+`~/.cluster_config.env`:
+
+```bash
+PRESTO_EXPECTED_RESULTS_DIR=/shared/reference-results/tpch-sf3000
+```
+
+When the directory exists, `launch-run.sh` mounts it read-only at
+`/var/lib/presto/expected-results` in the CLI container. If it does not exist,
+the run continues without validation. The directory may be outside `VT_ROOT`;
+no `CLUSTER_EXTRA_MOUNTS` entry is needed.
 
 **Prerequisites:** worker + coord images on disk; data from step 1; analyzed
 metastore from step 2 (either local or shared).
@@ -152,6 +172,7 @@ All cluster-specific values come from `~/.cluster_config.env`. See
 | `CLUSTER_GPU_DEFAULT_COORD_IMAGE` / `CLUSTER_CPU_DEFAULT_COORD_IMAGE` | Default coordinator image name |
 | `DATA` | TPC-H parquet data root (parent of `tpch-rs-<SF>/`) |
 | `IMAGE_DIR` | Directory containing `.sqsh` container images |
+| `PRESTO_EXPECTED_RESULTS_DIR` | Optional host directory of expected Parquet results, mounted read-only for validation |
 
 Any variable can also be exported in your shell before invoking a launcher to
 override the config for a single run.
