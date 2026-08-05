@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Validate TPC-H/TPC-DS query results against expected parquet files.
+Validate TPC-H/TPC-DS query results against expected Parquet files.
 
 Comparison logic lives in common/testing/result_comparison.py and is shared
 with the integration test path so that both paths use identical semantics.
@@ -11,6 +11,7 @@ with the integration test path so that both paths use identical semantics.
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -36,7 +37,7 @@ def validate(
     """Run validation and return a results dict.
 
     Args:
-        results_dir:    Directory containing q1.parquet ... q22.parquet result files.
+        results_dir:    Directory containing qN.parquet files.
         expected_dir:   Directory containing expected parquet files.
         queries:        Dict mapping query IDs (e.g. "Q1") to SQL strings.
         query_numbers:  Optional list of query numbers to validate.  When provided,
@@ -50,16 +51,17 @@ def validate(
     passed = failed = not_validated = expected_failures = 0
 
     if query_numbers is not None:
-        result_files = sorted(f for q in query_numbers for f in [results_dir / f"q{q}.parquet"] if f.exists())
+        result_files = [results_dir / f"q{q_num}.parquet" for q_num in query_numbers]
+        result_files = [path for path in result_files if path.exists()]
     else:
-        result_files = sorted(results_dir.glob("q*.parquet"))
+        result_files = [path for path in results_dir.iterdir() if re.fullmatch(r"q\d+\.parquet", path.name)]
 
     if not result_files:
-        print(f"No result parquet files found in {results_dir}", file=sys.stderr)
+        print(f"No result Parquet files found in {results_dir}", file=sys.stderr)
         return {"overall_status": "not-validated", "queries": {}}
 
-    for result_file in result_files:
-        query_id = result_file.stem  # e.g. "q1"
+    for result_file in sorted(result_files, key=lambda path: int(path.stem.lstrip("q"))):
+        query_id = result_file.stem
         q_num = int(query_id.lstrip("q"))
 
         # Accepted naming conventions for expected files (tried in order):
@@ -143,7 +145,7 @@ def validate(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Validate TPC-H/TPC-DS query results against expected parquet files.",
+        description="Validate TPC-H/TPC-DS query results against expected Parquet files.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -179,11 +181,10 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _write_not_validated(results_dir: Path, reason: str) -> None:
+def _write_not_validated(output_path: Path, reason: str) -> None:
     """Write a not-validated sentinel JSON and print the reason."""
     print(f"[Validation] {reason}")
     results = {"overall_status": "not-validated", "queries": {}}
-    output_path = results_dir.parent / "validation_results.json"
     output_path.write_text(json.dumps(results, indent=2))
     print(f"[Validation] Results written to {output_path}")
 
@@ -192,14 +193,16 @@ if __name__ == "__main__":
     args = parse_args()
 
     output_dir = Path(args.output_dir)
-    results_dir = output_dir / args.tag / "query_results" if args.tag else output_dir / "query_results"
+    report_dir = output_dir / args.tag if args.tag else output_dir
+    results_dir = report_dir / "query_results"
+    output_path = report_dir / "validation_results.json"
 
     if not results_dir.is_dir():
         print(f"Error: results directory not found: {results_dir}", file=sys.stderr)
         sys.exit(1)
 
     if args.reference_results_dir is None:
-        _write_not_validated(results_dir, "No reference results directory provided; validation skipped.")
+        _write_not_validated(output_path, "No reference results directory provided; validation skipped.")
         sys.exit(0)
 
     expected_dir = Path(args.reference_results_dir)
@@ -216,7 +219,6 @@ if __name__ == "__main__":
     results = validate(results_dir, expected_dir, queries, query_numbers=query_numbers)
 
     # Write validation_results.json next to the query_results/ dir
-    output_path = results_dir.parent / "validation_results.json"
     output_path.write_text(json.dumps(results, indent=2))
     print(f"[Validation] Results written to {output_path}")
 
