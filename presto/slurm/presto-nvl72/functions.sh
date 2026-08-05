@@ -383,6 +383,9 @@ echo \"Worker ${worker_id}: CUFILE_LOGFILE_PATH=\${CUFILE_LOGFILE_PATH:-unset}\"
 echo \"Worker ${worker_id}: KVIKIO_TASK_SIZE=\${KVIKIO_TASK_SIZE:-unset}\"
 echo \"Worker ${worker_id}: KVIKIO_NTHREADS=\${KVIKIO_NTHREADS:-unset}\"
 
+# All workers write the same worker_provenance.json (last writer wins); that is
+# fine because every worker runs the same image. If workers ever use different
+# images, make this per-worker and update run_context.py to match.
 if [ -f /opt/velox-testing/provenance.json ]; then
     cp /opt/velox-testing/provenance.json /opt/presto-server/logs/worker_provenance.json
 fi

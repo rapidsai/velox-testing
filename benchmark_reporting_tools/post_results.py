@@ -272,7 +272,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--commit-hash",
         default=None,
-        help="Git commit hash for the query engine",
+        help=(
+            "Git commit hash for the query engine. When omitted, it is derived from the image "
+            "provenance SHAs as 'presto-<sha>-velox-<sha>'. Unlike branch/repo below, the provenance "
+            "SHAs are taken only from the benchmark context and cannot be overridden (there is no "
+            "--presto-sha/--velox-sha); use --commit-hash to override the derived value."
+        ),
     )
     parser.add_argument(
         "--dry-run",
