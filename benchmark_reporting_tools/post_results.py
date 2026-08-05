@@ -428,12 +428,15 @@ def _build_submission_payload(
         version = "unknown"
     # Derive commit_hash from the image provenance SHAs when not explicitly given:
     # "presto-<sha>-velox-<sha>" (worker), "presto-<sha>" (coordinator, no velox).
+    # Abbreviate the SHAs to keep the composite value short; the full SHAs are still
+    # submitted in the presto_sha/velox_sha engine_config entries.
     if commit_hash is None:
+        short = 12
         commit_parts = []
         if presto_sha:
-            commit_parts.append(f"presto-{presto_sha}")
+            commit_parts.append(f"presto-{presto_sha[:short]}")
         if velox_sha:
-            commit_parts.append(f"velox-{velox_sha}")
+            commit_parts.append(f"velox-{velox_sha[:short]}")
         commit_hash = "-".join(commit_parts) if commit_parts else "unknown"
 
     # Build query logs from results
