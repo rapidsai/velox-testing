@@ -262,17 +262,10 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                         result.append(cursor.stats["elapsedTimeMillis"])
                         if iteration_num == 0:
                             write_query_result(cursor, bench_output_dir, query_id)
+
                 finally:
                     if iter_profile_path is not None:
                         stop_profiler(profile_script_path, iter_profile_path)
-
-                # Outside the profiler window: drop the scratch table and collect
-                # metrics so neither appears as engine work in the profile.
-                if scratch_table is not None:
-                    presto_cursor.execute(
-                        f"DROP TABLE IF EXISTS {ctas_results.catalog}.{ctas_results.schema}.{scratch_table}"
-                    ).fetchall()
-                    scratch_table = None
 
                 # Keep post-query REST collection outside a per-iteration
                 # profiler interval. Otherwise CPU samples after query
@@ -288,6 +281,12 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                             port=port,
                             output_dir=bench_output_dir,
                         )
+
+                if scratch_table is not None:
+                    presto_cursor.execute(
+                        f"DROP TABLE IF EXISTS {ctas_results.catalog}.{ctas_results.schema}.{scratch_table}"
+                    ).fetchall()
+                    scratch_table = None
 
             raw_times_dict[query_id] = result
         except Exception as e:
