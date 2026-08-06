@@ -120,11 +120,7 @@ def _derive_compression(metadata: dict) -> str:
     if not codec_defs:
         return "snappy"
 
-    compressions = {
-        table["compression"].lower()
-        for table in codec_defs.get("tables", [])
-        if table.get("compression")
-    }
+    compressions = {table["compression"].lower() for table in codec_defs.get("tables", []) if table.get("compression")}
     if len(compressions) == 1:
         return compressions.pop()
 
@@ -244,8 +240,7 @@ def register_storage_config(
         storage_system = _detect_storage_system(data_dir)
         if storage_system is None:
             print(
-                "Error: could not auto-detect storage system. "
-                "Use --storage-system to specify one explicitly.",
+                "Error: could not auto-detect storage system. Use --storage-system to specify one explicitly.",
                 file=sys.stderr,
             )
             return 1
