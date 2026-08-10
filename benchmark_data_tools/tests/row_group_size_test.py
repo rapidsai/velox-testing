@@ -15,7 +15,12 @@ from .common_fixtures import get_all_parquet_relative_file_paths
 _MIN_ROW_GROUPS_FOR_SIZE_CHECK = 4
 
 
-def test_approx_row_group_bytes_parameter(setup_and_teardown):
+@pytest.mark.parametrize(
+    "benchmark_type,use_duckdb",
+    [("tpch", False), ("tpcds", True)],
+    ids=["tpch-tpchgen", "tpcds-duckdb"],
+)
+def test_approx_row_group_bytes_parameter(setup_and_teardown, benchmark_type, use_duckdb):
     """Validate that the approx_row_group_bytes parameter controls row group sizing.
 
     Verifies that:
@@ -25,6 +30,8 @@ def test_approx_row_group_bytes_parameter(setup_and_teardown):
     - Small tables are excluded from size checks (see _MIN_ROW_GROUPS_FOR_SIZE_CHECK)
     """
     data_dir_path, args = setup_and_teardown
+    args.benchmark_type = benchmark_type
+    args.use_duckdb = use_duckdb
     args.approx_row_group_bytes = 1024 * 1024
     generate_data_files(args)
 

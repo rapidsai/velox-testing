@@ -10,8 +10,8 @@ def quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def init_benchmark_tables(benchmark_type, scale_factor):
-    tables = duckdb.sql("SHOW TABLES").fetchall()
+def init_benchmark_tables(benchmark_type, scale_factor, conn=duckdb):
+    tables = conn.sql("SHOW TABLES").fetchall()
     assert len(tables) == 0
 
     if benchmark_type == "tpch":
@@ -20,7 +20,7 @@ def init_benchmark_tables(benchmark_type, scale_factor):
         assert benchmark_type == "tpcds"
         function_name = "dsdgen"
 
-    duckdb.sql(f"INSTALL {benchmark_type}; LOAD {benchmark_type}; CALL {function_name}(sf = {scale_factor});")
+    conn.sql(f"INSTALL {benchmark_type}; LOAD {benchmark_type}; CALL {function_name}(sf = {scale_factor});")
 
 
 def drop_benchmark_tables():
@@ -51,3 +51,22 @@ def create_table_from_sample(table_name, data_path):
 
 def is_decimal_column(column_type):
     return bool(re.match(r"^DECIMAL\(\d+,\d+\)$", column_type))
+
+
+def get_select_query(table_name, convert_decimals_to_floats, conn=duckdb):
+    if convert_decimals_to_floats:
+        column_metadata_rows = conn.query(f"DESCRIBE {table_name}").fetchall()
+        column_projections = [get_column_projection(column_metadata) for column_metadata in column_metadata_rows]
+        query = f"SELECT {','.join(column_projections)} FROM {table_name}"
+    else:
+        query = f"SELECT * FROM {table_name}"
+    return query
+
+
+def get_column_projection(column_metadata):
+    col_name, col_type, *_ = column_metadata
+    if is_decimal_column(col_type):
+        projection = f"CAST({col_name} AS DOUBLE) AS {col_name}"
+    else:
+        projection = col_name
+    return projection
