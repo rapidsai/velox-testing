@@ -1,7 +1,11 @@
 certifi==2025.8.3
 charset-normalizer==3.4.3
 click==8.2.1
-duckdb==1.3.2
+# 1.5.5 is the first stable release that respects PARQUET_VERSION 'V2'; 1.3.2 ignored it
+# silently and wrote v1.0. Its dsdgen is still single-threaded, which dominates TPC-DS
+# generation (98s vs 5.6s at SF10). Parallel dsdgen is in nightly only -- swap this for
+# `duckdb --pre` to try it, and re-pin once a stable release ships it.
+duckdb==1.5.5
 idna==3.10
 presto-python-client==0.8.4
 requests==2.32.4
