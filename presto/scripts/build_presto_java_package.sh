@@ -45,6 +45,8 @@ docker run --rm \
     cp presto-function-server/target/presto-function-server-*executable.jar docker/presto-function-server-executable.jar &&
     cp presto-function-server/target/presto-function-server-*executable.jar docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
     cp presto-cli/target/presto-cli-*-executable.jar docker/presto-cli-$PRESTO_VERSION-executable.jar &&
+    chmod +r docker/presto-function-server-executable.jar &&
+    chmod +r docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
     chmod +r docker/presto-cli-$PRESTO_VERSION-executable.jar &&
     echo 'Build complete! Artifacts copied with version $PRESTO_VERSION'
     "
