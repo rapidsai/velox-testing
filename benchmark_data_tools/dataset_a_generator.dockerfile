@@ -7,7 +7,6 @@ RUN uv pip install --python /opt/venv/bin/python \
 
 COPY benchmark_data_tools/generate_data_files.py \
      benchmark_data_tools/duckdb_utils.py \
-     benchmark_data_tools/baseline_codec_definitions.json \
      /opt/benchmark_data_tools/
 
 ENTRYPOINT ["python", "/opt/benchmark_data_tools/generate_data_files.py"]
