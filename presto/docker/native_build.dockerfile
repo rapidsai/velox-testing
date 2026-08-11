@@ -10,6 +10,7 @@ ARG GPU=ON
 ARG BUILD_TYPE=release
 ARG BUILD_BASE_DIR=/presto_native_${BUILD_TYPE}_gpu_${GPU}_build
 ARG NUM_THREADS=12
+ARG BUILD_CACHE_ID=presto-native-build
 ARG EXTRA_CMAKE_FLAGS="\
     -DPRESTO_ENABLE_TESTING=OFF \
     -DPRESTO_ENABLE_PARQUET=ON \
@@ -63,7 +64,7 @@ RUN mkdir -p /runtime-libraries
 RUN \
     --mount=type=bind,source=presto/presto-native-execution,target=/presto_native_staging/presto \
     --mount=type=bind,source=velox,target=/presto_native_staging/presto/velox \
-    --mount=type=cache,target=${BUILD_BASE_DIR} \
+    --mount=type=cache,id=${BUILD_CACHE_ID},target=${BUILD_BASE_DIR} \
     --mount=type=cache,target=/root/.cache/sccache/preprocessor \
     --mount=type=cache,target=/root/.cache/sccache-dist-client \
     --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \

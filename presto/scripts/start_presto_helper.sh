@@ -256,6 +256,7 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   docker compose --progress plain -f $DOCKER_COMPOSE_FILE_PATH build \
   $SKIP_CACHE_ARG --build-arg PRESTO_VERSION=$PRESTO_VERSION \
   --build-arg NUM_THREADS=$NUM_THREADS --build-arg BUILD_TYPE=$BUILD_TYPE \
+  --build-arg BUILD_CACHE_ID="${BUILD_CACHE_ID:-presto-native-build}" \
   --build-arg CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES \
   "${SCCACHE_BUILD_ARGS[@]}" \
   ${BUILD_TARGET_ARG[@]}
