@@ -10,6 +10,7 @@ import pytest
 
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.profiler_utils import start_profiler, stop_profiler
+from common.testing.result_comparison import QUERY_ENGINE_COLUMN_TYPES_ATTR
 
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .metrics_collector import collect_metrics
@@ -116,7 +117,9 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 if iteration_num == 0:
                     rows = cursor.fetchall()
                     columns = [desc[0] for desc in cursor.description]
+                    column_types = [desc[1] for desc in cursor.description]
                     df = pd.DataFrame(rows, columns=columns)
+                    df.attrs[QUERY_ENGINE_COLUMN_TYPES_ATTR] = column_types
 
                     # Save to Parquet format to match expected results
                     results_dir = Path(f"{bench_output_dir}/query_results")

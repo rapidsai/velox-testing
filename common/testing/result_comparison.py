@@ -12,6 +12,7 @@ parquet files). See compare_result_frames for full comparison semantics.
 import datetime
 import re
 import warnings
+from decimal import Decimal
 from typing import Literal
 
 import numpy as np
@@ -21,6 +22,7 @@ import sqlglot
 REL_TOL = 1e-5
 ABS_TOL = 1e-8
 MAX_MISMATCHES = 5
+QUERY_ENGINE_COLUMN_TYPES_ATTR = "query_engine_column_types"
 
 # Known queries that return empty results due to float precision issues.
 # These are marked as expected failures rather than test failures.
@@ -159,6 +161,10 @@ def _normalize_to_expected(actual: pd.DataFrame, expected: pd.DataFrame) -> pd.D
             # actual has str dates, expected has datetime.date objects —
             # parse the strings and yield datetime.date to match.
             out.isetitem(i, pd.to_datetime(a_col).dt.date)
+        elif isinstance(a_sample, str) and isinstance(e_sample, Decimal):
+            # DB-API drivers commonly return DECIMAL values as strings while
+            # DuckDB parquet files preserve decimal.Decimal objects.
+            out.isetitem(i, a_col.map(lambda value: Decimal(value) if isinstance(value, str) else value))
     return out
 
 
@@ -408,7 +414,7 @@ def compare_result_frames(
     actual: pd.DataFrame,
     expected: pd.DataFrame,
     query_sql: str,
-    actual_column_types: list[str] | None = None,
+    actual_column_types: list[str | None] | None = None,
 ) -> None:
     """
     Full comparison pipeline. Raises AssertionError on any mismatch.
@@ -492,6 +498,7 @@ def validate_query_result(
     actual: pd.DataFrame,
     expected: pd.DataFrame,
     query_sql: str,
+    actual_column_types: list[str | None] | None = None,
 ) -> tuple[ValidationStatus, str | None]:
     """
     Compare actual vs expected for one query. Returns (status, message).
@@ -509,7 +516,7 @@ def validate_query_result(
         )
 
     try:
-        compare_result_frames(actual, expected, query_sql)
+        compare_result_frames(actual, expected, query_sql, actual_column_types)
         return "passed", None
     except Exception as e:
         return "failed", f"{type(e).__name__}: {e}"[:500]

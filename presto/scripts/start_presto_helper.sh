@@ -38,6 +38,25 @@ function validate_sibling_repos() {
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 source "${SCRIPT_DIR}/common_functions.sh"
 
+if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
+  project_user="${USER:-user}"
+  project_user="${project_user//[^a-zA-Z0-9]/-}"
+  project_user="$(printf "%s" "${project_user}" | tr '[:upper:]' '[:lower:]')"
+  COMPOSE_PROJECT_NAME="presto-${project_user}"
+  export COMPOSE_PROJECT_NAME
+fi
+echo "Using COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}"
+
+# Presto discovery filters nodes by node.environment. Derive a private
+# discovery namespace and node-ID prefix from the already namespaced Compose
+# project unless callers explicitly override them. Airlift's node.environment
+# rejects hyphens, so map Compose's valid hyphens to underscores.
+default_node_namespace="${COMPOSE_PROJECT_NAME//-/_}"
+export PRESTO_NODE_ENVIRONMENT="${PRESTO_NODE_ENVIRONMENT:-${default_node_namespace}}"
+export PRESTO_NODE_ID_PREFIX="${PRESTO_NODE_ID_PREFIX:-${default_node_namespace}}"
+echo "Using PRESTO_NODE_ENVIRONMENT: ${PRESTO_NODE_ENVIRONMENT}"
+echo "Using PRESTO_NODE_ID_PREFIX: ${PRESTO_NODE_ID_PREFIX}"
+
 validate_sccache_auth() {
   if [[ "$ENABLE_SCCACHE" == true ]]; then
     echo "Checking for sccache authentication files in: $SCCACHE_AUTH_DIR"
@@ -97,7 +116,7 @@ CPU_WORKER_IMAGE=${CPU_WORKER_SERVICE}:${PRESTO_IMAGE_TAG}
 GPU_WORKER_SERVICE="presto-native-worker-gpu"
 GPU_WORKER_IMAGE=${GPU_WORKER_SERVICE}:${PRESTO_IMAGE_TAG}
 
-DEPS_IMAGE="presto/prestissimo-dependency:centos9-${USER:-latest}"
+DEPS_IMAGE="${DEPS_IMAGE:-presto/prestissimo-dependency:centos9-${USER:-latest}}"
 export DEPS_IMAGE
 
 BUILD_TARGET_ARG=()

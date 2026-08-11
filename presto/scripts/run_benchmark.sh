@@ -33,6 +33,7 @@ OPTIONS:
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
                             schema that contains the benchmark tables.
+    --scale-factor          Explicit benchmark scale factor. Avoids metadata autodetection queries.
     -o, --output-dir        Directory path that will contain the output files from the benchmark run.
                             By default, output files are written to "$(pwd)/benchmark_output".
     -i, --iterations        Number of query run iterations. By default, 5 iterations are run.
@@ -143,6 +144,15 @@ parse_args() {
           exit 1
         fi
         ;;
+      --scale-factor)
+        if [[ -n $2 ]]; then
+          SCALE_FACTOR=$2
+          shift 2
+        else
+          echo "Error: --scale-factor requires a value"
+          exit 1
+        fi
+        ;;
       -o|--output-dir)
         if [[ -n $2 ]]; then
           OUTPUT_DIR=$2
@@ -242,6 +252,9 @@ set_presto_coordinator_defaults
 
 PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
 
+if [[ -n ${SCALE_FACTOR} ]]; then
+  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
+fi
 
 if [[ -n ${QUERIES} ]]; then
   PYTEST_ARGS+=("--queries ${QUERIES}")

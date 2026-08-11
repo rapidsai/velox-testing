@@ -23,6 +23,33 @@ function echo_success {
   echo -e "${GREEN}$1${NC}"
 }
 
+PRESTO_NODE_ENVIRONMENT="${PRESTO_NODE_ENVIRONMENT:-test}"
+PRESTO_NODE_ID_PREFIX="${PRESTO_NODE_ID_PREFIX:-}"
+if [[ ! "${PRESTO_NODE_ENVIRONMENT}" =~ ^[A-Za-z0-9_]+$ ]]; then
+  echo_error "ERROR: PRESTO_NODE_ENVIRONMENT must contain only letters, digits, or underscores."
+fi
+if [[ -n "${PRESTO_NODE_ID_PREFIX}" &&
+      ! "${PRESTO_NODE_ID_PREFIX}" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  echo_error "ERROR: PRESTO_NODE_ID_PREFIX must contain only letters, digits, underscores, or hyphens."
+fi
+
+function namespaced_node_id() {
+  local role=$1
+  if [[ -n "${PRESTO_NODE_ID_PREFIX}" ]]; then
+    printf '%s_%s' "${PRESTO_NODE_ID_PREFIX}" "${role}"
+  else
+    printf '%s' "${role}"
+  fi
+}
+
+function apply_node_namespace() {
+  local config_dir=$1
+  local role=$2
+  local node_properties="${config_dir}/node.properties"
+  sed -i "s+^node\.environment=.*+node.environment=${PRESTO_NODE_ENVIRONMENT}+g" "${node_properties}"
+  sed -i "s+^node\.id=.*+node.id=$(namespaced_node_id "${role}")+g" "${node_properties}"
+}
+
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -59,7 +86,7 @@ function duplicate_worker_configs() {
   sed -i "s+http-server\.http\.port.*+http-server\.http\.port=${http_port}+g" ${worker_native_config}
   sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=${exch_port}+g" ${worker_native_config}
   # Give each worker a unique id.
-  sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
+  sed -i "s+^node\.id=.*+node.id=$(namespaced_node_id "worker_${worker_id}")+g" "${worker_config}/node.properties"
 }
 
 # get host values
@@ -140,6 +167,12 @@ else
   # otherwise, reuse existing config
   echo_success "Reusing existing Presto Config files for '${VARIANT_TYPE}'"
 fi
+
+# Keep Docker/Compose clusters in distinct Presto service-discovery
+# environments. Apply this even when generated config is reused so changing
+# COMPOSE_PROJECT_NAME cannot accidentally reuse the previous namespace.
+apply_node_namespace "${CONFIG_DIR}/etc_coordinator" coordinator
+apply_node_namespace "${CONFIG_DIR}/etc_worker" worker
 
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.

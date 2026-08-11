@@ -50,6 +50,14 @@ def _get_schema_info(hostname: str, port: int, user: str, schema_name: str) -> d
         data_dir: str | None  — parent directory of the table data (e.g. /data/sf100)
     """
     result: dict = {"scale_factor": None, "data_dir": None}
+    override_scale_factor = os.environ.get("PRESTO_BENCHMARK_SCALE_FACTOR")
+    override_data_dir = os.environ.get("PRESTO_BENCHMARK_DATA_DIR")
+    if override_scale_factor is not None or override_data_dir is not None:
+        if override_scale_factor is not None:
+            scale_factor = float(override_scale_factor)
+            result["scale_factor"] = int(scale_factor) if scale_factor.is_integer() else scale_factor
+        result["data_dir"] = override_data_dir
+        return result
     if not _SAFE_IDENTIFIER_RE.match(schema_name):
         _debug(f"schema_name {schema_name!r} contains unsafe characters, skipping schema info lookup")
         return result

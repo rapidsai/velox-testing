@@ -19,7 +19,11 @@ import pandas as pd
 # Allow importing from the repo root (common/testing/result_comparison)
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from common.testing.result_comparison import ValidationStatus, validate_query_result
+from common.testing.result_comparison import (
+    QUERY_ENGINE_COLUMN_TYPES_ATTR,
+    ValidationStatus,
+    validate_query_result,
+)
 from common.testing.test_utils import get_queries
 
 # ---------------------------------------------------------------------------
@@ -86,6 +90,9 @@ def validate(
 
         actual = pd.read_parquet(result_file)
         expected = pd.read_parquet(expected_file)
+        actual_column_types = actual.attrs.get(QUERY_ENGINE_COLUMN_TYPES_ATTR)
+        if not isinstance(actual_column_types, list) or len(actual_column_types) != len(actual.columns):
+            actual_column_types = None
 
         if expected.empty and all(t is object for t in expected.dtypes):
             msg = f"expected file is empty (no schema): {expected_file.name}"
@@ -101,7 +108,7 @@ def validate(
             not_validated += 1
             continue
 
-        status, msg = validate_query_result(query_id, actual, expected, query_sql)
+        status, msg = validate_query_result(query_id, actual, expected, query_sql, actual_column_types)
 
         if status == "not-validated":
             query_results[query_id] = {"status": "not-validated", "message": msg}

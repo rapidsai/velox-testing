@@ -4,6 +4,7 @@
 """Unit tests for result_comparison.py."""
 
 import datetime
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,7 @@ from common.testing.result_comparison import (
     _find_last_tie_start,
     _normalize_to_expected,
     _validate_orderby,
+    compare_result_frames,
 )
 
 # ---------------------------------------------------------------------------
@@ -52,6 +54,35 @@ def test_normalize_to_expected_handles_str_to_date_in_object_dtype():
     assert result[0].dtype == object
     assert isinstance(result[0].iloc[0], datetime.date)
     assert (result[0] == expected[0]).all()
+
+
+def test_normalize_to_expected_handles_str_to_decimal_in_object_dtype():
+    actual = pd.DataFrame({0: pd.Series(["10000064.99", "9999985.67"], dtype="string")})
+    expected = pd.DataFrame({0: pd.Series([Decimal("10000064.99"), Decimal("9999985.67")], dtype=object)})
+
+    result = _normalize_to_expected(actual, expected)
+
+    assert isinstance(result[0].iloc[0], Decimal)
+    assert (result[0] == expected[0]).all()
+
+
+def test_compare_result_frames_uses_decimal_scale_for_string_results():
+    actual = pd.DataFrame({"mkt_share": pd.Series(["0.0401"], dtype="string")})
+    expected = pd.DataFrame({"mkt_share": [0.04010803898633946]})
+
+    compare_result_frames(
+        actual,
+        expected,
+        "SELECT mkt_share",
+        actual_column_types=["decimal(8,4)"],
+    )
+
+
+def test_compare_result_frames_validates_decimal_string_order_numerically():
+    actual = pd.DataFrame({"value": pd.Series(["10000064.99", "9999985.67"], dtype="string")})
+    expected = pd.DataFrame({"value": pd.Series([Decimal("10000064.99"), Decimal("9999985.67")], dtype=object)})
+
+    compare_result_frames(actual, expected, "SELECT value ORDER BY value DESC")
 
 
 # ---------------------------------------------------------------------------

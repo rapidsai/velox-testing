@@ -58,7 +58,7 @@ ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     SCCACHE_S3_KEY_PREFIX=velox-testing/object-cache \
     SCCACHE_S3_PREPROCESSOR_CACHE_KEY_PREFIX=velox-testing/preprocessor-cache
 
-RUN mkdir /runtime-libraries
+RUN mkdir -p /runtime-libraries
 
 RUN \
     --mount=type=bind,source=presto/presto-native-execution,target=/presto_native_staging/presto \
@@ -73,7 +73,9 @@ RUN \
 set -euxo pipefail;
 
 source /opt/rh/gcc-toolset-14/enable;
+export PATH=/usr/local/bin:${PATH};
 export CC=/opt/rh/gcc-toolset-14/root/bin/gcc CXX=/opt/rh/gcc-toolset-14/root/bin/g++;
+cmake --version;
 
 # Clear stale CMake cache if the compiler changed
 if [ -f "${BUILD_BASE_DIR}/CMakeCache.txt" ]; then
@@ -106,7 +108,7 @@ LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_c
 cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin;
 EOF
 
-RUN mkdir /usr/lib64/presto-native-libs && \
+RUN mkdir -p /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
     echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
 
