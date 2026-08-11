@@ -104,6 +104,7 @@ def main() -> int:
     import duckdb  # pylint: disable=import-outside-toplevel
     import pandas as pd  # pylint: disable=import-outside-toplevel
     from common.testing.result_comparison import (  # pylint: disable=import-outside-toplevel
+        QUERY_ENGINE_COLUMN_TYPES_ATTR,
         validate_query_result,
     )
 
@@ -180,13 +181,18 @@ def main() -> int:
         checkpoint(args.output, report)
         try:
             reference_df = connection.sql(query).df()
-            presto_df = connection.read_parquet(str(result_path.resolve())).df()
+            # pandas restores the Presto type list stored in DataFrame attrs by
+            # the benchmark harness; DuckDB's DataFrame conversion drops it.
+            presto_df = pd.read_parquet(result_path)
+            query_types = actual_types.get(query_id) or presto_df.attrs.get(
+                QUERY_ENGINE_COLUMN_TYPES_ATTR
+            )
             status, message = validate_query_result(
                 query_id,
                 presto_df,
                 reference_df,
                 query,
-                actual_types.get(query_id),
+                query_types,
             )
             entry.update(
                 {
