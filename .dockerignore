@@ -7,3 +7,5 @@
 **/_build
 **/__pycache__
 **/*.pyc
+presto/scripts/.mvn_cache
+presto/docker/config/generated
