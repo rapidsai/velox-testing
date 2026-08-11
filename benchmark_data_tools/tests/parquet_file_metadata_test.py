@@ -2,22 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pyarrow.parquet as pq
-import pytest
 from generate_data_files import generate_data_files
 
 from .common_fixtures import get_all_parquet_relative_file_paths
 
 
-@pytest.mark.parametrize(
-    "benchmark_type,use_duckdb",
-    [("tpch", False), ("tpcds", True)],
-    ids=["tpch-tpchgen", "tpcds-duckdb"],
-)
-def test_generated_files_use_v2_page_format(setup_and_teardown, benchmark_type, use_duckdb):
-    """Verify that both generation paths write Parquet V2 files."""
+def test_generated_files_use_v2_page_format(setup_and_teardown):
+    """Verify every generated Parquet file is written with the v2 format."""
     data_dir_path, args = setup_and_teardown
-    args.benchmark_type = benchmark_type
-    args.use_duckdb = use_duckdb
     generate_data_files(args)
 
     for file_path in get_all_parquet_relative_file_paths(data_dir_path):

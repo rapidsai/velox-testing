@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import duckdb
-from duckdb_utils import get_select_query, init_benchmark_tables
+from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
 from row_group_sizing import row_group_row_count_probe
 
 _INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
@@ -100,6 +100,8 @@ def generate_data_files(args):
             print("generating with duckdb")
         generate_data_files_with_duckdb(args)
 
+    write_metadata(args)
+
 
 def generate_data_files_with_tpchgen(args, codec_defs):
     local_installs_bin = Path(__file__).resolve().parent / ".local_installs" / "bin"
@@ -140,8 +142,6 @@ def generate_data_files_with_tpchgen(args, codec_defs):
 
     if args.verbose:
         print(f"Raw data created at: {raw_data_path}")
-
-    write_metadata(args)
 
 
 # This dictionary maps each table to the number of partitions it should have based on it's
@@ -201,8 +201,6 @@ def generate_data_files_with_duckdb(args):
         init_benchmark_tables(args.benchmark_type, args.scale_factor)
         row_group_rows = probed_row_counts()
 
-    write_metadata(args)
-
     tables = [t[0] for t in duckdb.sql("SHOW TABLES").fetchall()]
     for table_name in tables:
         table_data_dir = f"{args.data_dir_path}/{table_name}"
@@ -213,6 +211,7 @@ def generate_data_files_with_duckdb(args):
             row_group_rows.get(table_name),
             args.convert_decimals_to_floats,
             args.max_rows_per_file,
+            args.num_threads,
         )
 
 
@@ -222,6 +221,7 @@ def _write_table_partitions(
     estimated_rows_per_row_group,
     convert_decimals_to_floats,
     max_rows_per_file,
+    num_threads,
 ):
     """Write 1-indexed Parquet parts, respecting max_rows_per_file when set."""
     select_query = get_select_query(table_name, convert_decimals_to_floats)
@@ -230,19 +230,30 @@ def _write_table_partitions(
         estimated_rows_per_row_group = row_count
     # The estimate can exceed the target table's row count.
     rows_per_row_group = min(estimated_rows_per_row_group, row_count)
-    num_partitions = math.ceil(row_count / max_rows_per_file) if max_rows_per_file else 1
-    for part in range(num_partitions):
-        # Avoid a redundant LIMIT/OFFSET for a single part.
-        partition_query = (
-            f"{select_query} LIMIT {max_rows_per_file} OFFSET {part * max_rows_per_file}"
-            if num_partitions > 1
-            else select_query
-        )
+    num_partitions = max(math.ceil(row_count / max_rows_per_file), 1) if max_rows_per_file else 1
+
+    def write_partition(part):
+        partition_query = select_query
+        if num_partitions > 1:
+            start_row = part * max_rows_per_file
+            partition_query += f" WHERE rowid >= {start_row} AND rowid < {start_row + max_rows_per_file}"
         file_path = f"{table_data_dir}/{table_name}-{part + 1}.parquet"
-        duckdb.sql(
-            f"COPY ({partition_query}) TO '{file_path}' "
-            f"(FORMAT parquet, PARQUET_VERSION 'V2', ROW_GROUP_SIZE {rows_per_row_group})"
-        )
+        conn = duckdb.cursor()
+        try:
+            copy_to_parquet(partition_query, file_path, rows_per_row_group, conn)
+        finally:
+            conn.close()
+
+    max_workers = min(num_threads, num_partitions)
+    if max_workers == 1:
+        for part in range(num_partitions):
+            write_partition(part)
+        return
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(write_partition, part) for part in range(num_partitions)]
+        for future in futures:
+            future.result()
 
 
 def get_tpchgen_codec_args(codec_defs, table_name):
@@ -408,7 +419,7 @@ if __name__ == "__main__":
         type=int,
         required=False,
         default=4,
-        help="Number of threads to generate data with tpchgen",
+        help="Number of concurrent data generation tasks",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", required=False, default=False, help="Extra verbose logging"

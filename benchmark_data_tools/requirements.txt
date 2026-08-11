@@ -1,7 +1,6 @@
 certifi==2025.8.3
 charset-normalizer==3.4.3
 click==8.2.1
-# DuckDB 1.5.5 supports Parquet V2; parallel dsdgen is not yet in a stable release.
 duckdb==1.5.5
 idna==3.10
 presto-python-client==0.8.4

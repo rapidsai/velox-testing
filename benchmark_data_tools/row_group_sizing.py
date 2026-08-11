@@ -9,12 +9,12 @@ from pathlib import Path
 
 import duckdb
 import pyarrow.parquet as pq
-from duckdb_utils import get_select_query, init_benchmark_tables
+from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
 
 _ROW_GROUP_GRANULARITY = 2048  # DuckDB rounds ROW_GROUP_SIZE to its vector size
 _MAX_PROBE_SCALE_FACTOR = 10
-_STAGE1_ROWS = 200_000
-_STAGE2_SLICE = 1.2
+_STAGE1_ROWS = 122_880  # one DuckDB default row group
+_STAGE2_SLICE = 1.2  # one full estimated group plus a bounded partial group
 _PROBE_MEMORY_LIMIT = "8GB"
 
 
@@ -69,25 +69,18 @@ def _measure_row_group_rows(conn, select_query, table_rows, target_bytes):
         probe_path = Path(tmp_dir) / "probe.parquet"
 
         # First pass: estimate bytes/row using DuckDB's default row-group size.
-        _write_probe(conn, f"{select_query} LIMIT {_STAGE1_ROWS}", probe_path)
+        copy_to_parquet(f"{select_query} LIMIT {_STAGE1_ROWS}", probe_path, conn=conn)
         rows = _rows_for_target(_bytes_per_row(probe_path), target_bytes)
         if rows is None or rows >= table_rows:
             # A second write cannot fill the estimated row group or improve the result.
             return rows
 
-        # Second pass: measure one full row group near the requested size.
+        # Second pass: bytes/row changes with row-group size, so remeasure near the requested size.
         slice_rows = int(_STAGE2_SLICE * rows)
-        _write_probe(conn, f"{select_query} LIMIT {slice_rows}", probe_path, rows)
+        copy_to_parquet(f"{select_query} LIMIT {slice_rows}", probe_path, rows, conn)
         refined = _rows_for_target(_bytes_per_row(probe_path), target_bytes)
 
     return rows if refined is None else refined
-
-
-def _write_probe(conn, query, path, row_group_rows=None):
-    options = "FORMAT parquet, PARQUET_VERSION 'V2'"
-    if row_group_rows is not None:
-        options += f", ROW_GROUP_SIZE {row_group_rows}"
-    conn.sql(f"COPY ({query}) TO '{path}' ({options})")
 
 
 def _bytes_per_row(path):
