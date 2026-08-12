@@ -90,7 +90,7 @@ def _bytes_per_row(path):
 
 
 def _rows_for_target(bytes_per_row, target_bytes):
-    """Convert bytes to rows and round to DuckDB's 2,048-row granularity."""
+    """Round to the nearest 2,048-row multiple instead of letting DuckDB round up."""
     if not bytes_per_row:
         return None
     rows = round(target_bytes / bytes_per_row / _ROW_GROUP_GRANULARITY)
