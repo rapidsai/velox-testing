@@ -63,14 +63,17 @@ def copy_to_parquet(select_query, file_path, row_group_rows=None, conn=duckdb):
 def get_select_query(table_name, convert_decimals_to_floats, conn=duckdb):
     if convert_decimals_to_floats:
         column_metadata_rows = conn.query(f"DESCRIBE {table_name}").fetchall()
-        column_projections = [get_column_projection(column_metadata) for column_metadata in column_metadata_rows]
+        column_projections = [
+            get_column_projection_with_decimals_as_double(column_metadata)
+            for column_metadata in column_metadata_rows
+        ]
         query = f"SELECT {','.join(column_projections)} FROM {table_name}"
     else:
         query = f"SELECT * FROM {table_name}"
     return query
 
 
-def get_column_projection(column_metadata):
+def get_column_projection_with_decimals_as_double(column_metadata):
     col_name, col_type, *_ = column_metadata
     if is_decimal_column(col_type):
         projection = f"CAST({col_name} AS DOUBLE) AS {col_name}"

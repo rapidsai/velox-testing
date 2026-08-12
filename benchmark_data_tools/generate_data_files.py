@@ -191,6 +191,9 @@ def write_metadata(args):
 
 
 def generate_data_files_with_duckdb(args):
+    # Avoid concurrent first-time extension installation across processes.
+    duckdb.sql(f"INSTALL {args.benchmark_type}")
+
     # Run the probe while DuckDB materializes the target dataset.
     with row_group_row_count_probe(
         args.benchmark_type,

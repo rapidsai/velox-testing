@@ -11,10 +11,11 @@ import duckdb
 import pyarrow.parquet as pq
 from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
 
-_ROW_GROUP_GRANULARITY = 2048  # DuckDB rounds ROW_GROUP_SIZE to its vector size
+# DuckDB Parquet sizing: https://duckdb.org/docs/current/data/parquet/tips
+_ROW_GROUP_GRANULARITY = 2048
+_STAGE1_ROWS = 122_880
+
 _MAX_PROBE_SCALE_FACTOR = 10
-_STAGE1_ROWS = 122_880  # one DuckDB default row group
-_STAGE2_SLICE = 1.2  # one full estimated group plus a bounded partial group
 _PROBE_MEMORY_LIMIT = "8GB"
 
 
@@ -75,28 +76,22 @@ def _measure_row_group_rows(conn, select_query, table_rows, target_bytes):
             # A second write cannot fill the estimated row group or improve the result.
             return rows
 
-        # Second pass: bytes/row changes with row-group size, so remeasure near the requested size.
-        slice_rows = int(_STAGE2_SLICE * rows)
-        copy_to_parquet(f"{select_query} LIMIT {slice_rows}", probe_path, rows, conn)
+       # Second pass: bytes/row changes with row-group size, so remeasure near the requested size.
+        copy_to_parquet(f"{select_query} LIMIT {rows}", probe_path, rows, conn)
         refined = _rows_for_target(_bytes_per_row(probe_path), target_bytes)
 
     return rows if refined is None else refined
 
 
 def _bytes_per_row(path):
-    """Read bytes/row from full row groups, excluding a trailing partial group."""
-    metadata = pq.ParquetFile(path).metadata
-    num_row_groups = metadata.num_row_groups
-    full = range(num_row_groups - 1) if num_row_groups > 1 else range(num_row_groups)
-    total_rows = sum(metadata.row_group(i).num_rows for i in full)
-    if total_rows == 0:
-        return None
-    return sum(metadata.row_group(i).total_byte_size for i in full) / total_rows
+    """Read bytes/row from the probe's only row group."""
+    row_group = pq.ParquetFile(path).metadata.row_group(0)
+    return row_group.total_byte_size / row_group.num_rows
 
 
 def _rows_for_target(bytes_per_row, target_bytes):
     """Convert bytes to rows and round to DuckDB's 2,048-row granularity."""
     if not bytes_per_row:
         return None
-    rows = int(round(target_bytes / bytes_per_row / _ROW_GROUP_GRANULARITY))
+    rows = round(target_bytes / bytes_per_row / _ROW_GROUP_GRANULARITY)
     return max(rows, 1) * _ROW_GROUP_GRANULARITY
