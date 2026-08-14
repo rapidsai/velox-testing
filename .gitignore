@@ -48,3 +48,4 @@ build_artifacts
 
 # Locally built tool binaries
 .local_installs/
+**/benchmark-results/

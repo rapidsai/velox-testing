@@ -1,0 +1,75 @@
+{
+  "ADD_OK": { "expect": "ok" },
+  "SUB_OK": { "expect": "ok" },
+  "MUL_OK": { "expect": "ok" },
+  "DIV_OK": { "expect": "ok" },
+  "MOD_OK": { "expect": "ok" },
+
+  "ADD_WIDEN": {
+    "expect": "ok",
+    "note": "DECIMAL(15,2) max + 0.01: result type widens to DECIMAL(16,2), so no overflow"
+  },
+  "SUB_WIDEN": {
+    "expect": "ok",
+    "note": "DECIMAL(15,2) min - 0.01: result type widens to DECIMAL(16,2), so no overflow"
+  },
+  "MUL_WIDEN": {
+    "expect": "ok",
+    "note": "DECIMAL(15,2) * DECIMAL(15,2) widens to DECIMAL(30,4), so no overflow"
+  },
+  "RESCALE_WIDEN": {
+    "expect": "ok",
+    "note": "Operand rescale at the DECIMAL(15,2) limit; result type absorbs it"
+  },
+
+  "DIV_ZERO": { "expect": "div_by_zero" },
+  "DIV_ZERO_NEG": { "expect": "div_by_zero" },
+  "MOD_ZERO": { "expect": "div_by_zero" },
+
+  "WIDE_ADD_OK": { "expect": "ok" },
+  "WIDE_SUB_OK": { "expect": "ok" },
+  "WIDE_MUL_OK": { "expect": "ok" },
+
+  "WIDE_ADD_OVERFLOW": {
+    "expect": "overflow",
+    "note": "Operands already at precision 38, so the result type cannot widen"
+  },
+  "WIDE_SUB_OVERFLOW": { "expect": "overflow" },
+  "WIDE_SUB_OVERFLOW_POS": { "expect": "overflow" },
+  "WIDE_MUL_OVERFLOW": { "expect": "overflow" },
+  "WIDE_SUM_OVERFLOW": {
+    "expect": "overflow",
+    "note": "Global SUM of positive DECIMAL(38,0) values; GPU SUM currently wraps (known gap vs CPU)"
+  },
+  "WIDE_GROUP_SUM_OVERFLOW": {
+    "expect": "overflow",
+    "note": "Per-grp SUM of wide_add_overflow rows; needs --num-groups > 1 and enough rows_per_case"
+  },
+  "WIDE_GROUP_SUM_OK": {
+    "expect": "ok",
+    "note": "Per-grp SUM of tiny wide_add_ok values should not overflow"
+  },
+  "BATCH_ADD_WIDEN": {
+    "expect": "ok",
+    "note": "Forces evaluation of many DECIMAL(15,2) widening adds; useful with large --rows-per-case"
+  },
+  "BATCH_NULL_MIX_COUNT": {
+    "expect": "ok",
+    "note": "Counts null-masked overflow replicas; 0 when --null-rate is 0"
+  },
+
+  "WIDE_DIV_ZERO": { "expect": "div_by_zero" },
+  "WIDE_MOD_ZERO": { "expect": "div_by_zero" },
+
+  "SCALED_ADD_OK": { "expect": "ok" },
+  "SCALED_DIV_OK": { "expect": "ok" },
+  "SCALED_ADD_OVERFLOW": { "expect": "overflow" },
+  "SCALED_MUL_OVERFLOW": { "expect": "overflow" },
+  "SCALED_DIV_OVERFLOW": {
+    "expect": "overflow",
+    "note": "Dividing DECIMAL(38,6) max by 0.000001 needs far more than 38 digits"
+  },
+  "SCALED_DIV_ZERO": { "expect": "div_by_zero" },
+
+  "AGG_OK": { "expect": "ok" }
+}
