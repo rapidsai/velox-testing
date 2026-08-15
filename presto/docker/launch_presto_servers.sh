@@ -57,7 +57,7 @@ launch_worker() {
 
   log_file="${LOGS_DIR}/worker_${worker_id}_${SERVER_START_TIMESTAMP}.log"
   echo "GPU Name: ${gpu_name:-unknown}" > "${log_file}"
-  env "${cuda_env[@]}" "${launcher[@]}" presto_server --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &
+  env "${cuda_env[@]}" "${launcher[@]}" presto_server --velox_ssd_odirect=false --etc-dir="$etc_dir" >> "${log_file}" 2>&1 &
 }
 
 # No args → single worker using CUDA_VISIBLE_DEVICES (default 0), shared config dir.

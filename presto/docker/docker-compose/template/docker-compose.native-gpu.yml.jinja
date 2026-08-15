@@ -85,6 +85,7 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      KVIKIO_TASK_SIZE: ${KVIKIO_TASK_SIZE:-4194304}
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
     volumes:
       - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
@@ -113,6 +114,7 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      KVIKIO_TASK_SIZE: ${KVIKIO_TASK_SIZE:-4194304}
       CUDA_VISIBLE_DEVICES: "{% for id in workers %}{{ id }}{% if not loop.last %},{% endif %}{% endfor %}"
 {% else %}
     environment:
@@ -129,9 +131,11 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      KVIKIO_TASK_SIZE: ${KVIKIO_TASK_SIZE:-4194304}
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
     volumes:
+      - /opt/dlami/nvme/presto-gpu-nvme-cache:/mnt/nvme_cache
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}

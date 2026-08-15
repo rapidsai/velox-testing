@@ -1,6 +1,6 @@
 {
-  "sys_reserved_mem_percent": 0.05,
-  "sys_reserved_mem_cap_gb": 2,
+  "sys_reserved_mem_percent": 0.20,
+  "sys_reserved_mem_cap_gb": 60,
   "heap_size_percent_of_container_mem": 0.9,
   "headroom_percent_of_heap": 0.2,
   "query_max_total_mem_per_node_percent_of_heap": 0.8,
