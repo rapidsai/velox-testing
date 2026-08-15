@@ -25,6 +25,7 @@ from ..common.fixtures import (
 )
 from .common_fixtures import (
     benchmark_query,  # noqa: F401
+    ctas_results,  # noqa: F401
     presto_cursor,  # noqa: F401
     run_context_collector,  # noqa: F401
     verify_tables_analyzed,  # noqa: F401
@@ -47,6 +48,7 @@ def pytest_addoption(parser):
     parser.addoption("--metrics", action="store_true", default=False)
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
     parser.addoption("--skip-analyze-check", action="store_true", default=False)
+    parser.addoption("--run-as-ctas-queries", action="store_true", default=False)
 
 
 def pytest_configure(config):
