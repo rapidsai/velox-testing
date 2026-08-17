@@ -16,6 +16,6 @@ export KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS=256
 ./start_native_gpu_presto.sh --overwrite-config --kvikio-threads 160 --num-drivers 6 \
 --logs-dir /opt/dlami/nvme/presto_logs
 
-./run_benchmark.sh -b tpch -s tpch_sf1k_v2_float_s3 #-i 2 #-q 5
+./run_benchmark.sh -b tpch -s tpch_sf1k_v2_float_s3 --reference-results-dir ~/rapids/reference_data/sf1k_v2_float
 
 cd -
