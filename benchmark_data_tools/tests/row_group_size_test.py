@@ -4,24 +4,27 @@
 import json
 
 import pyarrow.parquet as pq
-import pytest
 from generate_data_files import generate_data_files
 
 from .common_fixtures import get_all_parquet_relative_file_paths
 
-# For small tables, the uncompressed size of every
-# row group falls outside the tolerance because the table lacks enough data.
-# Files with fewer than this many row groups are excluded from the size check.
-_MIN_ROW_GROUPS_FOR_SIZE_CHECK = 4
+# A small table cannot fill a single row group, so every row group it produces falls
+# below the target. Files with fewer than this many row groups are not size checked.
+_MIN_ROW_GROUPS_FOR_SIZE_CHECK = 10
+# A row group can only close on a physical chunk boundary, so its size lands near the
+# target rather than on it. At SF1 with a 1 MiB target the observed spread is 0.84-1.01
+# of target through tpchgen and 0.93-1.31 through DuckDB.
+_MIN_TARGET_RATIO = 0.80
+_MAX_TARGET_RATIO = 1.35
 
 
 def test_approx_row_group_bytes_parameter(setup_and_teardown):
     """Validate that the approx_row_group_bytes parameter controls row group sizing.
 
     Verifies that:
-    - At least one file has multiple row groups (splitting occurs)
-    - For large files, row group sizes are within 20% of the 1MB target
-    - The last row group in each file may be smaller (contains remaining rows)
+    - At least one file is split into _MIN_ROW_GROUPS_FOR_SIZE_CHECK row groups
+    - Every row group of a checked file is within _MIN/_MAX_TARGET_RATIO of the target
+    - The last row group of each file is exempt because it holds the remaining rows
     - Small tables are excluded from size checks (see _MIN_ROW_GROUPS_FOR_SIZE_CHECK)
     """
     data_dir_path, args = setup_and_teardown
@@ -33,25 +36,21 @@ def test_approx_row_group_bytes_parameter(setup_and_teardown):
 
 
 def assert_approx_row_group_bytes_size(data_dir_path, expected_row_group_byte_size):
-    max_num_row_groups_per_file = 0
-    file_paths = get_all_parquet_relative_file_paths(data_dir_path)
-    for file_path in file_paths:
+    min_byte_size = expected_row_group_byte_size * _MIN_TARGET_RATIO
+    max_byte_size = expected_row_group_byte_size * _MAX_TARGET_RATIO
+    checked_file_count = 0
+
+    for file_path in get_all_parquet_relative_file_paths(data_dir_path):
         parquet_file = pq.ParquetFile(f"{data_dir_path}/{file_path}")
-        num_row_groups = parquet_file.num_row_groups
-        max_num_row_groups_per_file = max(max_num_row_groups_per_file, num_row_groups)
-        if num_row_groups < _MIN_ROW_GROUPS_FOR_SIZE_CHECK:
+        if parquet_file.num_row_groups < _MIN_ROW_GROUPS_FOR_SIZE_CHECK:
             continue
-        for row_group_index in range(num_row_groups):
-            row_group = parquet_file.metadata.row_group(row_group_index)
-            approx_row_group_byte_size = row_group.total_byte_size == pytest.approx(
-                expected_row_group_byte_size, rel=0.20
-            )
-            # The last row group may be much smaller than the expected size.
-            smaller_last_row_group = (
-                row_group_index == num_row_groups - 1 and row_group.total_byte_size < expected_row_group_byte_size
-            )
-            assert approx_row_group_byte_size or smaller_last_row_group
-    assert max_num_row_groups_per_file >= _MIN_ROW_GROUPS_FOR_SIZE_CHECK
+        checked_file_count += 1
+        # The last row group holds whatever rows remain, so it is excluded.
+        for row_group_index in range(parquet_file.num_row_groups - 1):
+            byte_size = parquet_file.metadata.row_group(row_group_index).total_byte_size
+            assert min_byte_size <= byte_size <= max_byte_size, f"{file_path} row group {row_group_index}"
+
+    assert checked_file_count > 0, "no file had enough row groups, so no size was checked"
 
 
 def assert_metadata_approx_row_group_bytes(data_dir_path, approx_row_group_bytes):

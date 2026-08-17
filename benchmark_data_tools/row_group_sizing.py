@@ -15,43 +15,54 @@ from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_table
 _ROW_GROUP_GRANULARITY = 2048
 _STAGE1_ROWS = 122_880
 
-_MAX_PROBE_SCALE_FACTOR = 10
-_PROBE_MEMORY_LIMIT = "8GB"
+_MAX_PROBE_SCALE_FACTOR = 100
+_PROBE_MEMORY_LIMIT = "16GiB"
 
 
 @contextmanager
 def row_group_row_count_probe(
-    benchmark_type, target_bytes, target_scale_factor, convert_decimals_to_floats
+    benchmark_type,
+    target_bytes,
+    target_scale_factor,
+    convert_decimals_to_floats,
+    data_dir_path,
 ):
     """Yield a callable that waits for row-count estimates from a spawned process."""
-    # dbgen/dsdgen use process-global state and cannot run concurrently in one process.
-    with ProcessPoolExecutor(
-        max_workers=1, mp_context=multiprocessing.get_context("spawn")
-    ) as executor:
+    with (
+        tempfile.TemporaryDirectory(prefix=".duckdb-probe-", dir=data_dir_path) as probe_directory,
+        ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn")) as executor,
+    ):
+        # dbgen/dsdgen use process-global state and cannot run concurrently in one process.
         future = executor.submit(
             get_row_group_row_counts,
             benchmark_type,
             target_bytes,
             target_scale_factor,
             convert_decimals_to_floats,
+            probe_directory,
         )
         yield future.result
 
 
 def get_row_group_row_counts(
-    benchmark_type, target_bytes, target_scale_factor, convert_decimals_to_floats
+    benchmark_type,
+    target_bytes,
+    target_scale_factor,
+    convert_decimals_to_floats,
+    probe_directory,
 ):
     """Measure rows per row group for every table in a throwaway dataset."""
     scale_factor = (
-        target_scale_factor
-        if target_scale_factor <= 1
-        else min(target_scale_factor / 10, _MAX_PROBE_SCALE_FACTOR)
+        target_scale_factor if target_scale_factor <= 1 else min(target_scale_factor / 10, _MAX_PROBE_SCALE_FACTOR)
     )
 
     row_counts = {}
-    with duckdb.connect() as conn:
+    with duckdb.connect(str(Path(probe_directory) / "probe.duckdb")) as conn:
         conn.execute(f"SET memory_limit='{_PROBE_MEMORY_LIMIT}'")
         init_benchmark_tables(benchmark_type, scale_factor, conn)
+
+        # One thread so buffers are not multiplied by the generation thread count.
+        conn.execute("SET threads=1")
         for (table_name,) in conn.execute("SHOW TABLES").fetchall():
             select_query = get_select_query(table_name, convert_decimals_to_floats, conn)
             table_rows = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
@@ -76,7 +87,7 @@ def _measure_row_group_rows(conn, select_query, table_rows, target_bytes):
             # A second write cannot fill the estimated row group or improve the result.
             return rows
 
-       # Second pass: bytes/row changes with row-group size, so remeasure near the requested size.
+        # Second pass: bytes/row changes with row-group size, so remeasure near the requested size.
         copy_to_parquet(f"{select_query} LIMIT {rows}", probe_path, rows, conn)
         refined = _rows_for_target(_bytes_per_row(probe_path), target_bytes)
 

@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from row_group_sizing import row_group_row_count_probe
 _INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
 _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
+# Bounds DuckDB's buffer manager while it materializes tables into the intermediate database.
+_DUCKDB_MEMORY_LIMIT = "128GiB"
 
 
 def generate_partition(
@@ -191,20 +194,47 @@ def write_metadata(args):
 
 
 def generate_data_files_with_duckdb(args):
-    # Avoid concurrent first-time extension installation across processes.
-    duckdb.sql(f"INSTALL {args.benchmark_type}")
+    """Materialize the dataset into an intermediate DuckDB file, then export Parquet from it."""
+    with tempfile.TemporaryDirectory(prefix=".duckdb-main-", dir=args.data_dir_path) as work_directory:
+        database_path = Path(work_directory) / "intermediate.duckdb"
+        # Avoid concurrent first-time extension installation across processes.
+        with duckdb.connect() as install_conn:
+            install_conn.sql(f"INSTALL {args.benchmark_type}")
 
-    # Run the probe while DuckDB materializes the target dataset.
+        with duckdb.connect(str(database_path), config={"memory_limit": _DUCKDB_MEMORY_LIMIT}) as conn:
+            row_group_rows = _materialize_tables(args, conn)
+            _export_tables(args, row_group_rows, conn)
+
+
+def _materialize_tables(args, conn):
+    """Generate the target dataset, returning the probed rows per row group per table."""
+    if args.verbose:
+        print("Starting row-group proxy probe", flush=True)
+
     with row_group_row_count_probe(
         args.benchmark_type,
         args.approx_row_group_bytes,
         args.scale_factor,
         args.convert_decimals_to_floats,
+        args.data_dir_path,
     ) as probed_row_counts:
-        init_benchmark_tables(args.benchmark_type, args.scale_factor)
-        row_group_rows = probed_row_counts()
+        if args.verbose:
+            print(
+                f"Materializing {args.benchmark_type.upper()} SF{args.scale_factor:g} into a storage-backed database",
+                flush=True,
+            )
+        init_benchmark_tables(args.benchmark_type, args.scale_factor, conn)
+        if args.verbose:
+            print("Materialization completed", flush=True)
 
-    tables = [t[0] for t in duckdb.sql("SHOW TABLES").fetchall()]
+        # Let the export read one settled state.
+        conn.sql("CHECKPOINT")
+        return probed_row_counts()
+
+
+def _export_tables(args, row_group_rows, conn):
+    """Write every materialized table out as Parquet."""
+    tables = [t[0] for t in conn.sql("SHOW TABLES").fetchall()]
     for table_name in tables:
         table_data_dir = f"{args.data_dir_path}/{table_name}"
         Path(table_data_dir).mkdir(exist_ok=False)
@@ -215,6 +245,7 @@ def generate_data_files_with_duckdb(args):
             args.convert_decimals_to_floats,
             args.max_rows_per_file,
             args.num_threads,
+            conn,
         )
 
 
@@ -225,10 +256,11 @@ def _write_table_partitions(
     convert_decimals_to_floats,
     max_rows_per_file,
     num_threads,
+    root_conn,
 ):
     """Write 1-indexed Parquet parts, respecting max_rows_per_file when set."""
-    select_query = get_select_query(table_name, convert_decimals_to_floats)
-    row_count = duckdb.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+    select_query = get_select_query(table_name, convert_decimals_to_floats, root_conn)
+    row_count = root_conn.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
     if estimated_rows_per_row_group is None:
         estimated_rows_per_row_group = row_count
     # The estimate can exceed the target table's row count.
@@ -241,7 +273,7 @@ def _write_table_partitions(
             start_row = part * max_rows_per_file
             partition_query += f" WHERE rowid >= {start_row} AND rowid < {start_row + max_rows_per_file}"
         file_path = f"{table_data_dir}/{table_name}-{part + 1}.parquet"
-        conn = duckdb.cursor()
+        conn = root_conn.cursor()
         try:
             copy_to_parquet(partition_query, file_path, rows_per_row_group, conn)
         finally:
