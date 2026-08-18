@@ -11,6 +11,7 @@ import json
 import sys
 
 from . import slack as slack_mod
+from .logs import strip_code_fences
 
 # ---- Emoji constants -------------------------------------------------------
 
@@ -18,6 +19,11 @@ EMOJI_DASH = "\u2796"  # heavy minus sign
 EMOJI_HOURGLASS = "\u23f3"  # ⏳ hourglass
 EMOJI_CHECK = "\u2705"  # ✅ check mark
 EMOJI_CROSS = "\u274c"  # ❌ cross mark
+
+# Rule drawn between consecutive failures inside one job.  A visible character
+# (not a blank line) is required: Slack strips leading/trailing whitespace when
+# the report is split into blocks, so a blank separator would disappear.
+GROUP_RULE = "\u2508" * 30  # ┈┈┈…
 
 
 def status_emoji(conclusion: str, status: str = "completed") -> str:
@@ -202,40 +208,47 @@ def format_failure_detail(
     out.print(f"\u2022 *Conclusion:* {conclusion}")
 
     for s in failed_steps:
-        out.print(f"  \u25aa\ufe0e Step: {s.get('name', '?')} ({s.get('conclusion', 'unknown')})")
+        out.print(f"\u25aa\ufe0e Step: {s.get('name', '?')} ({s.get('conclusion', 'unknown')})")
 
     n_groups = len(stacktraces)
     for gidx, (st, cause, fix) in enumerate(stacktraces):
         suffix = f" {gidx + 1}/{n_groups}" if n_groups > 1 else ""
-        display_st = st or "(no stacktrace available)"
+        # Strip any fences around the stacktrace; nesting them
+        # inside our own fence renders an empty code block and pushes the real
+        # stacktrace outside it.
+        body = [ln for ln in strip_code_fences(st).splitlines()[:5] if ln.strip()]
+        if not body:
+            body = ["(no stacktrace available)"]
 
-        out.print(f"    *Stacktrace{suffix}:*")
+        out.print(f"*Stacktrace{suffix}:*")
         out.print("```")
-        for line in display_st.splitlines()[:5]:
-            if line.strip():
-                out.print(line)
+        for line in body:
+            out.print(line)
         out.print("```")
 
         if analyze_cause:
-            out.print(f"    *Cause:* _{cause or 'Unable to determine cause'}_")
+            out.print(f"*Cause:* _{cause or 'Unable to determine cause'}_")
             if analyze_fix:
-                out.print(f"    *Fix:* _{fix or 'Pending investigation'}_")
+                out.print(f"*Fix:* _{fix or 'Pending investigation'}_")
+
+        if gidx < n_groups - 1:
+            out.print(GROUP_RULE)
 
     if related_items:
         out.print()
-        out.print("    *Related issues/PRs (last 7 days):*")
+        out.print("*Related issues/PRs (last 7 days):*")
         out.print(related_items)
 
     if duplicates:
         out.print()
-        out.print("  _Same error also appears in:_")
+        out.print("_Same error also appears in:_")
         for dup in duplicates:
             dup_name = dup.get("name", "unknown")
             dup_job_id = dup.get("databaseId", "")
             if dup_job_id and run_url:
                 dup_url = f"{run_url}/job/{dup_job_id}"
-                out.print(f"  \u2022 `{dup_name}` \u2192 {dup_url}")
+                out.print(f"\u2022 `{dup_name}` \u2192 {dup_url}")
             else:
-                out.print(f"  \u2022 `{dup_name}`")
+                out.print(f"\u2022 `{dup_name}`")
 
     return out.text()
