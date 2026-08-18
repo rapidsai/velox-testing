@@ -29,6 +29,35 @@ from .metrics_collector import collect_metrics
 from .run_context import gather_run_context
 
 
+def _session_properties_from_env():
+    """Parse PRESTO_SESSION_PROPERTIES into a dict for prestodb.dbapi.connect().
+
+    Format: semicolon-separated key=value pairs, e.g.
+        PRESTO_SESSION_PROPERTIES="join_distribution_type=BROADCAST;task_concurrency=32"
+
+    Returns None when the variable is unset or empty (connector default behaviour).
+    The parsed map is also recorded in benchmark_result.json under session_properties
+    so runs with different properties are distinguishable in results.
+    """
+    raw = os.environ.get("PRESTO_SESSION_PROPERTIES", "").strip()
+    if not raw:
+        return None
+
+    properties = {}
+    for entry in raw.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            raise ValueError(f"Invalid PRESTO_SESSION_PROPERTIES entry (missing '='): {entry!r}")
+        key, value = entry.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError(f"Invalid PRESTO_SESSION_PROPERTIES entry (empty property name): {entry!r}")
+        properties[key] = value.strip()
+    return properties
+
+
 def write_query_result(cursor, output_dir, query_id):
     rows = cursor.fetchall()
     columns = [description[0] for description in cursor.description]
@@ -103,6 +132,10 @@ def run_context_collector(request):
         schema_name=schema_name,
     )
     ctx["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Record session properties so two runs with different PRESTO_SESSION_PROPERTIES
+    # values are distinguishable in benchmark_result.json.
+    session_props = _session_properties_from_env()
+    ctx["session_properties"] = session_props if session_props is not None else {}
     yield ctx
     request.session.run_context = ctx
 
@@ -134,7 +167,14 @@ def presto_cursor(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema = request.config.getoption("--schema-name")
-    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
+    conn = prestodb.dbapi.connect(
+        host=hostname,
+        port=port,
+        user=user,
+        catalog="hive",
+        schema=schema,
+        session_properties=_session_properties_from_env(),
+    )
     return conn.cursor()
 
 
@@ -167,47 +207,70 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     assert failed_queries_dict == {}
 
     def benchmark_query_function(query_id):
-        profile_output_file_path = None
+        # PROFILE_ITERATIONS (comma-separated 0-based indices) opts into per-iteration
+        # profiling: each listed iteration gets its own profile named
+        # {query_id}_iter{N}. When unset, fall back to combined mode — a single
+        # profile per query spanning every iteration.
+        profile_iters_env = os.environ.get("PROFILE_ITERATIONS", "").strip()
+        if profile and profile_iters_env:
+            per_iter_profile_filter = {int(x) for x in profile_iters_env.split(",") if x.strip()}
+        else:
+            per_iter_profile_filter = None  # None == combined mode
+
+        combined_profile_path = None
         scratch_table = None
         try:
-            if profile:
-                # Base path without .nsys-rep extension: {dir}/{query_id}
-                profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
-                start_profiler(profile_script_path, profile_output_file_path)
+            if profile and per_iter_profile_filter is None:
+                # Combined mode: one profiler session wraps the whole iteration loop.
+                # Base path (without a backend-specific extension): {dir}/{query_id}
+                combined_profile_path = f"{profile_output_dir_path.absolute()}/{query_id}"
+                start_profiler(profile_script_path, combined_profile_path)
             result = []
             for iteration_num in range(iterations):
-                if ctas_results is not None:
-                    # Retain the first iteration as the query result. Later
-                    # iterations use short-lived tables so every measured
-                    # execution performs the same CTAS work.
-                    table = ctas_table_name(query_id, iteration_num)
-                    scratch_table = table if iteration_num > 0 else None
-                    query = build_ctas_query(
-                        benchmark_type,
-                        query_id,
-                        benchmark_queries[query_id],
-                        ctas_results.catalog,
-                        ctas_results.schema,
-                        table,
-                    )
-                else:
-                    query = "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
+                iter_profile_path = None
+                if per_iter_profile_filter is not None and iteration_num in per_iter_profile_filter:
+                    iter_profile_path = f"{profile_output_dir_path.absolute()}/{query_id}_iter{iteration_num}"
+                    start_profiler(profile_script_path, iter_profile_path)
+                try:
+                    if ctas_results is not None:
+                        # Retain the first iteration as the query result. Later
+                        # iterations use short-lived tables so every measured
+                        # execution performs the same CTAS work.
+                        table = ctas_table_name(query_id, iteration_num)
+                        scratch_table = table if iteration_num > 0 else None
+                        query = build_ctas_query(
+                            benchmark_type,
+                            query_id,
+                            benchmark_queries[query_id],
+                            ctas_results.catalog,
+                            ctas_results.schema,
+                            table,
+                        )
+                    else:
+                        query = "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
 
-                cursor = presto_cursor.execute(query)
+                    cursor = presto_cursor.execute(query)
 
-                if ctas_results is not None:
-                    # CTAS returns only its update count to the client. Consuming it
-                    # ensures all worker writes have completed before recording stats.
-                    cursor.fetchall()
-                    result.append(cursor.stats["elapsedTimeMillis"])
-                else:
-                    # Preserve the historical non-CTAS timing point: record stats
-                    # immediately after execute(), before consuming result pages.
-                    result.append(cursor.stats["elapsedTimeMillis"])
-                    if iteration_num == 0:
-                        write_query_result(cursor, bench_output_dir, query_id)
+                    if ctas_results is not None:
+                        # CTAS returns only its update count to the client. Consuming it
+                        # ensures all worker writes have completed before recording stats.
+                        cursor.fetchall()
+                        result.append(cursor.stats["elapsedTimeMillis"])
+                    else:
+                        # Preserve the historical non-CTAS timing point: record stats
+                        # immediately after execute(), before consuming result pages.
+                        result.append(cursor.stats["elapsedTimeMillis"])
+                        if iteration_num == 0:
+                            write_query_result(cursor, bench_output_dir, query_id)
 
-                # Collect metrics after each query iteration if enabled
+                finally:
+                    if iter_profile_path is not None:
+                        stop_profiler(profile_script_path, iter_profile_path)
+
+                # Keep post-query REST collection outside a per-iteration
+                # profiler interval. Otherwise CPU samples after query
+                # completion describe metrics collection and worker idling,
+                # rather than the engine work the profile is meant to measure.
                 if metrics:
                     presto_query_id = cursor._query.query_id
                     if presto_query_id:
@@ -224,6 +287,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                         f"DROP TABLE IF EXISTS {ctas_results.catalog}.{ctas_results.schema}.{scratch_table}"
                     ).fetchall()
                     scratch_table = None
+
             raw_times_dict[query_id] = result
         except Exception as e:
             error_type = getattr(e, "error_type", type(e).__name__)
@@ -240,7 +304,7 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                     presto_cursor.execute(
                         f"DROP TABLE IF EXISTS {ctas_results.catalog}.{ctas_results.schema}.{scratch_table}"
                     ).fetchall()
-            if profile and profile_output_file_path is not None:
-                stop_profiler(profile_script_path, profile_output_file_path)
+            if combined_profile_path is not None:
+                stop_profiler(profile_script_path, combined_profile_path)
 
     return benchmark_query_function

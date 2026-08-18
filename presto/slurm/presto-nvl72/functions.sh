@@ -256,6 +256,13 @@ function run_worker {
     mkdir -p ${worker_data}/hive/data/user_data
     mkdir -p ${VT_ROOT}/.hive_metastore
 
+    # Provide a writable directory for libcudf's JIT/RTC cache. The container
+    # root filesystem is read-only squashfs. The native image sets
+    # LIBCUDF_KERNEL_CACHE_PATH=/var/lib/presto/data/libcudf-cache (PR #398),
+    # so mount a per-worker host directory there.
+    local libcudf_cache="${SCRIPT_DIR}/libcudf_cache_${worker_id}"
+    mkdir -p "${libcudf_cache}"
+
     local vt_worker_env_file="/var/worker_env_file"
     local vt_cufile_log_dir="/var/log/cufile"
     local vt_cufile_log="${vt_cufile_log_dir}/cufile_worker_${worker_id}.log"
@@ -368,7 +375,8 @@ ${DATA}:/var/lib/presto/data/hive/data/user_data:ro,\
 ${VT_ROOT}/.hive_metastore:/var/lib/presto/data/hive/metastore,\
 ${WORKER_ENV_FILE}:${vt_worker_env_file},\
 ${LOGS}:${vt_cufile_log_dir},\
-${LOGS}:${vt_nsys_report_dir}${driver_mounts}${gds_mounts:+,${gds_mounts}}${worker_extra_mounts} \
+${LOGS}:${vt_nsys_report_dir},\
+${libcudf_cache}:/var/lib/presto/data/libcudf-cache${driver_mounts}${gds_mounts:+,${gds_mounts}}${worker_extra_mounts} \
 -- /bin/bash -c "
 export LD_LIBRARY_PATH='${CUDF_LIB}':/usr/local/lib:\${LD_LIBRARY_PATH:-}
 
@@ -570,32 +578,9 @@ function run_queries {
 
     source "${SCRIPT_DIR}/defaults.env"
 
-    # The upstream coordinator image ships without jq, which
-    # run_benchmark.sh's wait_for_worker_node_registration requires.
-    # yum/dnf cannot install it at runtime because the container root is
-    # a read-only squashfs (/var/cache/dnf is read-only).  Stage a
-    # statically-linked jq under VT_ROOT (which is bind-mounted into the
-    # container as /workspace) and prepend that to PATH.  The download
-    # is cached across runs so the cost is paid once.
-    local jq_cache="${VT_ROOT}/.cache/bin"
-    local jq_arch
-    case "$(uname -m)" in
-        aarch64|arm64) jq_arch="arm64" ;;
-        x86_64|amd64)  jq_arch="amd64" ;;
-        *) echo_error "unsupported arch for jq download: $(uname -m)" ;;
-    esac
-    if [ ! -x "${jq_cache}/jq" ]; then
-        echo "Staging static jq (${jq_arch}) at ${jq_cache}/jq"
-        mkdir -p "${jq_cache}"
-        curl -sSL "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${jq_arch}" \
-            -o "${jq_cache}/jq"
-        chmod +x "${jq_cache}/jq"
-    fi
-
     # Cache-drop is skipped because it requires docker (not available on
     # the cluster).
-    run_coord_image "export PATH=/workspace/.cache/bin:\$PATH; \
-    export PORT=$PORT; \
+    run_coord_image "export PORT=$PORT; \
     export HOSTNAME=$COORD; \
     export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data; \
     export PRESTO_CTAS_SCRATCH_DIR=${CTAS_CONTAINER_SCRATCH_DIR}; \
@@ -631,7 +616,7 @@ function wait_for_workers_to_register {
     local expected_num_workers=$1
     local num_workers=0
     for i in {1..60}; do
-        num_workers=$(curl -s http://${COORD}:${PORT}/v1/node | jq length)
+        num_workers=$(curl -s http://${COORD}:${PORT}/v1/node | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
         if (( $num_workers == $expected_num_workers )); then
             echo "workers registered. num_nodes: $num_workers"
 	    return 0

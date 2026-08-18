@@ -92,6 +92,7 @@ class BenchmarkMetadata:
     num_drivers: int | None = None
     gpu_name: str | None = None
     image_digest: str | None = None
+    session_properties: dict | None = None
 
     @classmethod
     def from_parsed(cls, raw: dict) -> "BenchmarkMetadata":
