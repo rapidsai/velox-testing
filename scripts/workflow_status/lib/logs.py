@@ -195,6 +195,49 @@ def filter_log_for_job(full_log: str, job_name: str) -> str:
     return full_log
 
 
+def line_matches_error(line: str) -> bool:
+    """Return True if *line* looks like a real error/failure line."""
+    return any(p.search(line) for p in _ERROR_PATTERNS)
+
+
+def pick_display_snippet(
+    block: str,
+    *,
+    max_lines: int = 12,
+    context_before: int = 2,
+) -> str:
+    """Pick the most informative slice of an extracted failure block.
+
+    Algorithm:
+      1. Strip empty lines and `...` block-internal separators.
+      2. Locate lines matching an error pattern. The *last* match is the
+         anchor -- the deepest error is usually the actionable one (earlier
+         matches are often build-up / dependency chatter, and the GH
+         ``##[error]Process completed`` summary tends to immediately follow
+         the actual error so we want it inside the window).
+      3. Return up to ``max_lines`` lines, with ``context_before`` lines of
+         lead-in before the anchor.
+      4. If no error pattern hits, return the *tail* of the block, not the
+         head -- the tail contains the GH job-completion lines and is far
+         more useful than the first few lines (often pure context-before
+         lead-in produced by ``_extract_error_lines``).
+    """
+    lines = [ln for ln in block.splitlines() if ln.strip() and ln.strip() != "..."]
+    if not lines:
+        return ""
+
+    err_idx = [i for i, ln in enumerate(lines) if line_matches_error(ln)]
+    if not err_idx:
+        return "\n".join(lines[-max_lines:])
+
+    anchor = err_idx[-1]
+    start = max(0, anchor - context_before)
+    end = min(len(lines), start + max_lines)
+    if end - start < max_lines:
+        start = max(0, end - max_lines)
+    return "\n".join(lines[start:end])
+
+
 def split_into_blocks(content: str) -> list[str]:
     """Split *content* on ``BLOCK_SEP`` into individual failure blocks."""
     blocks: list[str] = []
