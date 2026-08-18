@@ -33,13 +33,15 @@ launch_worker() {
     cpu_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest CPU/{ gsub(/ /,"",$2); print $2 }')
     mem_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest memory/{ gsub(/ /,"",$2); print $2 }')
 
-    if [[ $cpu_numa =~ ^[0-9]+$ ]]; then
+    if [[ $cpu_numa =~ ^[0-9]+$ ]] && command -v numactl &> /dev/null; then
       launcher=(numactl --cpunodebind="$cpu_numa")
       if [[ $mem_numa =~ ^[0-9]+$ ]]; then
         launcher+=(--membind="$mem_numa")
       else
         launcher+=(--membind="$cpu_numa")
       fi
+    elif [[ $cpu_numa =~ ^[0-9]+$ ]]; then
+      echo "numactl is not available; launching worker $worker_id without NUMA binding"
     fi
 
     cuda_env=("CUDA_VISIBLE_DEVICES=$worker_id")
