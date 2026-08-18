@@ -15,6 +15,8 @@ TEST_RLE_DICTIONARY_PATH = TESTS_DIR / "test_codec_definitions_rle_dictionary.js
 TEST_NON_DEFAULT_COMPRESSION_PATH = TESTS_DIR / "test_codec_definitions_non_default_compression.json"
 TEST_INVALID_COMPRESSION_PATH = TESTS_DIR / "test_codec_definitions_invalid_compression.json"
 
+pytestmark = pytest.mark.parametrize("setup_and_teardown", ["tpch"], indirect=True)
+
 
 def test_default_codec_defs_applied(setup_and_teardown):
     """Generate data with default codec defs and verify encodings in parquet metadata.

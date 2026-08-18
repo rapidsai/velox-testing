@@ -33,12 +33,12 @@ class DataGenArgs:
     codec_definitions: str = None
 
 
-@pytest.fixture
-def setup_and_teardown():
-    test_data_dir_path = os.path.abspath("./tpch_test")
+@pytest.fixture(params=["tpch", "tpcds"])
+def setup_and_teardown(request):
+    test_data_dir_path = os.path.abspath(f"./{request.param}_test")
     try:
         args = DataGenArgs(
-            benchmark_type="tpch",
+            benchmark_type=request.param,
             data_dir_path=test_data_dir_path,
             scale_factor=1.0,
             # Setting convert_decimals_to_floats to True ensures that the

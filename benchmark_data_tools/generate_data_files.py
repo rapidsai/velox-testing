@@ -12,7 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import duckdb
-from duckdb_utils import init_benchmark_tables, is_decimal_column
+from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
+from row_group_sizing import row_group_row_count_probe
 
 _INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
 _HIGH_CARD_NDV_THRESHOLD = 0.99
@@ -99,6 +100,8 @@ def generate_data_files(args):
             print("generating with duckdb")
         generate_data_files_with_duckdb(args)
 
+    write_metadata(args)
+
 
 def generate_data_files_with_tpchgen(args, codec_defs):
     local_installs_bin = Path(__file__).resolve().parent / ".local_installs" / "bin"
@@ -139,8 +142,6 @@ def generate_data_files_with_tpchgen(args, codec_defs):
 
     if args.verbose:
         print(f"Raw data created at: {raw_data_path}")
-
-    write_metadata(args)
 
 
 # This dictionary maps each table to the number of partitions it should have based on it's
@@ -190,42 +191,72 @@ def write_metadata(args):
 
 
 def generate_data_files_with_duckdb(args):
-    init_benchmark_tables(args.benchmark_type, args.scale_factor)
+    # Avoid concurrent first-time extension installation across processes.
+    duckdb.sql(f"INSTALL {args.benchmark_type}")
 
-    with open(f"{args.data_dir_path}/metadata.json", "w") as file:
-        json.dump({"scale_factor": args.scale_factor}, file, indent=2)
-        file.write("\n")
+    # Run the probe while DuckDB materializes the target dataset.
+    with row_group_row_count_probe(
+        args.benchmark_type,
+        args.approx_row_group_bytes,
+        args.scale_factor,
+        args.convert_decimals_to_floats,
+    ) as probed_row_counts:
+        init_benchmark_tables(args.benchmark_type, args.scale_factor)
+        row_group_rows = probed_row_counts()
 
-    tables = duckdb.sql("SHOW TABLES").fetchall()
-    for (table_name,) in tables:
+    tables = [t[0] for t in duckdb.sql("SHOW TABLES").fetchall()]
+    for table_name in tables:
         table_data_dir = f"{args.data_dir_path}/{table_name}"
         Path(table_data_dir).mkdir(exist_ok=False)
-        duckdb.sql(
-            f"COPY ({get_select_query(table_name, args.convert_decimals_to_floats)}) "
-            f"TO '{table_data_dir}/{table_name}.parquet' (FORMAT parquet)"
+        _write_table_partitions(
+            table_name,
+            table_data_dir,
+            row_group_rows.get(table_name),
+            args.convert_decimals_to_floats,
+            args.max_rows_per_file,
+            args.num_threads,
         )
 
 
-def get_select_query(table_name, convert_decimals_to_floats):
-    if convert_decimals_to_floats:
-        column_metadata_rows = duckdb.query(f"DESCRIBE {table_name}").fetchall()
-        column_projections = [
-            get_column_projection(column_metadata, convert_decimals_to_floats)
-            for column_metadata in column_metadata_rows
-        ]
-        query = f"SELECT {','.join(column_projections)} FROM {table_name}"
-    else:
-        query = f"SELECT * FROM {table_name}"
-    return query
+def _write_table_partitions(
+    table_name,
+    table_data_dir,
+    estimated_rows_per_row_group,
+    convert_decimals_to_floats,
+    max_rows_per_file,
+    num_threads,
+):
+    """Write 1-indexed Parquet parts, respecting max_rows_per_file when set."""
+    select_query = get_select_query(table_name, convert_decimals_to_floats)
+    row_count = duckdb.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+    if estimated_rows_per_row_group is None:
+        estimated_rows_per_row_group = row_count
+    # The estimate can exceed the target table's row count.
+    rows_per_row_group = min(estimated_rows_per_row_group, row_count)
+    num_partitions = max(math.ceil(row_count / max_rows_per_file), 1) if max_rows_per_file else 1
 
+    def write_partition(part):
+        partition_query = select_query
+        if num_partitions > 1:
+            start_row = part * max_rows_per_file
+            partition_query += f" WHERE rowid >= {start_row} AND rowid < {start_row + max_rows_per_file}"
+        file_path = f"{table_data_dir}/{table_name}-{part + 1}.parquet"
+        conn = duckdb.cursor()
+        try:
+            copy_to_parquet(partition_query, file_path, rows_per_row_group, conn)
+        finally:
+            conn.close()
 
-def get_column_projection(column_metadata, convert_decimals_to_floats):
-    col_name, col_type, *_ = column_metadata
-    if convert_decimals_to_floats and is_decimal_column(col_type):
-        projection = f"CAST({col_name} AS DOUBLE) AS {col_name}"
-    else:
-        projection = col_name
-    return projection
+    max_workers = min(num_threads, num_partitions)
+    if max_workers == 1:
+        for part in range(num_partitions):
+            write_partition(part)
+        return
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(write_partition, part) for part in range(num_partitions)]
+        for future in futures:
+            future.result()
 
 
 def get_tpchgen_codec_args(codec_defs, table_name):
@@ -309,7 +340,7 @@ def build_default_codec_defs():
     Achieved ~11% improvement over baseline with ~15% smaller dataset.
     """
     with duckdb.connect() as conn:
-        conn.execute(f"INSTALL tpch; LOAD tpch; CALL dbgen(sf = {_SAMPLE_SF});")
+        init_benchmark_tables("tpch", _SAMPLE_SF, conn)
 
         tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
         config = {"tables": []}
@@ -391,7 +422,7 @@ if __name__ == "__main__":
         type=int,
         required=False,
         default=4,
-        help="Number of threads to generate data with tpchgen",
+        help="Number of concurrent data generation tasks",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", required=False, default=False, help="Extra verbose logging"
