@@ -602,6 +602,7 @@ function run_queries {
     export PRESTO_EXPECTED_RESULTS_DIR=${container_expected_results_dir}; \
     export MINIFORGE_HOME=/workspace/miniforge3; \
     export HOME=/workspace; \
+    export LOGS_DIR=/var/log/nsys; \
     cd /workspace/presto/scripts; \
     ./run_benchmark.sh -b tpch -s tpchsf${scale_factor} -i ${num_iterations} ${extra_args[*]} \
         --hostname ${COORD} --port $PORT -o ${container_script_dir}/result_dir --skip-drop-cache" "cli"

@@ -238,12 +238,13 @@ echo ""
 echo "Output files:"
 ls -lh "${OUT_FILE}" "${ERR_FILE}" 2>/dev/null || echo "No output files found"
 show_job_output "${OUT_FILE}" "${ERR_FILE}" "logs/cli.log" "benchmark results"
-[[ "${JOB_STATE}" == "COMPLETED" ]] || exit 1
 
-if [[ -n "${OUTPUT_PATH}" ]]; then
+if [[ -n "${OUTPUT_PATH}" && -f "result_dir/benchmark_result.json" ]]; then
     echo ""
     echo "Copying results to ${OUTPUT_PATH}..."
     mkdir -p "${OUTPUT_PATH}"
     cp -r result_dir/. "${OUTPUT_PATH}/"
     echo "Results copied to ${OUTPUT_PATH}"
 fi
+
+[[ "${JOB_STATE}" == "COMPLETED" ]] || exit 1
