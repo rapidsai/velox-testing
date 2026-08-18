@@ -24,8 +24,8 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `presto-test.yml` | Reusable workflow for Presto CI image tests | Smoke + integration tests; supports `workflow_dispatch` for test-only runs |
 | `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
 | **Compute Sanitizer** |||
-| `velox-compute-sanitizer-trigger.yaml` | Discovers cuDF tests and runs compute-sanitizer tools | Weekly (Saturdays) + manual dispatch |
-| `velox-compute-sanitizer-run.yaml` | Reusable workflow to run a sanitizer tool on a matrix of tests | Called by trigger; also supports `workflow_dispatch` |
+| `velox-compute-sanitizer-trigger.yaml` | Triggers compute-sanitizer tool workflows | Weekly (Saturdays) + manual dispatch |
+| `velox-compute-sanitizer-run.yaml` | Discovers cuDF tests and runs one sanitizer tool over the matrix | Triggered by schedule workflow; supports targeted manual dispatch |
 
 ---
 
@@ -231,8 +231,9 @@ presto-test.yml (workflow_dispatch) ──► [test images by SHA/date/variant]
 
 COMPUTE SANITIZER
 ─────────────────
-velox-compute-sanitizer-trigger.yaml ──► [discover cuda_driver tests] ──► velox-compute-sanitizer-run.yaml (racecheck)
-                                                                      └─► velox-compute-sanitizer-run.yaml (synccheck)
+velox-compute-sanitizer-trigger.yaml ──► velox-compute-sanitizer-run.yaml (memcheck) ──► [discover cuda_driver tests]
+                                      ├─► velox-compute-sanitizer-run.yaml (racecheck) ──► [discover cuda_driver tests]
+                                      └─► velox-compute-sanitizer-run.yaml (synccheck) ──► [discover cuda_driver tests]
 
 CLEANUP
 ───────
