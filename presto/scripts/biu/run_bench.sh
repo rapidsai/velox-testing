@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 cd ..
 
@@ -16,6 +16,7 @@ export KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS=256
 ./start_native_gpu_presto.sh --overwrite-config --kvikio-threads 160 --num-drivers 6 \
 --logs-dir /opt/dlami/nvme/presto_logs
 
+# Reference data location: s3://rapids-tpch/presto-gpu/sf1k_v2_float/expected/
 ./run_benchmark.sh -b tpch -s tpch_sf1k_v2_float_s3 --reference-results-dir ~/rapids/reference_data/sf1k_v2_float
 
 cd -

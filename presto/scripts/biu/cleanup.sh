@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 mkdir -p /opt/dlami/nvme/presto_logs /opt/dlami/nvme/presto-gpu-nvme-cache
 sudo rm -rf /opt/dlami/nvme/presto_logs/* /opt/dlami/nvme/presto-gpu-nvme-cache/*
