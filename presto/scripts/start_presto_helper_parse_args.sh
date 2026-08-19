@@ -44,6 +44,7 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
     SCCACHE_AUTH_DIR     Directory containing sccache auth files (default: ~/.sccache-auth/).
+    PRESTO_CTAS_SCRATCH_DIR    Optional writable host scratch directory mounted for temporary CTAS benchmark results.
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -216,6 +217,16 @@ parse_args() {
 }
 
 parse_args "$@"
+
+if [[ -n "${PRESTO_CTAS_SCRATCH_DIR:-}" ]]; then
+  mkdir -p "${PRESTO_CTAS_SCRATCH_DIR}"
+  PRESTO_CTAS_SCRATCH_DIR="$(readlink -f "${PRESTO_CTAS_SCRATCH_DIR}")"
+  if [[ ! -d "${PRESTO_CTAS_SCRATCH_DIR}" || ! -w "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR must be a writable directory: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
+    exit 1
+  fi
+  export PRESTO_CTAS_SCRATCH_DIR
+fi
 
 if [[ -n ${BUILD_TARGET} && ! ${BUILD_TARGET} =~ ^(coordinator|c|worker|w|all|a)$ ]]; then
   echo "Error: invalid --build value."
