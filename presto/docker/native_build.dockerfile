@@ -112,6 +112,8 @@ RUN mkdir /usr/lib64/presto-native-libs && \
 
 COPY velox-testing/presto/docker/launch_presto_servers.sh velox-testing/presto/docker/presto_profiling_wrapper.sh /opt
 
+ENV LIBCUDF_KERNEL_CACHE_PATH=/var/lib/presto/data/libcudf-cache
+
 ARG PRESTO_SHA
 ARG PRESTO_BRANCH
 ARG PRESTO_REPOSITORY
