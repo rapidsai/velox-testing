@@ -8,4 +8,4 @@ CREATE TABLE hive.{schema}.customer_demographics (
     cd_dep_count INTEGER,
     cd_dep_employed_count INTEGER,
     cd_dep_college_count INTEGER
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

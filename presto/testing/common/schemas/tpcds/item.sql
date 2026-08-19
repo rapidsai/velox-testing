@@ -21,4 +21,4 @@ CREATE TABLE hive.{schema}.item (
     i_container VARCHAR,
     i_manager_id INTEGER,
     i_product_name VARCHAR
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

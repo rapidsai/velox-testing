@@ -25,4 +25,4 @@ CREATE TABLE hive.{schema}.web_site (
     web_country VARCHAR,
     web_gmt_offset DOUBLE,
     web_tax_percentage DOUBLE
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

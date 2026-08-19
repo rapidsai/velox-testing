@@ -22,4 +22,4 @@ CREATE TABLE hive.{schema}.store_sales (
     ss_net_paid DOUBLE,
     ss_net_paid_inc_tax DOUBLE,
     ss_net_profit DOUBLE
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')
