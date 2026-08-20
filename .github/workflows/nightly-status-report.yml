@@ -100,6 +100,7 @@ jobs:
           payload-file-path: velox-status-payload.json
           webhook: ${{ secrets.SLACK_WEBHOOK_NIGHTLY_STATUS_URL }}
           webhook-type: incoming-webhook
+          errors: true
 
       - name: Send presto status to Slack
         if: ${{ always() && hashFiles('presto-status-payload.json') != '' }}
@@ -108,3 +109,4 @@ jobs:
           payload-file-path: presto-status-payload.json
           webhook: ${{ secrets.SLACK_WEBHOOK_NIGHTLY_STATUS_URL }}
           webhook-type: incoming-webhook
+          errors: true
