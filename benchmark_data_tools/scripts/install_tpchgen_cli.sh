@@ -18,8 +18,11 @@ trap 'rm -rf $TEMP_DIR' EXIT
 echo "Cloning tpchgen-rs ($REPO_BRANCH)..."
 git clone --depth 1 --single-branch --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_DIR/tpchgen-rs"
 
-echo "Building Docker image..."
-docker build -t "$IMAGE_NAME" "$TEMP_DIR/tpchgen-rs"
+# Only the Rust builder stage is required: this script copies tpchgen-cli out of
+# the image. The upstream Dockerfile also builds a python-deps stage that pip-
+# installs pyarrow (~48MiB) with UV_HTTP_TIMEOUT=30s, which flakes on CI.
+echo "Building Docker image (Rust builder stage)..."
+docker build --target builder -t "$IMAGE_NAME" "$TEMP_DIR/tpchgen-rs"
 
 echo "Extracting tpchgen-cli binary..."
 CONTAINER_ID=$(docker create "$IMAGE_NAME")
