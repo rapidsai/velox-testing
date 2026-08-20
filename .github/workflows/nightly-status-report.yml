@@ -63,7 +63,9 @@ jobs:
       - name: Analyse velox nightly run
         if: ${{ steps.runs.outputs.velox_run != '' }}
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
         run: | # zizmor: ignore[template-injection]
           python3 scripts/workflow_status/workflow_status.py \
             --run-id ${{ steps.runs.outputs.velox_run }} \
@@ -73,7 +75,9 @@ jobs:
       - name: Analyse presto nightly run
         if: ${{ steps.runs.outputs.presto_run != '' }}
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
         run: | # zizmor: ignore[template-injection]
           python3 scripts/workflow_status/workflow_status.py \
             --run-id ${{ steps.runs.outputs.presto_run }} \

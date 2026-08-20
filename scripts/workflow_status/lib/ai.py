@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -66,6 +68,24 @@ class TokenTracker:
 # ---- Internal dispatchers --------------------------------------------------
 
 
+def _claude_subprocess_env(config: Config) -> dict[str, str]:
+    """Env for Claude Code, including NVIDIA Inference Hub gateway settings.
+
+    Inference Hub is an Anthropic-compatible LLM gateway. Claude Code sends
+    ``Authorization: Bearer`` from ``ANTHROPIC_AUTH_TOKEN`` and posts to
+    ``{ANTHROPIC_BASE_URL}/v1/messages``. See:
+    https://nvidia.atlassian.net/wiki/spaces/NOVA/pages/3505648978/Using+Claude+Code+and+SDK+with+Inference+Hub
+    """
+    env = os.environ.copy()
+    env["ANTHROPIC_BASE_URL"] = config.anthropic_base_url
+    if config.anthropic_auth_token:
+        env["ANTHROPIC_AUTH_TOKEN"] = config.anthropic_auth_token
+        # Gateway auth is bearer; an empty API key still occupies Claude Code's
+        # credential slot, so only set a placeholder when none is present.
+        env.setdefault("ANTHROPIC_API_KEY", config.anthropic_auth_token)
+    return env
+
+
 def _truncate_log(content: str, max_chars: int = 30000) -> str:
     if len(content) <= max_chars:
         return content
@@ -115,35 +135,67 @@ def _analyze_with_claude(
         fix_format_extra=(", include relevant PR links if applicable" if prefetched_items else ""),
     )
 
+    cmd = [
+        config.claude_bin,
+        "--print",
+        "--model",
+        config.claude_model,
+        "--no-session-persistence",
+        "--max-turns",
+        "1",
+        "--allowedTools",
+        "",
+    ]
+    # Skip claude.ai OAuth when talking to Inference Hub / a custom gateway.
+    if config.anthropic_base_url:
+        cmd.insert(2, "--bare")
+
     try:
         proc = subprocess.run(
-            [
-                config.claude_bin,
-                "--print",
-                "--model",
-                config.claude_model,
-                "--no-session-persistence",
-                "--allowedTools",
-                "",
-            ],
+            cmd,
             input=prompt,
             capture_output=True,
             text=True,
             timeout=120,
+            env=_claude_subprocess_env(config),
         )
         content = proc.stdout.strip()
-        if content:
+        if content and proc.returncode == 0:
             tracker.record_estimate(prompt, content)
             return content
-    except Exception:
-        pass
+        err = (proc.stderr or "").strip()
+        if err:
+            print(err[:2000], file=sys.stderr)
+        if not content and "--bare" in cmd:
+            cmd = [c for c in cmd if c != "--bare"]
+            proc = subprocess.run(
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=_claude_subprocess_env(config),
+            )
+            content = proc.stdout.strip()
+            if content and proc.returncode == 0:
+                tracker.record_estimate(prompt, content)
+                return content
+            err = (proc.stderr or "").strip()
+            if err:
+                print(err[:2000], file=sys.stderr)
+    except Exception as exc:
+        print(f"WARN: Claude CLI failed: {exc}", file=sys.stderr)
 
+    auth_hint = (
+        "set ANTHROPIC_AUTH_TOKEN or NVIDIA_API_KEY as a bearer token for "
+        f"Inference Hub ({config.anthropic_base_url})"
+    )
     return (
         "STACKTRACE:Unable to extract - Claude CLI returned no output\nEND_STACKTRACE\n"
-        "CAUSE:Unable to analyze - Claude CLI failed "
-        "(check authentication with 'claude --print \"hello\"')\n"
-        "FIX:Run 'claude' interactively once to authenticate, "
-        "or check ANTHROPIC_API_KEY"
+        f"CAUSE:Unable to analyze - Claude CLI failed ({auth_hint})\n"
+        "FIX:Configure Inference Hub per "
+        "https://nvidia.atlassian.net/wiki/spaces/NOVA/pages/3505648978/"
+        "Using+Claude+Code+and+SDK+with+Inference+Hub"
     )
 
 
