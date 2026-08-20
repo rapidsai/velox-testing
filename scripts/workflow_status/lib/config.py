@@ -72,14 +72,10 @@ def load_from_args(args) -> Config:
 
     cfg.claude_bin = getattr(args, "claude_bin", "") or os.environ.get("CLAUDE_BIN", "claude")
     cfg.claude_model = (
-        getattr(args, "claude_model", "")
-        or os.environ.get("CLAUDE_MODEL")
-        or "azure/anthropic/claude-opus-5"
+        getattr(args, "claude_model", "") or os.environ.get("CLAUDE_MODEL") or "azure/anthropic/claude-opus-5"
     )
     cfg.anthropic_base_url = (
-        getattr(args, "anthropic_base_url", "")
-        or os.environ.get("ANTHROPIC_BASE_URL")
-        or INFERENCE_HUB_BASE_URL
+        getattr(args, "anthropic_base_url", "") or os.environ.get("ANTHROPIC_BASE_URL") or INFERENCE_HUB_BASE_URL
     ).rstrip("/")
     cfg.anthropic_auth_token = (
         os.environ.get("ANTHROPIC_AUTH_TOKEN")

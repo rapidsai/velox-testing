@@ -187,8 +187,7 @@ def _analyze_with_claude(
         print(f"WARN: Claude CLI failed: {exc}", file=sys.stderr)
 
     auth_hint = (
-        "set ANTHROPIC_AUTH_TOKEN or NVIDIA_API_KEY as a bearer token for "
-        f"Inference Hub ({config.anthropic_base_url})"
+        f"set ANTHROPIC_AUTH_TOKEN or NVIDIA_API_KEY as a bearer token for Inference Hub ({config.anthropic_base_url})"
     )
     return (
         "STACKTRACE:Unable to extract - Claude CLI returned no output\nEND_STACKTRACE\n"
