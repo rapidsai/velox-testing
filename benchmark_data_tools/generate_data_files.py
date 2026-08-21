@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import datetime
 import json
 import math
 import os
@@ -13,10 +14,12 @@ from pathlib import Path
 
 import duckdb
 from duckdb_utils import init_benchmark_tables, is_decimal_column
+from register_storage_config import register_storage_config
 
 _INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
 _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
+_TPCHGEN_PARQUET_VERSION = 2
 
 
 def generate_partition(
@@ -48,7 +51,7 @@ def generate_partition(
         "--format",
         "parquet",
         "--parquet-version",
-        "2",
+        str(_TPCHGEN_PARQUET_VERSION),
         "--parquet-row-group-bytes",
         str(approx_row_group_bytes),
     ]
@@ -99,12 +102,43 @@ def generate_data_files(args):
             print("generating with duckdb")
         generate_data_files_with_duckdb(args)
 
+    if args.register:
+        if args.verbose:
+            print("registering storage configuration")
+        rc = register_storage_config(
+            data_dir=Path(args.data_dir_path),
+            machine=args.register_machine,
+            name=args.register_name,
+            storage_system=args.register_storage_system,
+            compression=args.register_compression,
+            region=args.register_region,
+            is_gds_enabled=args.register_is_gds_enabled,
+            extra_labels=args.register_label or [],
+            path_override=args.register_path,
+            api_url=os.environ.get("BENCHMARK_API_URL"),
+            api_key=os.environ.get("BENCHMARK_API_KEY"),
+            dry_run=args.register_dry_run,
+        )
+        if rc != 0:
+            sys.exit(rc)
+
+
+def _get_tpchgen_version() -> str | None:
+    try:
+        result = subprocess.run(["tpchgen-cli", "--version"], capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except FileNotFoundError:
+        pass
+    return None
+
 
 def generate_data_files_with_tpchgen(args, codec_defs):
     local_installs_bin = Path(__file__).resolve().parent / ".local_installs" / "bin"
     if local_installs_bin.exists():
         os.environ["PATH"] = os.pathsep.join([str(local_installs_bin), os.environ["PATH"]])
 
+    generator_version = _get_tpchgen_version()
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
     raw_data_path = args.data_dir_path
 
@@ -140,7 +174,7 @@ def generate_data_files_with_tpchgen(args, codec_defs):
     if args.verbose:
         print(f"Raw data created at: {raw_data_path}")
 
-    write_metadata(args)
+    write_metadata(args, codec_defs=codec_defs, generator_version=generator_version)
 
 
 # This dictionary maps each table to the number of partitions it should have based on it's
@@ -179,12 +213,26 @@ def rearrange_directory(raw_data_path, num_partitions):
         os.rmdir(part_dir_path)
 
 
-def write_metadata(args):
+def write_metadata(args, codec_defs=None, generator_version=None):
+    using_tpchgen = args.benchmark_type == "tpch" and not args.use_duckdb
+    metadata = {
+        "schema_version": 1,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "benchmark_type": args.benchmark_type,
+        "generator": "tpchgen" if using_tpchgen else "duckdb",
+        "generator_version": generator_version,
+        "scale_factor": args.scale_factor,
+        "convert_decimals_to_floats": args.convert_decimals_to_floats,
+        "parquet_version": _TPCHGEN_PARQUET_VERSION,
+        "data_dir_path": str(Path(args.data_dir_path).resolve()),
+    }
+    if using_tpchgen:
+        metadata["max_rows_per_file"] = args.max_rows_per_file
+        metadata["approx_row_group_bytes"] = args.approx_row_group_bytes
+    if codec_defs is not None:
+        metadata["codec_definitions"] = codec_defs
+
     with open(f"{args.data_dir_path}/metadata.json", "w") as file:
-        metadata = {
-            "scale_factor": args.scale_factor,
-            "approx_row_group_bytes": args.approx_row_group_bytes,
-        }
         json.dump(metadata, file, indent=2)
         file.write("\n")
 
@@ -192,9 +240,7 @@ def write_metadata(args):
 def generate_data_files_with_duckdb(args):
     init_benchmark_tables(args.benchmark_type, args.scale_factor)
 
-    with open(f"{args.data_dir_path}/metadata.json", "w") as file:
-        json.dump({"scale_factor": args.scale_factor}, file, indent=2)
-        file.write("\n")
+    write_metadata(args, generator_version=duckdb.__version__)
 
     tables = duckdb.sql("SHOW TABLES").fetchall()
     for (table_name,) in tables:
@@ -417,5 +463,74 @@ if __name__ == "__main__":
         default=None,
         help="Path to a JSON file specifying per-table/per-column encoding, compression, and dictionary settings.",
     )
+
+    reg = parser.add_argument_group(
+        "storage config registration",
+        "Optional: register the generated dataset as a storage configuration immediately after "
+        "generation. Requires BENCHMARK_API_URL and BENCHMARK_API_KEY environment variables. "
+        "For datasets that will be modified before registration, run register_storage_config.py "
+        "separately instead.",
+    )
+    reg.add_argument(
+        "--register",
+        action="store_true",
+        default=False,
+        help="Register the dataset as a storage configuration after generation.",
+    )
+    reg.add_argument(
+        "--register-machine",
+        default=None,
+        help="Machine or cluster where the dataset is accessible (e.g. 'my-cluster'). Required when --register is set.",
+    )
+    reg.add_argument(
+        "--register-name",
+        default=None,
+        help="Storage configuration name override. Auto-generated if omitted.",
+    )
+    reg.add_argument(
+        "--register-storage-system",
+        default=None,
+        help="Storage system type override (e.g. 'nvme', 'lustre'). Auto-detected if omitted.",
+    )
+    reg.add_argument(
+        "--register-compression",
+        default=None,
+        help="Compression codec override. Derived from codec_definitions if omitted.",
+    )
+    reg.add_argument(
+        "--register-region",
+        default="n/a",
+        help="Storage region (default: 'n/a').",
+    )
+    reg.add_argument(
+        "--register-is-gds-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="GPU Direct Storage override. Auto-detected from lsmod if omitted.",
+    )
+    reg.add_argument(
+        "--register-label",
+        dest="register_label",
+        action="append",
+        default=None,
+        metavar="LABEL",
+        help="Additional label for the storage config. Can be specified multiple times.",
+    )
+    reg.add_argument(
+        "--register-path",
+        default=None,
+        help="Dataset path override for the storage config. Defaults to data_dir_path from metadata.json.",
+    )
+    reg.add_argument(
+        "--register-dry-run",
+        action="store_true",
+        default=False,
+        help="Print the registration payload without posting to the API.",
+    )
+
     args = parser.parse_args()
+
+    if args.register and not args.register_machine:
+        parser.error("--register-machine is required when --register is used")
+
     generate_data_files(args)
