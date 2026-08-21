@@ -10,6 +10,12 @@ LOGS_DIR="/opt/presto-server/logs"
 mkdir -p "${LOGS_DIR}"
 : "${SERVER_START_TIMESTAMP:?SERVER_START_TIMESTAMP must be set before starting the container}"
 
+# Surface baked-in image provenance in the shared logs dir so the host-side
+# pytest (Docker) or in-container pytest (SLURM) can read it via LOGS_DIR.
+if [ -f /opt/velox-testing/provenance.json ]; then
+  cp /opt/velox-testing/provenance.json "${LOGS_DIR}/worker_provenance.json"
+fi
+
 ETC_BASE="/opt/presto-server/etc"
 
 # Resolve the NUMA node for a worker and launch presto_server pinned to it.
