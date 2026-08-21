@@ -117,7 +117,7 @@ def generate_data_files(args):
             path_override=args.register_path,
             api_url=os.environ.get("BENCHMARK_API_URL"),
             api_key=os.environ.get("BENCHMARK_API_KEY"),
-            dry_run=False,
+            dry_run=args.register_dry_run,
         )
         if rc != 0:
             sys.exit(rc)
@@ -520,6 +520,12 @@ if __name__ == "__main__":
         "--register-path",
         default=None,
         help="Dataset path override for the storage config. Defaults to data_dir_path from metadata.json.",
+    )
+    reg.add_argument(
+        "--register-dry-run",
+        action="store_true",
+        default=False,
+        help="Print the registration payload without posting to the API.",
     )
 
     args = parser.parse_args()
