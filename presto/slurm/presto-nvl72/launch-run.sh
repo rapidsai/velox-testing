@@ -239,7 +239,7 @@ echo "Output files:"
 ls -lh "${OUT_FILE}" "${ERR_FILE}" 2>/dev/null || echo "No output files found"
 show_job_output "${OUT_FILE}" "${ERR_FILE}" "logs/cli.log" "benchmark results"
 
-if [[ -n "${OUTPUT_PATH}" && -f "result_dir/benchmark_result.json" ]]; then
+if [[ -n "${OUTPUT_PATH}" && -d "result_dir" ]]; then
     echo ""
     echo "Copying results to ${OUTPUT_PATH}..."
     mkdir -p "${OUTPUT_PATH}"

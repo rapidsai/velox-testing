@@ -55,6 +55,7 @@ VT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 : "${RESULTS_BASE:=${VT_ROOT}/results}"
 source "${SCRIPT_DIR}/defaults.env"
 source "${SCRIPT_DIR}/echo_helpers.sh"
+source "${SCRIPT_DIR}/launcher_common.sh"
 
 # ------------------------------------------------------------------------------
 # Image constants — the -latest tags are only updated by nightly pinned CI runs
@@ -151,8 +152,15 @@ post_results() {
 }
 
 cleanup_images() {
-    rm -f "${COORD_SQSH}" "${WORKER_SQSH}"
-    rmdir --ignore-fail-on-non-empty "${NIGHTLY_IMAGE_DIR}" 2>/dev/null || true
+    # IMAGE_DIR is on compute-node-only scratch storage on some clusters, so
+    # run the deletion via srun to match how pull_ghcr_image.sh created the files.
+    resolve_cluster_variant cpu
+    local slurm_args=()
+    [[ -n "${CLUSTER_DEFAULT_PARTITION:-}" ]] && slurm_args+=(--partition="${CLUSTER_DEFAULT_PARTITION}")
+    [[ -n "${CLUSTER_DEFAULT_ACCOUNT:-}" ]]   && slurm_args+=(--account="${CLUSTER_DEFAULT_ACCOUNT}")
+    export COORD_SQSH WORKER_SQSH NIGHTLY_IMAGE_DIR
+    srun "${slurm_args[@]}" --nodes=1 --mem=0 --ntasks-per-node=1 \
+        bash -c 'rm -f "${COORD_SQSH}" "${WORKER_SQSH}"; rmdir --ignore-fail-on-non-empty "${NIGHTLY_IMAGE_DIR}" 2>/dev/null || true'
 }
 
 run_nightly() {
@@ -171,7 +179,7 @@ run_nightly() {
     echo ""
     echo "--- Run 1/2: 1-node, 4-GPU, tpch-sf1000 ---"
     run_benchmark 1 4 1000 "${output_1k}" || true
-    if [[ -d "${output_1k}" ]]; then
+    if [[ -f "${output_1k}/benchmark_result.json" ]]; then
         echo "Posting results for tpch-1k..."
         post_results "${output_1k}" "tpch-rs-1000" "${STORAGE_CONFIG_1K}" \
             || echo_warning "Failed to post tpch-1k results"
@@ -186,7 +194,7 @@ run_nightly() {
     echo ""
     echo "--- Run 2/2: 2-node, 8-GPU (4/node), tpch-sf3000 ---"
     run_benchmark 2 4 3000 "${output_3k}" || true
-    if [[ -d "${output_3k}" ]]; then
+    if [[ -f "${output_3k}/benchmark_result.json" ]]; then
         echo "Posting results for tpch-3k..."
         post_results "${output_3k}" "tpch-rs-3000" "${STORAGE_CONFIG_3K}" \
             || echo_warning "Failed to post tpch-3k results"
@@ -205,6 +213,10 @@ trap 'cleanup_images || true; exit 130' INT TERM
 while true; do
     [[ "${RUN_NOW}" -eq 1 ]] || sleep_until_next_run
     RUN_NOW=0
-    (run_nightly) || echo_warning "Nightly run FAILED — will retry tomorrow"
+    nightly_exit=0
+    (run_nightly) || nightly_exit=$?
     cleanup_images || true
+    if [[ ${nightly_exit} -ne 0 ]]; then
+        echo_warning "Nightly run FAILED (exit ${nightly_exit}) — will retry tomorrow"
+    fi
 done
