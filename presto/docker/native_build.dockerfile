@@ -16,7 +16,9 @@ ARG EXTRA_CMAKE_FLAGS="\
     -DPRESTO_ENABLE_S3=ON \
     -DPRESTO_ENABLE_CUDF=${GPU} \
     -DVELOX_BUILD_TESTING=OFF \
-    -DPRESTO_STATS_REPORTER_TYPE=PROMETHEUS"
+    -DPRESTO_STATS_REPORTER_TYPE=PROMETHEUS \
+    -UFETCHCONTENT_SOURCE_DIR_CURL \
+    -DFETCHCONTENT_SOURCE_DIR_KVIKIO=/presto_native_staging/kvikio"
 ARG CUDA_ARCHITECTURES="75;80;86;90;100;120"
 ARG TARGETARCH
 ARG ENABLE_SCCACHE=OFF
@@ -58,11 +60,12 @@ ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     SCCACHE_S3_KEY_PREFIX=velox-testing/object-cache \
     SCCACHE_S3_PREPROCESSOR_CACHE_KEY_PREFIX=velox-testing/preprocessor-cache
 
-RUN mkdir /runtime-libraries
+RUN mkdir /runtime-libraries /runtime-nsys-plugins
 
 RUN \
     --mount=type=bind,source=presto/presto-native-execution,target=/presto_native_staging/presto \
     --mount=type=bind,source=velox,target=/presto_native_staging/presto/velox \
+    --mount=type=bind,source=kvikio,target=/presto_native_staging/kvikio \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
     --mount=type=cache,target=/root/.cache/sccache/preprocessor \
     --mount=type=cache,target=/root/.cache/sccache-dist-client \
@@ -104,15 +107,27 @@ fi
 !(LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | grep "not found" | grep -v -E "libcuda\.so|libnvidia");
 LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 && $3 != "not" && $1 !~ /libcuda\.so|libnvidia/ { system("cp " $3 " /runtime-libraries") }';
 cp ${BUILD_BASE_DIR}/presto_cpp/main/presto_server /usr/bin;
+test -x ${BUILD_BASE_DIR}/_deps/kvikio-build/nsys_plugins/nic/kvikio_nic_nsys_plugin;
+test -f /presto_native_staging/kvikio/cpp/nsys_plugins/nic/nsys-plugin.yaml;
+install -D -m 0755 \
+  ${BUILD_BASE_DIR}/_deps/kvikio-build/nsys_plugins/nic/kvikio_nic_nsys_plugin \
+  /runtime-nsys-plugins/kvikio_nic/kvikio_nic_nsys_plugin;
+install -D -m 0644 \
+  /presto_native_staging/kvikio/cpp/nsys_plugins/nic/nsys-plugin.yaml \
+  /runtime-nsys-plugins/kvikio_nic/nsys-plugin.yaml;
 EOF
 
 RUN mkdir /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
     echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
 
+RUN mkdir -p /opt/kvikio && \
+    cp -a /runtime-nsys-plugins /opt/kvikio/nsys-plugins
+
 COPY velox-testing/presto/docker/launch_presto_servers.sh velox-testing/presto/docker/presto_profiling_wrapper.sh /opt
 
-ENV LIBCUDF_KERNEL_CACHE_PATH=/var/lib/presto/data/libcudf-cache
+ENV LIBCUDF_KERNEL_CACHE_PATH=/var/lib/presto/data/libcudf-cache \
+    NSYS_PLUGIN_SEARCH_DIRS=/opt/kvikio/nsys-plugins
 
 ARG PRESTO_SHA
 ARG PRESTO_BRANCH

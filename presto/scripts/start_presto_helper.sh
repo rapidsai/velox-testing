@@ -31,7 +31,10 @@ function validate_sibling_repos() {
   if [[ "$VARIANT_TYPE" == "java" ]]; then
     "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
   else
-    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" \
+      "${REPO_ROOT}/../presto" \
+      "${REPO_ROOT}/../velox" \
+      "${REPO_ROOT}/../kvikio"
   fi
 }
 
