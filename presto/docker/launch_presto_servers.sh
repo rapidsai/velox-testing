@@ -43,6 +43,15 @@ launch_worker() {
     fi
 
     cuda_env=("CUDA_VISIBLE_DEVICES=$worker_id")
+    local nic_env_name="KVIKIO_REMOTE_IO_INTERFACE_GPU_${worker_id}"
+    local nic_interface="${KVIKIO_REMOTE_IO_INTERFACE:-}"
+    if [[ -n "${!nic_env_name:-}" ]]; then
+      nic_interface="${!nic_env_name}"
+    fi
+    if [[ -n "$nic_interface" ]]; then
+      cuda_env+=("KVIKIO_REMOTE_IO_INTERFACE=$nic_interface")
+      echo "KvikIO interface: $nic_interface"
+    fi
     gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i "$worker_id")"
   # No GPU: fall back to NUMA interleaving across all nodes for CPU workers.
   # Requires SYS_NICE capability in the container (set via cap_add in docker-compose).

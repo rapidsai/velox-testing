@@ -117,6 +117,9 @@ services:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu
 {%- if workers %}
+    # Profiling requires one container. Host networking still exposes every
+    # ENA; launch_presto_servers.sh assigns one to each child process.
+    network_mode: host
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
       NVIDIA_VISIBLE_DEVICES: all
@@ -140,6 +143,9 @@ services:
       KVIKIO_REMOTE_IO_NT_COPY: ${KVIKIO_REMOTE_IO_NT_COPY:-0}
       KVIKIO_REMOTE_IO_BUFFER_SIZE: ${KVIKIO_REMOTE_IO_BUFFER_SIZE:-0}
       KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE:-}
+{% for gpu_id in workers %}
+      KVIKIO_REMOTE_IO_INTERFACE_GPU_{{ gpu_id }}: ${KVIKIO_REMOTE_IO_INTERFACE_GPU_{{ gpu_id }}:?KVIKIO_REMOTE_IO_INTERFACE_GPU_{{ gpu_id }} must be set}
+{% endfor %}
       KVIKIO_REMOTE_IO_DNS_SHUFFLE: ${KVIKIO_REMOTE_IO_DNS_SHUFFLE:-0}
       KVIKIO_REMOTE_IO_KTLS: ${KVIKIO_REMOTE_IO_KTLS:-0}
       KVIKIO_REMOTE_IO_DISCARD: ${KVIKIO_REMOTE_IO_DISCARD:-0}
