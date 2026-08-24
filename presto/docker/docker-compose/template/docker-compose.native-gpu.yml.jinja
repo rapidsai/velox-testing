@@ -48,6 +48,8 @@ x-presto-native-worker-gpu: &gpu_worker_base
   volumes:
   # required for numa
     - /sys/devices/system/node:/sys/devices/system/node
+    # Reuse the host's managed S3 frontend mappings in every worker container.
+    - /etc/hosts:/etc/hosts:ro
     - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
     - ../../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
     - ../../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
@@ -70,6 +72,9 @@ services:
   presto-native-worker-gpu-{{ gpu_id }}:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu-{{ gpu_id }}
+    # Host networking exposes the four ENAs so libcurl can bind each worker to
+    # the interface nearest its GPU. Worker HTTP and UCX ports are unique.
+    network_mode: host
     environment:
       WORKER_ID: {{ gpu_id }}
       NVIDIA_VISIBLE_DEVICES: all
@@ -90,6 +95,12 @@ services:
       KVIKIO_REMOTE_IO_BACKEND: ${KVIKIO_REMOTE_IO_BACKEND:-EASY_THREADPOOL}
       KVIKIO_REMOTE_IO_NUM_REACTORS: ${KVIKIO_REMOTE_IO_NUM_REACTORS:-16}
       KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS: ${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS:-256}
+      KVIKIO_REMOTE_IO_NT_COPY: ${KVIKIO_REMOTE_IO_NT_COPY:-0}
+      KVIKIO_REMOTE_IO_BUFFER_SIZE: ${KVIKIO_REMOTE_IO_BUFFER_SIZE:-0}
+      KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE_GPU_{{ gpu_id }}:?KVIKIO_REMOTE_IO_INTERFACE_GPU_{{ gpu_id }} must be set}
+      KVIKIO_REMOTE_IO_DNS_SHUFFLE: ${KVIKIO_REMOTE_IO_DNS_SHUFFLE:-0}
+      KVIKIO_REMOTE_IO_KTLS: ${KVIKIO_REMOTE_IO_KTLS:-0}
+      KVIKIO_REMOTE_IO_DISCARD: ${KVIKIO_REMOTE_IO_DISCARD:-0}
       KVIKIO_LOG_LEVEL: ${KVIKIO_LOG_LEVEL:-OFF}
       LIBCUDF_NUM_HOST_WORKERS: ${LIBCUDF_NUM_HOST_WORKERS:-32}
       CUDA_MODULE_LOADING: ${CUDA_MODULE_LOADING:-LAZY}
@@ -126,6 +137,12 @@ services:
       KVIKIO_REMOTE_IO_BACKEND: ${KVIKIO_REMOTE_IO_BACKEND:-EASY_THREADPOOL}
       KVIKIO_REMOTE_IO_NUM_REACTORS: ${KVIKIO_REMOTE_IO_NUM_REACTORS:-16}
       KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS: ${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS:-256}
+      KVIKIO_REMOTE_IO_NT_COPY: ${KVIKIO_REMOTE_IO_NT_COPY:-0}
+      KVIKIO_REMOTE_IO_BUFFER_SIZE: ${KVIKIO_REMOTE_IO_BUFFER_SIZE:-0}
+      KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE:-}
+      KVIKIO_REMOTE_IO_DNS_SHUFFLE: ${KVIKIO_REMOTE_IO_DNS_SHUFFLE:-0}
+      KVIKIO_REMOTE_IO_KTLS: ${KVIKIO_REMOTE_IO_KTLS:-0}
+      KVIKIO_REMOTE_IO_DISCARD: ${KVIKIO_REMOTE_IO_DISCARD:-0}
       KVIKIO_LOG_LEVEL: ${KVIKIO_LOG_LEVEL:-OFF}
       LIBCUDF_NUM_HOST_WORKERS: ${LIBCUDF_NUM_HOST_WORKERS:-32}
       CUDA_MODULE_LOADING: ${CUDA_MODULE_LOADING:-LAZY}
@@ -150,6 +167,12 @@ services:
       KVIKIO_REMOTE_IO_BACKEND: ${KVIKIO_REMOTE_IO_BACKEND:-EASY_THREADPOOL}
       KVIKIO_REMOTE_IO_NUM_REACTORS: ${KVIKIO_REMOTE_IO_NUM_REACTORS:-16}
       KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS: ${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS:-256}
+      KVIKIO_REMOTE_IO_NT_COPY: ${KVIKIO_REMOTE_IO_NT_COPY:-0}
+      KVIKIO_REMOTE_IO_BUFFER_SIZE: ${KVIKIO_REMOTE_IO_BUFFER_SIZE:-0}
+      KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE:-}
+      KVIKIO_REMOTE_IO_DNS_SHUFFLE: ${KVIKIO_REMOTE_IO_DNS_SHUFFLE:-0}
+      KVIKIO_REMOTE_IO_KTLS: ${KVIKIO_REMOTE_IO_KTLS:-0}
+      KVIKIO_REMOTE_IO_DISCARD: ${KVIKIO_REMOTE_IO_DISCARD:-0}
       KVIKIO_LOG_LEVEL: ${KVIKIO_LOG_LEVEL:-OFF}
       LIBCUDF_NUM_HOST_WORKERS: ${LIBCUDF_NUM_HOST_WORKERS:-32}
       CUDA_MODULE_LOADING: ${CUDA_MODULE_LOADING:-LAZY}
