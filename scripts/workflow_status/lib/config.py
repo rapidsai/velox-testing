@@ -89,6 +89,5 @@ def load_from_args(args) -> Config:
     os.environ["CLAUDE_MODEL"] = cfg.claude_model
     if cfg.anthropic_auth_token:
         os.environ["ANTHROPIC_AUTH_TOKEN"] = cfg.anthropic_auth_token
-        os.environ.setdefault("ANTHROPIC_API_KEY", cfg.anthropic_auth_token)
 
     return cfg

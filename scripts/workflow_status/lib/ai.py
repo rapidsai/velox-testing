@@ -79,9 +79,6 @@ def _claude_subprocess_env(config: Config) -> dict[str, str]:
     env["ANTHROPIC_BASE_URL"] = config.anthropic_base_url
     if config.anthropic_auth_token:
         env["ANTHROPIC_AUTH_TOKEN"] = config.anthropic_auth_token
-        # Gateway auth is bearer; an empty API key still occupies Claude Code's
-        # credential slot, so only set a placeholder when none is present.
-        env.setdefault("ANTHROPIC_API_KEY", config.anthropic_auth_token)
     return env
 
 
