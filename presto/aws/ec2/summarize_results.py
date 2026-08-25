@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Apply the AWS 102 timing rules to benchmark_result.json files."""
+"""Apply benchmark timing rules to benchmark_result.json files."""
 
 from __future__ import annotations
 

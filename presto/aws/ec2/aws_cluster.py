@@ -1012,7 +1012,7 @@ class Cluster:
 
 
 def default_run_id() -> str:
-    return "aws102-" + utc_now().strftime("%Y%m%dT%H%M%SZ").lower()
+    return "presto-ec2-" + utc_now().strftime("%Y%m%dT%H%M%SZ").lower()
 
 
 def build_parser() -> argparse.ArgumentParser:

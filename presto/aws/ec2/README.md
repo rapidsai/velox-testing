@@ -105,12 +105,12 @@ Validation and dry-run launch do not contact AWS:
 ```bash
 python3 aws_cluster.py \
   --config ~/.config/velox-testing/aws-cpu.env \
-  --run-id aws102-dry-run \
+  --run-id presto-ec2-dry-run \
   validate
 
 python3 aws_cluster.py \
   --config ~/.config/velox-testing/aws-cpu.env \
-  --run-id aws102-dry-run \
+  --run-id presto-ec2-dry-run \
   --workers 8 \
   --dry-run \
   launch
@@ -127,7 +127,7 @@ Choose one unique RunId and use it for the full lifecycle:
 
 ```bash
 CONFIG=~/.config/velox-testing/aws-cpu.env
-RUN_ID=aws102-m7a8-$(date -u +%Y%m%dT%H%M%SZ)
+RUN_ID=presto-m7a8-$(date -u +%Y%m%dT%H%M%SZ)
 
 python3 aws_cluster.py --config "$CONFIG" --run-id "$RUN_ID" --workers 8 launch
 python3 aws_cluster.py --config "$CONFIG" --run-id "$RUN_ID" --workers 8 status
@@ -159,7 +159,7 @@ Collection accepts a partial fleet and gathers every still-running node.
 Instances carry an expiry tag and an OS shutdown behavior, but neither replaces
 explicit teardown and billing verification.
 
-List expired AWS 102 instances without mutating them:
+List expired benchmark instances without mutating them:
 
 ```bash
 python3 aws_cluster.py \
@@ -184,7 +184,7 @@ semantic validation artifacts are required for qualification.
 
 ## Baseline timing
 
-For cache-off AWS 101-compatible timing, run five query-major iterations. Treat
+For cache-off query-major timing, run five iterations. Treat
 iteration 1 as warm-up. For every query, average iterations 2-5, then sum the 22
 means. Provisioning, startup, registration, and warm-up are excluded from that
 primary runtime and must be reported separately.
