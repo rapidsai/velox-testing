@@ -7,16 +7,21 @@
 from __future__ import annotations
 
 import os
+import random
 import re
 import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from .config import Config
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
+
+_CLAUDE_ATTEMPTS = 3
+_CLAUDE_RETRY_SLEEP = 3
 
 
 def _load_prompt_template() -> str:
@@ -146,48 +151,48 @@ def _analyze_with_claude(
     if config.anthropic_base_url:
         cmd.insert(2, "--bare")
 
-    try:
-        proc = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=_claude_subprocess_env(config),
-        )
-        content = proc.stdout.strip()
-        if content and proc.returncode == 0:
-            tracker.record_estimate(prompt, content)
-            return content
-        err = (proc.stderr or "").strip()
-        if err:
-            print(err[:2000], file=sys.stderr)
-        if not content and "--bare" in cmd:
-            cmd = [c for c in cmd if c != "--bare"]
-            proc = subprocess.run(
-                cmd,
-                input=prompt,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                env=_claude_subprocess_env(config),
-            )
-            content = proc.stdout.strip()
-            if content and proc.returncode == 0:
-                tracker.record_estimate(prompt, content)
-                return content
-            err = (proc.stderr or "").strip()
-            if err:
-                print(err[:2000], file=sys.stderr)
-    except Exception as exc:
-        print(f"WARN: Claude CLI failed: {exc}", file=sys.stderr)
+    # Without --bare the CLI needs claude.ai OAuth, so it is only a fallback for
+    # a build that does not know the flag.
+    variants = [cmd]
+    if "--bare" in cmd:
+        variants.append([c for c in cmd if c != "--bare"])
 
-    auth_hint = (
-        f"set ANTHROPIC_AUTH_TOKEN or NVIDIA_API_KEY as a bearer token for Inference Hub ({config.anthropic_base_url})"
-    )
+    env = _claude_subprocess_env(config)
+    detail = "no attempt made"
+
+    for attempt in range(1, _CLAUDE_ATTEMPTS + 1):
+        for variant in variants:
+            try:
+                proc = subprocess.run(
+                    variant,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    env=env,
+                )
+            except Exception as exc:
+                detail = f"{type(exc).__name__}: {exc}"
+            else:
+                content = proc.stdout.strip()
+                if content and proc.returncode == 0:
+                    tracker.record_estimate(prompt, content)
+                    return content
+                # Claude Code reports in-run failures such as bad credentials on
+                # stdout, so keep both streams for the diagnostic.
+                err = (proc.stderr or "").strip()
+                detail = err or content or f"empty output, exit {proc.returncode}"
+            print(
+                f"WARN: claude attempt {attempt}/{_CLAUDE_ATTEMPTS} failed: {detail[:1000]}",
+                file=sys.stderr,
+            )
+        if attempt < _CLAUDE_ATTEMPTS:
+            # Jitter so parallel workers retry at different times.
+            time.sleep(_CLAUDE_RETRY_SLEEP * attempt + random.uniform(0, 1))
+
     return (
         "STACKTRACE:Unable to extract - Claude CLI returned no output\nEND_STACKTRACE\n"
-        f"CAUSE:Unable to analyze - Claude CLI failed ({auth_hint})\n"
+        f"CAUSE:Unable to analyze - Claude CLI failed after {_CLAUDE_ATTEMPTS} attempts: {detail[:300]}\n"
         "FIX:"
     )
 
