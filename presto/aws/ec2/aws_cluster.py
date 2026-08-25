@@ -627,7 +627,14 @@ class Cluster:
             "set -eu",
             "export DEBIAN_FRONTEND=noninteractive",
             "apt-get update -y",
-            ("apt-get install -y ca-certificates curl docker.io git jq numactl python3 python3-venv unzip"),
+            (
+                "apt-get install -y ca-certificates curl git jq numactl "
+                "python3 python3-venv unzip"
+            ),
+            (
+                "if ! command -v docker >/dev/null; then "
+                "apt-get install -y docker.io; fi"
+            ),
             "systemctl enable --now docker",
             (
                 "if ! command -v aws >/dev/null; then "
