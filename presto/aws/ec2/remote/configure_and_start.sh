@@ -136,9 +136,11 @@ if [[ ${ENGINE_VARIANT} == cpu ]]; then
 else
   delete_property "${final}/catalog/hive.properties" hive.file-splittable
   printf 'hive.file-splittable=false\n' >>"${final}/catalog/hive.properties"
-  delete_property "${final}/catalog/hive.properties" cudf.hive.use-buffered-input
-  printf 'cudf.hive.use-buffered-input=false\n' \
-    >>"${final}/catalog/hive.properties"
+  if [[ ${ROLE} == worker ]]; then
+    delete_property "${final}/catalog/hive.properties" cudf.hive.use-buffered-input
+    printf 'cudf.hive.use-buffered-input=false\n' \
+      >>"${final}/catalog/hive.properties"
+  fi
 fi
 
 if [[ ${ROLE} == coordinator ]]; then
