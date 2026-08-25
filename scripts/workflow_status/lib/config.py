@@ -12,7 +12,6 @@ from dataclasses import dataclass
 # NVIDIA Inference Hub (Claude Code / Anthropic-compatible gateway).
 # Claude Code appends /v1/messages — do not include /v1 on this URL.
 # Override with --anthropic-base-url or ANTHROPIC_BASE_URL.
-# https://nvidia.atlassian.net/wiki/spaces/NOVA/pages/3505648978/Using+Claude+Code+and+SDK+with+Inference+Hub
 INFERENCE_HUB_BASE_URL = "https://inference-api.nvidia.com"
 
 

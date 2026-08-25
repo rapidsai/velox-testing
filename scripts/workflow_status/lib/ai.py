@@ -73,8 +73,7 @@ def _claude_subprocess_env(config: Config) -> dict[str, str]:
 
     Inference Hub is an Anthropic-compatible LLM gateway. Claude Code sends
     ``Authorization: Bearer`` from ``ANTHROPIC_AUTH_TOKEN`` and posts to
-    ``{ANTHROPIC_BASE_URL}/v1/messages``. See:
-    https://nvidia.atlassian.net/wiki/spaces/NOVA/pages/3505648978/Using+Claude+Code+and+SDK+with+Inference+Hub
+    ``{ANTHROPIC_BASE_URL}/v1/messages``.
     """
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = config.anthropic_base_url
@@ -192,9 +191,7 @@ def _analyze_with_claude(
     return (
         "STACKTRACE:Unable to extract - Claude CLI returned no output\nEND_STACKTRACE\n"
         f"CAUSE:Unable to analyze - Claude CLI failed ({auth_hint})\n"
-        "FIX:Configure Inference Hub per "
-        "https://nvidia.atlassian.net/wiki/spaces/NOVA/pages/3505648978/"
-        "Using+Claude+Code+and+SDK+with+Inference+Hub"
+        "FIX:"
     )
 
 
