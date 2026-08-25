@@ -206,6 +206,25 @@ run_nightly() {
     echo_success "=== Nightly benchmark complete: ${date_tag} ==="
 }
 
+# run_isolated() isolates a function in a sub-shell with errexit (-e) such that any error
+# in the function causes it to return an error code, but will not cause the parent shell
+# exit immediatly.  Instead if the sub-shell errors out, we will run the cleanup function
+# and then optionally run the failure function if an error occured.
+run_isolated() {
+    local fn="$1" cleanup_fn="$2" failure_fn="$3"
+    local exit_code=0
+    set +e
+    (set -euo pipefail; "${fn}")
+    exit_code=$?
+    "${cleanup_fn}" || true
+    [[ ${exit_code} -eq 0 ]] || "${failure_fn}" "${exit_code}"
+    set -e
+}
+
+warn_on_failure() {
+    echo_warning "Nightly run FAILED (exit $1) — will retry tomorrow"
+}
+
 # ------------------------------------------------------------------------------
 # Main loop
 # ------------------------------------------------------------------------------
@@ -213,10 +232,5 @@ trap 'cleanup_images || true; exit 130' INT TERM
 while true; do
     [[ "${RUN_NOW}" -eq 1 ]] || sleep_until_next_run
     RUN_NOW=0
-    nightly_exit=0
-    (run_nightly) || nightly_exit=$?
-    cleanup_images || true
-    if [[ ${nightly_exit} -ne 0 ]]; then
-        echo_warning "Nightly run FAILED (exit ${nightly_exit}) — will retry tomorrow"
-    fi
+    run_isolated run_nightly cleanup_images warn_on_failure
 done
