@@ -6,7 +6,9 @@ set -euo pipefail
 
 required=(
   RUN_ID ROLE WORKER_COUNT COORDINATOR_ADDRESS AWS_REGION VCPU_PER_WORKER
-  ENGINE_VARIANT GPU_DEVICE_ID KVIKIO_REMOTE_IO_BACKEND KVIKIO_NTHREADS
+  ENGINE_VARIANT GPU_DEVICE_ID GPU_BATCH_SIZE_MIN_THRESHOLD
+  GPU_USE_BUFFERED_INPUT GPU_USE_KVIKIO
+  KVIKIO_REMOTE_IO_BACKEND KVIKIO_NTHREADS
   KVIKIO_TASK_SIZE KVIKIO_BOUNCE_BUFFER_SIZE
   KVIKIO_REMOTE_IO_NUM_REACTORS KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS
   LIBCUDF_NUM_HOST_WORKERS CUDA_MODULE_LOADING
@@ -138,7 +140,7 @@ else
   printf 'hive.file-splittable=false\n' >>"${final}/catalog/hive.properties"
   if [[ ${ROLE} == worker ]]; then
     delete_property "${final}/catalog/hive.properties" cudf.hive.use-buffered-input
-    printf 'cudf.hive.use-buffered-input=false\n' \
+    printf 'cudf.hive.use-buffered-input=%s\n' "${GPU_USE_BUFFERED_INPUT}" \
       >>"${final}/catalog/hive.properties"
   fi
 fi
@@ -160,7 +162,11 @@ if [[ ${ROLE} == coordinator ]]; then
     "$((COORDINATOR_QUERY_MEMORY_PER_NODE_GIB * WORKER_COUNT))GB"
   set_property "${final}/config.properties" memory.heap-headroom-per-node \
     "${COORDINATOR_HEADROOM_GIB}GB"
-  set_property "${final}/config.properties" single-node-execution-enabled false
+  if ((WORKER_COUNT == 1)); then
+    set_property "${final}/config.properties" single-node-execution-enabled true
+  else
+    set_property "${final}/config.properties" single-node-execution-enabled false
+  fi
   set_property "${final}/config.properties" experimental.enable-dynamic-filtering \
     "${DYNAMIC_FILTERING_ENABLED}"
   python3 - "${final}/jvm.config" "${COORDINATOR_HEAP_GIB}" <<'PY'
@@ -181,7 +187,11 @@ else
   set_property "${final}/config.properties" http-server.http.port 8080
   set_property "${final}/config.properties" discovery.uri \
     "http://${COORDINATOR_ADDRESS}:8080"
-  set_property "${final}/config.properties" single-node-execution-enabled false
+  if ((WORKER_COUNT == 1)); then
+    set_property "${final}/config.properties" single-node-execution-enabled true
+  else
+    set_property "${final}/config.properties" single-node-execution-enabled false
+  fi
   set_property "${final}/config.properties" task.max-drivers-per-task \
     "${TASK_MAX_DRIVERS_PER_TASK}"
   set_property "${final}/config.properties" system-memory-gb \
@@ -204,10 +214,12 @@ else
     true
   if [[ ${ENGINE_VARIANT} == gpu ]]; then
     delete_property "${final}/config.properties" cudf.batch_size_min_threshold
-    printf 'cudf.batch_size_min_threshold=40000000\n' \
+    printf 'cudf.batch_size_min_threshold=%s\n' \
+      "${GPU_BATCH_SIZE_MIN_THRESHOLD}" \
       >>"${final}/config.properties"
     delete_property "${final}/config.properties" cudf.s3.use_kvikio
-    printf 'cudf.s3.use_kvikio=true\n' >>"${final}/config.properties"
+    printf 'cudf.s3.use_kvikio=%s\n' "${GPU_USE_KVIKIO}" \
+      >>"${final}/config.properties"
   elif [[ ${CPU_EXCHANGE_TUNING_ENABLED} == false ]]; then
     for key in \
       exchange.http-client.enable-connection-pool \
@@ -294,6 +306,10 @@ else
     cache_mount_args=(-v /mnt/nvme:/mnt/nvme)
   fi
   if [[ ${ENGINE_VARIANT} == gpu ]]; then
+    # KvikIO performs S3 reads inside the worker container. Export the
+    # instance-profile credentials because containerized processes cannot
+    # reliably reach IMDS when the instance hop limit is one.
+    eval "$(aws configure export-credentials --format env)"
     gpu_args=(
       --gpus "device=${GPU_DEVICE_ID}"
       --cap-add IPC_LOCK
@@ -310,8 +326,12 @@ else
       -e "KVIKIO_BOUNCE_BUFFER_SIZE=${KVIKIO_BOUNCE_BUFFER_SIZE}"
       -e "KVIKIO_REMOTE_IO_NUM_REACTORS=${KVIKIO_REMOTE_IO_NUM_REACTORS}"
       -e "KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS=${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS}"
+      -e KVIKIO_REMOTE_IO_REACTOR_DISPATCH=PER_CHUNK
       -e "LIBCUDF_NUM_HOST_WORKERS=${LIBCUDF_NUM_HOST_WORKERS}"
       -e "CUDA_MODULE_LOADING=${CUDA_MODULE_LOADING}"
+      -e AWS_ACCESS_KEY_ID
+      -e AWS_SECRET_ACCESS_KEY
+      -e AWS_SESSION_TOKEN
       -e UCX_TLS=tcp,cuda_copy,cuda_ipc
       -e UCX_TCP_CM_REUSEADDR=y
       -e UCX_LOG_LEVEL=info

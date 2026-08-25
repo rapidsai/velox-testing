@@ -96,6 +96,10 @@ worker per EC2 instance. GPU workers require an NVIDIA-driver AMI with NVIDIA
 Container Toolkit and a GPU-enabled worker image. Bootstrap verifies both host
 and container GPU visibility before startup. The example's Kvikio values
 are explicit so each GPU run records its remote-I/O behavior.
+`GPU_USE_BUFFERED_INPUT` and `GPU_USE_KVIKIO` select between Velox buffered
+input (required for AsyncDataCache) and direct KvikIO S3 reads.
+`GPU_BATCH_SIZE_MIN_THRESHOLD` controls GPU rebatching and can be reduced when
+buffered-input workloads exceed device memory.
 
 ## Local validation and dry run
 

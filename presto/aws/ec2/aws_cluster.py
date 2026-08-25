@@ -167,6 +167,9 @@ class Cluster:
             "DYNAMIC_FILTERING_ENABLED",
             "CPU_EXCHANGE_TUNING_ENABLED",
             "GPU_DEVICE_ID",
+            "GPU_BATCH_SIZE_MIN_THRESHOLD",
+            "GPU_USE_BUFFERED_INPUT",
+            "GPU_USE_KVIKIO",
             "KVIKIO_REMOTE_IO_BACKEND",
             "CUDA_MODULE_LOADING",
             "ASYNC_CACHE_SSD_GIB",
@@ -236,7 +239,13 @@ class Cluster:
             raise ClusterError("ENGINE_VARIANT must be cpu or gpu")
         if self.config["ENGINE_VARIANT"] == "gpu":
             nonnegative_int(self.config, "GPU_DEVICE_ID")
-        for key in ("DYNAMIC_FILTERING_ENABLED", "CPU_EXCHANGE_TUNING_ENABLED"):
+            positive_int(self.config, "GPU_BATCH_SIZE_MIN_THRESHOLD")
+        for key in (
+            "DYNAMIC_FILTERING_ENABLED",
+            "CPU_EXCHANGE_TUNING_ENABLED",
+            "GPU_USE_BUFFERED_INPUT",
+            "GPU_USE_KVIKIO",
+        ):
             if self.config[key] not in ("true", "false"):
                 raise ClusterError(f"{key} must be true or false")
         split_size = self.config["HIVE_MAX_SPLIT_SIZE"]
@@ -707,6 +716,11 @@ class Cluster:
                 "CPU_EXCHANGE_TUNING_ENABLED"
             ],
             "GPU_DEVICE_ID": self.config["GPU_DEVICE_ID"],
+            "GPU_BATCH_SIZE_MIN_THRESHOLD": self.config[
+                "GPU_BATCH_SIZE_MIN_THRESHOLD"
+            ],
+            "GPU_USE_BUFFERED_INPUT": self.config["GPU_USE_BUFFERED_INPUT"],
+            "GPU_USE_KVIKIO": self.config["GPU_USE_KVIKIO"],
             "KVIKIO_REMOTE_IO_BACKEND": self.config["KVIKIO_REMOTE_IO_BACKEND"],
             "KVIKIO_NTHREADS": self.config["KVIKIO_NTHREADS"],
             "KVIKIO_TASK_SIZE": self.config["KVIKIO_TASK_SIZE"],
@@ -748,15 +762,29 @@ class Cluster:
                 [worker.instance_id for worker in workers],
                 [
                     "set -eu",
-                    (
-                        "device=$(lsblk -dpno NAME,MODEL | "
-                        "awk '$0 ~ /Amazon EC2 NVMe Instance Storage/ {print $1; exit}'); "
-                        "test -n \"$device\"; test -b \"$device\"; "
-                        "if ! blkid \"$device\" >/dev/null 2>&1; then "
-                        "mkfs.ext4 -F \"$device\"; fi"
-                    ),
                     "mkdir -p /mnt/nvme",
-                    "mountpoint -q /mnt/nvme || mount \"$device\" /mnt/nvme",
+                    (
+                        "if mountpoint -q /opt/dlami/nvme; then "
+                        "mountpoint -q /mnt/nvme || "
+                        "mount --bind /opt/dlami/nvme /mnt/nvme; "
+                        "else "
+                        "device=$(lsblk -dpno NAME,MODEL | "
+                        "awk '$0 ~ /Amazon EC2 NVMe Instance Storage/ "
+                        "{print $1; exit}'); "
+                        "test -n \"$device\"; test -b \"$device\"; "
+                        "existing_mount=$(lsblk -nrpo MOUNTPOINT \"$device\" | "
+                        "awk 'NF {print; exit}'); "
+                        "if test -n \"$existing_mount\"; then "
+                        "mountpoint -q /mnt/nvme || "
+                        "mount --bind \"$existing_mount\" /mnt/nvme; "
+                        "else "
+                        "fstype=$(blkid -s TYPE -o value \"$device\" || true); "
+                        "test \"$fstype\" != LVM2_member; "
+                        "if test -z \"$fstype\"; then mkfs.ext4 -F \"$device\"; fi; "
+                        "mountpoint -q /mnt/nvme || mount \"$device\" /mnt/nvme; "
+                        "fi; "
+                        "fi"
+                    ),
                     f"mkdir -p {cache_path}",
                     f"chmod 0777 /mnt/nvme {cache_path}",
                 ],

@@ -44,6 +44,9 @@ def valid_config() -> dict[str, str]:
         "DYNAMIC_FILTERING_ENABLED": "false",
         "CPU_EXCHANGE_TUNING_ENABLED": "true",
         "GPU_DEVICE_ID": "0",
+        "GPU_BATCH_SIZE_MIN_THRESHOLD": "40000000",
+        "GPU_USE_BUFFERED_INPUT": "false",
+        "GPU_USE_KVIKIO": "true",
         "KVIKIO_REMOTE_IO_BACKEND": "EASY_THREADPOOL",
         "KVIKIO_NTHREADS": "128",
         "KVIKIO_TASK_SIZE": "16777216",
@@ -194,6 +197,15 @@ class ClusterTest(unittest.TestCase):
         config["ENGINE_VARIANT"] = "gpu"
         config["GPU_DEVICE_ID"] = "0"
         self.make_cluster(config).validate()
+
+    def test_validation_rejects_invalid_gpu_io_toggle(self) -> None:
+        config = valid_config()
+        config["GPU_USE_BUFFERED_INPUT"] = "yes"
+        with self.assertRaisesRegex(
+            aws_cluster.ClusterError,
+            "GPU_USE_BUFFERED_INPUT must be true or false",
+        ):
+            self.make_cluster(config).validate()
 
     def test_validation_rejects_unknown_engine_variant(self) -> None:
         config = valid_config()
