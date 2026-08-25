@@ -6,6 +6,10 @@ set -euo pipefail
 
 required=(
   RUN_ID ROLE WORKER_COUNT COORDINATOR_ADDRESS AWS_REGION VCPU_PER_WORKER
+  ENGINE_VARIANT GPU_DEVICE_ID KVIKIO_REMOTE_IO_BACKEND KVIKIO_NTHREADS
+  KVIKIO_TASK_SIZE KVIKIO_BOUNCE_BUFFER_SIZE
+  KVIKIO_REMOTE_IO_NUM_REACTORS KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS
+  LIBCUDF_NUM_HOST_WORKERS CUDA_MODULE_LOADING
   TASK_MAX_DRIVERS_PER_TASK HIVE_MAX_SPLIT_SIZE
   HIVE_SPLIT_LOADER_CONCURRENCY DYNAMIC_FILTERING_ENABLED
   CPU_EXCHANGE_TUNING_ENABLED
@@ -27,6 +31,10 @@ if [[ ${ROLE} != coordinator && ${ROLE} != worker ]]; then
   echo "ROLE must be coordinator or worker" >&2
   exit 2
 fi
+if [[ ${ENGINE_VARIANT} != cpu && ${ENGINE_VARIANT} != gpu ]]; then
+  echo "ENGINE_VARIANT must be cpu or gpu" >&2
+  exit 2
+fi
 if [[ ${ROLE} == worker && -z ${WORKER_INDEX:-} ]]; then
   echo "WORKER_INDEX is required for worker role" >&2
   exit 2
@@ -34,7 +42,7 @@ fi
 
 repo=/opt/velox-testing
 runtime_root=/opt/presto-aws
-generated="${repo}/presto/docker/config/generated/cpu"
+generated="${repo}/presto/docker/config/generated/${ENGINE_VARIANT}"
 base="${runtime_root}/base_config/${ROLE}"
 final="${runtime_root}/final_config/${ROLE}"
 assembled="${runtime_root}/runtime_etc"
@@ -96,7 +104,7 @@ PY
 cd "${repo}/presto/scripts"
 OVERWRITE_CONFIG=true \
 NUM_WORKERS="${WORKER_COUNT}" \
-VARIANT_TYPE=cpu \
+VARIANT_TYPE="${ENGINE_VARIANT}" \
 VCPU_PER_WORKER="${VCPU_PER_WORKER}" \
   ./generate_presto_config.sh
 
@@ -118,12 +126,20 @@ else
   cp "${worker_source}/catalog/hive.properties" "${base}/catalog/hive.properties"
 fi
 cp -a "${base}/." "${final}/"
-delete_property "${final}/catalog/hive.properties" hive.max-split-size
-printf 'hive.max-split-size=%s\n' "${HIVE_MAX_SPLIT_SIZE}" \
-  >>"${final}/catalog/hive.properties"
-delete_property "${final}/catalog/hive.properties" hive.split-loader-concurrency
-printf 'hive.split-loader-concurrency=%s\n' "${HIVE_SPLIT_LOADER_CONCURRENCY}" \
-  >>"${final}/catalog/hive.properties"
+if [[ ${ENGINE_VARIANT} == cpu ]]; then
+  delete_property "${final}/catalog/hive.properties" hive.max-split-size
+  printf 'hive.max-split-size=%s\n' "${HIVE_MAX_SPLIT_SIZE}" \
+    >>"${final}/catalog/hive.properties"
+  delete_property "${final}/catalog/hive.properties" hive.split-loader-concurrency
+  printf 'hive.split-loader-concurrency=%s\n' "${HIVE_SPLIT_LOADER_CONCURRENCY}" \
+    >>"${final}/catalog/hive.properties"
+else
+  delete_property "${final}/catalog/hive.properties" hive.file-splittable
+  printf 'hive.file-splittable=false\n' >>"${final}/catalog/hive.properties"
+  delete_property "${final}/catalog/hive.properties" cudf.hive.use-buffered-input
+  printf 'cudf.hive.use-buffered-input=false\n' \
+    >>"${final}/catalog/hive.properties"
+fi
 
 if [[ ${ROLE} == coordinator ]]; then
   set_property "${final}/config.properties" discovery.uri \
@@ -184,7 +200,13 @@ else
     "${ASYNC_CACHE_NUM_SHARDS}"
   upsert_property "${final}/config.properties" runtime-metrics-collection-enabled \
     true
-  if [[ ${CPU_EXCHANGE_TUNING_ENABLED} == false ]]; then
+  if [[ ${ENGINE_VARIANT} == gpu ]]; then
+    delete_property "${final}/config.properties" cudf.batch_size_min_threshold
+    printf 'cudf.batch_size_min_threshold=40000000\n' \
+      >>"${final}/config.properties"
+    delete_property "${final}/config.properties" cudf.s3.use_kvikio
+    printf 'cudf.s3.use_kvikio=true\n' >>"${final}/config.properties"
+  elif [[ ${CPU_EXCHANGE_TUNING_ENABLED} == false ]]; then
     for key in \
       exchange.http-client.enable-connection-pool \
       exchange.max-buffer-size \
@@ -218,6 +240,7 @@ find "${final}" -type f -print0 | sort -z | xargs -0 sha256sum \
 diff -ru "${base}" "${final}" >"${runtime_root}/config_${ROLE}.diff" || true
 tuning_id=$(
   printf '%s\n' \
+    "engine=${ENGINE_VARIANT}" \
     "drivers=${TASK_MAX_DRIVERS_PER_TASK}" \
     "split=${HIVE_MAX_SPLIT_SIZE}" \
     "loader=${HIVE_SPLIT_LOADER_CONCURRENCY}" \
@@ -231,6 +254,7 @@ mkdir -p "${history}"
 cp -a "${final}/." "${history}/"
 cat >"${history}/tuning.json" <<EOF
 {
+  "engine_variant": "${ENGINE_VARIANT}",
   "task_max_drivers_per_task": ${TASK_MAX_DRIVERS_PER_TASK},
   "hive_max_split_size": "${HIVE_MAX_SPLIT_SIZE}",
   "hive_split_loader_concurrency": ${HIVE_SPLIT_LOADER_CONCURRENCY},
@@ -239,7 +263,9 @@ cat >"${history}/tuning.json" <<EOF
 }
 EOF
 
-docker rm -f presto-coordinator presto-native-worker-cpu 2>/dev/null || true
+docker rm -f \
+  presto-coordinator presto-native-worker-cpu presto-native-worker-gpu \
+  2>/dev/null || true
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 
 if [[ ${ROLE} == coordinator ]]; then
@@ -260,17 +286,44 @@ if [[ ${ROLE} == coordinator ]]; then
     /opt/launch_coordinator.sh
 else
   cache_mount_args=()
+  gpu_args=()
+  gpu_env=()
   if ((ASYNC_CACHE_SSD_GIB > 0)); then
     cache_mount_args=(-v /mnt/nvme:/mnt/nvme)
   fi
+  if [[ ${ENGINE_VARIANT} == gpu ]]; then
+    gpu_args=(
+      --gpus "device=${GPU_DEVICE_ID}"
+      --cap-add IPC_LOCK
+      --ulimit memlock=-1:-1
+      --shm-size 1g
+      -v /sys/devices/system/node:/sys/devices/system/node:ro
+    )
+    gpu_env=(
+      -e "CUDA_VISIBLE_DEVICES=${GPU_DEVICE_ID}"
+      -e "NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID}"
+      -e "KVIKIO_REMOTE_IO_BACKEND=${KVIKIO_REMOTE_IO_BACKEND}"
+      -e "KVIKIO_NTHREADS=${KVIKIO_NTHREADS}"
+      -e "KVIKIO_TASK_SIZE=${KVIKIO_TASK_SIZE}"
+      -e "KVIKIO_BOUNCE_BUFFER_SIZE=${KVIKIO_BOUNCE_BUFFER_SIZE}"
+      -e "KVIKIO_REMOTE_IO_NUM_REACTORS=${KVIKIO_REMOTE_IO_NUM_REACTORS}"
+      -e "KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS=${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS}"
+      -e "LIBCUDF_NUM_HOST_WORKERS=${LIBCUDF_NUM_HOST_WORKERS}"
+      -e "CUDA_MODULE_LOADING=${CUDA_MODULE_LOADING}"
+      -e UCX_TLS=tcp,cuda_copy,cuda_ipc
+      -e UCX_TCP_CM_REUSEADDR=y
+    )
+  fi
   docker run -d \
-    --name presto-native-worker-cpu \
+    --name "presto-native-worker-${ENGINE_VARIANT}" \
     --network host \
     --restart no \
     --cap-add SYS_NICE \
+    "${gpu_args[@]}" \
     -e "AWS_DEFAULT_REGION=${AWS_REGION}" \
     -e "AWS_REGION=${AWS_REGION}" \
     -e "SERVER_START_TIMESTAMP=${timestamp}" \
+    "${gpu_env[@]}" \
     -v "${assembled}:/opt/presto-server/etc:ro" \
     -v "${runtime_root}/metastore:/var/lib/presto/data/hive/metastore" \
     -v "${runtime_root}/data:/var/lib/presto/data/local" \

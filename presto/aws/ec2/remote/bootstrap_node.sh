@@ -4,8 +4,8 @@
 
 set -euo pipefail
 
-if [[ $# -ne 4 ]]; then
-  echo "usage: bootstrap_node.sh <role> <coordinator-image> <worker-image> <metastore-s3-uri>" >&2
+if [[ $# -ne 5 ]]; then
+  echo "usage: bootstrap_node.sh <role> <coordinator-image> <worker-image> <metastore-s3-uri> <engine-variant>" >&2
   exit 2
 fi
 
@@ -13,10 +13,15 @@ role=$1
 coordinator_image=$2
 worker_image=$3
 metastore_uri=$4
+engine_variant=$5
 runtime_root=/opt/presto-aws
 
 if [[ ${role} != coordinator && ${role} != worker ]]; then
   echo "role must be coordinator or worker" >&2
+  exit 2
+fi
+if [[ ${engine_variant} != cpu && ${engine_variant} != gpu ]]; then
+  echo "engine variant must be cpu or gpu" >&2
   exit 2
 fi
 
@@ -32,12 +37,28 @@ python3 -m venv "${runtime_root}/venv"
 "${runtime_root}/venv/bin/pip" install --disable-pip-version-check \
   -r /opt/velox-testing/presto/testing/requirements.txt
 
+login_if_ecr() {
+  local image=$1 registry region
+  registry=${image%%/*}
+  if [[ ${registry} == *.dkr.ecr.*.amazonaws.com ]]; then
+    region=$(cut -d. -f4 <<<"${registry}")
+    aws ecr get-login-password --region "${region}" |
+      docker login --username AWS --password-stdin "${registry}"
+  fi
+}
+
 if [[ ${role} == coordinator ]]; then
+  login_if_ecr "${coordinator_image}"
   docker pull "${coordinator_image}"
   local_image=${coordinator_image}
 else
+  login_if_ecr "${worker_image}"
   docker pull "${worker_image}"
   local_image=${worker_image}
+  if [[ ${engine_variant} == gpu ]]; then
+    nvidia-smi -L
+    docker run --rm --gpus all --entrypoint nvidia-smi "${worker_image}" -L
+  fi
 fi
 
 aws s3 sync "${metastore_uri}" "${runtime_root}/metastore/" --only-show-errors
@@ -63,6 +84,7 @@ cat >"${runtime_root}/bootstrap_info.json" <<EOF
 {
   "coordinator_image": "${coordinator_image}",
   "worker_image": "${worker_image}",
+  "engine_variant": "${engine_variant}",
   "role": "${role}",
   "local_image_id": "$(docker image inspect --format '{{.Id}}' "${local_image}")",
   "iam_role": "${role_name}",

@@ -28,6 +28,7 @@ def valid_config() -> dict[str, str]:
         "WORKER_INSTANCE_TYPE": "m7a.4xlarge",
         "WORKER_COUNT": "8",
         "ROOT_VOLUME_GIB": "100",
+        "ENGINE_VARIANT": "cpu",
         "VELOX_TESTING_REPOSITORY": "https://example.com/velox-testing.git",
         "VELOX_TESTING_FETCH_REF": "refs/heads/example",
         "VELOX_TESTING_REF": "d" * 40,
@@ -42,6 +43,16 @@ def valid_config() -> dict[str, str]:
         "HIVE_SPLIT_LOADER_CONCURRENCY": "32",
         "DYNAMIC_FILTERING_ENABLED": "false",
         "CPU_EXCHANGE_TUNING_ENABLED": "true",
+        "GPU_DEVICE_ID": "0",
+        "KVIKIO_REMOTE_IO_BACKEND": "EASY_THREADPOOL",
+        "KVIKIO_NTHREADS": "128",
+        "KVIKIO_TASK_SIZE": "16777216",
+        "KVIKIO_BOUNCE_BUFFER_SIZE": "16777216",
+        "KVIKIO_REMOTE_IO_NUM_REACTORS": "16",
+        "KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS": "256",
+        "LIBCUDF_NUM_HOST_WORKERS": "32",
+        "CUDA_MODULE_LOADING": "LAZY",
+        "EXPERIMENT_TAG": "test-experiment",
         "COORDINATOR_HEAP_GIB": "16",
         "COORDINATOR_HEADROOM_GIB": "4",
         "COORDINATOR_QUERY_TOTAL_MEMORY_PER_NODE_GIB": "12",
@@ -139,7 +150,7 @@ class ClusterTest(unittest.TestCase):
     def test_tags_scope_resources_to_run(self) -> None:
         tags = {item["Key"]: item["Value"] for item in self.make_cluster().tags("worker", "2026-08-25T00:00:00+00:00")}
         self.assertEqual(tags["Project"], "cudf-performance")
-        self.assertEqual(tags["Experiment"], "20260824_aws_102")
+        self.assertEqual(tags["Experiment"], "test-experiment")
         self.assertEqual(tags["RunId"], "test-run")
         self.assertEqual(tags["Role"], "worker")
 
@@ -165,6 +176,7 @@ class ClusterTest(unittest.TestCase):
         self.assertIn("ASYNC_DATA_CACHE_ENABLED=false", rendered)
         self.assertIn("TASK_MAX_DRIVERS_PER_TASK=16", rendered)
         self.assertIn("HIVE_MAX_SPLIT_SIZE=256MB", rendered)
+        self.assertIn("ENGINE_VARIANT=cpu", rendered)
 
     def test_validation_rejects_invalid_cpu_tuning_values(self) -> None:
         config = valid_config()
@@ -175,6 +187,18 @@ class ClusterTest(unittest.TestCase):
         config = valid_config()
         config["CPU_EXCHANGE_TUNING_ENABLED"] = "yes"
         with self.assertRaisesRegex(aws_cluster.ClusterError, "true or false"):
+            self.make_cluster(config).validate()
+
+    def test_validation_accepts_gpu_variant(self) -> None:
+        config = valid_config()
+        config["ENGINE_VARIANT"] = "gpu"
+        config["GPU_DEVICE_ID"] = "0"
+        self.make_cluster(config).validate()
+
+    def test_validation_rejects_unknown_engine_variant(self) -> None:
+        config = valid_config()
+        config["ENGINE_VARIANT"] = "fpga"
+        with self.assertRaisesRegex(aws_cluster.ClusterError, "cpu or gpu"):
             self.make_cluster(config).validate()
 
     def test_ssm_dry_run_sets_long_execution_timeout(self) -> None:

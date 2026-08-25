@@ -1,23 +1,20 @@
-# Presto CPU benchmarks on direct EC2
+# Distributed Presto benchmarks on direct EC2
 
 This directory manages an ephemeral Presto cluster with one coordinator-only
-EC2 instance and one native CPU worker per worker EC2 instance. It uses AWS
-Systems Manager (SSM) instead of SSH and keeps all Presto traffic on private
-addresses.
+EC2 instance and one native CPU or GPU worker per worker EC2 instance. It uses
+AWS Systems Manager (SSM) instead of SSH and keeps all Presto traffic on
+private addresses.
 
 The initial implementation targets TPC-H SF1000 at 1, 2, 8, 16, or 32 workers.
 Worker counts exclude the coordinator.
 
-## Status and source dependency
+## Source independence
 
-The S3 benchmark path depends on
-[velox-testing PR 376](https://github.com/rapidsai/velox-testing/pull/376).
-The first qualified source revision is expected to use PR head
-`7a2e66683fd7262d8ad2cb6614a6bac1a14e7afa`. Rebase this work onto `main` after
-that PR merges, then repeat local checks and fresh-fleet 8-worker qualification.
-
-Do not use the broader `pioneer` branch as an implicit configuration bundle.
-Apply experimental settings as explicit, archived overrides.
+The harness has no dependency on a particular benchmark or engine-development
+branch. Every run supplies and archives an exact source repository, fetch ref,
+commit, coordinator image, and worker image. Experimental S3 or GPU runs may
+pin another branch, but that dependency belongs to the run manifest rather
+than this harness.
 
 ## What the harness owns
 
@@ -49,9 +46,10 @@ The instance profile needs:
 - write access to the configured results prefix;
 - ECR permissions only when private ECR images are selected.
 
-The security group needs no SSH ingress. Add a self-referencing TCP rule for
-port 8080 so workers can register and exchange data with the coordinator.
-Restrict all rules to the benchmark security group and required egress paths.
+The security group needs no SSH ingress. Add self-referencing TCP rules for
+port 8080 and any native exchange port selected by the generated worker config
+(GPU currently uses 10003). Restrict all rules to the benchmark security group
+and required egress paths.
 
 Use a same-AZ subnet. A placement group is optional and must be recorded as a
 separate experiment dimension.
@@ -92,6 +90,13 @@ Mixed-architecture fleets can instead set `COORDINATOR_AMI_SSM_PARAMETER` and
 `WORKER_AMI_SSM_PARAMETER` (or their `_ID` equivalents). Bootstrap selects the
 AWS CLI binary for each host architecture and pulls only the image used by that
 role.
+
+Set `ENGINE_VARIANT=cpu` for CPU workers or `ENGINE_VARIANT=gpu` for one GPU
+worker per EC2 instance. GPU workers require an NVIDIA-driver AMI with NVIDIA
+Container Toolkit and a GPU-enabled worker image. Bootstrap verifies both host
+and container GPU visibility before startup. The example's Kvikio values
+reproduce the initial G7e S3 configuration and should remain explicit in each
+run manifest.
 
 ## Local validation and dry run
 

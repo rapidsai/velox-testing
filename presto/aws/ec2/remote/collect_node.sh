@@ -30,10 +30,11 @@ cp "${runtime_root}"/*.sha256 "${artifact_root}/" 2>/dev/null || true
 cp "${runtime_root}"/*.diff "${artifact_root}/" 2>/dev/null || true
 
 docker ps -a --no-trunc >"${artifact_root}/docker_ps.txt" 2>&1 || true
-docker inspect presto-coordinator presto-native-worker-cpu \
+docker inspect presto-coordinator presto-native-worker-cpu presto-native-worker-gpu \
   >"${artifact_root}/docker_inspect.json" 2>/dev/null || true
 docker logs presto-coordinator >"${artifact_root}/coordinator_container.log" 2>&1 || true
 docker logs presto-native-worker-cpu >"${artifact_root}/worker_container.log" 2>&1 || true
+docker logs presto-native-worker-gpu >"${artifact_root}/worker_gpu_container.log" 2>&1 || true
 
 uname -a >"${artifact_root}/uname.txt"
 lscpu --json >"${artifact_root}/lscpu.json"
@@ -50,6 +51,9 @@ if [[ ${role} == worker ]]; then
     >"${artifact_root}/worker_metrics.prom" 2>&1 || true
   curl -fsS http://localhost:8080/v1/status \
     >"${artifact_root}/worker_status.json" 2>&1 || true
+  nvidia-smi -q >"${artifact_root}/nvidia_smi_q.txt" 2>&1 || true
+  nvidia-smi dmon -s pucvmt -c 1 \
+    >"${artifact_root}/nvidia_smi_dmon.txt" 2>&1 || true
 fi
 journalctl -u docker --no-pager >"${artifact_root}/docker_journal.log" 2>&1 || true
 dmesg --ctime >"${artifact_root}/dmesg.log" 2>&1 || true

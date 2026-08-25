@@ -78,5 +78,31 @@ for line in sys.stdin:
         "docker": json.loads(line),
     }, separators=(",", ":")))
 ' "${role}" >>"${output}" || true
+  if [[ ${role} == worker ]] && command -v nvidia-smi >/dev/null; then
+    nvidia-smi \
+      --query-gpu=index,utilization.gpu,memory.used,memory.total,power.draw,temperature.gpu \
+      --format=csv,noheader,nounits 2>/dev/null |
+      python3 -c '
+import json
+import sys
+import time
+for line in sys.stdin:
+    index, util, used, total, power, temperature = [
+        value.strip() for value in line.split(",")
+    ]
+    print(json.dumps({
+        "timestamp_unix": time.time(),
+        "role": "worker",
+        "gpu": {
+            "index": int(index),
+            "utilization_percent": float(util),
+            "memory_used_mib": float(used),
+            "memory_total_mib": float(total),
+            "power_watts": float(power),
+            "temperature_c": float(temperature),
+        },
+    }, separators=(",", ":")))
+' >>"${output}" || true
+  fi
   sleep 5
 done

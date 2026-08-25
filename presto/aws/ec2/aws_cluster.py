@@ -19,7 +19,6 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_TAG = "cudf-performance"
-EXPERIMENT_TAG = "20260824_aws_102"
 DEFAULT_STATE_ROOT = Path.home() / ".cache" / "velox-testing" / "aws-ec2"
 
 
@@ -154,6 +153,7 @@ class Cluster:
             "AWS_REGION",
             "COORDINATOR_INSTANCE_TYPE",
             "WORKER_INSTANCE_TYPE",
+            "ENGINE_VARIANT",
             "VELOX_TESTING_REPOSITORY",
             "VELOX_TESTING_FETCH_REF",
             "VELOX_TESTING_REF",
@@ -162,9 +162,13 @@ class Cluster:
             "HIVE_METASTORE_S3_URI",
             "SCHEMA_NAME",
             "OWNER",
+            "EXPERIMENT_TAG",
             "HIVE_MAX_SPLIT_SIZE",
             "DYNAMIC_FILTERING_ENABLED",
             "CPU_EXCHANGE_TUNING_ENABLED",
+            "GPU_DEVICE_ID",
+            "KVIKIO_REMOTE_IO_BACKEND",
+            "CUDA_MODULE_LOADING",
             "ASYNC_CACHE_SSD_GIB",
             "ASYNC_CACHE_NUM_SHARDS",
         )
@@ -195,6 +199,12 @@ class Cluster:
             "VCPU_PER_WORKER",
             "TASK_MAX_DRIVERS_PER_TASK",
             "HIVE_SPLIT_LOADER_CONCURRENCY",
+            "KVIKIO_NTHREADS",
+            "KVIKIO_TASK_SIZE",
+            "KVIKIO_BOUNCE_BUFFER_SIZE",
+            "KVIKIO_REMOTE_IO_NUM_REACTORS",
+            "KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS",
+            "LIBCUDF_NUM_HOST_WORKERS",
             "COORDINATOR_HEAP_GIB",
             "COORDINATOR_HEADROOM_GIB",
             "COORDINATOR_QUERY_TOTAL_MEMORY_PER_NODE_GIB",
@@ -222,6 +232,10 @@ class Cluster:
             raise ClusterError("HARNESS_BUNDLE_SHA256 must contain 64 hexadecimal characters")
         if self.config["ASYNC_DATA_CACHE_ENABLED"] not in ("true", "false"):
             raise ClusterError("ASYNC_DATA_CACHE_ENABLED must be true or false")
+        if self.config["ENGINE_VARIANT"] not in ("cpu", "gpu"):
+            raise ClusterError("ENGINE_VARIANT must be cpu or gpu")
+        if self.config["ENGINE_VARIANT"] == "gpu":
+            nonnegative_int(self.config, "GPU_DEVICE_ID")
         for key in ("DYNAMIC_FILTERING_ENABLED", "CPU_EXCHANGE_TUNING_ENABLED"):
             if self.config[key] not in ("true", "false"):
                 raise ClusterError(f"{key} must be true or false")
@@ -256,10 +270,11 @@ class Cluster:
             )
 
     def tags(self, role: str, expiry: str) -> list[dict[str, str]]:
+        engine = self.config["ENGINE_VARIANT"]
         return [
-            {"Key": "Name", "Value": f"presto-cpu-{role}-{self.run_id}"},
+            {"Key": "Name", "Value": f"presto-{engine}-{role}-{self.run_id}"},
             {"Key": "Project", "Value": PROJECT_TAG},
-            {"Key": "Experiment", "Value": EXPERIMENT_TAG},
+            {"Key": "Experiment", "Value": self.config["EXPERIMENT_TAG"]},
             {"Key": "RunId", "Value": self.run_id},
             {"Key": "Role", "Value": role},
             {"Key": "Owner", "Value": self.config["OWNER"]},
@@ -418,6 +433,7 @@ class Cluster:
                     "harness_bundle_s3_uri": self.config.get("HARNESS_BUNDLE_S3_URI", ""),
                     "harness_bundle_sha256": self.config.get("HARNESS_BUNDLE_SHA256", ""),
                     "async_data_cache": self.config["ASYNC_DATA_CACHE_ENABLED"] == "true",
+                    "engine_variant": self.config["ENGINE_VARIANT"],
                 }
             )
             self.wait_for_ssm(instance_ids)
@@ -443,7 +459,7 @@ class Cluster:
                 "describe-instances",
                 "--filters",
                 f"Name=tag:Project,Values={PROJECT_TAG}",
-                f"Name=tag:Experiment,Values={EXPERIMENT_TAG}",
+                f"Name=tag:Experiment,Values={self.config['EXPERIMENT_TAG']}",
                 f"Name=tag:RunId,Values={self.run_id}",
                 f"Name=tag:Owner,Values={self.config['OWNER']}",
                 "Name=instance-state-name,Values=pending,running,stopping,stopped",
@@ -648,6 +664,8 @@ class Cluster:
             + shlex.quote(self.config["WORKER_IMAGE"])
             + " "
             + shlex.quote(self.config["HIVE_METASTORE_S3_URI"])
+            + " "
+            + shlex.quote(self.config["ENGINE_VARIANT"])
         )
         coordinator_command_id = self.send_command(
             [coordinator.instance_id],
@@ -670,6 +688,7 @@ class Cluster:
             "WORKER_INDEX": "" if worker_index is None else str(worker_index),
             "COORDINATOR_ADDRESS": coordinator_address,
             "AWS_REGION": self.config["AWS_REGION"],
+            "ENGINE_VARIANT": self.config["ENGINE_VARIANT"],
             "VCPU_PER_WORKER": self.config["VCPU_PER_WORKER"],
             "TASK_MAX_DRIVERS_PER_TASK": self.config["TASK_MAX_DRIVERS_PER_TASK"],
             "HIVE_MAX_SPLIT_SIZE": self.config["HIVE_MAX_SPLIT_SIZE"],
@@ -680,6 +699,21 @@ class Cluster:
             "CPU_EXCHANGE_TUNING_ENABLED": self.config[
                 "CPU_EXCHANGE_TUNING_ENABLED"
             ],
+            "GPU_DEVICE_ID": self.config["GPU_DEVICE_ID"],
+            "KVIKIO_REMOTE_IO_BACKEND": self.config["KVIKIO_REMOTE_IO_BACKEND"],
+            "KVIKIO_NTHREADS": self.config["KVIKIO_NTHREADS"],
+            "KVIKIO_TASK_SIZE": self.config["KVIKIO_TASK_SIZE"],
+            "KVIKIO_BOUNCE_BUFFER_SIZE": self.config[
+                "KVIKIO_BOUNCE_BUFFER_SIZE"
+            ],
+            "KVIKIO_REMOTE_IO_NUM_REACTORS": self.config[
+                "KVIKIO_REMOTE_IO_NUM_REACTORS"
+            ],
+            "KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS": self.config[
+                "KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS"
+            ],
+            "LIBCUDF_NUM_HOST_WORKERS": self.config["LIBCUDF_NUM_HOST_WORKERS"],
+            "CUDA_MODULE_LOADING": self.config["CUDA_MODULE_LOADING"],
             "COORDINATOR_HEAP_GIB": self.config["COORDINATOR_HEAP_GIB"],
             "COORDINATOR_HEADROOM_GIB": self.config["COORDINATOR_HEADROOM_GIB"],
             "COORDINATOR_QUERY_TOTAL_MEMORY_PER_NODE_GIB": self.config["COORDINATOR_QUERY_TOTAL_MEMORY_PER_NODE_GIB"],
@@ -901,7 +935,10 @@ class Cluster:
             [coordinator.instance_id, *[item.instance_id for item in workers]],
             [
                 "set -eu",
-                "docker rm -f presto-coordinator presto-native-worker-cpu 2>/dev/null || true",
+                (
+                    "docker rm -f presto-coordinator presto-native-worker-cpu "
+                    "presto-native-worker-gpu 2>/dev/null || true"
+                ),
             ],
             f"stop {self.run_id}",
         )
@@ -925,7 +962,7 @@ class Cluster:
                 "describe-instances",
                 "--filters",
                 f"Name=tag:Project,Values={PROJECT_TAG}",
-                f"Name=tag:Experiment,Values={EXPERIMENT_TAG}",
+                f"Name=tag:Experiment,Values={self.config['EXPERIMENT_TAG']}",
                 "Name=instance-state-name,Values=pending,running,stopping,stopped",
             ],
             json_output=True,
