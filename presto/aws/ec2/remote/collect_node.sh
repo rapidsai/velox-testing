@@ -28,6 +28,7 @@ cp -a "${runtime_root}/results" "${artifact_root}/" 2>/dev/null || true
 cp "${runtime_root}"/*.json "${artifact_root}/" 2>/dev/null || true
 cp "${runtime_root}"/*.sha256 "${artifact_root}/" 2>/dev/null || true
 cp "${runtime_root}"/*.diff "${artifact_root}/" 2>/dev/null || true
+cp "${runtime_root}"/gpu_exchange_* "${artifact_root}/" 2>/dev/null || true
 
 docker ps -a --no-trunc >"${artifact_root}/docker_ps.txt" 2>&1 || true
 docker inspect presto-coordinator presto-native-worker-cpu presto-native-worker-gpu \

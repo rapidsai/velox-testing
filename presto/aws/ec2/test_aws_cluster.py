@@ -201,6 +201,15 @@ class ClusterTest(unittest.TestCase):
         with self.assertRaisesRegex(aws_cluster.ClusterError, "cpu or gpu"):
             self.make_cluster(config).validate()
 
+    def test_gpu_exchange_verification_rejects_cpu_and_single_worker(self) -> None:
+        with self.assertRaisesRegex(aws_cluster.ClusterError, "ENGINE_VARIANT=gpu"):
+            self.make_cluster(workers=2).verify_gpu_exchange()
+
+        config = valid_config()
+        config["ENGINE_VARIANT"] = "gpu"
+        with self.assertRaisesRegex(aws_cluster.ClusterError, "at least two"):
+            self.make_cluster(config, workers=1).verify_gpu_exchange()
+
     def test_ssm_dry_run_sets_long_execution_timeout(self) -> None:
         output = io.StringIO()
         with contextlib.redirect_stdout(output):

@@ -628,7 +628,7 @@ class Cluster:
             "export DEBIAN_FRONTEND=noninteractive",
             "apt-get update -y",
             (
-                "apt-get install -y ca-certificates curl git jq numactl "
+                "apt-get install -y ca-certificates curl git iproute2 jq numactl "
                 "python3 python3-venv unzip"
             ),
             (
@@ -911,6 +911,27 @@ class Cluster:
         )
         self.record_command("cache_series", command_id)
 
+    def verify_gpu_exchange(self) -> None:
+        self.validate(cloud=True)
+        if self.config["ENGINE_VARIANT"] != "gpu":
+            raise ClusterError("verify-gpu-exchange requires ENGINE_VARIANT=gpu")
+        if self.workers < 2:
+            raise ClusterError("verify-gpu-exchange requires at least two workers")
+        _, workers = self.expected_inventory()
+        command_id = self.send_command(
+            [worker.instance_id for worker in workers],
+            [
+                "set -eu",
+                (
+                    "bash /opt/velox-testing/presto/aws/ec2/remote/"
+                    "verify_gpu_exchange.sh"
+                ),
+            ],
+            f"verify GPU exchange {self.run_id}",
+            wait=True,
+        )
+        self.record_command("verify_gpu_exchange", command_id)
+
     def collect(self) -> None:
         self.validate(cloud=True)
         inventory = self.inventory()
@@ -1036,6 +1057,7 @@ def build_parser() -> argparse.ArgumentParser:
         "status",
         "bootstrap",
         "start",
+        "verify-gpu-exchange",
         "collect",
         "stop",
         "terminate",
@@ -1095,6 +1117,8 @@ def main() -> int:
             if args.repetitions <= 0:
                 raise ClusterError("--repetitions must be greater than zero")
             cluster.run_cold_series(args.queries, args.repetitions, args.tag_prefix)
+        elif args.command == "verify-gpu-exchange":
+            cluster.verify_gpu_exchange()
         elif args.command == "collect":
             cluster.collect()
         elif args.command == "stop":

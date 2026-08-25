@@ -312,6 +312,11 @@ else
       -e "CUDA_MODULE_LOADING=${CUDA_MODULE_LOADING}"
       -e UCX_TLS=tcp,cuda_copy,cuda_ipc
       -e UCX_TCP_CM_REUSEADDR=y
+      -e UCX_LOG_LEVEL=info
+      -e UCX_PROTO_INFO=y
+      -e UCX_RNDV_PIPELINE_ERROR_HANDLING=y
+      -e UCX_TCP_KEEPINTVL=1ms
+      -e UCX_KEEPALIVE_INTERVAL=1ms
     )
   fi
   docker run -d \

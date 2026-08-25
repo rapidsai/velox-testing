@@ -95,8 +95,7 @@ Set `ENGINE_VARIANT=cpu` for CPU workers or `ENGINE_VARIANT=gpu` for one GPU
 worker per EC2 instance. GPU workers require an NVIDIA-driver AMI with NVIDIA
 Container Toolkit and a GPU-enabled worker image. Bootstrap verifies both host
 and container GPU visibility before startup. The example's Kvikio values
-reproduce the initial G7e S3 configuration and should remain explicit in each
-run manifest.
+are explicit so each GPU run records its remote-I/O behavior.
 
 ## Local validation and dry run
 
@@ -206,6 +205,26 @@ python3 aws_cluster.py \
 This preserves the Presto processes and worker membership while issuing
 `sync` and dropping Linux page cache on every coordinator and worker before
 each pass. Each repetition has a separate result tag.
+
+## GPU exchange verification
+
+For two or more GPU workers, run a shuffle-heavy query and then require
+observable evidence that cuDF's UCX exchange path handled traffic:
+
+```bash
+python3 aws_cluster.py \
+  --config "$CONFIG" --run-id "$RUN_ID" --workers 2 \
+  run --queries 9 --iterations 1 --tag gpu_exchange_probe
+python3 aws_cluster.py \
+  --config "$CONFIG" --run-id "$RUN_ID" --workers 2 \
+  verify-gpu-exchange
+```
+
+Verification fails unless every worker has `cudf.exchange=true`, the configured
+UCX server port is listening, and worker logs or positive runtime counters show
+active UCX/exchange protocol use. Collection preserves the full worker log,
+filtered metrics, socket snapshots, and `gpu_exchange_verification.json`.
+Configuration alone is not accepted as proof of active exchange.
 
 ## Controlled CPU tuning
 
