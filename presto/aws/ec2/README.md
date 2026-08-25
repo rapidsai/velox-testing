@@ -194,21 +194,8 @@ primary runtime and must be reported separately.
 
 The harness archives raw output; top-line reduction should happen in the
 experiment repository so rejected runs and the reduction rule remain visible.
-Use `summarize_results.py --baseline <benchmark_result.json>` to apply the
+Use `summarize_results.py <benchmark_result.json>` to apply the
 one-warm-up/four-measured rule without relying on the runner's aggregate field.
-
-For repeated data-cold suites with cache off, drop host page caches before each
-single-iteration Q1-Q22 pass:
-
-```bash
-python3 aws_cluster.py \
-  --config "$CONFIG" --run-id "$RUN_ID" --workers 8 \
-  run-cold-series --repetitions 3 --tag-prefix sf1k
-```
-
-This preserves the Presto processes and worker membership while issuing
-`sync` and dropping Linux page cache on every coordinator and worker before
-each pass. Each repetition has a separate result tag.
 
 ## GPU exchange verification
 
@@ -242,7 +229,7 @@ The environment file exposes the generated CPU override as explicit controls:
 
 The example values reproduce the normal generated CPU configuration. Change
 one value at a time, rerun `start` to generate and archive the candidate
-configuration, then use `run-cold-series` with a diagnostic query list. Setting
+configuration, then use `run --iterations 5` with a diagnostic query list. Setting
 `CPU_EXCHANGE_TUNING_ENABLED=false` removes the generated CPU exchange
 properties so the native worker uses its defaults.
 
@@ -251,28 +238,17 @@ properties so the native worker uses its defaults.
 Do not compare cache-on and cache-off results as the same workload.
 
 For cache-on qualification, use a fresh fleet and an explicit cache capacity.
-Run one complete Q1-Q22 suite with one iteration per query as cold fill. Without
-clearing, restarting, or changing the worker session, run four more complete
-one-iteration suites. Average each query across those four warm suites and sum
-the query means.
-
-Do not use `--iterations 5` for this cache-on sequence because that produces
-query-major order rather than suite-major order. Give each pass a unique tag,
-and preserve one uninterrupted cluster session.
-
-The harness encodes that sequence:
+Use the same query-major iteration protocol as cache-off timing:
 
 ```bash
 python3 aws_cluster.py \
   --config "$CONFIG" --run-id "$RUN_ID" --workers 8 \
-  run-cache-series --tag-prefix sf1k_cache
+  run --iterations 5 --tag sf1k_cache
 ```
 
-It requires `ASYNC_DATA_CACHE_ENABLED=true`, runs one cold-fill suite followed
-by four warm suites, and rejects a run if worker membership changes.
-Pass the five resulting `benchmark_result.json` files to
-`summarize_results.py --cache-series` in cold, warm-1, warm-2, warm-3, warm-4
-order.
+For each query, plot iteration 1 separately and average iterations 2-5 for the
+reported result. The hot/cold distinction comes only from the archived cache
+and input-path configuration, not from a second repetition model.
 
 ## Generated state and artifacts
 

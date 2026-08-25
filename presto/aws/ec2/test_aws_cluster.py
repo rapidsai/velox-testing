@@ -237,31 +237,16 @@ class SummaryTest(unittest.TestCase):
         path.write_text(json.dumps({"tpch": {"raw_times_ms": raw, "failed_queries": {}}}))
         return path
 
-    def test_baseline_discards_first_iteration(self) -> None:
+    def test_summary_discards_first_iteration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = self.write_result(
                 directory,
                 "baseline.json",
                 {"Q1": [100, 20, 30, 40, 50], "Q2": [200, 10, 20, 30, 40]},
             )
-            summary = summarize_results.baseline(path)
+            summary = summarize_results.summarize(path)
             self.assertEqual(summary["per_query_mean_ms"], {"Q1": 35, "Q2": 25})
             self.assertEqual(summary["suite_runtime_ms"], 60)
-
-    def test_cache_series_uses_four_suite_major_passes(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            paths = [
-                self.write_result(
-                    directory,
-                    f"pass-{index}.json",
-                    {"Q1": [100 - index * 10], "Q2": [200 - index * 20]},
-                )
-                for index in range(5)
-            ]
-            summary = summarize_results.cache_series(paths)
-            self.assertEqual(summary["cold_fill"]["suite_runtime_ms"], 300)
-            self.assertEqual(summary["warm_reuse"]["per_query_mean_ms"]["Q1"], 75)
-            self.assertEqual(summary["warm_reuse"]["suite_runtime_ms"], 225)
 
 
 if __name__ == "__main__":

@@ -857,88 +857,6 @@ class Cluster:
         command_id = self.send_command([coordinator.instance_id], commands, f"benchmark {self.run_id}", wait=True)
         self.record_command(record_name, command_id)
 
-    def run_cold_series(self, queries: str, repetitions: int, tag_prefix: str) -> None:
-        self.validate(cloud=True)
-        if self.config["ASYNC_DATA_CACHE_ENABLED"] != "false":
-            raise ClusterError("run-cold-series requires ASYNC_DATA_CACHE_ENABLED=false")
-        coordinator, workers = self.expected_inventory()
-        instance_ids = [coordinator.instance_id, *[item.instance_id for item in workers]]
-        for repetition in range(1, repetitions + 1):
-            clear_command_id = self.send_command(
-                instance_ids,
-                [
-                    "set -eu",
-                    "sync",
-                    "echo 3 > /proc/sys/vm/drop_caches",
-                ],
-                f"drop host caches repetition {repetition} {self.run_id}",
-                wait=True,
-            )
-            self.record_command(f"drop_host_caches_{repetition}", clear_command_id)
-            self.run_benchmark(
-                queries,
-                1,
-                f"{tag_prefix}_cold_{repetition}",
-                record_name=f"cold_benchmark_{repetition}",
-            )
-
-    def run_cache_series(self, queries: str, tag_prefix: str) -> None:
-        self.validate(cloud=True)
-        coordinator, workers = self.expected_inventory()
-        address = coordinator.private_ip or coordinator.private_dns
-        instance_ids = [coordinator.instance_id, *[worker.instance_id for worker in workers]]
-        drop_command_id = self.send_command(
-            instance_ids,
-            [
-                "set -eu",
-                "sync",
-                "echo 3 > /proc/sys/vm/drop_caches",
-            ],
-            f"drop host caches {self.run_id}",
-            wait=True,
-        )
-        self.record_command("drop_host_caches", drop_command_id)
-        if self.config["ASYNC_DATA_CACHE_ENABLED"] == "true":
-            cache_types = ["memory"]
-            if nonnegative_int(self.config, "ASYNC_CACHE_SSD_GIB"):
-                cache_types.append("ssd")
-            for cache_type in cache_types:
-                expected = f"Cleared {cache_type} cache"
-                clear_command_id = self.send_command(
-                    [worker.instance_id for worker in workers],
-                    [
-                        "set -eu",
-                        (
-                            "response=$(curl -fsS "
-                            f"'http://localhost:8080/v1/operation/server/clearCache?type={cache_type}'"
-                            "); printf '%s\\n' \"$response\"; "
-                            f"test \"$response\" = {shlex.quote(expected)}"
-                        ),
-                    ],
-                    f"clear worker {cache_type} caches {self.run_id}",
-                    wait=True,
-                )
-                self.record_command(f"clear_worker_{cache_type}_caches", clear_command_id)
-        commands = [
-            "set -eu",
-            (
-                f"AWS_DEFAULT_REGION={shlex.quote(self.config['AWS_REGION'])} "
-                f"AWS_REGION={shlex.quote(self.config['AWS_REGION'])} "
-                "HOME=/root "
-                "bash /opt/velox-testing/presto/aws/ec2/remote/run_cache_series.sh "
-                f"{shlex.quote(address)} {shlex.quote(self.config['SCHEMA_NAME'])} "
-                f"{shlex.quote(queries)} {shlex.quote(tag_prefix)} "
-                f"{shlex.quote(self.result_uri())}"
-            ),
-        ]
-        command_id = self.send_command(
-            [coordinator.instance_id],
-            commands,
-            f"cache series {self.run_id}",
-            wait=True,
-        )
-        self.record_command("cache_series", command_id)
-
     def verify_gpu_exchange(self) -> None:
         self.validate(cloud=True)
         if self.config["ENGINE_VARIANT"] != "gpu":
@@ -1096,19 +1014,6 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--queries", default="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22")
     run_parser.add_argument("--iterations", type=int, default=5)
     run_parser.add_argument("--tag", default="sf1k_q1q22")
-    cache_parser = subparsers.add_parser("run-cache-series")
-    cache_parser.add_argument(
-        "--queries",
-        default="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22",
-    )
-    cache_parser.add_argument("--tag-prefix", default="sf1k_cache")
-    cold_parser = subparsers.add_parser("run-cold-series")
-    cold_parser.add_argument(
-        "--queries",
-        default="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22",
-    )
-    cold_parser.add_argument("--repetitions", type=int, default=3)
-    cold_parser.add_argument("--tag-prefix", default="sf1k")
     return parser
 
 
@@ -1139,12 +1044,6 @@ def main() -> int:
             if args.iterations <= 0:
                 raise ClusterError("--iterations must be greater than zero")
             cluster.run_benchmark(args.queries, args.iterations, args.tag)
-        elif args.command == "run-cache-series":
-            cluster.run_cache_series(args.queries, args.tag_prefix)
-        elif args.command == "run-cold-series":
-            if args.repetitions <= 0:
-                raise ClusterError("--repetitions must be greater than zero")
-            cluster.run_cold_series(args.queries, args.repetitions, args.tag_prefix)
         elif args.command == "verify-gpu-exchange":
             cluster.verify_gpu_exchange()
         elif args.command == "collect":
