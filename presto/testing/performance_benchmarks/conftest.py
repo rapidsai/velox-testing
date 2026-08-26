@@ -53,3 +53,9 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     pytest.data_location = DataLocation("--schema-name", "Schema", BenchmarkKeys.SCHEMA_NAME_KEY)
+
+
+def pytest_sessionstart(session):
+    iterations = session.config.getoption("--iterations", default=None)
+    if iterations is not None and iterations < 1:
+        raise ValueError(f"--iterations must be a positive integer, got {iterations}")

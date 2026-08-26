@@ -31,8 +31,16 @@ function wait_for_worker_node_registration() {
   echo "Coordinator URL: $COORDINATOR_URL"
   local -r MAX_RETRIES=12
   local retry_count=0
-  until curl -s -f -o node_response.json ${COORDINATOR_URL}/v1/node && \
-        (( $(jq length node_response.json) > 0 )); do
+  local node_count=0
+  while true; do
+    if curl -s -f -o node_response.json "${COORDINATOR_URL}/v1/node"; then
+      node_count=$(python3 -c \
+        'import json, sys; print(len(json.load(open(sys.argv[1]))))' \
+        node_response.json 2>/dev/null || echo 0)
+      if [[ "${node_count}" =~ ^[0-9]+$ ]] && (( node_count > 0 )); then
+        break
+      fi
+    fi
     if (( $retry_count >= $MAX_RETRIES )); then
       echo "Error: Worker node not registered after 60s. Exiting."
       exit 1
