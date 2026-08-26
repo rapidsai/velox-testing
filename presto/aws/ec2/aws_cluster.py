@@ -635,14 +635,15 @@ class Cluster:
         commands = [
             "set -eu",
             "export DEBIAN_FRONTEND=noninteractive",
-            "apt-get update -y",
+            "apt-get -o DPkg::Lock::Timeout=300 update -y",
             (
-                "apt-get install -y ca-certificates curl git iproute2 jq numactl "
+                "apt-get -o DPkg::Lock::Timeout=300 install -y "
+                "ca-certificates curl git iproute2 jq numactl "
                 "python3 python3-venv unzip"
             ),
             (
                 "if ! command -v docker >/dev/null; then "
-                "apt-get install -y docker.io; fi"
+                "apt-get -o DPkg::Lock::Timeout=300 install -y docker.io; fi"
             ),
             "systemctl enable --now docker",
             (
@@ -719,6 +720,34 @@ class Cluster:
             "GPU_BATCH_SIZE_MIN_THRESHOLD": self.config[
                 "GPU_BATCH_SIZE_MIN_THRESHOLD"
             ],
+            "GPU_PARTITIONED_OUTPUT_BATCH_ROWS": self.config.get(
+                "GPU_PARTITIONED_OUTPUT_BATCH_ROWS", "100000000"
+            ),
+            "GPU_UCXX_BLOCKING_POLLING": self.config.get(
+                "GPU_UCXX_BLOCKING_POLLING", "true"
+            ),
+            "GPU_UCX_NET_DEVICES": self.config.get("GPU_UCX_NET_DEVICES", "all"),
+            "GPU_UCX_TCP_TX_SEG_SIZE": self.config.get(
+                "GPU_UCX_TCP_TX_SEG_SIZE", "8K"
+            ),
+            "GPU_UCX_TCP_RX_SEG_SIZE": self.config.get(
+                "GPU_UCX_TCP_RX_SEG_SIZE", "64K"
+            ),
+            "GPU_UCX_RNDV_FRAG_SIZE": self.config.get(
+                "GPU_UCX_RNDV_FRAG_SIZE", "host:512K,cuda:4M"
+            ),
+            "GPU_UCX_CUDA_COPY_MAX_REG_RATIO": self.config.get(
+                "GPU_UCX_CUDA_COPY_MAX_REG_RATIO", "0.100"
+            ),
+            "GPU_UCX_TCP_MAX_BW": self.config.get(
+                "GPU_UCX_TCP_MAX_BW", "2200MBps"
+            ),
+            "GPU_UCX_TCP_MAX_POLL": self.config.get(
+                "GPU_UCX_TCP_MAX_POLL", "16"
+            ),
+            "GPU_UCX_CUDA_COPY_MAX_POLL": self.config.get(
+                "GPU_UCX_CUDA_COPY_MAX_POLL", "16"
+            ),
             "GPU_USE_BUFFERED_INPUT": self.config["GPU_USE_BUFFERED_INPUT"],
             "GPU_USE_KVIKIO": self.config["GPU_USE_KVIKIO"],
             "KVIKIO_REMOTE_IO_BACKEND": self.config["KVIKIO_REMOTE_IO_BACKEND"],
@@ -864,13 +893,16 @@ class Cluster:
         if self.workers < 2:
             raise ClusterError("verify-gpu-exchange requires at least two workers")
         _, workers = self.expected_inventory()
+        peer_addresses = ",".join(
+            item.private_ip or item.private_dns for item in workers
+        )
         command_id = self.send_command(
             [worker.instance_id for worker in workers],
             [
                 "set -eu",
                 (
                     "bash /opt/velox-testing/presto/aws/ec2/remote/"
-                    "verify_gpu_exchange.sh"
+                    f"verify_gpu_exchange.sh {shlex.quote(peer_addresses)}"
                 ),
             ],
             f"verify GPU exchange {self.run_id}",

@@ -7,6 +7,13 @@ set -euo pipefail
 required=(
   RUN_ID ROLE WORKER_COUNT COORDINATOR_ADDRESS AWS_REGION VCPU_PER_WORKER
   ENGINE_VARIANT GPU_DEVICE_ID GPU_BATCH_SIZE_MIN_THRESHOLD
+  GPU_PARTITIONED_OUTPUT_BATCH_ROWS
+  GPU_UCXX_BLOCKING_POLLING
+  GPU_UCX_NET_DEVICES GPU_UCX_TCP_TX_SEG_SIZE GPU_UCX_TCP_RX_SEG_SIZE
+  GPU_UCX_RNDV_FRAG_SIZE
+  GPU_UCX_CUDA_COPY_MAX_REG_RATIO
+  GPU_UCX_TCP_MAX_BW
+  GPU_UCX_TCP_MAX_POLL GPU_UCX_CUDA_COPY_MAX_POLL
   GPU_USE_BUFFERED_INPUT GPU_USE_KVIKIO
   KVIKIO_REMOTE_IO_BACKEND KVIKIO_NTHREADS
   KVIKIO_TASK_SIZE KVIKIO_BOUNCE_BUFFER_SIZE
@@ -187,6 +194,11 @@ else
   set_property "${final}/config.properties" http-server.http.port 8080
   set_property "${final}/config.properties" discovery.uri \
     "http://${COORDINATOR_ADDRESS}:8080"
+  if [[ ${ENGINE_VARIANT} == gpu ]]; then
+    # cuDF exchange advertises HTTP port + 3. EC2 runs one worker per host,
+    # so every worker can use the same host-local exchange port.
+    set_property "${final}/config.properties" cudf.exchange.server.port 8083
+  fi
   if ((WORKER_COUNT == 1)); then
     set_property "${final}/config.properties" single-node-execution-enabled true
   else
@@ -213,6 +225,12 @@ else
   upsert_property "${final}/config.properties" runtime-metrics-collection-enabled \
     true
   if [[ ${ENGINE_VARIANT} == gpu ]]; then
+    set_property "${final}/config.properties" \
+      cudf.partitioned_output_batch_rows \
+      "${GPU_PARTITIONED_OUTPUT_BATCH_ROWS}"
+    upsert_property "${final}/config.properties" \
+      ucxx.blocking_polling \
+      "${GPU_UCXX_BLOCKING_POLLING}"
     delete_property "${final}/config.properties" cudf.batch_size_min_threshold
     printf 'cudf.batch_size_min_threshold=%s\n' \
       "${GPU_BATCH_SIZE_MIN_THRESHOLD}" \
@@ -333,6 +351,14 @@ else
       -e AWS_SECRET_ACCESS_KEY
       -e AWS_SESSION_TOKEN
       -e UCX_TLS=tcp,cuda_copy,cuda_ipc
+      -e "UCX_NET_DEVICES=${GPU_UCX_NET_DEVICES}"
+      -e "UCX_TCP_TX_SEG_SIZE=${GPU_UCX_TCP_TX_SEG_SIZE}"
+      -e "UCX_TCP_RX_SEG_SIZE=${GPU_UCX_TCP_RX_SEG_SIZE}"
+      -e "UCX_RNDV_FRAG_SIZE=${GPU_UCX_RNDV_FRAG_SIZE}"
+      -e "UCX_CUDA_COPY_MAX_REG_RATIO=${GPU_UCX_CUDA_COPY_MAX_REG_RATIO}"
+      -e "UCX_TCP_MAX_BW=${GPU_UCX_TCP_MAX_BW}"
+      -e "UCX_TCP_MAX_POLL=${GPU_UCX_TCP_MAX_POLL}"
+      -e "UCX_CUDA_COPY_MAX_POLL=${GPU_UCX_CUDA_COPY_MAX_POLL}"
       -e UCX_TCP_CM_REUSEADDR=y
       -e UCX_LOG_LEVEL=info
       -e UCX_PROTO_INFO=y

@@ -100,6 +100,22 @@ are explicit so each GPU run records its remote-I/O behavior.
 input (required for AsyncDataCache) and direct KvikIO S3 reads.
 `GPU_BATCH_SIZE_MIN_THRESHOLD` controls GPU rebatching and can be reduced when
 buffered-input workloads exceed device memory.
+`GPU_PARTITIONED_OUTPUT_BATCH_ROWS` controls how many rows the GPU partitioned
+output operator accumulates before flushing to exchange.
+`GPU_UCXX_BLOCKING_POLLING` selects event-driven or continuously progressing
+UCXX worker polling.
+`GPU_UCX_NET_DEVICES` pins UCX to a network interface. The TCP TX/RX staging
+chunk sizes are controlled by `GPU_UCX_TCP_TX_SEG_SIZE` and
+`GPU_UCX_TCP_RX_SEG_SIZE`; larger values can improve large GPU transfers over
+TCP by reducing host-staging fragmentation. `GPU_UCX_RNDV_FRAG_SIZE` controls
+the UCX rendezvous fragment size by memory type and can be matched to the TCP
+staging size for large CUDA transfers.
+`GPU_UCX_CUDA_COPY_MAX_REG_RATIO` limits how much host memory the CUDA-copy
+transport may register for staging.
+`GPU_UCX_TCP_MAX_BW` supplies UCX's protocol selector with the expected TCP
+transport bandwidth.
+`GPU_UCX_TCP_MAX_POLL` and `GPU_UCX_CUDA_COPY_MAX_POLL` bound the number of
+transport completions processed per UCX progress call.
 
 ## Local validation and dry run
 
@@ -199,23 +215,25 @@ one-warm-up/four-measured rule without relying on the runner's aggregate field.
 
 ## GPU exchange verification
 
-For two or more GPU workers, run a shuffle-heavy query and then require
-observable evidence that cuDF's UCX exchange path handled traffic:
+For two or more GPU workers, run a shuffle-heavy query and invoke verification
+while that query is actively exchanging data:
 
 ```bash
 python3 aws_cluster.py \
   --config "$CONFIG" --run-id "$RUN_ID" --workers 2 \
-  run --queries 9 --iterations 1 --tag gpu_exchange_probe
+  run --queries 18 --iterations 1 --tag gpu_exchange_probe &
 python3 aws_cluster.py \
   --config "$CONFIG" --run-id "$RUN_ID" --workers 2 \
   verify-gpu-exchange
+wait
 ```
 
 Verification fails unless every worker has `cudf.exchange=true`, the configured
-UCX server port is listening, and worker logs or positive runtime counters show
-active UCX/exchange protocol use. Collection preserves the full worker log,
-filtered metrics, socket snapshots, and `gpu_exchange_verification.json`.
-Configuration alone is not accepted as proof of active exchange.
+UCX server port is listening, remote `presto_server` peer connections exist,
+and their kernel TCP byte counters increase during the sample window.
+Collection preserves metrics, socket snapshots, and
+`gpu_exchange_verification.json`. Configuration or protocol-looking logs alone
+are not accepted as proof of active exchange.
 
 ## Controlled CPU tuning
 
