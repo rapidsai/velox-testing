@@ -1,0 +1,524 @@
+diff --git a/kernel/linux/ena/ena_ethtool.c b/kernel/linux/ena/ena_ethtool.c
+index f8c79ae..0903087 100644
+--- a/kernel/linux/ena/ena_ethtool.c
++++ b/kernel/linux/ena/ena_ethtool.c
+@@ -224,6 +224,14 @@ static const struct ena_stats ena_stats_rx_strings[] = {
+ 	ENA_STAT_RX_ENTRY(xsk_need_wakeup_set),
+ 	ENA_STAT_RX_ENTRY(zc_queue_pkt_copy),
+ #endif /* ENA_AF_XDP_SUPPORT */
++	ENA_STAT_RX_ENTRY(large_rx_page_order),
++	ENA_STAT_RX_ENTRY(large_rx_alloc_span),
++	ENA_STAT_RX_ENTRY(large_rx_posted_len),
++	ENA_STAT_RX_ENTRY(large_rx_desc_1),
++	ENA_STAT_RX_ENTRY(large_rx_desc_2),
++	ENA_STAT_RX_ENTRY(large_rx_desc_3_plus),
++	ENA_STAT_RX_ENTRY(large_rx_page_alloc_fail),
++	ENA_STAT_RX_ENTRY(large_rx_skb_frags),
+ };
+ 
+ static const struct ena_stats ena_stats_ena_com_admin_strings[] = {
+diff --git a/kernel/linux/ena/ena_lpc.c b/kernel/linux/ena/ena_lpc.c
+index 0642463..c1e324f 100644
+--- a/kernel/linux/ena/ena_lpc.c
++++ b/kernel/linux/ena/ena_lpc.c
+@@ -11,7 +11,8 @@ static void ena_free_ring_page_cache(struct ena_ring *rx_ring);
+ 
+ static void ena_put_unmap_cache_page(struct ena_ring *rx_ring, struct ena_page *ena_page)
+ {
+-	dma_unmap_page(rx_ring->dev, ena_page->dma_addr, ENA_PAGE_SIZE,
++	dma_unmap_page(rx_ring->dev, ena_page->dma_addr,
++		       rx_ring->rx_alloc_size,
+ 		       DMA_BIDIRECTIONAL);
+ 
+ 	put_page(ena_page->page);
+@@ -53,7 +54,7 @@ static struct page *ena_return_cache_page(struct ena_ring *rx_ring,
+ 
+ 	/* Make sure no writes are pending for this page */
+ 	dma_sync_single_for_device(rx_ring->dev, ena_page->dma_addr,
+-				   ENA_PAGE_SIZE,
++				   rx_ring->rx_alloc_size,
+ 				   DMA_BIDIRECTIONAL);
+ 
+ 	/* Increase refcount to 2 so that the page is returned to the
+@@ -262,7 +263,7 @@ static void ena_free_ring_cache_pages(struct ena_adapter *adapter, int qid)
+ 		WARN_ON(!ena_page->page);
+ 
+ 		dma_unmap_page(rx_ring->dev, ena_page->dma_addr,
+-			       ENA_PAGE_SIZE,
++			       rx_ring->rx_alloc_size,
+ 			       DMA_BIDIRECTIONAL);
+ 
+ 		/* If the page is also in the rx buffer, then this operation
+diff --git a/kernel/linux/ena/ena_netdev.c b/kernel/linux/ena/ena_netdev.c
+index 7827126..e79e3e9 100644
+--- a/kernel/linux/ena/ena_netdev.c
++++ b/kernel/linux/ena/ena_netdev.c
+@@ -57,6 +57,18 @@ MODULE_VERSION(DRV_MODULE_GENERATION);
+ #define ENA_PAGECOUNT_MAX_BIAS LONG_MAX
+ 
+ #endif /* ENA_PAGE_POOL_SUPPORT */
++
++static inline u32 ena_rx_skb_tailroom(void)
++{
++	return SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
++}
++
++static inline u32 ena_rx_desc_buf_len(const struct ena_ring *rx_ring)
++{
++	return rx_ring->rx_alloc_size - rx_ring->rx_headroom -
++		ena_rx_skb_tailroom();
++}
++
+ /* Time in jiffies before concluding the transmitter is hung. */
+ #define TX_TIMEOUT  (5 * HZ)
+ 
+@@ -92,6 +104,11 @@ static int enable_frag_bypass = 0;
+ module_param(enable_frag_bypass, int, 0444);
+ MODULE_PARM_DESC(enable_frag_bypass, "Enable fragment bypass.\n");
+ 
++static bool large_rx_page;
++module_param(large_rx_page, bool, 0444);
++MODULE_PARM_DESC(large_rx_page,
++		 "Experimental: use order-2 Page Pool buffers for jumbo RX on 4 KiB page systems; incompatible with XDP and AF_XDP.\n");
++
+ #ifdef ENA_LPC_SUPPORT
+ static int lpc_size = ENA_LPC_MULTIPLIER_NOT_CONFIGURED;
+ module_param(lpc_size, int, 0444);
+@@ -362,6 +379,13 @@ void ena_init_io_rings(struct ena_adapter *adapter, int count)
+ 		WRITE_ONCE(rxr->interrupt_interval, rx_interval);
+ 		rxr->empty_rx_queue = 0;
+ 		rxr->rx_headroom = NET_SKB_PAD;
++		rxr->rx_alloc_size = adapter->rx_alloc_size;
++		rxr->rx_page_order = adapter->rx_page_order;
++		rxr->rx_stats.large_rx_page_order = rxr->rx_page_order;
++		rxr->rx_stats.large_rx_alloc_span = rxr->rx_page_order ?
++			rxr->rx_alloc_size : 0;
++		rxr->rx_stats.large_rx_posted_len = rxr->rx_page_order ?
++			ena_rx_desc_buf_len(rxr) : 0;
+ 		adapter->ena_napi[i].dim.mode = DIM_CQ_PERIOD_MODE_START_FROM_EQE;
+ 	}
+ }
+@@ -627,6 +651,9 @@ struct page *ena_alloc_map_page(struct ena_ring *rx_ring,
+ #endif /* ENA_PAGE_POOL_SUPPORT */
+ 	if (!page) {
+ 		ena_increase_stat(&rx_ring->rx_stats.page_alloc_fail, 1, &rx_ring->syncp);
++		if (unlikely(rx_ring->rx_page_order))
++			ena_increase_stat(&rx_ring->rx_stats.large_rx_page_alloc_fail,
++					  1, &rx_ring->syncp);
+ 		return ERR_PTR(-ENOSPC);
+ 	}
+ 
+@@ -636,7 +663,7 @@ struct page *ena_alloc_map_page(struct ena_ring *rx_ring,
+ #ifdef ENA_PAGE_POOL_SUPPORT
+ 	*dma = page_pool_get_dma_addr(page);
+ #else
+-	*dma = dma_map_page(rx_ring->dev, page, 0, ENA_PAGE_SIZE,
++	*dma = dma_map_page(rx_ring->dev, page, 0, rx_ring->rx_alloc_size,
+ 			    DMA_BIDIRECTIONAL);
+ 	if (unlikely(dma_mapping_error(rx_ring->dev, *dma))) {
+ 		ena_increase_stat(&rx_ring->rx_stats.dma_mapping_err, 1,
+@@ -656,7 +683,6 @@ static int ena_alloc_rx_buffer(struct ena_ring *rx_ring,
+ 	struct ena_com_buf *ena_buf;
+ 	struct page *page;
+ 	dma_addr_t dma;
+-	int tailroom;
+ 
+ 	/* restore page offset value in case it has been changed by device */
+ 	rx_info->buf_offset = headroom;
+@@ -696,14 +722,12 @@ static int ena_alloc_rx_buffer(struct ena_ring *rx_ring,
+ 	netif_dbg(rx_ring->adapter, rx_status, rx_ring->netdev,
+ 		  "Allocate page %p, rx_info %p\n", page, rx_info);
+ 
+-	tailroom = SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
+-
+ #ifdef ENA_PAGE_POOL_SUPPORT
+-	if (!ena_xdp_present_ring(rx_ring)) {
++	if (!ena_xdp_present_ring(rx_ring) && !rx_ring->rx_page_order) {
+ 		page_pool_fragment_page(page, ENA_PAGECOUNT_MAX_BIAS);
+ 		rx_info->pagecnt_bias = ENA_PAGECOUNT_MAX_BIAS - 1;
+ 	} else {
+-		/* For XDP, DRB is not used so we don't frag the page */
++		/* XDP and high-order RX don't use deferred RX buffer reuse. */
+ 		rx_info->pagecnt_bias = 1;
+ 	}
+ 
+@@ -713,7 +737,7 @@ static int ena_alloc_rx_buffer(struct ena_ring *rx_ring,
+ 	rx_info->page_offset = 0;
+ 	ena_buf = &rx_info->ena_buf;
+ 	ena_buf->paddr = dma + headroom;
+-	ena_buf->len = ENA_PAGE_SIZE - headroom - tailroom;
++	ena_buf->len = ena_rx_desc_buf_len(rx_ring);
+ 
+ 	return 0;
+ }
+@@ -728,7 +752,8 @@ void ena_unmap_rx_buff_attrs(struct ena_ring *rx_ring,
+ 		return;
+ 
+ #endif /* ENA_LPC_SUPPORT */
+-	ena_dma_unmap_page_attrs(rx_ring->dev, rx_info->dma_addr, ENA_PAGE_SIZE,
++	ena_dma_unmap_page_attrs(rx_ring->dev, rx_info->dma_addr,
++				 rx_ring->rx_alloc_size,
+ 				 DMA_BIDIRECTIONAL, attrs);
+ }
+ 
+@@ -857,7 +882,7 @@ static void ena_free_rx_bufs(struct ena_adapter *adapter,
+ /* ena_refill_all_rx_bufs - allocate all queues Rx buffers
+  * @adapter: board private structure
+  */
+-static void ena_refill_all_rx_bufs(struct ena_adapter *adapter)
++static int ena_refill_all_rx_bufs(struct ena_adapter *adapter)
+ {
+ 	struct ena_ring *rx_ring;
+ 	int i, rc, bufs_num;
+@@ -867,11 +892,21 @@ static void ena_refill_all_rx_bufs(struct ena_adapter *adapter)
+ 		bufs_num = rx_ring->ring_size - 1;
+ 		rc = ena_refill_rx_bufs(rx_ring, bufs_num);
+ 
+-		if (unlikely(rc != bufs_num))
++		if (unlikely(rc != bufs_num)) {
+ 			netif_warn(rx_ring->adapter, rx_status, rx_ring->netdev,
+ 				   "Refilling Queue %d failed. allocated %d buffers from: %d\n",
+ 				   i, rc, bufs_num);
++			if (rx_ring->rx_page_order) {
++				netdev_err(rx_ring->netdev,
++					   "Experimental large RX initial refill failed on queue %d: allocated %d of %d order-%u buffers; refusing to start\n",
++					   i, rc, bufs_num,
++					   rx_ring->rx_page_order);
++				return -ENOMEM;
++			}
++		}
+ 	}
++
++	return 0;
+ }
+ 
+ static void ena_free_all_rx_bufs(struct ena_adapter *adapter)
+@@ -1225,11 +1260,18 @@ struct sk_buff *ena_alloc_skb(struct ena_ring *rx_ring, void *first_frag, u16 le
+ 	return skb;
+ }
+ 
+-static bool ena_try_rx_buf_page_reuse(struct ena_rx_buffer *rx_info, u16 buf_len,
++static bool ena_try_rx_buf_page_reuse(struct ena_ring *rx_ring,
++				      struct ena_rx_buffer *rx_info, u16 buf_len,
+ 				      u16 len, int pkt_offset)
+ {
+ 	struct ena_com_buf *ena_buf = &rx_info->ena_buf;
+ 
++	/* Keep every order-2 allocation intact so every posted descriptor can
++	 * receive a full jumbo frame. The allocation is recycled with the skb.
++	 */
++	if (unlikely(rx_ring->rx_page_order))
++		return false;
++
+ 	/* More than ENA_MIN_RX_BUF_SIZE left in the reused buffer
+ 	 * for data + headroom + tailroom.
+ 	 */
+@@ -1319,15 +1361,14 @@ void ena_fill_rx_frags(struct ena_ring *rx_ring,
+ 			int page_offset = rx_info->page_offset;
+ 			bool reuse_rx_buf_page;
+ 
+-			reuse_rx_buf_page = ena_try_rx_buf_page_reuse(rx_info,
+-								      buf_len,
+-								      len,
+-								      pkt_offset);
++			reuse_rx_buf_page =
++				ena_try_rx_buf_page_reuse(rx_ring, rx_info, buf_len,
++							  len, pkt_offset);
+ 			if (!reuse_rx_buf_page) {
+ 				/* Make sure buf_len represents the actual size used
+ 				 * by the buffer as expected from skb->truesize
+ 				 */
+-				buf_len = ENA_PAGE_SIZE - page_offset;
++				buf_len = rx_ring->rx_alloc_size - page_offset;
+ #ifdef ENA_PAGE_POOL_SUPPORT
+ 				page_pool_unref_page(rx_info->page,
+ 						     rx_info->pagecnt_bias);
+@@ -1445,7 +1486,8 @@ static struct sk_buff *ena_rx_skb(struct ena_ring *rx_ring, u32 descs)
+ 
+ 	buf_len = SKB_DATA_ALIGN(len + buf_offset + tailroom);
+ 
+-	reuse_rx_buf_page = ena_try_rx_buf_page_reuse(rx_info, buf_len, len, pkt_offset);
++	reuse_rx_buf_page = ena_try_rx_buf_page_reuse(rx_ring, rx_info, buf_len,
++						      len, pkt_offset);
+ 
+ 	if (!reuse_rx_buf_page) {
+ #ifndef ENA_PAGE_POOL_SUPPORT
+@@ -1457,7 +1499,7 @@ static struct sk_buff *ena_rx_skb(struct ena_ring *rx_ring, u32 descs)
+ 		/* Make sure buf_len represents the actual size used
+ 		 * by the buffer as expected from skb->truesize
+ 		 */
+-		buf_len = ENA_PAGE_SIZE - page_offset;
++		buf_len = rx_ring->rx_alloc_size - page_offset;
+ 	}
+ 
+ 	skb = ena_alloc_skb(rx_ring, buf_addr, buf_len);
+@@ -1590,6 +1632,8 @@ static int ena_clean_rx_irq(struct ena_ring *rx_ring, struct napi_struct *napi,
+ 			    u32 budget)
+ {
+ 	int refill_threshold, refill_required, rx_copybreak_pkt = 0;
++	u32 large_rx_desc_1 = 0, large_rx_desc_2 = 0;
++	u32 large_rx_desc_3_plus = 0, large_rx_skb_frags = 0;
+ 	struct ena_adapter *adapter = rx_ring->adapter;
+ 	u16 next_to_clean = rx_ring->next_to_clean;
+ 	struct ena_com_rx_ctx ena_rx_ctx;
+@@ -1617,7 +1661,7 @@ static int ena_clean_rx_irq(struct ena_ring *rx_ring, struct napi_struct *napi,
+ 	xdp_prog = READ_ONCE(rx_ring->xdp_bpf_prog);
+ 	ena_xdp.adapter = adapter;
+ 	xdp = &ena_xdp.xdp_buff;
+-	xdp_init_buff(xdp, ENA_PAGE_SIZE, &rx_ring->xdp_rxq);
++	xdp_init_buff(xdp, rx_ring->rx_alloc_size, &rx_ring->xdp_rxq);
+ 	ena_xdp_buff_fill(xdp, &ena_rx_ctx);
+ #endif /* ENA_XDP_SUPPORT */
+ 
+@@ -1647,6 +1691,15 @@ static int ena_clean_rx_irq(struct ena_ring *rx_ring, struct napi_struct *napi,
+ 							     rx_ring->ring_size);
+ 		}
+ 
++		if (unlikely(rx_ring->rx_page_order)) {
++			if (ena_rx_ctx.descs == 1)
++				large_rx_desc_1++;
++			else if (ena_rx_ctx.descs == 2)
++				large_rx_desc_2++;
++			else
++				large_rx_desc_3_plus++;
++		}
++
+ 		/* First descriptor might have an offset set by the device */
+ 		rx_info = &rx_ring->rx_buffer_info[rx_ring->ena_bufs[0].req_id];
+ 		pkt_offset = ena_rx_ctx.pkt_offset;
+@@ -1698,6 +1751,9 @@ static int ena_clean_rx_irq(struct ena_ring *rx_ring, struct napi_struct *napi,
+ 		if (unlikely(!skb))
+ 			break;
+ 
++		if (unlikely(rx_ring->rx_page_order))
++			large_rx_skb_frags += skb_shinfo(skb)->nr_frags;
++
+ 		total_len += skb->len;
+ 
+ 		skb->protocol = eth_type_trans(skb, rx_ring->netdev);
+@@ -1733,6 +1789,10 @@ static int ena_clean_rx_irq(struct ena_ring *rx_ring, struct napi_struct *napi,
+ 	rx_ring->rx_stats.bytes += total_len;
+ 	rx_ring->rx_stats.cnt += work_done;
+ 	rx_ring->rx_stats.rx_copybreak_pkt += rx_copybreak_pkt;
++	rx_ring->rx_stats.large_rx_desc_1 += large_rx_desc_1;
++	rx_ring->rx_stats.large_rx_desc_2 += large_rx_desc_2;
++	rx_ring->rx_stats.large_rx_desc_3_plus += large_rx_desc_3_plus;
++	rx_ring->rx_stats.large_rx_skb_frags += large_rx_skb_frags;
+ 	u64_stats_update_end(&rx_ring->syncp);
+ 
+ 	rx_ring->next_to_clean = next_to_clean;
+@@ -1761,6 +1821,10 @@ error:
+ 	rx_ring->rx_stats.bytes += total_len;
+ 	rx_ring->rx_stats.cnt += work_done;
+ 	rx_ring->rx_stats.rx_copybreak_pkt += rx_copybreak_pkt;
++	rx_ring->rx_stats.large_rx_desc_1 += large_rx_desc_1;
++	rx_ring->rx_stats.large_rx_desc_2 += large_rx_desc_2;
++	rx_ring->rx_stats.large_rx_desc_3_plus += large_rx_desc_3_plus;
++	rx_ring->rx_stats.large_rx_skb_frags += large_rx_skb_frags;
+ 	u64_stats_update_end(&rx_ring->syncp);
+ #ifdef ENA_XDP_SUPPORT
+ 	if (xdp_flags & ENA_XDP_REDIRECT)
+@@ -2443,7 +2507,9 @@ static int ena_up_complete(struct ena_adapter *adapter)
+ 
+ 	ena_change_mtu(adapter->netdev, adapter->netdev->mtu);
+ 
+-	ena_refill_all_rx_bufs(adapter);
++	rc = ena_refill_all_rx_bufs(adapter);
++	if (unlikely(rc))
++		return rc;
+ 
+ 	/* enable transmits */
+ 	netif_tx_start_all_queues(adapter->netdev);
+@@ -2614,10 +2680,21 @@ static int ena_create_page_pool(struct ena_adapter *adapter)
+ 	struct ena_ring *rx_ring;
+ 	int rc, i;
+ 
++	if (adapter->rx_page_order && ena_xdp_present(adapter)) {
++		netdev_err(adapter->netdev,
++			   "Experimental large RX cannot start while XDP is attached\n");
++		return -EOPNOTSUPP;
++	}
++#ifdef ENA_AF_XDP_SUPPORT
++	if (adapter->rx_page_order && ena_is_zc_q_exist(adapter)) {
++		netdev_err(adapter->netdev,
++			   "Experimental large RX cannot start while AF_XDP is active\n");
++		return -EOPNOTSUPP;
++	}
++#endif /* ENA_AF_XDP_SUPPORT */
++
+ 	pp_params.flags = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
+ 	pp_params.dma_dir = DMA_BIDIRECTIONAL;
+-	pp_params.max_len = ENA_PAGE_SIZE;
+-	pp_params.order = 0;
+ 	pp_params.netdev = adapter->netdev;
+ 	pp_params.dev = &adapter->pdev->dev;
+ 	pp_params.nid = NUMA_NO_NODE;
+@@ -2631,6 +2708,8 @@ static int ena_create_page_pool(struct ena_adapter *adapter)
+ #endif /* ENA_AF_XDP_SUPPORT */
+ 		pp_params.pool_size = rx_ring->ring_size;
+ 		pp_params.napi = rx_ring->napi;
++		pp_params.max_len = rx_ring->rx_alloc_size;
++		pp_params.order = rx_ring->rx_page_order;
+ 		rx_ring->page_pool = page_pool_create(&pp_params);
+ 		if (IS_ERR(rx_ring->page_pool)) {
+ 			rc = PTR_ERR(rx_ring->page_pool);
+@@ -2640,6 +2719,15 @@ static int ena_create_page_pool(struct ena_adapter *adapter)
+ 				  rx_ring->qid, rc);
+ 			return rc;
+ 		}
++
++		if (unlikely(rx_ring->rx_page_order) && i == 0) {
++			netdev_info(adapter->netdev,
++				    "Experimental jumbo RX enabled: Page Pool order %u, allocation/DMA map %u bytes, RX descriptor length %u bytes (headroom %u, skb tailroom %u)\n",
++				    rx_ring->rx_page_order, rx_ring->rx_alloc_size,
++				    ena_rx_desc_buf_len(rx_ring),
++				    rx_ring->rx_headroom,
++				    ena_rx_skb_tailroom());
++		}
+ 	}
+ 
+ 	return 0;
+@@ -2880,6 +2968,7 @@ err_up:
+ 	ena_destroy_all_tx_queues(adapter);
+ 	ena_free_all_io_tx_resources(adapter);
+ 	ena_destroy_all_rx_queues(adapter);
++	ena_free_all_rx_bufs(adapter);
+ 	ena_free_all_io_rx_resources(adapter);
+ err_create_queues_with_backoff:
+ 	ena_free_io_irq(adapter);
+@@ -5622,6 +5711,9 @@ static int ena_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 
+ 	adapter->num_io_queues = clamp_val(num_io_queues, ENA_MIN_NUM_IO_QUEUES,
+ 					   max_num_io_queues);
++	adapter->rx_page_order = large_rx_page ? ENA_JUMBO_RX_PAGE_ORDER : 0;
++	adapter->rx_alloc_size = adapter->rx_page_order ?
++		(PAGE_SIZE << adapter->rx_page_order) : ENA_PAGE_SIZE;
+ #ifdef ENA_LPC_SUPPORT
+ 
+ 	if (lpc_size < ENA_LPC_MULTIPLIER_NOT_CONFIGURED) {
+@@ -5999,6 +6091,19 @@ static int __init ena_init(void)
+ {
+ 	int ret;
+ 
++	if (large_rx_page) {
++#ifndef ENA_PAGE_POOL_SUPPORT
++		pr_err("large_rx_page requires Page Pool support\n");
++		return -EOPNOTSUPP;
++#else
++		if (PAGE_SIZE != SZ_4K) {
++			pr_err("large_rx_page requires 4 KiB base pages (PAGE_SIZE is %lu)\n",
++			       PAGE_SIZE);
++			return -EOPNOTSUPP;
++		}
++#endif /* ENA_PAGE_POOL_SUPPORT */
++	}
++
+ 	ena_wq = create_singlethread_workqueue(DRV_MODULE_NAME);
+ 	if (!ena_wq) {
+ 		pr_err("Failed to create workqueue\n");
+diff --git a/kernel/linux/ena/ena_netdev.h b/kernel/linux/ena/ena_netdev.h
+index 333aea1..ca63bdb 100644
+--- a/kernel/linux/ena/ena_netdev.h
++++ b/kernel/linux/ena/ena_netdev.h
+@@ -67,6 +67,11 @@
+ #define ENA_PAGE_SIZE PAGE_SIZE
+ #endif
+ 
++/* Experimental order used to back a jumbo frame with one RX buffer on
++ * systems with 4 KiB base pages.
++ */
++#define ENA_JUMBO_RX_PAGE_ORDER 2
++
+ #define ENA_MIN_MSIX_VEC		2
+ 
+ #define ENA_REG_BAR			0
+@@ -326,6 +331,15 @@ struct ena_stats_rx {
+ 	u64 xsk_need_wakeup_set;
+ 	u64 zc_queue_pkt_copy;
+ #endif /* ENA_AF_XDP_SUPPORT */
++	/* Experimental large-RX diagnostics. Kept together for easy removal. */
++	u64 large_rx_page_order;
++	u64 large_rx_alloc_span;
++	u64 large_rx_posted_len;
++	u64 large_rx_desc_1;
++	u64 large_rx_desc_2;
++	u64 large_rx_desc_3_plus;
++	u64 large_rx_page_alloc_fail;
++	u64 large_rx_skb_frags;
+ };
+ 
+ struct ena_ring {
+@@ -373,9 +387,11 @@ struct ena_ring {
+ 	u16 next_to_clean;
+ 	u16 rx_copybreak;
+ 	u16 rx_headroom;
++	u32 rx_alloc_size;
+ 	u16 qid;
+ 	u16 mtu;
+ 	u16 sgl_size;
++	u8 rx_page_order;
+ 	u8 enable_bql;
+ 
+ 	/* The maximum header length the device can handle */
+@@ -502,7 +518,9 @@ struct ena_adapter {
+ 	 * header
+ 	 */
+ 	u32 rx_copybreak;
++	u32 rx_alloc_size;
+ 	u32 max_mtu;
++	u8 rx_page_order;
+ 
+ 	u32 num_io_queues;
+ 	u32 max_num_io_queues;
+diff --git a/kernel/linux/ena/ena_xdp.c b/kernel/linux/ena/ena_xdp.c
+index 78a07a3..ee400ee 100644
+--- a/kernel/linux/ena/ena_xdp.c
++++ b/kernel/linux/ena/ena_xdp.c
+@@ -250,7 +250,7 @@ int ena_xdp_register_rxq_info(struct ena_ring *rx_ring)
+ 	int rc;
+ 
+ 	rc = ena_xdp_rxq_info_reg(&rx_ring->xdp_rxq, rx_ring->netdev, rx_ring->qid,
+-				  rx_ring->napi->napi_id, ENA_PAGE_SIZE);
++				  rx_ring->napi->napi_id, rx_ring->rx_alloc_size);
+ 
+ 	netif_dbg(rx_ring->adapter, ifup, rx_ring->netdev,
+ 		  "Registering RX info for queue %d with napi id %d\n",
+@@ -387,6 +387,14 @@ static int ena_xdp_set(struct net_device *netdev, struct netdev_bpf *bpf)
+ 	bool is_up;
+ 
+ 	is_up = test_bit(ENA_FLAG_DEV_UP, &adapter->flags);
++	if (prog && adapter->rx_page_order) {
++		netif_err(adapter, drv, adapter->netdev,
++			  "XDP is not supported with experimental jumbo RX buffers\n");
++		NL_SET_ERR_MSG_MOD(bpf->extack,
++				   "XDP is not supported with experimental jumbo RX buffers");
++		return -EOPNOTSUPP;
++	}
++
+ 	if (ena_xdp_is_mtu_legal(netdev->mtu, prog)) {
+ 		old_bpf_prog = adapter->xdp_bpf_prog;
+ 		if (prog) {
+@@ -472,6 +480,14 @@ static int ena_xsk_pool_enable(struct ena_adapter *adapter,
+ 	bool dev_was_up = false;
+ 	int err;
+ 
++	if (adapter->rx_page_order) {
++		netif_err(adapter, drv, adapter->netdev,
++			  "AF_XDP is not supported with experimental jumbo RX buffers\n");
++		NL_SET_ERR_MSG_MOD(bpf->extack,
++				   "AF_XDP is not supported with experimental jumbo RX buffers");
++		return -EOPNOTSUPP;
++	}
++
+ 	if (!ena_is_xsk_pool_params_allowed(adapter, pool, qid))
+ 		return -EINVAL;
+ 
+@@ -1165,7 +1181,7 @@ struct sk_buff *ena_rx_skb_after_xdp_pass(struct ena_ring *rx_ring,
+ #ifdef XDP_HAS_FRAME_SZ
+ 	buf_len = xdp->frame_sz;
+ #else
+-	buf_len = ENA_PAGE_SIZE;
++	buf_len = rx_ring->rx_alloc_size;
+ #endif
+ 	len = xdp->data_end - xdp->data;
+ 	buf_offset = xdp->data - xdp->data_hard_start;
