@@ -44,6 +44,7 @@ def valid_config() -> dict[str, str]:
         "DYNAMIC_FILTERING_ENABLED": "false",
         "CPU_EXCHANGE_TUNING_ENABLED": "true",
         "GPU_DEVICE_ID": "0",
+        "GPU_WORKERS_PER_INSTANCE": "1",
         "GPU_BATCH_SIZE_MIN_THRESHOLD": "40000000",
         "GPU_USE_BUFFERED_INPUT": "false",
         "GPU_USE_KVIKIO": "true",
@@ -74,6 +75,7 @@ def valid_config() -> dict[str, str]:
         "SSM_COMMAND_TIMEOUT_SECONDS": "21600",
         "WORKER_READY_TIMEOUT_SECONDS": "600",
         "PLACEMENT_GROUP": "",
+        "EFA_ENABLED": "false",
     }
 
 
@@ -150,6 +152,17 @@ class ClusterTest(unittest.TestCase):
         self.assertIn("HttpTokens=required", rendered)
         self.assertNotIn("terminate-instances", rendered)
 
+    def test_efa_launch_uses_worker_network_interface(self) -> None:
+        config = valid_config()
+        config["ENGINE_VARIANT"] = "gpu"
+        config["EFA_ENABLED"] = "true"
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.make_cluster(config, workers=1).launch()
+        rendered = output.getvalue()
+        self.assertEqual(rendered.count('"InterfaceType":"efa"'), 1)
+        self.assertIn("--network-interfaces", rendered)
+
     def test_tags_scope_resources_to_run(self) -> None:
         tags = {item["Key"]: item["Value"] for item in self.make_cluster().tags("worker", "2026-08-25T00:00:00+00:00")}
         self.assertEqual(tags["Project"], "cudf-performance")
@@ -197,6 +210,30 @@ class ClusterTest(unittest.TestCase):
         config["ENGINE_VARIANT"] = "gpu"
         config["GPU_DEVICE_ID"] = "0"
         self.make_cluster(config).validate()
+
+    def test_gpu_workers_per_instance_sets_logical_worker_count(self) -> None:
+        config = valid_config()
+        config["ENGINE_VARIANT"] = "gpu"
+        config["GPU_WORKERS_PER_INSTANCE"] = "4"
+        cluster = self.make_cluster(config, workers=1)
+        cluster.validate()
+        self.assertEqual(cluster.logical_workers, 4)
+        rendered = cluster.remote_env(
+            "10.0.0.1", "worker", worker_index=3, local_worker_index=3
+        )
+        self.assertIn("WORKER_COUNT=4", rendered)
+        self.assertIn("WORKERS_PER_INSTANCE=4", rendered)
+        self.assertIn("WORKER_INDEX=3", rendered)
+        self.assertIn("LOCAL_WORKER_INDEX=3", rendered)
+        self.assertIn("GPU_DEVICE_ID=3", rendered)
+
+    def test_cpu_rejects_multiple_workers_per_instance(self) -> None:
+        config = valid_config()
+        config["GPU_WORKERS_PER_INSTANCE"] = "2"
+        with self.assertRaisesRegex(
+            aws_cluster.ClusterError, "must be 1 for CPU"
+        ):
+            self.make_cluster(config).validate()
 
     def test_validation_rejects_invalid_gpu_io_toggle(self) -> None:
         config = valid_config()

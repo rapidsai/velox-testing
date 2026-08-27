@@ -5,10 +5,10 @@
 set -euo pipefail
 
 required=(
-  RUN_ID ROLE WORKER_COUNT COORDINATOR_ADDRESS AWS_REGION VCPU_PER_WORKER
+  RUN_ID ROLE WORKER_COUNT WORKERS_PER_INSTANCE COORDINATOR_ADDRESS AWS_REGION VCPU_PER_WORKER
   ENGINE_VARIANT GPU_DEVICE_ID GPU_BATCH_SIZE_MIN_THRESHOLD
   GPU_PARTITIONED_OUTPUT_BATCH_ROWS
-  GPU_UCXX_BLOCKING_POLLING
+  GPU_UCXX_BLOCKING_POLLING GPU_UCX_TLS
   GPU_UCX_NET_DEVICES GPU_UCX_TCP_TX_SEG_SIZE GPU_UCX_TCP_RX_SEG_SIZE
   GPU_UCX_RNDV_FRAG_SIZE
   GPU_UCX_CUDA_COPY_MAX_REG_RATIO
@@ -44,17 +44,35 @@ if [[ ${ENGINE_VARIANT} != cpu && ${ENGINE_VARIANT} != gpu ]]; then
   echo "ENGINE_VARIANT must be cpu or gpu" >&2
   exit 2
 fi
-if [[ ${ROLE} == worker && -z ${WORKER_INDEX:-} ]]; then
-  echo "WORKER_INDEX is required for worker role" >&2
-  exit 2
+if [[ ${ROLE} == worker ]]; then
+  if [[ -z ${WORKER_INDEX:-} || -z ${LOCAL_WORKER_INDEX:-} ]]; then
+    echo "WORKER_INDEX and LOCAL_WORKER_INDEX are required for worker role" >&2
+    exit 2
+  fi
 fi
 
 repo=/opt/velox-testing
 runtime_root=/opt/presto-aws
 generated="${repo}/presto/docker/config/generated/${ENGINE_VARIANT}"
-base="${runtime_root}/base_config/${ROLE}"
-final="${runtime_root}/final_config/${ROLE}"
-assembled="${runtime_root}/runtime_etc"
+role_key=${ROLE}
+container_name="presto-${ROLE}"
+http_port=8080
+exchange_port=8083
+if [[ ${ROLE} == worker ]]; then
+  if ((WORKERS_PER_INSTANCE > 1)); then
+    role_key="worker_${WORKER_INDEX}"
+    container_name="presto-native-worker-${ENGINE_VARIANT}"
+    http_port=$((8080 + LOCAL_WORKER_INDEX * 10))
+    exchange_port=$((http_port + 3))
+  else
+    container_name="presto-native-worker-${ENGINE_VARIANT}"
+  fi
+fi
+base="${runtime_root}/base_config/${role_key}"
+final="${runtime_root}/final_config/${role_key}"
+assembled="${runtime_root}/runtime_etc/${role_key}"
+data_dir="${runtime_root}/data/${role_key}"
+logs_dir="${runtime_root}/logs/${role_key}"
 
 set_property() {
   local path=$1 key=$2 value=$3
@@ -118,7 +136,7 @@ VCPU_PER_WORKER="${VCPU_PER_WORKER}" \
   ./generate_presto_config.sh
 
 rm -rf "${base}" "${final}" "${assembled}"
-mkdir -p "${base}" "${final}" "${assembled}" "${runtime_root}/data"
+mkdir -p "${base}" "${final}" "${assembled}" "${data_dir}" "${logs_dir}"
 
 if [[ ${ROLE} == coordinator ]]; then
   cp -a "${generated}/etc_common/." "${base}/"
@@ -127,7 +145,7 @@ if [[ ${ROLE} == coordinator ]]; then
   mkdir -p "${base}/catalog"
   cp "${generated}/etc_coordinator/catalog/hive.properties" "${base}/catalog/hive.properties"
 else
-  worker_source="${generated}/etc_worker_0"
+  worker_source="${generated}/etc_worker_${WORKER_INDEX}"
   cp -a "${generated}/etc_common/." "${base}/"
   cp "${worker_source}/config_native.properties" "${base}/config.properties"
   cp "${worker_source}/node.properties" "${base}/node.properties"
@@ -191,13 +209,14 @@ lines = [
 path.write_text("\n".join(lines) + "\n")
 PY
 else
-  set_property "${final}/config.properties" http-server.http.port 8080
+  set_property "${final}/config.properties" http-server.http.port "${http_port}"
   set_property "${final}/config.properties" discovery.uri \
     "http://${COORDINATOR_ADDRESS}:8080"
   if [[ ${ENGINE_VARIANT} == gpu ]]; then
-    # cuDF exchange advertises HTTP port + 3. EC2 runs one worker per host,
-    # so every worker can use the same host-local exchange port.
-    set_property "${final}/config.properties" cudf.exchange.server.port 8083
+    # Keep the cuDF exchange listener three ports above each worker's HTTP
+    # endpoint while spacing local workers far enough apart to avoid collisions.
+    set_property "${final}/config.properties" cudf.exchange.server.port \
+      "${exchange_port}"
   fi
   if ((WORKER_COUNT == 1)); then
     set_property "${final}/config.properties" single-node-execution-enabled true
@@ -257,8 +276,12 @@ else
       echo "ASYNC_CACHE_SSD_PATH is required for SSD cache" >&2
       exit 2
     fi
-    upsert_property "${final}/config.properties" async-cache-ssd-path \
-      "${ASYNC_CACHE_SSD_PATH}"
+    cache_path=${ASYNC_CACHE_SSD_PATH}
+    if ((WORKERS_PER_INSTANCE > 1)); then
+      cache_path="${ASYNC_CACHE_SSD_PATH}/worker-${WORKER_INDEX}"
+      mkdir -p "${cache_path}"
+    fi
+    upsert_property "${final}/config.properties" async-cache-ssd-path "${cache_path}"
   fi
   set_property "${final}/node.properties" node.id \
     "aws-${RUN_ID}-worker-${WORKER_INDEX}"
@@ -266,10 +289,10 @@ fi
 
 cp -a "${final}/." "${assembled}/"
 find "${base}" -type f -print0 | sort -z | xargs -0 sha256sum \
-  >"${runtime_root}/base_config_${ROLE}.sha256"
+  >"${runtime_root}/base_config_${role_key}.sha256"
 find "${final}" -type f -print0 | sort -z | xargs -0 sha256sum \
-  >"${runtime_root}/final_config_${ROLE}.sha256"
-diff -ru "${base}" "${final}" >"${runtime_root}/config_${ROLE}.diff" || true
+  >"${runtime_root}/final_config_${role_key}.sha256"
+diff -ru "${base}" "${final}" >"${runtime_root}/config_${role_key}.diff" || true
 tuning_id=$(
   printf '%s\n' \
     "engine=${ENGINE_VARIANT}" \
@@ -280,7 +303,7 @@ tuning_id=$(
     "exchange_tuning=${CPU_EXCHANGE_TUNING_ENABLED}" |
     sha256sum | cut -c1-12
 )
-history="${runtime_root}/config_history/${tuning_id}/${ROLE}"
+history="${runtime_root}/config_history/${tuning_id}/${role_key}"
 rm -rf "${history}"
 mkdir -p "${history}"
 cp -a "${final}/." "${history}/"
@@ -295,9 +318,23 @@ cat >"${history}/tuning.json" <<EOF
 }
 EOF
 
-docker rm -f \
-  presto-coordinator presto-native-worker-cpu presto-native-worker-gpu \
-  2>/dev/null || true
+if [[ ${ROLE} == coordinator ]]; then
+  docker rm -f presto-coordinator 2>/dev/null || true
+elif ((WORKERS_PER_INSTANCE > 1 && LOCAL_WORKER_INDEX == 0)); then
+  stale_workers=$(docker ps -aq --filter "name=^presto-native-worker-${ENGINE_VARIANT}-")
+  if [[ -n ${stale_workers} ]]; then
+    docker rm -f ${stale_workers} 2>/dev/null || true
+  fi
+else
+  docker rm -f "${container_name}" 2>/dev/null || true
+fi
+if [[ ${ROLE} == worker ]] &&
+  ((WORKERS_PER_INSTANCE > 1 && LOCAL_WORKER_INDEX + 1 < WORKERS_PER_INSTANCE)); then
+  # aws_cluster invokes this script once per local GPU. Earlier invocations
+  # only materialize configs; the final invocation starts one container with
+  # all GPUs so launch_presto_servers.sh can apply GPU-local NUMA affinity.
+  exit 0
+fi
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 
 if [[ ${ROLE} == coordinator ]]; then
@@ -310,8 +347,8 @@ if [[ ${ROLE} == coordinator ]]; then
     -e "SERVER_START_TIMESTAMP=${timestamp}" \
     -v "${assembled}:/opt/presto-server/etc:ro" \
     -v "${runtime_root}/metastore:/var/lib/presto/data/hive/metastore" \
-    -v "${runtime_root}/data:/var/lib/presto/data/local" \
-    -v "${runtime_root}/logs:/opt/presto-server/logs" \
+    -v "${data_dir}:/var/lib/presto/data/local" \
+    -v "${logs_dir}:/opt/presto-server/logs" \
     -v "${repo}/presto/docker/launch_coordinator.sh:/opt/launch_coordinator.sh:ro" \
     --entrypoint bash \
     "${COORDINATOR_IMAGE}" \
@@ -320,6 +357,10 @@ else
   cache_mount_args=()
   gpu_args=()
   gpu_env=()
+  config_mount_args=(-v "${assembled}:/opt/presto-server/etc:ro")
+  worker_launch_args=()
+  worker_logs_dir=${logs_dir}
+  worker_data_dir=${data_dir}
   if ((ASYNC_CACHE_SSD_GIB > 0)); then
     cache_mount_args=(-v /mnt/nvme:/mnt/nvme)
   fi
@@ -329,15 +370,36 @@ else
     # reliably reach IMDS when the instance hop limit is one.
     eval "$(aws configure export-credentials --format env)"
     gpu_args=(
-      --gpus "device=${GPU_DEVICE_ID}"
       --cap-add IPC_LOCK
+      --cap-add NET_RAW
       --ulimit memlock=-1:-1
       --shm-size 1g
       -v /sys/devices/system/node:/sys/devices/system/node:ro
     )
+    for efa_device in /dev/infiniband/*; do
+      if [[ -c ${efa_device} ]]; then
+        gpu_args+=(--device "${efa_device}")
+      fi
+    done
+    if ((WORKERS_PER_INSTANCE > 1)); then
+      gpu_args=(--gpus all "${gpu_args[@]}")
+      config_mount_args=()
+      worker_launch_args=()
+      worker_index_base=$((WORKER_INDEX - LOCAL_WORKER_INDEX))
+      for ((local_index = 0; local_index < WORKERS_PER_INSTANCE; local_index++)); do
+        global_index=$((worker_index_base + local_index))
+        config_mount_args+=(
+          -v "${runtime_root}/runtime_etc/worker_${global_index}:/opt/presto-server/etc${local_index}:ro"
+        )
+        worker_launch_args+=("${local_index}")
+      done
+      worker_logs_dir="${runtime_root}/logs/worker_host_${worker_index_base}"
+      worker_data_dir="${runtime_root}/data/worker_host_${worker_index_base}"
+      mkdir -p "${worker_logs_dir}" "${worker_data_dir}"
+    else
+      gpu_args=(--gpus "device=${GPU_DEVICE_ID}" "${gpu_args[@]}")
+    fi
     gpu_env=(
-      -e "CUDA_VISIBLE_DEVICES=${GPU_DEVICE_ID}"
-      -e "NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID}"
       -e "KVIKIO_REMOTE_IO_BACKEND=${KVIKIO_REMOTE_IO_BACKEND}"
       -e "KVIKIO_NTHREADS=${KVIKIO_NTHREADS}"
       -e "KVIKIO_TASK_SIZE=${KVIKIO_TASK_SIZE}"
@@ -350,7 +412,7 @@ else
       -e AWS_ACCESS_KEY_ID
       -e AWS_SECRET_ACCESS_KEY
       -e AWS_SESSION_TOKEN
-      -e UCX_TLS=tcp,cuda_copy,cuda_ipc
+      -e "UCX_TLS=${GPU_UCX_TLS}"
       -e "UCX_NET_DEVICES=${GPU_UCX_NET_DEVICES}"
       -e "UCX_TCP_TX_SEG_SIZE=${GPU_UCX_TCP_TX_SEG_SIZE}"
       -e "UCX_TCP_RX_SEG_SIZE=${GPU_UCX_TCP_RX_SEG_SIZE}"
@@ -366,10 +428,19 @@ else
       -e UCX_TCP_KEEPINTVL=1ms
       -e UCX_KEEPALIVE_INTERVAL=1ms
     )
+    if ((WORKERS_PER_INSTANCE > 1)); then
+      gpu_env+=(-e NVIDIA_VISIBLE_DEVICES=all)
+    else
+      gpu_env+=(
+        -e "CUDA_VISIBLE_DEVICES=${GPU_DEVICE_ID}"
+        -e "NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID}"
+      )
+    fi
   fi
   docker run -d \
-    --name "presto-native-worker-${ENGINE_VARIANT}" \
+    --name "${container_name}" \
     --network host \
+    --ipc host \
     --restart no \
     --cap-add SYS_NICE \
     "${gpu_args[@]}" \
@@ -377,21 +448,24 @@ else
     -e "AWS_REGION=${AWS_REGION}" \
     -e "SERVER_START_TIMESTAMP=${timestamp}" \
     "${gpu_env[@]}" \
-    -v "${assembled}:/opt/presto-server/etc:ro" \
+    "${config_mount_args[@]}" \
     -v "${runtime_root}/metastore:/var/lib/presto/data/hive/metastore" \
-    -v "${runtime_root}/data:/var/lib/presto/data/local" \
-    -v "${runtime_root}/logs:/opt/presto-server/logs" \
+    -v "${worker_data_dir}:/var/lib/presto/data/local" \
+    -v "${worker_logs_dir}:/opt/presto-server/logs" \
     "${cache_mount_args[@]}" \
     -v "${repo}/presto/docker/launch_presto_servers.sh:/opt/launch_presto_servers.sh:ro" \
     --entrypoint bash \
     "${WORKER_IMAGE}" \
-    /opt/launch_presto_servers.sh
+    /opt/launch_presto_servers.sh "${worker_launch_args[@]}"
 fi
 
-if [[ -f ${runtime_root}/telemetry/${ROLE}.sampler.pid ]]; then
-  kill "$(cat "${runtime_root}/telemetry/${ROLE}.sampler.pid")" 2>/dev/null || true
+if [[ ${ROLE} == coordinator || ${LOCAL_WORKER_INDEX:-0} == 0 ]]; then
+  mkdir -p "${runtime_root}/telemetry"
+  if [[ -f ${runtime_root}/telemetry/${ROLE}.sampler.pid ]]; then
+    kill "$(cat "${runtime_root}/telemetry/${ROLE}.sampler.pid")" 2>/dev/null || true
+  fi
+  nohup bash "${repo}/presto/aws/ec2/remote/sample_host.sh" \
+    "${ROLE}" "${runtime_root}/telemetry/${ROLE}.jsonl" \
+    >"${runtime_root}/telemetry/${ROLE}.sampler.log" 2>&1 &
+  echo "$!" >"${runtime_root}/telemetry/${ROLE}.sampler.pid"
 fi
-nohup bash "${repo}/presto/aws/ec2/remote/sample_host.sh" \
-  "${ROLE}" "${runtime_root}/telemetry/${ROLE}.jsonl" \
-  >"${runtime_root}/telemetry/${ROLE}.sampler.log" 2>&1 &
-echo "$!" >"${runtime_root}/telemetry/${ROLE}.sampler.pid"

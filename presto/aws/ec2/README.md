@@ -104,6 +104,15 @@ buffered-input workloads exceed device memory.
 output operator accumulates before flushing to exchange.
 `GPU_UCXX_BLOCKING_POLLING` selects event-driven or continuously progressing
 UCXX worker polling.
+`GPU_WORKERS_PER_INSTANCE` launches multiple native workers on each GPU host.
+Local worker N is pinned to GPU N, receives a unique node ID, and uses an HTTP
+port spaced ten ports apart with its UCX listener at HTTP port + 3. The
+coordinator's required worker count is the number of EC2 worker instances
+multiplied by this value. Set `VCPU_PER_WORKER` and worker memory limits for one
+local process, not the whole instance.
+`GPU_UCX_TLS` controls the enabled UCX transports. Use
+`cuda_ipc,cuda_copy` for an intra-node-only test, or include `tcp` for
+inter-node runs.
 `GPU_UCX_NET_DEVICES` pins UCX to a network interface. The TCP TX/RX staging
 chunk sizes are controlled by `GPU_UCX_TCP_TX_SEG_SIZE` and
 `GPU_UCX_TCP_RX_SEG_SIZE`; larger values can improve large GPU transfers over

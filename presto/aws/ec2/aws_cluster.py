@@ -147,6 +147,16 @@ class Cluster:
         self.aws = Aws(config, dry_run=dry_run)
         self.dry_run = dry_run
 
+    @property
+    def workers_per_instance(self) -> int:
+        if self.config.get("ENGINE_VARIANT") != "gpu":
+            return 1
+        return int(self.config.get("GPU_WORKERS_PER_INSTANCE", "1"))
+
+    @property
+    def logical_workers(self) -> int:
+        return self.workers * self.workers_per_instance
+
     def validate(self, cloud: bool = True) -> None:
         require(
             self.config,
@@ -240,14 +250,25 @@ class Cluster:
         if self.config["ENGINE_VARIANT"] == "gpu":
             nonnegative_int(self.config, "GPU_DEVICE_ID")
             positive_int(self.config, "GPU_BATCH_SIZE_MIN_THRESHOLD")
+            workers_per_instance = positive_int(
+                self.config, "GPU_WORKERS_PER_INSTANCE"
+            ) if "GPU_WORKERS_PER_INSTANCE" in self.config else 1
+            if workers_per_instance > 8:
+                raise ClusterError("GPU_WORKERS_PER_INSTANCE must be at most 8")
+        elif int(self.config.get("GPU_WORKERS_PER_INSTANCE", "1")) != 1:
+            raise ClusterError("GPU_WORKERS_PER_INSTANCE must be 1 for CPU")
         for key in (
             "DYNAMIC_FILTERING_ENABLED",
             "CPU_EXCHANGE_TUNING_ENABLED",
             "GPU_USE_BUFFERED_INPUT",
             "GPU_USE_KVIKIO",
+            "EFA_ENABLED",
         ):
-            if self.config[key] not in ("true", "false"):
+            value = self.config.get(key, "false")
+            if value not in ("true", "false"):
                 raise ClusterError(f"{key} must be true or false")
+        if self.config.get("EFA_ENABLED", "false") == "true" and self.config["ENGINE_VARIANT"] != "gpu":
+            raise ClusterError("EFA_ENABLED requires ENGINE_VARIANT=gpu")
         split_size = self.config["HIVE_MAX_SPLIT_SIZE"]
         if not split_size.endswith("MB") or not split_size[:-2].isdigit():
             raise ClusterError("HIVE_MAX_SPLIT_SIZE must be an integer number of MB")
@@ -381,10 +402,6 @@ class Cluster:
             instance_type,
             "--count",
             str(count),
-            "--subnet-id",
-            self.config["SUBNET_ID"],
-            "--security-group-ids",
-            self.config["SECURITY_GROUP_ID"],
             "--iam-instance-profile",
             f"Name={self.config['IAM_INSTANCE_PROFILE']}",
             "--metadata-options",
@@ -400,6 +417,27 @@ class Cluster:
             "--tag-specifications",
             json.dumps(tag_specifications, separators=(",", ":")),
         ]
+        if role == "worker" and self.config.get("EFA_ENABLED", "false") == "true":
+            network_interface = [
+                {
+                    "DeviceIndex": 0,
+                    "SubnetId": self.config["SUBNET_ID"],
+                    "Groups": [self.config["SECURITY_GROUP_ID"]],
+                    "InterfaceType": "efa",
+                    "DeleteOnTermination": True,
+                }
+            ]
+            args += [
+                "--network-interfaces",
+                json.dumps(network_interface, separators=(",", ":")),
+            ]
+        else:
+            args += [
+                "--subnet-id",
+                self.config["SUBNET_ID"],
+                "--security-group-ids",
+                self.config["SECURITY_GROUP_ID"],
+            ]
         if self.config.get("PLACEMENT_GROUP"):
             args += ["--placement", f"GroupName={self.config['PLACEMENT_GROUP']}"]
         response = self.aws.run(args, json_output=True)
@@ -430,6 +468,8 @@ class Cluster:
                     "created_at": utc_now().isoformat(),
                     "expires_at": expiry,
                     "worker_count": self.workers,
+                    "logical_worker_count": self.logical_workers,
+                    "gpu_workers_per_instance": self.workers_per_instance,
                     "coordinator_ami_id": coordinator_ami_id,
                     "worker_ami_id": worker_ami_id,
                     "coordinator_instance_ids": coordinator_ids,
@@ -442,6 +482,7 @@ class Cluster:
                     "harness_bundle_s3_uri": self.config.get("HARNESS_BUNDLE_S3_URI", ""),
                     "harness_bundle_sha256": self.config.get("HARNESS_BUNDLE_SHA256", ""),
                     "async_data_cache": self.config["ASYNC_DATA_CACHE_ENABLED"] == "true",
+                    "efa_enabled": self.config.get("EFA_ENABLED", "false") == "true",
                     "engine_variant": self.config["ENGINE_VARIANT"],
                 }
             )
@@ -697,12 +738,22 @@ class Cluster:
         )
         self.record_command("bootstrap_workers", worker_command_id)
 
-    def remote_env(self, coordinator_address: str, role: str, worker_index: int | None = None) -> str:
+    def remote_env(
+        self,
+        coordinator_address: str,
+        role: str,
+        worker_index: int | None = None,
+        local_worker_index: int | None = None,
+    ) -> str:
         values = {
             "RUN_ID": self.run_id,
             "ROLE": role,
-            "WORKER_COUNT": str(self.workers),
+            "WORKER_COUNT": str(self.logical_workers),
+            "WORKERS_PER_INSTANCE": str(self.workers_per_instance),
             "WORKER_INDEX": "" if worker_index is None else str(worker_index),
+            "LOCAL_WORKER_INDEX": (
+                "" if local_worker_index is None else str(local_worker_index)
+            ),
             "COORDINATOR_ADDRESS": coordinator_address,
             "AWS_REGION": self.config["AWS_REGION"],
             "ENGINE_VARIANT": self.config["ENGINE_VARIANT"],
@@ -716,7 +767,11 @@ class Cluster:
             "CPU_EXCHANGE_TUNING_ENABLED": self.config[
                 "CPU_EXCHANGE_TUNING_ENABLED"
             ],
-            "GPU_DEVICE_ID": self.config["GPU_DEVICE_ID"],
+            "GPU_DEVICE_ID": (
+                self.config["GPU_DEVICE_ID"]
+                if local_worker_index is None
+                else str(local_worker_index)
+            ),
             "GPU_BATCH_SIZE_MIN_THRESHOLD": self.config[
                 "GPU_BATCH_SIZE_MIN_THRESHOLD"
             ],
@@ -727,6 +782,9 @@ class Cluster:
                 "GPU_UCXX_BLOCKING_POLLING", "true"
             ),
             "GPU_UCX_NET_DEVICES": self.config.get("GPU_UCX_NET_DEVICES", "all"),
+            "GPU_UCX_TLS": self.config.get(
+                "GPU_UCX_TLS", "tcp,cuda_copy,cuda_ipc"
+            ),
             "GPU_UCX_TCP_TX_SEG_SIZE": self.config.get(
                 "GPU_UCX_TCP_TX_SEG_SIZE", "8K"
             ),
@@ -833,19 +891,21 @@ class Cluster:
             f"start coordinator {self.run_id}",
         )
         self.record_command("start_coordinator", command_id)
-        for index, worker in enumerate(workers):
-            command_id = self.send_command(
-                [worker.instance_id],
-                [
-                    "set -eu",
-                    (
-                        f"{self.remote_env(address, 'worker', index)} "
-                        "bash /opt/velox-testing/presto/aws/ec2/remote/configure_and_start.sh"
-                    ),
-                ],
-                f"start worker {index} {self.run_id}",
-            )
-            self.record_command(f"start_worker_{index}", command_id)
+        for instance_index, worker in enumerate(workers):
+            for local_index in range(self.workers_per_instance):
+                worker_index = instance_index * self.workers_per_instance + local_index
+                command_id = self.send_command(
+                    [worker.instance_id],
+                    [
+                        "set -eu",
+                        (
+                            f"{self.remote_env(address, 'worker', worker_index, local_index)} "
+                            "bash /opt/velox-testing/presto/aws/ec2/remote/configure_and_start.sh"
+                        ),
+                    ],
+                    f"start worker {worker_index} {self.run_id}",
+                )
+                self.record_command(f"start_worker_{worker_index}", command_id)
         timeout = self.config["WORKER_READY_TIMEOUT_SECONDS"]
         command_id = self.send_command(
             [coordinator.instance_id],
@@ -853,7 +913,7 @@ class Cluster:
                 "set -eu",
                 (
                     "bash /opt/velox-testing/presto/aws/ec2/remote/"
-                    f"wait_for_cluster.sh {shlex.quote(address)} {self.workers} {timeout}"
+                    f"wait_for_cluster.sh {shlex.quote(address)} {self.logical_workers} {timeout}"
                 ),
             ],
             f"wait for workers {self.run_id}",
@@ -942,8 +1002,8 @@ class Cluster:
             [
                 "set -eu",
                 (
-                    "docker rm -f presto-coordinator presto-native-worker-cpu "
-                    "presto-native-worker-gpu 2>/dev/null || true"
+                    "containers=$(docker ps -aq --filter 'name=^presto-'); "
+                    "if test -n \"$containers\"; then docker rm -f $containers; fi"
                 ),
             ],
             f"stop {self.run_id}",

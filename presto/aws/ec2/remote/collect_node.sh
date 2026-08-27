@@ -31,11 +31,17 @@ cp "${runtime_root}"/*.diff "${artifact_root}/" 2>/dev/null || true
 cp "${runtime_root}"/gpu_exchange_* "${artifact_root}/" 2>/dev/null || true
 
 docker ps -a --no-trunc >"${artifact_root}/docker_ps.txt" 2>&1 || true
-docker inspect presto-coordinator presto-native-worker-cpu presto-native-worker-gpu \
-  >"${artifact_root}/docker_inspect.json" 2>/dev/null || true
-docker logs presto-coordinator >"${artifact_root}/coordinator_container.log" 2>&1 || true
-docker logs presto-native-worker-cpu >"${artifact_root}/worker_container.log" 2>&1 || true
-docker logs presto-native-worker-gpu >"${artifact_root}/worker_gpu_container.log" 2>&1 || true
+mapfile -t presto_containers < <(
+  docker ps -a --format '{{.Names}}' | awk '/^presto-/'
+)
+if ((${#presto_containers[@]})); then
+  docker inspect "${presto_containers[@]}" \
+    >"${artifact_root}/docker_inspect.json" 2>/dev/null || true
+  for container in "${presto_containers[@]}"; do
+    docker logs "${container}" \
+      >"${artifact_root}/${container}.log" 2>&1 || true
+  done
+fi
 
 uname -a >"${artifact_root}/uname.txt"
 lscpu --json >"${artifact_root}/lscpu.json"
