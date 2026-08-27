@@ -10,6 +10,10 @@ isolated Presto and Velox branches:
 The codec implementation and wire-format documentation are in
 `velox/experimental/ucx-exchange/COMPRESSION.md` on the Velox branch.
 
+The exact four-GPU TPC-H Q18 build, enablement, validation procedure, and
+reference result are in
+[`UCX_EXCHANGE_COMPRESSION_Q18_REPRO.md`](UCX_EXCHANGE_COMPRESSION_Q18_REPRO.md).
+
 ## Configuration
 
 The GPU worker template keeps compression disabled:
