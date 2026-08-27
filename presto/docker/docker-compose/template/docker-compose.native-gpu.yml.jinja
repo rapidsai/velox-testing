@@ -79,8 +79,9 @@ services:
       LD_LIBRARY_PATH: /opt/ucx-runtime/lib:/opt/ucx-runtime/lib/ucx:/usr/lib64/presto-native-libs
       UCX_MODULE_DIR: /opt/ucx-runtime/lib/ucx
       UCX_LOG_LEVEL: info #debug
-      UCX_RNDV_PIPELINE_ERROR_HANDLING: ${UCX_RNDV_PIPELINE_ERROR_HANDLING:-y}
-      UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-host:4M,cuda:4M}
+      UCX_RNDV_PIPELINE_ERROR_HANDLING: ${UCX_RNDV_PIPELINE_ERROR_HANDLING:-n}
+      UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-cuda:32M}
+      UCX_RNDV_FRAG_MEM_TYPES: ${UCX_RNDV_FRAG_MEM_TYPES:-cuda}
       UCX_CUDA_COPY_ASYNC_MEM_TYPE: ${UCX_CUDA_COPY_ASYNC_MEM_TYPE:-cuda-managed}
       UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-1}
       UCX_TLS: ${UCX_TLS:-tcp,sm,cuda_copy,cuda_ipc}
@@ -132,8 +133,9 @@ services:
       LD_LIBRARY_PATH: /opt/ucx-runtime/lib:/opt/ucx-runtime/lib/ucx:/usr/lib64/presto-native-libs
       UCX_MODULE_DIR: /opt/ucx-runtime/lib/ucx
       UCX_LOG_LEVEL: info #debug
-      UCX_RNDV_PIPELINE_ERROR_HANDLING: ${UCX_RNDV_PIPELINE_ERROR_HANDLING:-y}
-      UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-host:4M,cuda:4M}
+      UCX_RNDV_PIPELINE_ERROR_HANDLING: ${UCX_RNDV_PIPELINE_ERROR_HANDLING:-n}
+      UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-cuda:32M}
+      UCX_RNDV_FRAG_MEM_TYPES: ${UCX_RNDV_FRAG_MEM_TYPES:-cuda}
       UCX_CUDA_COPY_ASYNC_MEM_TYPE: ${UCX_CUDA_COPY_ASYNC_MEM_TYPE:-cuda-managed}
       UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-1}
       UCX_TLS: ${UCX_TLS:-tcp,sm,cuda_copy,cuda_ipc}
@@ -173,8 +175,9 @@ services:
       LD_LIBRARY_PATH: /opt/ucx-runtime/lib:/opt/ucx-runtime/lib/ucx:/usr/lib64/presto-native-libs
       UCX_MODULE_DIR: /opt/ucx-runtime/lib/ucx
       UCX_LOG_LEVEL: info #debug
-      UCX_RNDV_PIPELINE_ERROR_HANDLING: ${UCX_RNDV_PIPELINE_ERROR_HANDLING:-y}
-      UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-host:4M,cuda:4M}
+      UCX_RNDV_PIPELINE_ERROR_HANDLING: ${UCX_RNDV_PIPELINE_ERROR_HANDLING:-n}
+      UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-cuda:32M}
+      UCX_RNDV_FRAG_MEM_TYPES: ${UCX_RNDV_FRAG_MEM_TYPES:-cuda}
       UCX_CUDA_COPY_ASYNC_MEM_TYPE: ${UCX_CUDA_COPY_ASYNC_MEM_TYPE:-cuda-managed}
       UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-1}
       UCX_TLS: ${UCX_TLS:-tcp,sm,cuda_copy,cuda_ipc}
