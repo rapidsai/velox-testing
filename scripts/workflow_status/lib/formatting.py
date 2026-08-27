@@ -217,9 +217,9 @@ def format_failure_detail(
         out.print("```")
 
         if analyze_cause:
-            out.print(f"    *Cause:* _{cause or 'Unable to determine cause'}_")
+            out.print(f"    *Cause:* {cause or 'Unable to determine cause'}")
             if analyze_fix:
-                out.print(f"    *Fix:* _{fix or 'Pending investigation'}_")
+                out.print(f"    *Fix:* {fix or 'Pending investigation'}")
 
     if related_items:
         out.print()

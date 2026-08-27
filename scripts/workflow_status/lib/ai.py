@@ -6,15 +6,22 @@
 
 from __future__ import annotations
 
+import os
+import random
 import re
 import shutil
 import subprocess
+import sys
 import threading
+import time
 from pathlib import Path
 
 from .config import Config
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
+
+_CLAUDE_ATTEMPTS = 3
+_CLAUDE_RETRY_SLEEP = 3
 
 
 def _load_prompt_template() -> str:
@@ -66,6 +73,20 @@ class TokenTracker:
 # ---- Internal dispatchers --------------------------------------------------
 
 
+def _claude_subprocess_env(config: Config) -> dict[str, str]:
+    """Env for Claude Code, including NVIDIA Inference Hub gateway settings.
+
+    Inference Hub is an Anthropic-compatible LLM gateway. Claude Code sends
+    ``Authorization: Bearer`` from ``ANTHROPIC_AUTH_TOKEN`` and posts to
+    ``{ANTHROPIC_BASE_URL}/v1/messages``.
+    """
+    env = os.environ.copy()
+    env["ANTHROPIC_BASE_URL"] = config.anthropic_base_url
+    if config.anthropic_auth_token:
+        env["ANTHROPIC_AUTH_TOKEN"] = config.anthropic_auth_token
+    return env
+
+
 def _truncate_log(content: str, max_chars: int = 30000) -> str:
     if len(content) <= max_chars:
         return content
@@ -115,35 +136,64 @@ def _analyze_with_claude(
         fix_format_extra=(", include relevant PR links if applicable" if prefetched_items else ""),
     )
 
-    try:
-        proc = subprocess.run(
-            [
-                config.claude_bin,
-                "--print",
-                "--model",
-                config.claude_model,
-                "--no-session-persistence",
-                "--allowedTools",
-                "",
-            ],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        content = proc.stdout.strip()
-        if content:
-            tracker.record_estimate(prompt, content)
-            return content
-    except Exception:
-        pass
+    cmd = [
+        config.claude_bin,
+        "--print",
+        "--model",
+        config.claude_model,
+        "--no-session-persistence",
+        "--max-turns",
+        "1",
+        "--allowedTools",
+        "",
+    ]
+    # Skip claude.ai OAuth when talking to Inference Hub / a custom gateway.
+    if config.anthropic_base_url:
+        cmd.insert(2, "--bare")
+
+    # Without --bare the CLI needs claude.ai OAuth, so it is only a fallback for
+    # a build that does not know the flag.
+    variants = [cmd]
+    if "--bare" in cmd:
+        variants.append([c for c in cmd if c != "--bare"])
+
+    env = _claude_subprocess_env(config)
+    detail = "no attempt made"
+
+    for attempt in range(1, _CLAUDE_ATTEMPTS + 1):
+        for variant in variants:
+            try:
+                proc = subprocess.run(
+                    variant,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    env=env,
+                )
+            except Exception as exc:
+                detail = f"{type(exc).__name__}: {exc}"
+            else:
+                content = proc.stdout.strip()
+                if content and proc.returncode == 0:
+                    tracker.record_estimate(prompt, content)
+                    return content
+                # Claude Code reports in-run failures such as bad credentials on
+                # stdout, so keep both streams for the diagnostic.
+                err = (proc.stderr or "").strip()
+                detail = err or content or f"empty output, exit {proc.returncode}"
+            print(
+                f"WARN: claude attempt {attempt}/{_CLAUDE_ATTEMPTS} failed: {detail[:1000]}",
+                file=sys.stderr,
+            )
+        if attempt < _CLAUDE_ATTEMPTS:
+            # Jitter so parallel workers retry at different times.
+            time.sleep(_CLAUDE_RETRY_SLEEP * attempt + random.uniform(0, 1))
 
     return (
         "STACKTRACE:Unable to extract - Claude CLI returned no output\nEND_STACKTRACE\n"
-        "CAUSE:Unable to analyze - Claude CLI failed "
-        "(check authentication with 'claude --print \"hello\"')\n"
-        "FIX:Run 'claude' interactively once to authenticate, "
-        "or check ANTHROPIC_API_KEY"
+        f"CAUSE:Unable to analyze - Claude CLI failed after {_CLAUDE_ATTEMPTS} attempts: {detail[:300]}\n"
+        "FIX:"
     )
 
 
