@@ -79,6 +79,7 @@ def extract_relevant_failures(raw_log: str) -> str:
 
 def _extract_gtest_blocks(lines: list[str]) -> str:
     result_parts: list[str] = []
+    ctest_parts: list[str] = []
     in_block = False
     block_lines: list[str] = []
     seen_tests: set[str] = set()
@@ -121,15 +122,20 @@ def _extract_gtest_blocks(lines: list[str]) -> str:
             continue
 
         if _CTEST_SUMMARY.match(line):
-            result_parts.append(line)
+            ctest_parts.append(line)
             continue
         if _CTEST_FAILED_LIST.match(line):
             in_ctest = True
         if in_ctest:
-            result_parts.append(line)
+            ctest_parts.append(line)
             continue
 
-    return "\n".join(result_parts) if result_parts else ""
+    # The CTest footer only names the failing target. When a GTest block was
+    # captured it restates that same failure without adding a cause, so keeping
+    # it would spend a second AI call to describe one failure twice.
+    if result_parts:
+        return "\n".join(result_parts)
+    return "\n".join(ctest_parts)
 
 
 def _extract_error_lines(
