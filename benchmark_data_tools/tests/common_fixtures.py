@@ -31,6 +31,9 @@ class DataGenArgs:
     keep_original_dataset: bool
     approx_row_group_bytes: int
     codec_definitions: str = None
+    # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
+    timing_json: str = None
+    # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
 
 
 @pytest.fixture(params=["tpch", "tpcds"])
