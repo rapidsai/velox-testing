@@ -1,7 +1,7 @@
-# Reproducing the TPC-H Q18 UCX compression result
+# Running a matched TPC-H Q18 UCX compression comparison
 
-This procedure reproduces the four-GPU TPC-H SF1000 Q18 comparison used to
-validate the isolated UCX exchange compression branches.
+This procedure validates the isolated UCX exchange compression branches with
+a matched four-GPU TPC-H SF1000 Q18 comparison.
 
 ## Source revisions
 
@@ -32,51 +32,40 @@ its SHA-256 checksum, and compiles only the required rANS sources.
 From the velox-testing checkout:
 
     cd presto/scripts
-    export PRESTO_DATA_DIR=<dataset-b-directory>
+    export PRESTO_DATA_DIR=<tpch-data-directory>
     export PRESTO_IMAGE_TAG=<unique-image-tag>
 
     ./start_native_gpu_presto.sh \
       --build all \
       --num-threads 4 \
       --num-workers 4 \
-      --gpu-ids 4,5,6,7 \
+      --gpu-ids <id0,id1,id2,id3> \
       --num-drivers 2 \
       --overwrite-config \
       --logs-dir <server-log-directory>
 
-Use a different GPU list when devices 4 through 7 are not reserved and
-healthy. On a shared host, use private container and network names or an
-otherwise isolated deployment. The compression branch intentionally excludes
-unrelated shared-host namespace changes.
+Use four reserved, healthy GPUs. On a shared host, use private container and
+network names or an otherwise isolated deployment. The compression branch
+intentionally excludes unrelated shared-host namespace changes.
 
-## Data and measured setup
+## Data and test setup
 
-The accepted comparison used:
+The original validation used:
 
-- Four B200 workers on GPU devices 4,5,6,7.
+- Four B200 workers.
 - Two drivers per worker.
 - Decimal TPC-H SF1000 Dataset B.
 - lineitem sorted by l_shipdate and orders sorted by o_orderdate.
-- Schema tpchsf1000_cleanroom, with statistics for all eight tables.
+- Statistics for all eight tables.
 - UCX_TLS=tcp,cuda_copy,cuda_ipc.
 - Five iterations per campaign. The first is reported as lukewarm and the
   remaining four form the hot average.
 
-On umb-b200-220, the retained dataset is:
-
-    /raid/mgara/cleanroom-17p7-20260810-v1/data/dataset-b-sorted-dates
-
-The retained build and result workspace is:
-
-    /raid/mgara/dev/ucx-compression-build-verify-20260826-v1
-
-The verified worker image on that host is:
-
-    presto-native-worker-gpu:mgara-ucx-compression-stripped-verify-20260826-v3
-
-For a new deployment, mount Dataset B as PRESTO_DATA_DIR, create the Hive
-table definitions, and run ANALYZE on all eight TPC-H tables. Do not benchmark
-until the benchmark preflight reports statistics for all eight.
+Mount the selected dataset as PRESTO_DATA_DIR, create its Hive table
+definitions, and run ANALYZE on all eight TPC-H tables. Do not benchmark until
+the benchmark preflight reports statistics for all eight. A different TPC-H
+layout can validate correctness and transport behavior, but its timing is not
+directly comparable.
 
 ## Enable compression
 
@@ -124,7 +113,7 @@ From velox-testing/presto:
       --hostname <coordinator-host> \
       --port <coordinator-port> \
       --user <presto-user> \
-      --schema-name tpchsf1000_cleanroom \
+      --schema-name <tpch-sf1000-schema> \
       --output-dir <output-directory> \
       --iterations 5 \
       --tag <unique-campaign-tag> \
@@ -144,26 +133,15 @@ Before accepting the result, verify:
    UCX-CODEC-DECODE records.
 4. Accepted transfers include wireBytes values below rawBytes.
 5. The Q18 Parquet result has the same SHA-256 checksum in all campaigns.
-6. Both ON hot averages beat both OFF hot averages, or report the aggregate
-   comparison honestly if the result does not reproduce.
+6. Report all four hot averages, not only the fastest campaign.
 
-## Reference result
+## Interpreting the result
 
-| Campaign | Q18 hot average |
-| --- | ---: |
-| OFF 1 | 4.1285 s |
-| ON 1 | 2.7755 s |
-| OFF 2 | 4.1260 s |
-| ON 2 | 2.7300 s |
+A native single-node deployment can use CUDA IPC for all inter-worker GPU
+transfers. Those transfers intentionally remain raw, so seeing no accepted
+codec attempts is valid. Measure the runtime effect on a real non-CUDA-IPC UCX
+link, such as a multi-host TCP or RDMA deployment.
 
-The combined result is 4.12725 s OFF and 2.75275 s ON, a 33.30% reduction in
-Q18 runtime.
-
-All four result files had SHA-256:
-
-    67aa31770efef59e47e50d4134148dd45e96d3f9f22a7dc1e6e176165adc33c1
-
-The second ON campaign recorded 140 codec attempts, 98 accepted encodes, and
-reduced measured transfer traffic from 984.622 GiB raw to 923.923 GiB on the
-wire. This result is specific to Q18 and this four-GPU setup. It is not a
-claim that every TPC-H query improves by the same amount.
+Do not treat host-staged TCP traffic between same-node workers as evidence for
+the value of compression. That measures an avoidable routing path rather than
+the normal local GPU transport.
