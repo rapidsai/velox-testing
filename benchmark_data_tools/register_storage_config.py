@@ -57,7 +57,7 @@ def _detect_storage_system(path: Path) -> str | None:
             text=True,
         )
         fstype = result.stdout.strip().lower()
-    except FileNotFoundError:
+    except OSError:
         return None
 
     if not fstype:
@@ -109,8 +109,12 @@ def _detect_gds_enabled() -> bool:
     """Return True if the nvidia-fs kernel module (GPU Direct Storage) is loaded."""
     try:
         result = subprocess.run(["lsmod"], capture_output=True, text=True)
-        return "nvidia_fs" in result.stdout
-    except FileNotFoundError:
+        return any(
+            line.split()[0] == "nvidia_fs"
+            for line in result.stdout.splitlines()
+            if line.split()
+        )
+    except OSError:
         return False
 
 
