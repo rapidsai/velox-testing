@@ -25,6 +25,7 @@ from typing import Any, Sequence
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pylibcudf as plc
 
 try:
     from .publish_output_files import DestinationLocation, OutputDestination, make_destination
@@ -161,8 +162,6 @@ def _table_input_metadata(
     schema: pa.Schema,
     codec: dict[str, Any],
 ) -> Any:
-    import pylibcudf as plc
-
     metadata = plc.io.types.TableInputMetadata(gpu_table)
     overrides = {item["name"]: item for item in codec.get("columns", [])}
     for target, field in zip(metadata.column_metadata, schema, strict=True):
@@ -191,8 +190,6 @@ def write_gpu_parquet(
     row_group_rows: int,
     codec: dict[str, Any],
 ) -> None:
-    import pylibcudf as plc
-
     compression_name = codec.get("compression", "SNAPPY").upper().split("(", 1)[0]
     if compression_name == "UNCOMPRESSED":
         compression_name = "NONE"
@@ -238,16 +235,12 @@ def source_row_group_batches(path: Path, chunk_bytes: int) -> list[tuple[int, ..
 
 
 def read_source_row_groups(path: Path, row_groups: Sequence[int]) -> Any:
-    import pylibcudf as plc
-
     options = plc.io.parquet.ParquetReaderOptions.builder(plc.io.SourceInfo([str(path)])).build()
     options.set_row_groups([list(row_groups)])
     return plc.io.parquet.read_parquet(options).tbl
 
 
 def sort_gpu_table(gpu_table: Any, schema: pa.Schema, sort_columns: Sequence[str]) -> Any:
-    import pylibcudf as plc
-
     indices = [schema.names.index(name) for name in sort_columns]
     keys = plc.Table([gpu_table.columns()[index] for index in indices])
     return plc.sorting.sort_by_key(
@@ -256,22 +249,6 @@ def sort_gpu_table(gpu_table: Any, schema: pa.Schema, sort_columns: Sequence[str
         [plc.types.Order.ASCENDING] * len(indices),
         [plc.types.NullOrder.AFTER] * len(indices),
     )
-
-
-def concatenate_gpu_tables(tables: Sequence[Any]) -> Any:
-    import pylibcudf as plc
-
-    return plc.concatenate.concatenate(list(tables))
-
-
-def slice_gpu_table(table: Any, start: int, stop: int) -> Any:
-    import pylibcudf as plc
-
-    return plc.copying.slice(table, [start, stop])[0]
-
-
-def gpu_table_nbytes(table: Any) -> int:
-    return sum(column.device_buffer_size() for column in table.columns())
 
 
 def gpu_input_budget(gpu_memory_bytes: int) -> int:
@@ -283,8 +260,6 @@ def gpu_planning_budget(gpu_memory_bytes: int) -> int:
 
 
 def _date_filter(schema: pa.Schema, date_column: str, lower: date, upper: date) -> Any:
-    import pylibcudf as plc
-
     column = plc.expressions.ColumnReference(schema.names.index(date_column))
     lower_literal = plc.expressions.Literal(plc.Scalar.from_arrow(pa.scalar(lower, type=pa.date32())))
     upper_literal = plc.expressions.Literal(plc.Scalar.from_arrow(pa.scalar(upper, type=pa.date32())))
@@ -300,8 +275,6 @@ def predicate_read_run(
     lower: date,
     upper: date,
 ) -> Any:
-    import pylibcudf as plc
-
     options = plc.io.parquet.ParquetReaderOptions.builder(plc.io.SourceInfo([str(path)])).build()
     options.set_filter(_date_filter(schema, date_column, lower, upper))
     table = plc.io.parquet.read_parquet(options).tbl
@@ -469,10 +442,10 @@ def rewrite_partition_table(
         ]
         if not pieces:
             raise RuntimeError(f"No rows found for {table} {output_range.minimum_date}")
-        allocated = sum(gpu_table_nbytes(piece) for piece in pieces)
+        allocated = sum(column.device_buffer_size() for piece in pieces for column in piece.columns())
         if allocated > gpu_input_budget(args.gpu_memory_bytes):
             raise RuntimeError(f"{table} date range exceeds the GPU input budget")
-        merged = concatenate_gpu_tables(pieces)
+        merged = plc.concatenate.concatenate(pieces)
         sorted_table = sort_gpu_table(merged, schema, spec.sort_columns)
         relative = partition_path(
             table,
@@ -534,8 +507,6 @@ def key_boundary_index(
     key_column: str,
     index: int,
 ) -> int:
-    import pylibcudf as plc
-
     column = table.columns()[schema.names.index(key_column)]
     key_table = plc.Table([column])
     needle = plc.copying.slice(key_table, [index, index + 1])[0]
@@ -597,8 +568,8 @@ def rewrite_flat_table(
         path, row_group_index = groups[group_index]
         group_index += 1
         piece = read_source_row_groups(path, (row_group_index,))
-        combined = piece if current is None else concatenate_gpu_tables((current, piece))
-        if gpu_table_nbytes(combined) > input_budget:
+        combined = piece if current is None else plc.concatenate.concatenate([current, piece])
+        if sum(column.device_buffer_size() for column in combined.columns()) > input_budget:
             raise RuntimeError(f"{table} flat-output buffer exceeds the GPU input budget")
         return combined
 
@@ -614,7 +585,8 @@ def rewrite_flat_table(
             candidate_rows = key_boundary_index(buffer, schema, sort_columns[0], candidate_rows)
             if candidate_rows <= 0:
                 raise RuntimeError(f"{table} leading-key group exceeds one output buffer")
-        output_table = sort_gpu_table(slice_gpu_table(buffer, 0, candidate_rows), schema, sort_columns)
+        source_slice = plc.copying.slice(buffer, [0, candidate_rows])[0]
+        output_table = sort_gpu_table(source_slice, schema, sort_columns)
         relative = f"{table}/part-{file_index:05d}.parquet"
         local_output = args.staging / table / "output" / relative
         local_output.parent.mkdir(parents=True, exist_ok=True)
@@ -626,7 +598,9 @@ def rewrite_flat_table(
         output_rows += candidate_rows
         file_index += 1
         local_output.unlink()
-        buffer = slice_gpu_table(buffer, candidate_rows, available_rows) if candidate_rows < available_rows else None
+        buffer = (
+            plc.copying.slice(buffer, [candidate_rows, available_rows])[0] if candidate_rows < available_rows else None
+        )
 
     if output_rows != statistics["rows"]:
         raise RuntimeError(f"Output row count differs from source for {table}")
