@@ -9,7 +9,7 @@ import pytest
 from .common_fixtures import setup_and_teardown  # noqa: F401
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def install_tpchgen_cli():
     benchmark_data_tools_dir = Path(__file__).resolve().parent.parent
     install_script = benchmark_data_tools_dir / "scripts" / "install_tpchgen_cli.sh"
