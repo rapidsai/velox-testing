@@ -45,15 +45,16 @@ import pyarrow.parquet as pq
 
 MIB = 1024 * 1024
 MANIFEST_VERSION = 2
-REWRITTEN_TABLES = ("orders", "lineitem")
-SMALL_TABLES = ("customer", "nation", "part", "partsupp", "region", "supplier")
+PARTITION_TABLES = ("orders", "lineitem")
 FLAT_SPLIT_SPECS = {
     "customer": ("c_custkey",),
     "part": ("p_partkey",),
     "partsupp": ("ps_partkey", "ps_suppkey"),
     "supplier": ("s_suppkey",),
 }
+FLAT_SPLIT_TABLES = tuple(FLAT_SPLIT_SPECS)
 COPY_TABLES = ("nation", "region")
+ALL_TABLES = (*PARTITION_TABLES, *FLAT_SPLIT_TABLES, *COPY_TABLES)
 GPU_WORKING_SET_MULTIPLIER = 3
 GPU_PLANNING_SAFETY_PERCENT = 25
 DEFAULT_FILE_SIZE_TOLERANCE = 0.05
@@ -407,7 +408,7 @@ def source_identity(
     tables: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Build a cheap identity from supplied metadata and top-level footer facts."""
-    selected = tuple(tables or (*REWRITTEN_TABLES, *SMALL_TABLES))
+    selected = tuple(tables or ALL_TABLES)
     files = []
     for table in sorted(selected):
         table_dir = source / table
@@ -1457,7 +1458,7 @@ def rewrite_flat_table(
     manifest.save()
 
 
-def publish_small_tables(args: Any, destination: Destination, manifest: Manifest) -> None:
+def publish_copy_tables(args: Any, destination: Destination, manifest: Manifest) -> None:
     if manifest.data["copied_files"]:
         for entry in manifest.data["copied_files"]:
             if not destination.validate(entry["path"], entry):
@@ -1496,7 +1497,7 @@ def new_manifest(args: Any, identity: dict[str, Any], destination_uri: Destinati
         "gpu_planning_safety_percent": GPU_PLANNING_SAFETY_PERCENT,
         "rapids_image": args.rapids_image,
         "tables_requested": list(args.tables),
-        "complete_dataset": set(args.tables) == set(REWRITTEN_TABLES),
+        "complete_dataset": set(args.tables) == set(PARTITION_TABLES),
         "copied_files": [],
         "tables": {},
         "flat_tables": {},
@@ -1597,7 +1598,7 @@ def run(args: Any, uploader: Uploader | None = None) -> None:
         args.source,
         source_manifest=args.source_manifest,
         source_identity_value=args.source_identity,
-        tables=(*args.tables, *(SMALL_TABLES if set(args.tables) == set(REWRITTEN_TABLES) else ())),
+        tables=ALL_TABLES if set(args.tables) == set(PARTITION_TABLES) else args.tables,
     )
     if args.dry_run:
         dry_run_plan(args, identity)
@@ -1618,14 +1619,14 @@ def run(args: Any, uploader: Uploader | None = None) -> None:
         ranges, windows = plan_staged_table(args, manifest, table)
         finalize_table(args, destination, manifest, table, schema, ranges, windows)
 
-    complete_dataset = set(args.tables) == set(REWRITTEN_TABLES)
+    complete_dataset = set(args.tables) == set(PARTITION_TABLES)
     if complete_dataset:
-        for table in FLAT_SPLIT_SPECS:
+        for table in FLAT_SPLIT_TABLES:
             rewrite_flat_table(args, destination, manifest, table)
-        publish_small_tables(args, destination, manifest)
-        if not all(manifest.data["tables"][table]["state"] == "complete" for table in REWRITTEN_TABLES):
+        publish_copy_tables(args, destination, manifest)
+        if not all(manifest.data["tables"][table]["state"] == "complete" for table in PARTITION_TABLES):
             raise RuntimeError("Refusing to publish completion markers before all rewritten tables validate")
-        if not all(manifest.data["flat_tables"][table]["state"] == "complete" for table in FLAT_SPLIT_SPECS):
+        if not all(manifest.data["flat_tables"][table]["state"] == "complete" for table in FLAT_SPLIT_TABLES):
             raise RuntimeError("Refusing to publish completion markers before flat tables validate")
         if manifest.data["state"] != "complete":
             manifest.data["state"] = "complete"
@@ -1658,7 +1659,7 @@ def parse_args(argv: list[str] | None = None):
         default=48 * 1024 * MIB,
         help="Total GPU working-set budget; at most one third is planned input data",
     )
-    parser.add_argument("--tables", nargs="+", choices=REWRITTEN_TABLES, default=list(REWRITTEN_TABLES))
+    parser.add_argument("--tables", nargs="+", choices=PARTITION_TABLES, default=list(PARTITION_TABLES))
     parser.add_argument("--resume", action="store_true", help="Resume manifest-verified runs and output files")
     parser.add_argument("--overwrite", action="store_true", help="Replace staging and local destination")
     parser.add_argument("--dry-run", action="store_true", help="Inspect metadata and print an estimated plan")
