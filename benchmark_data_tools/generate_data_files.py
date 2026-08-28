@@ -19,7 +19,7 @@ from register_storage_config import register_storage_config
 _INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
 _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
-_TPCHGEN_PARQUET_VERSION = 2
+_PARQUET_VERSION = 2
 
 
 def generate_partition(
@@ -51,7 +51,7 @@ def generate_partition(
         "--format",
         "parquet",
         "--parquet-version",
-        str(_TPCHGEN_PARQUET_VERSION),
+        str(_PARQUET_VERSION),
         "--parquet-row-group-bytes",
         str(approx_row_group_bytes),
     ]
@@ -223,7 +223,7 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "generator_version": generator_version,
         "scale_factor": args.scale_factor,
         "convert_decimals_to_floats": args.convert_decimals_to_floats,
-        "parquet_version": _TPCHGEN_PARQUET_VERSION,
+        "parquet_version": _PARQUET_VERSION,
         "data_dir_path": str(Path(args.data_dir_path).resolve()),
     }
     if using_tpchgen:
@@ -532,5 +532,7 @@ if __name__ == "__main__":
 
     if args.register and not args.register_machine:
         parser.error("--register-machine is required when --register is used")
+    if args.register_dry_run and not args.register:
+        parser.error("--register-dry-run requires --register")
 
     generate_data_files(args)

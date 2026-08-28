@@ -99,7 +99,7 @@ def _detect_local_device_type(path: Path) -> str:
         )
         if tran_result.stdout.strip().lower() == "nvme":
             return "nvme"
-    except (FileNotFoundError, Exception):
+    except Exception:
         pass
 
     return "local"
