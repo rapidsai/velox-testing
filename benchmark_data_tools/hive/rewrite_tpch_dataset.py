@@ -25,7 +25,8 @@ from typing import Any, Sequence
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pylibcudf as plc
+
+plc = None
 
 try:
     from .publish_output_files import DestinationLocation, OutputDestination, make_destination
@@ -626,6 +627,9 @@ def prepare_staging(staging: Path, overwrite: bool) -> None:
 
 
 def run(args: Any) -> None:
+    global plc
+    import pylibcudf as plc
+
     args.source = args.source.expanduser().resolve()
     args.staging = args.staging.expanduser().resolve()
     if not args.source.is_dir():
