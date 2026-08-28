@@ -631,15 +631,18 @@ def run(args: Any) -> None:
     if not args.source.is_dir():
         raise FileNotFoundError(f"Source dataset does not exist: {args.source}")
     location = DestinationLocation.parse(args.destination)
+    path_pairs = [(args.staging, args.source)]
     if location.scheme == "file":
         destination_path = Path(location.root)
-        for left, right in (
-            (destination_path, args.source),
-            (destination_path, args.staging),
-            (args.staging, args.source),
-        ):
-            if left == right or left in right.parents or right in left.parents:
-                raise ValueError("Source, destination, and staging paths must be disjoint")
+        path_pairs.extend(
+            (
+                (destination_path, args.source),
+                (destination_path, args.staging),
+            )
+        )
+    for left, right in path_pairs:
+        if left == right or left in right.parents or right in left.parents:
+            raise ValueError("Source, destination, and staging paths must be disjoint")
 
     codecs = load_codec_definitions(args.codec_definitions)
     prepare_staging(args.staging, args.overwrite)

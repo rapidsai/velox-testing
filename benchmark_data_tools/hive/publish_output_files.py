@@ -107,6 +107,8 @@ class S3Destination:
         return [info for info in filesystem.get_file_info(selector) if info.type == pafs.FileType.File]
 
     def prepare(self, overwrite: bool) -> None:
+        if overwrite and "/" not in self.location.root:
+            raise ValueError("Refusing to recursively overwrite an S3 bucket root; use a destination prefix")
         files = self._files()
         if not files:
             return
