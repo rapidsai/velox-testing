@@ -725,8 +725,10 @@ def _resolve_storage_configuration(data_dir: str | None, benchmark_dir: Path) ->
         candidates.append(Path(data_dir) / "metadata.json")
     candidates.append(benchmark_dir / "metadata.json")
 
+    found_any = False
     for path in candidates:
         if path.exists():
+            found_any = True
             try:
                 metadata = json.loads(path.read_text())
             except (json.JSONDecodeError, OSError) as e:
@@ -741,12 +743,12 @@ def _resolve_storage_configuration(data_dir: str | None, benchmark_dir: Path) ->
                 "Run register_storage_config.py to register this dataset.",
                 file=sys.stderr,
             )
-            return None
 
-    print(
-        "  No metadata.json found to auto-detect storage configuration.",
-        file=sys.stderr,
-    )
+    if not found_any:
+        print(
+            "  No metadata.json found to auto-detect storage configuration.",
+            file=sys.stderr,
+        )
     return None
 
 
