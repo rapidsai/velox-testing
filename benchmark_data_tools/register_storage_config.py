@@ -109,11 +109,7 @@ def _detect_gds_enabled() -> bool:
     """Return True if the nvidia-fs kernel module (GPU Direct Storage) is loaded."""
     try:
         result = subprocess.run(["lsmod"], capture_output=True, text=True)
-        return any(
-            line.split()[0] == "nvidia_fs"
-            for line in result.stdout.splitlines()
-            if line.split()
-        )
+        return any(line.split()[0] == "nvidia_fs" for line in result.stdout.splitlines() if line.split())
     except OSError:
         return False
 
