@@ -33,7 +33,9 @@ set -Eeuo pipefail
 #   size=BYTES<TAB>s3://bucket/key
 #   size=BYTES<TAB>etag=VALUE<TAB>s3://bucket/key
 #
-#   CATALOG_S3_URI=s3://bucket/prefix/ ./run_s3_ktls_cuda_ref.sh
+#   ENDPOINT_IP_FILE=/path/to/jumbo-us-east-2.txt \
+#   CATALOG_S3_URI=s3://bucket/prefix/ \
+#   ./run_s3_ktls_cuda_ref.sh
 #
 # Host identity and filesystem layout are not baked in. RUN_USER defaults to
 # the invoking account (SUDO_USER when the script itself is run under sudo) and
@@ -54,10 +56,28 @@ set -Eeuo pipefail
 # measured values expose variance instead of presenting a lucky single
 # iteration.
 #
+#   CATALOG_JSON=/path/to/saved-catalog.json \
+#   ENDPOINT_IP_FILE=/path/to/jumbo-us-east-2.txt \
 #   ./run_s3_ktls_cuda_ref.sh
-#   PAYLOAD_SINK=receive-only ./run_s3_ktls_cuda_ref.sh
+#
+#   PAYLOAD_SINK=receive-only \
+#   CATALOG_JSON=/path/to/saved-catalog.json \
+#   ENDPOINT_IP_FILE=/path/to/jumbo-us-east-2.txt \
+#   ./run_s3_ktls_cuda_ref.sh
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+SCRIPT_NAME=${BASH_SOURCE[0]##*/}
+
+# Even when the caller invokes the whole runner through sudo, preparation and
+# result handling must remain unprivileged. Drop back to sudo's invoking user;
+# only the explicit hardware and systemd commands below regain privileges.
+if ((EUID == 0)); then
+    if [[ -z ${SUDO_USER:-} || $SUDO_USER == root ]]; then
+        echo "ERROR: direct root execution is not supported; run as a regular user (the script uses sudo where required)" >&2
+        exit 1
+    fi
+    exec sudo -E -H -u "$SUDO_USER" -- "$SCRIPT_DIR/$SCRIPT_NAME" "$@"
+fi
 
 # ---------------------------------------------------------------------------
 # INSTANCE PROFILE: measured g7e.48xlarge values. Retune together.
@@ -104,34 +124,45 @@ LANES=(
 # Query, catalog, and build inputs
 # ---------------------------------------------------------------------------
 
-# WORK_DIR holds the tracked source. OUT_DIR receives everything a run
-# generates or is handed as an input, and defaults to the current working
-# directory so a checkout stays clean and results land where the run started.
-WORK_DIR=${WORK_DIR:-$SCRIPT_DIR}
-OUT_DIR=${OUT_DIR:-$PWD}
-SOURCE_FILE=${SOURCE_FILE:-$WORK_DIR/s3_ktls_cuda_ref.cu}
-BIN=${BIN:-$OUT_DIR/s3_ktls_cuda_ref}
-NVCC=${NVCC:-/usr/local/cuda/bin/nvcc}
-
-# Run as the invoking account. SUDO_USER keeps the benchmark unprivileged when
-# the whole script is invoked through sudo rather than only its inner commands.
-RUN_USER=${RUN_USER:-${SUDO_USER:-$(id -un)}}
-REGION=${REGION:-us-east-2}
-BUCKET=${BUCKET:-rapids-tpch}
-CATALOG_S3_URI=${CATALOG_S3_URI:-}
-CATALOG_SUFFIX=${CATALOG_SUFFIX:-.parquet}
-CATALOG_JSON=${CATALOG_JSON:-$OUT_DIR/catalog-list-objects-v2.json}
-CATALOG_SNAPSHOT=${CATALOG_SNAPSHOT:-$OUT_DIR/catalog-snapshot.tsv}
-ENDPOINT_IP_FILE=${ENDPOINT_IP_FILE:-$OUT_DIR/jumbo-us-east-2.txt}
-RESULT_DIR=${RESULT_DIR:-$OUT_DIR/s3-ktls-cuda-results}
-
-MEASURED_ITERATIONS=${MEASURED_ITERATIONS:-2}
-PAYLOAD_SINK=${PAYLOAD_SINK:-h2d}
-
 fail() {
     echo "ERROR: $*" >&2
     exit 1
 }
+
+# systemd requires an absolute WorkingDirectory. Canonicalize every host path
+# up front so preparation in the caller's shell and execution in the transient
+# unit always refer to the same files, including for relative overrides.
+command -v realpath >/dev/null || fail "realpath is required"
+absolute_path() {
+    realpath -m -- "$1"
+}
+
+# WORK_DIR holds the tracked source. OUT_DIR receives everything a run
+# generates or is handed as an input, and defaults to the current working
+# directory so a checkout stays clean and results land where the run started.
+WORK_DIR=$(absolute_path "${WORK_DIR:-$SCRIPT_DIR}")
+OUT_DIR=$(absolute_path "${OUT_DIR:-$PWD}")
+SOURCE_FILE=$(absolute_path "${SOURCE_FILE:-$WORK_DIR/s3_ktls_cuda_ref.cu}")
+BIN=$(absolute_path "${BIN:-$OUT_DIR/s3_ktls_cuda_ref}")
+NVCC=$(absolute_path "${NVCC:-/usr/local/cuda/bin/nvcc}")
+
+# The root handoff above makes the effective account the invoking account.
+RUN_USER=${RUN_USER:-$(id -un)}
+REGION=${REGION:-us-east-2}
+BUCKET=${BUCKET:-rapids-tpch}
+CATALOG_S3_URI=${CATALOG_S3_URI:-}
+CATALOG_SUFFIX=${CATALOG_SUFFIX:-.parquet}
+CATALOG_JSON=$(absolute_path \
+    "${CATALOG_JSON:-$OUT_DIR/catalog-list-objects-v2.json}")
+CATALOG_SNAPSHOT=$(absolute_path \
+    "${CATALOG_SNAPSHOT:-$OUT_DIR/catalog-snapshot.tsv}")
+ENDPOINT_IP_FILE=$(absolute_path \
+    "${ENDPOINT_IP_FILE:-$OUT_DIR/jumbo-us-east-2.txt}")
+RESULT_DIR=$(absolute_path \
+    "${RESULT_DIR:-$OUT_DIR/s3-ktls-cuda-results}")
+
+MEASURED_ITERATIONS=${MEASURED_ITERATIONS:-2}
+PAYLOAD_SINK=${PAYLOAD_SINK:-h2d}
 
 if [[ -n ${WARMUP_ITERATIONS+x} ]]; then
     fail "WARMUP_ITERATIONS was removed: pool setup is always transport-only and moves zero payload bytes"
@@ -395,22 +426,43 @@ emit_compact_result() {
 # The transient unit needs a real account and a real home. Resolve both from
 # the password database instead of assuming a distribution's default user, and
 # do it before the build so a bad identity fails immediately.
-getent passwd "$RUN_USER" >/dev/null || \
+RUN_PASSWD=$(getent passwd "$RUN_USER") || \
     fail "RUN_USER=$RUN_USER is not a known account"
+IFS=: read -r RUN_ACCOUNT _ RUN_UID RUN_GID _ RUN_HOME_FROM_PASSWD _ \
+    <<< "$RUN_PASSWD"
+[[ $RUN_UID =~ ^[0-9]+$ && $RUN_GID =~ ^[0-9]+$ ]] || \
+    fail "invalid uid/gid for RUN_USER=$RUN_USER"
+RUN_USER=$RUN_ACCOUNT
+[[ $RUN_UID != 0 && $RUN_UID == "$EUID" ]] || \
+    fail "RUN_USER must be an unprivileged invoking account (resolved $RUN_USER to uid $RUN_UID, current uid $EUID)"
 if [[ -z ${RUN_HOME:-} ]]; then
-    RUN_HOME=$(getent passwd "$RUN_USER" | cut -d: -f6) || RUN_HOME=
+    RUN_HOME=$RUN_HOME_FROM_PASSWD
 fi
 [[ -n $RUN_HOME ]] || \
     fail "cannot resolve a home directory for RUN_USER=$RUN_USER; set RUN_HOME"
+RUN_HOME=$(absolute_path "$RUN_HOME")
 [[ -d $RUN_HOME ]] || \
     fail "RUN_USER=$RUN_USER home directory does not exist: $RUN_HOME"
 
+require_run_user_access() {
+    local mode=$1 action=$2 path=$3
+    test "$mode" "$path" || \
+        fail "RUN_USER=$RUN_USER cannot $action: $path"
+}
+
 mkdir -p -- "$OUT_DIR" "$(dirname -- "$BIN")" \
-    "$(dirname -- "$CATALOG_JSON")" "$(dirname -- "$CATALOG_SNAPSHOT")"
+    "$(dirname -- "$CATALOG_JSON")" "$(dirname -- "$CATALOG_SNAPSHOT")" \
+    "$RESULT_DIR"
 
 [[ -f $SOURCE_FILE ]] || fail "source missing: $SOURCE_FILE"
+require_run_user_access -r "read source" "$SOURCE_FILE"
 [[ -f $ENDPOINT_IP_FILE ]] || \
     fail "endpoint IP file missing: $ENDPOINT_IP_FILE; supply one jumbo-capable S3 frontend IP per line, or point ENDPOINT_IP_FILE at an existing list"
+require_run_user_access -r "read endpoint IP file" "$ENDPOINT_IP_FILE"
+require_run_user_access -x "enter home directory" "$RUN_HOME"
+require_run_user_access -x "enter output directory" "$OUT_DIR"
+require_run_user_access -x "enter result directory" "$RESULT_DIR"
+require_run_user_access -w "write result directory" "$RESULT_DIR"
 command -v jq >/dev/null || fail "jq is required for the catalog adapter"
 if [[ -n $CATALOG_S3_URI ]]; then
     command -v aws >/dev/null || \
@@ -436,6 +488,7 @@ if [[ $BUILD_REASON != up_to_date ]]; then
 fi
 
 [[ -x $BIN ]] || fail "binary missing: $BIN"
+require_run_user_access -x "execute binary" "$BIN"
 BINARY_HELP=$("$BIN" --help)
 grep -q -- '--receive-only' <<< "$BINARY_HELP" || \
     fail "binary is stale despite its timestamp; remove it and rerun"
@@ -456,18 +509,26 @@ SOURCE_SHA=$(sha256sum "$SOURCE_FILE" | awk '{print $1}')
 BINARY_SHA=$(sha256sum "$BIN" | awk '{print $1}')
 echo "BUILD source_sha=$SOURCE_SHA binary_sha=$BINARY_SHA action=$BUILD_ACTION reason=$BUILD_REASON warnings=$BUILD_WARNINGS"
 
+MATERIALIZATION_TEMPS=()
+cleanup_materialization_temps() {
+    local path
+    for path in "${MATERIALIZATION_TEMPS[@]}"; do
+        rm -f -- "$path" || true
+    done
+}
+trap cleanup_materialization_temps EXIT
+
 CATALOG_SOURCE=saved_json
 if [[ -n $CATALOG_S3_URI ]]; then
     parse_catalog_s3_uri "$CATALOG_S3_URI"
     catalog_json_tmp=$(mktemp "$(dirname -- "$CATALOG_JSON")/.catalog-list-objects-v2.XXXXXX")
-    trap 'rm -f -- "$catalog_json_tmp"' ERR
+    MATERIALIZATION_TEMPS+=("$catalog_json_tmp")
     if ! aws_instance_role s3api list-objects-v2 \
             --bucket "$BUCKET" --prefix "$CATALOG_PREFIX" \
             --page-size 1000 --output json > "$catalog_json_tmp"; then
         fail "ListObjectsV2 catalog export failed for $CATALOG_S3_URI"
     fi
     mv -f -- "$catalog_json_tmp" "$CATALOG_JSON"
-    trap - ERR
     CATALOG_SOURCE=s3_list_objects_v2
     echo "CATALOG_EXPORT source=$CATALOG_SOURCE uri=$CATALOG_S3_URI" \
          "suffix=$CATALOG_SUFFIX json=$CATALOG_JSON pagination=automatic"
@@ -475,6 +536,7 @@ else
     [[ -f $CATALOG_JSON ]] || \
         fail "no catalog input: set CATALOG_S3_URI=s3://bucket/prefix/ to export one, or point CATALOG_JSON at a saved ListObjectsV2/CRT export (looked for $CATALOG_JSON)"
 fi
+require_run_user_access -r "read catalog JSON" "$CATALOG_JSON"
 
 # This is the only schema adapter. CRT .tasks and raw ListObjectsV2 .Contents
 # are both filtered by CATALOG_SUFFIX so sidecars such as metadata.json remain
@@ -496,7 +558,7 @@ read -r CATALOG_SCHEMA CATALOG_SOURCE_ROWS <<< "$CATALOG_STATS"
     fail "invalid source-row count in catalog JSON: $CATALOG_JSON"
 
 catalog_tmp=$(mktemp "$(dirname -- "$CATALOG_SNAPSHOT")/.catalog-snapshot.XXXXXX")
-trap 'rm -f -- "$catalog_tmp"' ERR
+MATERIALIZATION_TEMPS+=("$catalog_tmp")
 if ! jq -r --arg bucket "$BUCKET" --arg suffix "$CATALOG_SUFFIX" '
     def rows:
         if (.tasks? | type) == "array" then
@@ -524,7 +586,8 @@ if ! jq -r --arg bucket "$BUCKET" --arg suffix "$CATALOG_SUFFIX" '
 fi
 [[ -s $catalog_tmp ]] || fail "catalog snapshot has no nonempty objects"
 mv -f -- "$catalog_tmp" "$CATALOG_SNAPSHOT"
-trap - ERR
+trap - EXIT
+require_run_user_access -r "read catalog snapshot" "$CATALOG_SNAPSHOT"
 
 read -r OBJECT_COUNT OBJECT_BYTES MAX_OBJECT_BYTES <<< "$(awk -F '\t' '
     {
@@ -765,7 +828,6 @@ PROGRAM=(
 for lane in "${LANES[@]}"; do PROGRAM+=(--lane "$lane"); done
 [[ $PAYLOAD_SINK == receive-only ]] && PROGRAM+=(--receive-only)
 
-mkdir -p "$RESULT_DIR"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 mode_label=$([[ $PAYLOAD_SINK == h2d ]] && echo h2d || echo receive-only)
 log="$RESULT_DIR/g7e48xl-${mode_label}-preconnect-measure${MEASURED_ITERATIONS}-${stamp}.log"
