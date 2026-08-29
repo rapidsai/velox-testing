@@ -35,6 +35,18 @@ set -Eeuo pipefail
 #
 #   CATALOG_S3_URI=s3://bucket/prefix/ ./run_s3_ktls_cuda_ref.sh
 #
+# Host identity and filesystem layout are not baked in. RUN_USER defaults to
+# the invoking account (SUDO_USER when the script itself is run under sudo) and
+# its home comes from the password database, so no distribution-specific user
+# is assumed. OUT_DIR defaults to the current working directory and receives
+# the binary, the exported catalog, the snapshot, and RESULT_DIR, leaving the
+# checkout clean. ENDPOINT_IP_FILE is a required input that this repository
+# does not ship: supply one jumbo-capable S3 frontend IP per line.
+#
+#   OUT_DIR=/scratch/run1 \
+#   ENDPOINT_IP_FILE=/path/to/jumbo-us-east-2.txt \
+#   CATALOG_S3_URI=s3://bucket/prefix/ ./run_s3_ktls_cuda_ref.sh
+#
 # Default: rebuild only when the binary is absent or this .cu file is newer,
 # establish the complete TCP/TLS/kTLS pool without sending an HTTP request or
 # transferring payload, then measure two complete S3 -> final GPU allocation
@@ -92,24 +104,26 @@ LANES=(
 # Query, catalog, and build inputs
 # ---------------------------------------------------------------------------
 
+# WORK_DIR holds the tracked source. OUT_DIR receives everything a run
+# generates or is handed as an input, and defaults to the current working
+# directory so a checkout stays clean and results land where the run started.
 WORK_DIR=${WORK_DIR:-$SCRIPT_DIR}
+OUT_DIR=${OUT_DIR:-$PWD}
 SOURCE_FILE=${SOURCE_FILE:-$WORK_DIR/s3_ktls_cuda_ref.cu}
-BIN=${BIN:-$WORK_DIR/s3_ktls_cuda_ref}
+BIN=${BIN:-$OUT_DIR/s3_ktls_cuda_ref}
 NVCC=${NVCC:-/usr/local/cuda/bin/nvcc}
 
-RUN_USER=${RUN_USER:-ubuntu}
+# Run as the invoking account. SUDO_USER keeps the benchmark unprivileged when
+# the whole script is invoked through sudo rather than only its inner commands.
+RUN_USER=${RUN_USER:-${SUDO_USER:-$(id -un)}}
 REGION=${REGION:-us-east-2}
 BUCKET=${BUCKET:-rapids-tpch}
 CATALOG_S3_URI=${CATALOG_S3_URI:-}
 CATALOG_SUFFIX=${CATALOG_SUFFIX:-.parquet}
-if [[ -n $CATALOG_S3_URI ]]; then
-    CATALOG_JSON=${CATALOG_JSON:-$WORK_DIR/catalog-list-objects-v2.json}
-else
-    CATALOG_JSON=${CATALOG_JSON:-/home/ubuntu/aws-crt-s3-results/official-crt-c-20260819T021145Z/rapids-tpch-scale-1000.run.json}
-fi
-CATALOG_SNAPSHOT=${CATALOG_SNAPSHOT:-$WORK_DIR/catalog-snapshot.tsv}
-ENDPOINT_IP_FILE=${ENDPOINT_IP_FILE:-$WORK_DIR/jumbo-us-east-2.txt}
-RESULT_DIR=${RESULT_DIR:-$WORK_DIR/s3-ktls-cuda-results}
+CATALOG_JSON=${CATALOG_JSON:-$OUT_DIR/catalog-list-objects-v2.json}
+CATALOG_SNAPSHOT=${CATALOG_SNAPSHOT:-$OUT_DIR/catalog-snapshot.tsv}
+ENDPOINT_IP_FILE=${ENDPOINT_IP_FILE:-$OUT_DIR/jumbo-us-east-2.txt}
+RESULT_DIR=${RESULT_DIR:-$OUT_DIR/s3-ktls-cuda-results}
 
 MEASURED_ITERATIONS=${MEASURED_ITERATIONS:-2}
 PAYLOAD_SINK=${PAYLOAD_SINK:-h2d}
@@ -312,6 +326,7 @@ compact_console_filter() {
                 printf ' %s' "${compact_words[@]:1}"
                 printf '\n'
                 ;;
+            RUN_IDENTITY\ *|\
             CATALOG_SNAPSHOT\ *|TLS_SAMPLE\ *|NIC\ name=*|\
             PRECONNECT_START\ *|PRECONNECT_RESULT\ *|\
             ITERATION_START\ *|ITERATION_RESULT\ *|ITERATION\ *|\
@@ -377,8 +392,25 @@ emit_compact_result() {
 # Build and materialize the metastore/catalog snapshot
 # ---------------------------------------------------------------------------
 
+# The transient unit needs a real account and a real home. Resolve both from
+# the password database instead of assuming a distribution's default user, and
+# do it before the build so a bad identity fails immediately.
+getent passwd "$RUN_USER" >/dev/null || \
+    fail "RUN_USER=$RUN_USER is not a known account"
+if [[ -z ${RUN_HOME:-} ]]; then
+    RUN_HOME=$(getent passwd "$RUN_USER" | cut -d: -f6) || RUN_HOME=
+fi
+[[ -n $RUN_HOME ]] || \
+    fail "cannot resolve a home directory for RUN_USER=$RUN_USER; set RUN_HOME"
+[[ -d $RUN_HOME ]] || \
+    fail "RUN_USER=$RUN_USER home directory does not exist: $RUN_HOME"
+
+mkdir -p -- "$OUT_DIR" "$(dirname -- "$BIN")" \
+    "$(dirname -- "$CATALOG_JSON")" "$(dirname -- "$CATALOG_SNAPSHOT")"
+
 [[ -f $SOURCE_FILE ]] || fail "source missing: $SOURCE_FILE"
-[[ -f $ENDPOINT_IP_FILE ]] || fail "endpoint IP file missing: $ENDPOINT_IP_FILE"
+[[ -f $ENDPOINT_IP_FILE ]] || \
+    fail "endpoint IP file missing: $ENDPOINT_IP_FILE; supply one jumbo-capable S3 frontend IP per line, or point ENDPOINT_IP_FILE at an existing list"
 command -v jq >/dev/null || fail "jq is required for the catalog adapter"
 if [[ -n $CATALOG_S3_URI ]]; then
     command -v aws >/dev/null || \
@@ -427,7 +459,7 @@ echo "BUILD source_sha=$SOURCE_SHA binary_sha=$BINARY_SHA action=$BUILD_ACTION r
 CATALOG_SOURCE=saved_json
 if [[ -n $CATALOG_S3_URI ]]; then
     parse_catalog_s3_uri "$CATALOG_S3_URI"
-    catalog_json_tmp=$(mktemp "$WORK_DIR/.catalog-list-objects-v2.XXXXXX")
+    catalog_json_tmp=$(mktemp "$(dirname -- "$CATALOG_JSON")/.catalog-list-objects-v2.XXXXXX")
     trap 'rm -f -- "$catalog_json_tmp"' ERR
     if ! aws_instance_role s3api list-objects-v2 \
             --bucket "$BUCKET" --prefix "$CATALOG_PREFIX" \
@@ -440,7 +472,8 @@ if [[ -n $CATALOG_S3_URI ]]; then
     echo "CATALOG_EXPORT source=$CATALOG_SOURCE uri=$CATALOG_S3_URI" \
          "suffix=$CATALOG_SUFFIX json=$CATALOG_JSON pagination=automatic"
 else
-    [[ -f $CATALOG_JSON ]] || fail "catalog JSON missing: $CATALOG_JSON"
+    [[ -f $CATALOG_JSON ]] || \
+        fail "no catalog input: set CATALOG_S3_URI=s3://bucket/prefix/ to export one, or point CATALOG_JSON at a saved ListObjectsV2/CRT export (looked for $CATALOG_JSON)"
 fi
 
 # This is the only schema adapter. CRT .tasks and raw ListObjectsV2 .Contents
@@ -462,7 +495,7 @@ read -r CATALOG_SCHEMA CATALOG_SOURCE_ROWS <<< "$CATALOG_STATS"
 [[ $CATALOG_SOURCE_ROWS =~ ^[0-9]+$ ]] || \
     fail "invalid source-row count in catalog JSON: $CATALOG_JSON"
 
-catalog_tmp=$(mktemp "$WORK_DIR/.catalog-snapshot.XXXXXX")
+catalog_tmp=$(mktemp "$(dirname -- "$CATALOG_SNAPSHOT")/.catalog-snapshot.XXXXXX")
 trap 'rm -f -- "$catalog_tmp"' ERR
 if ! jq -r --arg bucket "$BUCKET" --arg suffix "$CATALOG_SUFFIX" '
     def rows:
@@ -534,6 +567,9 @@ LANE_REACTOR_COUNTS=(
 LANE_REACTOR_COUNTS_TEXT=$(IFS=,; echo "${LANE_REACTOR_COUNTS[*]}")
 
 echo "PROFILE name=g7e.48xlarge source=measured retune_for_other_instances=yes"
+echo "RUN_IDENTITY run_user=$RUN_USER run_home=$RUN_HOME" \
+     "out_dir=$OUT_DIR bin=$BIN result_dir=$RESULT_DIR" \
+     "endpoint_ip_file=$ENDPOINT_IP_FILE"
 echo "RUN_CONFIG connections_per_lane=$CONNECTIONS_PER_LANE" \
      "reactor_counts=$LANE_REACTOR_COUNTS_TEXT" \
      "slot_kib=$SLOT_KIB range_mib=$RANGE_MIB" \
@@ -739,13 +775,13 @@ set +e
 sudo systemd-run \
     --quiet --wait --pipe --collect \
     -p User="$RUN_USER" \
-    -p WorkingDirectory="$WORK_DIR" \
+    -p WorkingDirectory="$OUT_DIR" \
     -p AllowedCPUs="$APP_CPUS" \
     -p LimitMEMLOCK=infinity \
     -p LimitNOFILE=65536 \
     -p AmbientCapabilities=CAP_NET_RAW \
     -p CapabilityBoundingSet=CAP_NET_RAW \
-    --setenv=HOME=/home/ubuntu \
+    --setenv=HOME="$RUN_HOME" \
     --setenv=AWS_REGION="$REGION" \
     --setenv=AWS_DEFAULT_REGION="$REGION" \
     --setenv=AWS_EC2_METADATA_DISABLED=false \
