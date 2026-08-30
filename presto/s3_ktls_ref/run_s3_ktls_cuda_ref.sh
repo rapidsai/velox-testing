@@ -16,6 +16,8 @@ set -Eeuo pipefail
 #     it marks the endpoint unverified and continues;
 #   * CATALOG_S3_URI export additionally requires s3:ListBucket on its bucket;
 #   * Linux TLS 1.3 RX kTLS, CUDA 13, sufficient memlock/NOFILE limits;
+#   * TCP receive autotuning enabled. During the run, tcp_rmem is temporarily
+#     set to the measured 4096/1048576/6291456-byte profile and then restored;
 #   * NUMA-local NIC/GPU/CPU lanes and isolated ENA receive IRQs.
 #
 # Experimental, not a correctness prerequisite:
@@ -27,7 +29,9 @@ set -Eeuo pipefail
 #
 # Input is a catalog snapshot, analogous to a database metastore. This runner
 # adapts an existing JSON metadata export into a tiny line protocol; the timed
-# query never performs LIST or HEAD. To create a new saved ListObjectsV2 export
+# query never performs LIST or HEAD. Connection setup issues one bodyless
+# signed HEAD Object per retained socket, reported separately as priming. To
+# create a new saved ListObjectsV2 export
 # with the instance role before running, provide CATALOG_S3_URI:
 #
 #   size=BYTES<TAB>s3://bucket/key
@@ -50,11 +54,11 @@ set -Eeuo pipefail
 #   CATALOG_S3_URI=s3://bucket/prefix/ ./run_s3_ktls_cuda_ref.sh
 #
 # Default: rebuild only when the binary is absent or this .cu file is newer,
-# establish the complete TCP/TLS/kTLS pool without sending an HTTP request or
-# transferring payload, then measure two complete S3 -> final GPU allocation
-# queries. PRECONNECT_RESULT enforces the zero-payload setup contract; the two
-# measured values expose variance instead of presenting a lucky single
-# iteration.
+# establish the complete TCP/TLS/kTLS pool without HTTP, prime every retained
+# socket with one bodyless signed HEAD Object, then measure two complete
+# S3 -> final GPU allocation queries. PRECONNECT_RESULT and PRIME_RESULT make
+# the zero-data setup contract auditable; the two measured values expose
+# variance instead of presenting a lucky single iteration.
 #
 #   CATALOG_JSON=/path/to/saved-catalog.json \
 #   ENDPOINT_IP_FILE=/path/to/jumbo-us-east-2.txt \
@@ -91,6 +95,11 @@ PINNED_HWM_MIB=${PINNED_HWM_MIB:-512}
 GPU_RESERVE_MIB=${GPU_RESERVE_MIB:-2048}
 MAX_RETRIES=${MAX_RETRIES:-3}
 ENA_QUEUE_COUNT=${ENA_QUEUE_COUNT:-12}
+
+# Preserve TCP receive autotuning, but give each new connection a larger
+# initial receive buffer for the measured S3 path. The triplet is
+# minimum/initial/autotuning-maximum bytes and is restored on exit.
+TCP_RMEM_PROFILE="4096 1048576 6291456"
 
 # Each CPU in a lane is one reactor. NIC and GPU must share its NUMA node.
 LANE0_CPUS=${LANE0_CPUS:-12-19,108-115}
@@ -165,7 +174,7 @@ MEASURED_ITERATIONS=${MEASURED_ITERATIONS:-2}
 PAYLOAD_SINK=${PAYLOAD_SINK:-h2d}
 
 if [[ -n ${WARMUP_ITERATIONS+x} ]]; then
-    fail "WARMUP_ITERATIONS was removed: pool setup is always transport-only and moves zero payload bytes"
+    fail "WARMUP_ITERATIONS was removed: setup uses transport preconnect plus bodyless HEAD priming, never a data scan"
 fi
 
 # Ignore workstation/SSO configuration deliberately. Both catalog export and
@@ -360,6 +369,7 @@ compact_console_filter() {
             RUN_IDENTITY\ *|\
             CATALOG_SNAPSHOT\ *|TLS_SAMPLE\ *|NIC\ name=*|\
             PRECONNECT_START\ *|PRECONNECT_RESULT\ *|\
+            PRIME_START\ *|PRIME_RESULT\ *|\
             ITERATION_START\ *|ITERATION_RESULT\ *|ITERATION\ *|\
             =====\ FINAL\ SUMMARY\ =====|RATE_SCOPE\ *|PRETRANSFER_TIMING\ *|\
             GET_RAMP\ *|RAMP_100MS\ *|TIMING\ *|THROUGHPUT\ *|\
@@ -396,13 +406,19 @@ emit_compact_result() {
             preconnect_retries, preconnect_reconnects,
             preconnect_http_requests, preconnect_s3_body_bytes,
             preconnect_h2d_bytes, preconnect_tls_rx_sw_delta,
+            prime_mode, prime_s, prime_connections, prime_ktls_connections,
+            prime_http_requests, prime_responses, prime_s3_body_bytes,
+            prime_h2d_bytes, prime_ktls_recv_calls, prime_retries,
+            prime_reconnects,
             pool_connections_at_start, pool_connections_live_at_end,
             new_tls_connections, wall_s, first_body_s, network_complete_s,
             device_complete_s, network_to_device_drain_s,
             network_complete_gbps, device_complete_gbps,
             first_to_last_body_gbps, useful_object_gbps,
             catalog_load_s, catalog_objects, catalog_sizes, catalog_etags,
-            head_requests, expected_bytes, payload_sink, h2d_mode, slot_bytes,
+            head_requests, catalog_head_requests, query_head_requests,
+            expected_bytes,
+            payload_sink, h2d_mode, slot_bytes,
             s3_body_bytes, retry_s3_body_bytes, h2d_completed_bytes,
             retry_h2d_bytes,
             h2d_completed_copies, h2d_copy_avg_bytes, h2d_inline_batches,
@@ -494,7 +510,8 @@ grep -q -- '--receive-only' <<< "$BINARY_HELP" || \
     fail "binary is stale despite its timestamp; remove it and rerun"
 grep -q -- '--catalog-snapshot' <<< "$BINARY_HELP" || \
     fail "binary lacks the strict catalog interface; remove it and rerun"
-grep -q -- 'Transport-only pool preconnect is mandatory' <<< "$BINARY_HELP" || \
+grep -q -- 'Transport-only preconnect is followed by one bodyless HEAD per socket' \
+        <<< "$BINARY_HELP" || \
     fail "binary lacks zero-payload pool preconnect; remove it and rerun"
 if grep -q -- '--warmup-iterations' <<< "$BINARY_HELP"; then
     fail "binary still exposes scan warmup; remove it and rerun"
@@ -629,10 +646,10 @@ LANE_REACTOR_COUNTS=(
 )
 LANE_REACTOR_COUNTS_TEXT=$(IFS=,; echo "${LANE_REACTOR_COUNTS[*]}")
 
-echo "PROFILE name=g7e.48xlarge source=measured retune_for_other_instances=yes"
 echo "RUN_IDENTITY run_user=$RUN_USER run_home=$RUN_HOME" \
      "out_dir=$OUT_DIR bin=$BIN result_dir=$RESULT_DIR" \
      "endpoint_ip_file=$ENDPOINT_IP_FILE"
+echo "PROFILE name=g7e.48xlarge source=measured retune_for_other_instances=yes"
 echo "RUN_CONFIG connections_per_lane=$CONNECTIONS_PER_LANE" \
      "reactor_counts=$LANE_REACTOR_COUNTS_TEXT" \
      "slot_kib=$SLOT_KIB range_mib=$RANGE_MIB" \
@@ -641,6 +658,9 @@ echo "RUN_CONFIG connections_per_lane=$CONNECTIONS_PER_LANE" \
      "h2d_batch=$H2D_BATCH queue_count=$ENA_QUEUE_COUNT" \
      "connection_pool_preconnect=transport_only" \
      "preconnect_http_requests=0 preconnect_payload_bytes=0" \
+     "connection_pool_prime=head_object" \
+     "prime_requests_per_connection=1 prime_payload_bytes=0" \
+     "tcp_rmem=4096,1048576,6291456 tcp_moderate_rcvbuf=required" \
      "scan_warmup_iterations=0" \
      "measured_iterations=$MEASURED_ITERATIONS"
 echo "CATALOG_INPUT format=metastore_snapshot source=$CATALOG_SOURCE" \
@@ -649,7 +669,8 @@ echo "CATALOG_INPUT format=metastore_snapshot source=$CATALOG_SOURCE" \
      "snapshot=$CATALOG_SNAPSHOT" \
      "source_rows=$CATALOG_SOURCE_ROWS suffix_excluded=$CATALOG_SUFFIX_EXCLUDED" \
      "objects=$OBJECT_COUNT bytes=$OBJECT_BYTES max_object_bytes=$MAX_OBJECT_BYTES" \
-     "head_requests=0 endpoint_ips=$ENDPOINT_IP_COUNT"
+     "catalog_head_requests=0 query_head_requests=0" \
+     "endpoint_ips=$ENDPOINT_IP_COUNT"
 
 # ---------------------------------------------------------------------------
 # Verify prerequisites; report the optional order-2 RX-page experiment
@@ -688,7 +709,7 @@ echo "ENA_RX_PAGE_EXPERIMENT large_rx_page=$LARGE_RX_PAGE" \
      "requires_4k_base_pages=yes xdp_af_xdp=incompatible"
 
 # ---------------------------------------------------------------------------
-# Reversible queue and IRQ setup
+# Reversible TCP receive-memory, queue, and IRQ setup
 # ---------------------------------------------------------------------------
 
 parse_cpu_list "$IRQ_ENP135S0_CPUS" IRQ_CPUS_NIC0
@@ -698,6 +719,8 @@ parse_cpu_list "$IRQ_ENP187S0_CPUS" IRQ_CPUS_NIC3
 
 IRQ_STATE=$(mktemp -d /tmp/s3-ktls-irq.XXXXXX)
 IRQBALANCE_WAS_ACTIVE=0
+ORIGINAL_TCP_RMEM=
+TCP_RMEM_WAS_CHANGED=0
 declare -A IRQ_EXPECTED_CPU=()
 declare -A IRQ_DEVICE=()
 declare -A IRQ_LABEL=()
@@ -725,10 +748,52 @@ cleanup() {
                 "${ORIGINAL_QUEUE_COUNT[$dev]}" || true
         done
     fi
+    if ((TCP_RMEM_WAS_CHANGED)); then
+        echo "Restoring TCP receive-memory settings..."
+        sudo sysctl -q -w \
+            "net.ipv4.tcp_rmem=$ORIGINAL_TCP_RMEM" >/dev/null || true
+    fi
     if ((IRQBALANCE_WAS_ACTIVE)); then sudo systemctl start irqbalance || true; fi
     exit "$rc"
 }
 trap cleanup EXIT INT TERM
+
+read_tcp_rmem() {
+    local minimum initial maximum extra
+    read -r minimum initial maximum extra < <(
+        sysctl -n net.ipv4.tcp_rmem 2>/dev/null
+    ) || return 1
+    [[ $minimum =~ ^[0-9]+$ && $initial =~ ^[0-9]+$ &&
+       $maximum =~ ^[0-9]+$ && -z $extra ]] || return 1
+    printf '%s %s %s\n' "$minimum" "$initial" "$maximum"
+}
+
+configure_tcp_receive_memory() {
+    local autotuning effective before_text effective_text
+
+    autotuning=$(sysctl -n net.ipv4.tcp_moderate_rcvbuf 2>/dev/null) || \
+        fail "cannot read net.ipv4.tcp_moderate_rcvbuf"
+    [[ $autotuning == 1 ]] || \
+        fail "net.ipv4.tcp_moderate_rcvbuf must be 1"
+
+    ORIGINAL_TCP_RMEM=$(read_tcp_rmem) || \
+        fail "cannot read net.ipv4.tcp_rmem"
+    if [[ $ORIGINAL_TCP_RMEM != "$TCP_RMEM_PROFILE" ]]; then
+        sudo sysctl -q -w \
+            "net.ipv4.tcp_rmem=$TCP_RMEM_PROFILE" >/dev/null
+        TCP_RMEM_WAS_CHANGED=1
+    fi
+    effective=$(read_tcp_rmem) || \
+        fail "cannot verify net.ipv4.tcp_rmem"
+    [[ $effective == "$TCP_RMEM_PROFILE" ]] || \
+        fail "net.ipv4.tcp_rmem rejected measured profile: $effective"
+
+    before_text=${ORIGINAL_TCP_RMEM// /,}
+    effective_text=${effective// /,}
+    echo "TCP_RECEIVE_TUNING tcp_moderate_rcvbuf=$autotuning" \
+         "tcp_rmem_before=$before_text tcp_rmem_effective=$effective_text" \
+         "so_rcvbuf_set=no restore_on_exit=$TCP_RMEM_WAS_CHANGED"
+}
 
 pin_device_irqs() {
     local dev=$1
@@ -780,6 +845,7 @@ report_effective_irq_affinity() {
     echo "IRQ_EFFECTIVE_SUMMARY vectors=${#IRQ_EXPECTED_CPU[@]} mismatches=$mismatches"
 }
 
+configure_tcp_receive_memory
 sudo modprobe tls
 if systemctl is-active --quiet irqbalance; then
     IRQBALANCE_WAS_ACTIVE=1
@@ -830,7 +896,7 @@ for lane in "${LANES[@]}"; do PROGRAM+=(--lane "$lane"); done
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 mode_label=$([[ $PAYLOAD_SINK == h2d ]] && echo h2d || echo receive-only)
-log="$RESULT_DIR/g7e48xl-${mode_label}-preconnect-measure${MEASURED_ITERATIONS}-${stamp}.log"
+log="$RESULT_DIR/g7e48xl-${mode_label}-head-prime-measure${MEASURED_ITERATIONS}-${stamp}.log"
 echo "RUN_START log=$log"
 
 set +e
@@ -844,6 +910,8 @@ sudo systemd-run \
     -p AmbientCapabilities=CAP_NET_RAW \
     -p CapabilityBoundingSet=CAP_NET_RAW \
     --setenv=HOME="$RUN_HOME" \
+    --setenv=USER="$RUN_USER" \
+    --setenv=LOGNAME="$RUN_USER" \
     --setenv=AWS_REGION="$REGION" \
     --setenv=AWS_DEFAULT_REGION="$REGION" \
     --setenv=AWS_EC2_METADATA_DISABLED=false \

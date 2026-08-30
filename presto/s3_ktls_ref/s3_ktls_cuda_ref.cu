@@ -9,7 +9,7 @@
  *       -> final cudaMalloc() object allocations at exact byte offsets
  *
  * This is deliberately not an AWS CRT benchmark, a count-and-discard test, or
- * a production S3 library.  It shows one implementation, honed after many
+ * a production S3 library.  It shows one implementation, not a menu of old
  * experiments.  The only payload switch is --receive-only, which preserves
  * the receive path but omits CUDA copies to establish the network/kTLS ceiling.
  * The normal path always uses one same-reactor batcher: cudaMemcpyBatchAsync
@@ -85,8 +85,8 @@
  * The companion runner builds this file, converts a saved catalog export to
  * the strict snapshot format below, installs the measured
  * C192/R16/Q12/256-KiB/512-MiB profile, pins IRQs, establishes the complete
- * TCP/TLS/kTLS connection pool without issuing an HTTP request, performs two
- * measured transfers, and restores machine state on exit.
+ * TCP/TLS/kTLS connection pool, primes every socket with one bodyless signed
+ * HEAD Object, performs two measured transfers, and restores machine state.
  * That runner is an explicitly host-specific profile; the C++ source
  * discovers and validates the topology named by --lane rather than assuming
  * GPU numbering.
@@ -104,13 +104,13 @@
  * CONNECTION-POOL MEASUREMENT CONTRACT
  * ------------------------------------
  * Before the first measured query, the program establishes every configured
- * TCP/TLS 1.3/RX-kTLS transport and sends zero HTTP requests.  It then starts
- * the query timer and dispatches the first Range GETs.  PRECONNECT_RESULT
- * proves that this phase consumed zero scheduler tasks, S3 body bytes, and H2D
- * bytes.  This models a database with a live S3 connection pool without using
- * a prior scan to warm S3, host, or device data.  Two measured iterations are
- * the default so variance is visible; later iterations reuse the same pool and
- * overwrite the same final GPU allocations with identical validation.
+ * TCP/TLS 1.3/RX-kTLS transport without HTTP, then sends one signed HEAD Object
+ * on every retained socket.  PRECONNECT_RESULT proves transport setup moved
+ * nothing; PRIME_RESULT proves the S3-ready pool consumed no Range task, object
+ * body byte, pinned payload slot, or H2D copy.  This avoids a prior data scan
+ * while removing the first-use S3 request path from the measurement.  Two
+ * measured iterations are the default so variance is visible; later iterations
+ * reuse the same pool and overwrite the same final GPU allocations.
  *
  * CATALOG SNAPSHOT
  * ----------------
@@ -531,7 +531,7 @@ void usage(const char *argv0) {
         << "  --gpu-reserve-mib N       Free HBM retained per GPU (default 2048)\n"
         << "  --max-retries N           Whole-range retries (default 3)\n"
         << "\nQuery/pool execution:\n"
-        << "  Transport-only pool preconnect is mandatory: zero HTTP/payload bytes.\n"
+        << "  Transport-only preconnect is followed by one bodyless HEAD per socket.\n"
         << "  --iterations N            Measured in-process transfers (default 2)\n"
         << "  --region R                SigV4/S3 region (default us-east-2)\n"
         << "  --endpoint-ip-file FILE   One frontend IP per line\n"
@@ -1673,7 +1673,7 @@ struct RunStats {
     // Called only while every reactor is joined.  Connection/TLS audit state
     // deliberately survives: it describes the live pool and every transport
     // ever admitted to it.  Transfer counters are per iteration so a measured
-    // query is never contaminated by transport-only pool setup.
+    // query is never contaminated by transport setup or bodyless HEAD priming.
     void reset_transfer_counters() {
         if (pinned_used.load(std::memory_order_relaxed) != 0)
             fail("cannot reset transfer counters while pinned slots are in use");
@@ -3439,7 +3439,7 @@ enum class ConnectionState : uint8_t {
     WAITING_H2D
 };
 
-enum class ReactorRunMode : uint8_t { PRECONNECT, TRANSFER };
+enum class ReactorRunMode : uint8_t { PRECONNECT, PRIME, TRANSFER };
 
 // Startup/tail diagnostics are written by exactly one pinned reactor thread.
 // Give every reactor its own cache-line-aligned block so the instrumentation
@@ -3486,7 +3486,9 @@ struct Connection {
     uint64_t address_sequence = 0;
     bool initial_tls_ready_recorded = false;
     unsigned preconnect_failures = 0;
+    unsigned prime_failures = 0;
     Object *preconnect_target = nullptr;
+    bool prime_complete = false;
     bool payload_active = false;
     bool range_active = false;
 
@@ -3571,6 +3573,28 @@ public:
         run_mode_ = ReactorRunMode::PRECONNECT;
         reset_iteration_state(false);
     }
+    void prepare_for_prime() {
+        if (thread_.joinable()) fail("cannot prepare a running reactor");
+        for (const auto &holder : connections_) {
+            Connection &connection = *holder;
+            if (connection.state != ConnectionState::IDLE || !connection.fd ||
+                connection.ssl == nullptr || !connection.tls_rx.installed ||
+                connection.task != nullptr ||
+                connection.direct_fill_slot != nullptr ||
+                connection.payload_active || connection.range_active ||
+                connection.ring_blocked) {
+                fail("HEAD prime requires a complete idle RX-kTLS pool");
+            }
+            connection.prime_failures = 0;
+            connection.prime_complete = false;
+            connection.request.clear();
+            connection.request_offset = 0;
+            connection.headers.reset();
+            connection.close_after_response = false;
+        }
+        run_mode_ = ReactorRunMode::PRIME;
+        reset_iteration_state(true);
+    }
     void prepare_for_iteration() {
         if (thread_.joinable()) fail("cannot reset a running reactor");
         for (const auto &holder : connections_) {
@@ -3590,6 +3614,18 @@ public:
         for (const auto &connection : connections_)
             total += connection->preconnect_failures;
         return total;
+    }
+    uint64_t prime_retry_count() const {
+        uint64_t total = 0;
+        for (const auto &connection : connections_)
+            total += connection->prime_failures;
+        return total;
+    }
+    uint64_t prime_complete_count() const {
+        return static_cast<uint64_t>(std::count_if(
+            connections_.begin(), connections_.end(), [](const auto &connection) {
+                return connection->prime_complete;
+            }));
     }
     uint64_t cpu_time_ns() const { return cpu_time_ns_.load(); }
     uint64_t wall_time_ns() const { return wall_time_ns_.load(); }
@@ -3859,6 +3895,31 @@ private:
         begin_active_range(connection);
     }
 
+    void assign_prime(Connection &connection) {
+        if (connection.state != ConnectionState::IDLE ||
+            connection.prime_complete)
+            return;
+        if (connection.task != nullptr || connection.preconnect_target == nullptr) {
+            fatal_.set("HEAD prime encountered invalid connection ownership");
+            return;
+        }
+        Object &object = *connection.preconnect_target;
+        connection.request = make_signed_request(
+            "HEAD", object.target, std::nullopt, std::nullopt,
+            opt_.region, credentials_, true);
+        connection.request_offset = 0;
+        connection.headers.reset();
+        connection.close_after_response = false;
+        if (connection.fd &&
+            connection.peer_hostname == object.target.hostname) {
+            connection.state = ConnectionState::WRITING_REQUEST;
+            arm(connection, EPOLLOUT);
+        } else {
+            if (connection.fd) close_transport(connection);
+            open_transport(connection, object);
+        }
+    }
+
     void start_ring_block(Connection &connection) {
         if (!connection.ring_blocked) {
             connection.ring_blocked = true;
@@ -3888,10 +3949,17 @@ private:
             // attempt from racing a retry that overwrites the same offsets.
             if (!slots_->synchronize(stream_)) return;
             scheduler_.retry(*task, opt_.max_retries, why);
-        } else if (run_mode_ == ReactorRunMode::PRECONNECT) {
-            ++connection.preconnect_failures;
-            if (connection.preconnect_failures > opt_.max_retries) {
-                fatal_.set("preconnect lane=" + std::to_string(lane_.id) +
+        } else if (run_mode_ == ReactorRunMode::PRECONNECT ||
+                   run_mode_ == ReactorRunMode::PRIME) {
+            unsigned &failures = run_mode_ == ReactorRunMode::PRECONNECT
+                ? connection.preconnect_failures : connection.prime_failures;
+            ++failures;
+            connection.prime_complete = false;
+            if (failures > opt_.max_retries) {
+                fatal_.set(std::string(
+                               run_mode_ == ReactorRunMode::PRECONNECT
+                                   ? "preconnect" : "HEAD prime") +
+                           " lane=" + std::to_string(lane_.id) +
                            " reactor=" + std::to_string(reactor_index_) +
                            " connection=" + std::to_string(connection.id) +
                            " exhausted retries: " + why);
@@ -3993,6 +4061,14 @@ private:
             // prevents an idle NewSessionTicket from being mistaken for an
             // unsolicited application response.
             arm(connection, 0);
+        } else if (run_mode_ == ReactorRunMode::PRIME) {
+            if (connection.task != nullptr || connection.request.empty() ||
+                connection.prime_complete) {
+                fatal_.set("HEAD-prime TLS handshake completed without a request");
+                return false;
+            }
+            connection.state = ConnectionState::WRITING_REQUEST;
+            arm(connection, EPOLLOUT);
         } else {
             if (connection.task == nullptr || connection.request.empty()) {
                 fatal_.set("transfer TLS handshake completed without a request");
@@ -4120,6 +4196,126 @@ private:
         set_first_local(telemetry_counters_.first_headers_ns, headers_ns);
         begin_payload_phase(connection);
         return true;
+    }
+
+    bool validate_prime_headers(Connection &connection) {
+        if (connection.preconnect_target == nullptr) {
+            fatal_.set("HEAD prime lost its object target");
+            return false;
+        }
+        const ParsedResponse &response = connection.headers.parsed();
+        if (response.status != 200) {
+            const std::string detail =
+                "HEAD prime returned HTTP " + std::to_string(response.status) +
+                " " + response.reason + "; S3 headers: " +
+                s3_diagnostic_headers(response);
+            print_line("HTTP_ERROR prime=head_object ", detail);
+            stats_.http_errors.fetch_add(1);
+            if (response.status == 429 || response.status == 500 ||
+                response.status == 502 || response.status == 503 ||
+                response.status == 504) {
+                network_retry(connection, detail);
+            } else {
+                fatal_.set(detail + " (redirects are not followed)");
+            }
+            return false;
+        }
+        if (response.transfer_encoding_present) {
+            protocol_failure(connection,
+                "HEAD prime response unexpectedly used Transfer-Encoding");
+            return false;
+        }
+        Object &object = *connection.preconnect_target;
+        if (!response.content_length || response.count("content-length") != 1 ||
+            *response.content_length != object.size) {
+            protocol_failure(connection,
+                "HEAD prime must return one Content-Length equal to catalog size");
+            return false;
+        }
+        const auto etag = response.get("etag");
+        if (!etag || response.count("etag") != 1 || etag->empty() ||
+            etag->find_first_of("\r\n") != std::string::npos) {
+            protocol_failure(connection,
+                "HEAD prime must return exactly one valid ETag");
+            return false;
+        }
+        const std::optional<std::string> catalog_etag =
+            object_etag_for_request(object);
+        if (object.etag_from_catalog &&
+            (!catalog_etag || *catalog_etag != *etag)) {
+            protocol_failure(connection,
+                "HEAD prime ETag differs from the catalog snapshot");
+            return false;
+        }
+        const auto encoding = response.get("content-encoding");
+        if (response.count("content-encoding") > 1) {
+            protocol_failure(connection,
+                "HEAD prime returned duplicate Content-Encoding headers");
+            return false;
+        }
+        if (encoding && lower(trim(*encoding)) != "identity") {
+            protocol_failure(connection,
+                "HEAD prime returned an unexpected Content-Encoding");
+            return false;
+        }
+        if (response.connection_close) {
+            network_retry(connection,
+                "HEAD prime response requested Connection: close");
+            return false;
+        }
+        increment_local(telemetry_counters_.headers_validated);
+        set_first_local(telemetry_counters_.first_headers_ns, now_ns());
+        connection.prime_complete = true;
+        connection.request.clear();
+        connection.request_offset = 0;
+        connection.headers.reset();
+        connection.close_after_response = false;
+        connection.state = ConnectionState::IDLE;
+        arm(connection, 0);
+        return true;
+    }
+
+    bool drive_prime_read(Connection &connection) {
+        if (!connection.tls_rx.installed) {
+            fatal_.set("HEAD-prime read attempted before RX kTLS activation");
+            return false;
+        }
+        for (unsigned record = 0; record < 256; ++record) {
+            DirectTlsReadResult read = direct_tls_recv(
+                connection.fd.get(), connection.tls_rx,
+                prime_read_buffer_.data(), prime_read_buffer_.size(), stats_,
+                &direct_recv_counters_);
+            if (read.status == DirectTlsReadStatus::WANT_READ) {
+                arm(connection, EPOLLIN);
+                return false;
+            }
+            if (read.status == DirectTlsReadStatus::CONTROL_CONSUMED) continue;
+            if (read.status == DirectTlsReadStatus::PEER_CLOSED ||
+                read.status == DirectTlsReadStatus::CONNECTION_ERROR) {
+                network_retry(connection,
+                    "HEAD-prime direct kTLS receive: " + read.detail, true);
+                return false;
+            }
+            size_t body_offset = 0;
+            bool complete = false;
+            try {
+                complete = connection.headers.consume(
+                    prime_read_buffer_.data(), read.bytes, body_offset);
+            } catch (const std::exception &e) {
+                protocol_failure(connection, e.what());
+                return false;
+            }
+            if (!complete) continue;
+            if (body_offset != read.bytes) {
+                protocol_failure(connection,
+                    "HEAD prime returned application payload bytes");
+                return false;
+            }
+            (void)validate_prime_headers(connection);
+            return false;
+        }
+        arm(connection, EPOLLIN);
+        return false;
     }
 
     bool submit_payload(Connection &connection, Slot &slot,
@@ -4347,7 +4543,10 @@ private:
     bool drive(Connection &connection) {
         switch (connection.state) {
             case ConnectionState::IDLE:
-                assign_task(connection);
+                if (run_mode_ == ReactorRunMode::PRIME)
+                    assign_prime(connection);
+                else if (run_mode_ == ReactorRunMode::TRANSFER)
+                    assign_task(connection);
                 return connection.state != ConnectionState::IDLE;
             case ConnectionState::TCP_CONNECTING:
                 return finish_tcp_connect(connection);
@@ -4357,7 +4556,8 @@ private:
                 return drive_write(connection);
             case ConnectionState::READING_HEADERS:
             case ConnectionState::READING_BODY:
-                return drive_read(connection);
+                return run_mode_ == ReactorRunMode::PRIME
+                    ? drive_prime_read(connection) : drive_read(connection);
             case ConnectionState::WAITING_H2D:
                 finish_waiting(connection);
                 return false;
@@ -4372,9 +4572,12 @@ private:
             // data is unsolicited.  Drop the idle persistent transport and
             // reconnect when another task arrives; this also avoids a
             // level-triggered epoll loop on an unread close_notify.
-            if (run_mode_ == ReactorRunMode::PRECONNECT)
+            if (run_mode_ == ReactorRunMode::PRECONNECT ||
+                run_mode_ == ReactorRunMode::PRIME)
                 network_retry(connection,
-                              "preconnected socket became readable while idle");
+                    run_mode_ == ReactorRunMode::PRECONNECT
+                        ? "preconnected socket became readable while idle"
+                        : "HEAD-primed socket became readable while idle");
             else
                 close_transport(connection);
             return;
@@ -4382,10 +4585,13 @@ private:
         if ((events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0) {
             if (connection.state == ConnectionState::WAITING_H2D ||
                 connection.state == ConnectionState::IDLE) {
-                if (run_mode_ == ReactorRunMode::PRECONNECT &&
+                if ((run_mode_ == ReactorRunMode::PRECONNECT ||
+                     run_mode_ == ReactorRunMode::PRIME) &&
                     connection.state == ConnectionState::IDLE)
                     network_retry(connection,
-                                  "preconnected socket closed while idle");
+                        run_mode_ == ReactorRunMode::PRECONNECT
+                            ? "preconnected socket closed while idle"
+                            : "HEAD-primed socket closed while idle");
                 else
                     close_transport(connection);
                 return;
@@ -4410,7 +4616,8 @@ private:
         } else if ((events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0 &&
             connection.fd &&
             (connection.task != nullptr ||
-             run_mode_ == ReactorRunMode::PRECONNECT) &&
+             run_mode_ == ReactorRunMode::PRECONNECT ||
+             run_mode_ == ReactorRunMode::PRIME) &&
             connection.state != ConnectionState::WAITING_H2D && !fatal_.failed()) {
             network_retry(connection, "epoll reported socket close/error");
         }
@@ -4452,6 +4659,28 @@ private:
                         if (connection != nullptr)
                             service(*connection, events[i].events);
                     }
+                }
+            } else if (run_mode_ == ReactorRunMode::PRIME) {
+                while (!fatal_.failed() &&
+                       prime_complete_count() != connections_.size()) {
+                    for (auto &holder : connections_)
+                        if (holder->state == ConnectionState::IDLE &&
+                            !holder->prime_complete)
+                            assign_prime(*holder);
+                    const int count = ::epoll_wait(
+                        epoll_.get(), events.data(),
+                        static_cast<int>(events.size()), 25);
+                    if (count < 0) {
+                        if (errno == EINTR) continue;
+                        fail("epoll_wait(HEAD prime): " + errno_string());
+                    }
+                    for (int i = 0; i < count && !fatal_.failed(); ++i) {
+                        auto *connection = static_cast<Connection *>(
+                            events[i].data.ptr);
+                        if (connection != nullptr)
+                            service(*connection, events[i].events);
+                    }
+                    publish_direct_recv_counters();
                 }
             } else {
                 while (!fatal_.failed() && scheduler_.remaining() != 0) {
@@ -4503,6 +4732,11 @@ private:
                                (!holder->fd || holder->ssl == nullptr ||
                                 !holder->tls_rx.installed)) {
                         fatal_.set("preconnect reactor retained an incomplete transport");
+                    } else if (run_mode_ == ReactorRunMode::PRIME &&
+                               (!holder->prime_complete || !holder->fd ||
+                                holder->ssl == nullptr ||
+                                !holder->tls_rx.installed)) {
+                        fatal_.set("HEAD-prime reactor retained an incomplete pool");
                     }
                 }
             }
@@ -4553,6 +4787,7 @@ private:
     uint64_t epoll_ctl_calls_ = 0;
     uint64_t epoll_ctl_skips_ = 0;
     DirectTlsReadCounters direct_recv_counters_;
+    std::array<unsigned char, kTlsPlaintextRecordMax> prime_read_buffer_{};
     std::atomic<uint64_t> ktls_recv_calls_published_{0};
     std::atomic<uint64_t> ktls_recv_eagain_published_{0};
     ReactorTelemetryCounters telemetry_counters_;
@@ -4683,6 +4918,22 @@ uint64_t total_preconnect_retries(
     uint64_t total = 0;
     for (const auto &reactor : reactors)
         total += reactor->preconnect_retry_count();
+    return total;
+}
+
+uint64_t total_prime_retries(
+        const std::vector<std::unique_ptr<Reactor>> &reactors) {
+    uint64_t total = 0;
+    for (const auto &reactor : reactors)
+        total += reactor->prime_retry_count();
+    return total;
+}
+
+uint64_t total_prime_completions(
+        const std::vector<std::unique_ptr<Reactor>> &reactors) {
+    uint64_t total = 0;
+    for (const auto &reactor : reactors)
+        total += reactor->prime_complete_count();
     return total;
 }
 
@@ -4836,6 +5087,8 @@ void print_config(const Options &opt, const std::vector<NicInfo> &nics,
                " scan_warmup_iterations=0",
                " connection_pool_preconnect=transport_only",
                " preconnect_http_requests=0 preconnect_payload_bytes=0",
+               " connection_pool_prime=head_object",
+               " prime_requests_per_connection=1 prime_payload_bytes=0",
                " persistent_pool_across_iterations=yes",
                " gpu_reserve_bytes=", opt.gpu_reserve_bytes,
                " max_retries=", opt.max_retries);
@@ -4847,7 +5100,8 @@ void print_config(const Options &opt, const std::vector<NicInfo> &nics,
                " reactor_cpu_shared=", telemetry_cpu >= 0 ? "no" : "WARNING");
     print_line("catalog_snapshot=", opt.catalog_snapshot,
                " metadata_model=database_metastore_snapshot",
-               " size_metadata=all head_requests=0");
+               " size_metadata=all catalog_head_requests=0",
+               " query_head_requests=0");
     print_line("objects=", objects.size(), " expected_bytes=", total_bytes);
     for (const auto &[gpu, bytes] : planned)
         print_line("GPU_PLAN gpu=", gpu, " objects=", planned_objects[gpu],
@@ -5160,6 +5414,15 @@ struct StartupTimings {
     uint64_t preconnect_reconnects = 0;
     uint64_t preconnect_tls_rx_sw_delta = 0;
     bool preconnect_tls_stats_available = false;
+    uint64_t prime_begin_ns = 0;
+    uint64_t prime_end_ns = 0;
+    uint64_t prime_connections = 0;
+    uint64_t prime_ktls_connections = 0;
+    uint64_t prime_http_requests = 0;
+    uint64_t prime_responses = 0;
+    uint64_t prime_ktls_recv_calls = 0;
+    uint64_t prime_retries = 0;
+    uint64_t prime_reconnects = 0;
 };
 
 bool validate_and_report_preconnect(
@@ -5298,6 +5561,105 @@ bool validate_and_report_preconnect(
     return !fatal.failed();
 }
 
+bool validate_and_report_prime(
+        const std::vector<std::unique_ptr<Object>> &objects,
+        const std::vector<std::unique_ptr<Reactor>> &reactors,
+        const Scheduler &scheduler, RunStats &stats, FatalState &fatal,
+        uint64_t configured_connections, Clock::time_point start,
+        Clock::time_point end, StartupTimings &startup) {
+    const ReactorTelemetryAggregate telemetry =
+        aggregate_reactor_telemetry(reactors, stats.lane.size(), false);
+    const uint64_t live = live_reactor_connections(reactors);
+    const uint64_t live_ktls = live_reactor_ktls_connections(reactors);
+    const uint64_t completions = total_prime_completions(reactors);
+    const uint64_t retries = total_prime_retries(reactors);
+    const uint64_t recv_calls = total_ktls_recv_calls(stats, reactors);
+    uint64_t receive_only_bytes = 0;
+    uint64_t receive_only_chunks = 0;
+    for (const auto &reactor : reactors) {
+        receive_only_bytes += reactor->receive_only_bytes();
+        receive_only_chunks += reactor->receive_only_chunks();
+    }
+
+    if (scheduler.remaining() != scheduler.task_count())
+        fatal.set("HEAD prime consumed scheduler tasks");
+    for (const auto &task : scheduler.tasks()) {
+        if (task->state.load(std::memory_order_acquire) != TaskState::PENDING ||
+            task->received != 0 || task->h2d_completed_attempt != 0 ||
+            task->pending_h2d != 0 || task->retries != 0) {
+            fatal.set("HEAD prime mutated a Range task");
+            break;
+        }
+    }
+    for (const auto &object : objects) {
+        if (object->completed_bytes.load(std::memory_order_relaxed) != 0 ||
+            object->completed_ranges.load(std::memory_order_relaxed) != 0) {
+            fatal.set("HEAD prime mutated object completion state");
+            break;
+        }
+    }
+    if (telemetry.requests_sent < configured_connections ||
+        telemetry.headers_validated < configured_connections ||
+        completions != configured_connections)
+        fatal.set("HEAD prime did not leave every connection with a validated response");
+    if (telemetry.payload_connections != 0 || telemetry.active_ranges != 0 ||
+        telemetry.network_ranges_completed != 0 ||
+        telemetry.device_ranges_completed != 0 ||
+        telemetry.first_body_ns != 0 || telemetry.last_body_ns != 0)
+        fatal.set("HEAD prime produced payload/range telemetry");
+    if (stats.body_bytes.load() != 0 ||
+        stats.h2d_submitted_bytes.load() != 0 ||
+        stats.h2d_submitted_copies.load() != 0 ||
+        stats.h2d_completed_bytes.load() != 0 ||
+        stats.h2d_completed_copies.load() != 0 ||
+        receive_only_bytes != 0 || receive_only_chunks != 0)
+        fatal.set("HEAD prime moved payload bytes");
+    if (stats.completed_ranges.load() != 0 || stats.retries.load() != 0 ||
+        stats.cuda_errors.load() != 0)
+        fatal.set("HEAD prime changed transfer counters");
+    if (stats.pinned_used.load() != 0 || stats.pinned_peak.load() != 0)
+        fatal.set("HEAD prime acquired a pinned payload slot");
+    if (recv_calls < configured_connections)
+        fatal.set("HEAD prime did not receive one response through kTLS per connection");
+    if (live != configured_connections || live_ktls != configured_connections)
+        fatal.set("HEAD prime did not retain the full RX-kTLS pool");
+    if (stats.active_connections.load() != live)
+        fatal.set("HEAD-prime live connection accounting mismatch");
+    if (stats.ktls_rx_enabled.load() != stats.tls_established.load())
+        fatal.set("a HEAD-prime replacement transport lacked RX kTLS");
+    if (stats.no_pad_attempted.load() != stats.no_pad_succeeded.load())
+        fatal.set("TLS_RX_EXPECT_NO_PAD failed during HEAD prime");
+
+    startup.prime_connections = live;
+    startup.prime_ktls_connections = live_ktls;
+    startup.prime_http_requests = telemetry.requests_sent;
+    startup.prime_responses = telemetry.headers_validated;
+    startup.prime_ktls_recv_calls = recv_calls;
+    startup.prime_retries = retries;
+    startup.prime_reconnects = stats.reconnects.load();
+
+    const size_t tasks_consumed = scheduler.task_count() >= scheduler.remaining()
+        ? scheduler.task_count() - scheduler.remaining() : scheduler.task_count();
+    print_line("PRIME_RESULT mode=head_object",
+               " connections=", live,
+               " ktls_connections=", live_ktls,
+               " http_requests=", telemetry.requests_sent,
+               " responses_validated=", telemetry.headers_validated,
+               std::fixed, std::setprecision(6),
+               " wall_s=", std::chrono::duration<double>(end - start).count(),
+               " scheduler_tasks_consumed=", tasks_consumed,
+               " s3_body_bytes=", stats.body_bytes.load(),
+               " h2d_bytes=", stats.h2d_completed_bytes.load(),
+               " pinned_peak_slots=", stats.pinned_peak.load(),
+               " ktls_recv_calls=", recv_calls,
+               " retries=", retries,
+               " reconnects=", stats.reconnects.load(),
+               " http_errors=", stats.http_errors.load(),
+               " tls_errors=", stats.tls_errors.load(),
+               " pass=", fatal.failed() ? "false" : "true");
+    return !fatal.failed();
+}
+
 struct FinalInputs {
     Clock::time_point start;
     Clock::time_point end;
@@ -5399,7 +5761,7 @@ bool print_iteration_checkpoint(
     print_line("ITERATION_RESULT role=measured",
                " sequence=", sequence,
                " measured_index=", measured_index,
-               " pool_mode=preconnected",
+               " pool_mode=head_primed",
                " pool_connections_at_start=", pool_connections_at_start,
                " pool_connections_live_at_end=", live,
                " new_tls_connections=", new_tls,
@@ -5630,7 +5992,7 @@ bool print_final_summary(const Options &opt, const std::vector<Lane> &lanes,
     print_line("ITERATION role=measured",
                " sequence=", input.sequence,
                " measured_index=", input.measured_index,
-               " pool_mode=preconnected",
+               " pool_mode=head_primed",
                " pool_connections_at_start=", input.pool_connections_at_start,
                " pool_connections_live_at_end=", live_connections,
                " pool_ktls_connections_live_at_end=", live_ktls_connections,
@@ -5655,7 +6017,8 @@ bool print_final_summary(const Options &opt, const std::vector<Lane> &lanes,
                " catalog_objects=", input.startup.catalog_objects,
                " catalog_size_metadata=all",
                " catalog_etags=", input.startup.catalog_etags,
-               " head_requests=0",
+               " catalog_head_requests=0",
+               " query_head_requests=0",
                " gpu_allocate_plan_s=", interval_seconds(
                    input.startup.allocation_begin_ns,
                    input.startup.allocation_end_ns),
@@ -5683,9 +6046,23 @@ bool print_final_summary(const Options &opt, const std::vector<Lane> &lanes,
                    input.startup.preconnect_begin_ns,
                    input.startup.preconnect_tls_100_ns),
                " preconnect_http_requests=0 preconnect_s3_body_bytes=0",
-               " preconnect_h2d_bytes=0");
+               " preconnect_h2d_bytes=0",
+               " prime_s=", interval_seconds(
+                   input.startup.prime_begin_ns,
+                   input.startup.prime_end_ns),
+               " prime_mode=head_object",
+               " prime_connections=", input.startup.prime_connections,
+               " prime_ktls_connections=",
+               input.startup.prime_ktls_connections,
+               " prime_http_requests=", input.startup.prime_http_requests,
+               " prime_responses=", input.startup.prime_responses,
+               " prime_s3_body_bytes=0 prime_h2d_bytes=0",
+               " prime_ktls_recv_calls=",
+               input.startup.prime_ktls_recv_calls,
+               " prime_retries=", input.startup.prime_retries,
+               " prime_reconnects=", input.startup.prime_reconnects);
     print_line("GET_RAMP timer_origin=before_reactor_threads",
-               " pool_mode=preconnected",
+               " pool_mode=head_primed",
                " pool_connections_at_start=", input.pool_connections_at_start,
                " configured_connections=", input.configured_connections,
                " expected_tasked_connections=", expected_get_connections,
@@ -5935,7 +6312,7 @@ bool print_final_summary(const Options &opt, const std::vector<Lane> &lanes,
          << ",\"measured_iteration\":" << input.measured_index
          << ",\"measured_iterations_configured\":" << opt.iterations
          << ",\"scan_warmup_iterations\":0"
-         << ",\"connection_pool_mode\":\"preconnected\""
+         << ",\"connection_pool_mode\":\"head_primed\""
          << ",\"pool_connections_at_start\":"
          << input.pool_connections_at_start
          << ",\"pool_connections_live_at_end\":" << live_connections
@@ -5983,6 +6360,8 @@ bool print_final_summary(const Options &opt, const std::vector<Lane> &lanes,
          << ",\"catalog_sizes\":" << input.startup.catalog_objects
          << ",\"catalog_etags\":" << input.startup.catalog_etags
          << ",\"head_requests\":0"
+         << ",\"catalog_head_requests\":0"
+         << ",\"query_head_requests\":0"
          << ",\"pretransfer_gpu_allocate_plan_s\":" << interval_seconds(
                 input.startup.allocation_begin_ns,
                 input.startup.allocation_end_ns)
@@ -6024,6 +6403,22 @@ bool print_final_summary(const Options &opt, const std::vector<Lane> &lanes,
     else
         json << "null";
     json
+         << ",\"prime_mode\":\"head_object\""
+         << ",\"prime_s\":" << interval_seconds(
+                input.startup.prime_begin_ns,
+                input.startup.prime_end_ns)
+         << ",\"prime_connections\":" << input.startup.prime_connections
+         << ",\"prime_ktls_connections\":"
+         << input.startup.prime_ktls_connections
+         << ",\"prime_http_requests\":"
+         << input.startup.prime_http_requests
+         << ",\"prime_responses\":" << input.startup.prime_responses
+         << ",\"prime_s3_body_bytes\":0"
+         << ",\"prime_h2d_bytes\":0"
+         << ",\"prime_ktls_recv_calls\":"
+         << input.startup.prime_ktls_recv_calls
+         << ",\"prime_retries\":" << input.startup.prime_retries
+         << ",\"prime_reconnects\":" << input.startup.prime_reconnects
          << ",\"get_connections_configured\":" << input.configured_connections
          << ",\"get_connections_expected\":" << expected_get_connections
          << ",\"get_tls_ready\":" << reactor_telemetry.tls_ready
@@ -6323,6 +6718,34 @@ void run_self_tests() {
                           std::string::npos &&
                       signed_request.find("secret-example") == std::string::npos,
                       "SigV4 request construction");
+    const std::string signed_head = make_signed_request(
+        "HEAD", {"bucket.s3.us-east-2.amazonaws.com", "/a%20b"},
+        std::nullopt, std::nullopt, "us-east-2", credentials, true);
+    require_self_test(starts_with(signed_head, "HEAD /a%20b HTTP/1.1\r\n") &&
+                          signed_head.find("Range:") == std::string::npos &&
+                          signed_head.find("If-Match:") == std::string::npos &&
+                          signed_head.find("Connection: keep-alive\r\n") !=
+                              std::string::npos,
+                      "bodyless HEAD-prime request construction");
+    const std::string head_wire =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 10\r\n"
+        "ETag: \"etag-example\"\r\n"
+        "Connection: keep-alive\r\n\r\n";
+    HeaderAccumulator head_accumulator;
+    size_t head_body_offset = 0;
+    require_self_test(
+        head_accumulator.consume(
+            reinterpret_cast<const unsigned char *>(head_wire.data()),
+            head_wire.size(), head_body_offset) &&
+            head_body_offset == head_wire.size() &&
+            head_accumulator.parsed().status == 200 &&
+            head_accumulator.parsed().content_length ==
+                std::optional<uint64_t>(10) &&
+            head_accumulator.parsed().get("etag") ==
+                std::optional<std::string>("\"etag-example\"") &&
+            !head_accumulator.parsed().connection_close,
+        "bodyless HEAD-prime response parsing");
     require_self_test(json_escape("a\n\"b") == "a\\n\\\"b",
                       "JSON escaping");
     const CatalogObjectSpec hinted = parse_catalog_snapshot_line(
@@ -6419,7 +6842,8 @@ void run_self_tests() {
     print_line("SELF_TEST PASS sha256=yes hmac_sha256=yes tls13_hkdf=yes "
                "keylog_capture=yes tls_control=yes uri=yes http=yes "
                "content_range=yes sigv4=yes json=yes catalog_snapshot=yes "
-               "retry_accounting=yes transport_only_preconnect=yes");
+               "retry_accounting=yes transport_only_preconnect=yes "
+               "head_connection_prime=yes");
 }
 
 int run_program(int argc, char **argv) {
@@ -6472,6 +6896,7 @@ int run_program(int argc, char **argv) {
                " size_metadata=all",
                " etag_metadata=", catalog_etag_count,
                " head_requests=0",
+               " catalog_head_requests=0",
                " bytes=", total_object_bytes);
 
     startup.allocation_begin_ns = now_ns();
@@ -6572,6 +6997,27 @@ int run_program(int argc, char **argv) {
             startup))
         return 2;
 
+    // Exercise the S3 HTTP request path once on every retained transport
+    // without transferring object payload or consuming a Range.  This makes
+    // the measured pool S3-ready while keeping the distinction between
+    // connection priming and scan/data warming mechanically auditable.
+    stats.reset_transfer_counters();
+    for (auto &reactor : reactors) reactor->prepare_for_prime();
+    const auto prime_start = Clock::now();
+    startup.prime_begin_ns = clock_time_ns(prime_start);
+    print_line("PRIME_START mode=head_object",
+               " configured_connections=", configured_connections,
+               " expected_http_requests=", configured_connections,
+               " expected_payload_bytes=0 scheduler_tasks_consumed=0");
+    for (auto &reactor : reactors) reactor->start();
+    for (auto &reactor : reactors) reactor->join();
+    const auto prime_end = Clock::now();
+    startup.prime_end_ns = clock_time_ns(prime_end);
+    if (!validate_and_report_prime(
+            objects, reactors, scheduler, stats, fatal,
+            configured_connections, prime_start, prime_end, startup))
+        return 2;
+
     bool pass = false;
     for (unsigned sequence = 1; sequence <= opt.iterations; ++sequence) {
         if (sequence > 1) scheduler.reset_for_iteration();
@@ -6590,7 +7036,7 @@ int run_program(int argc, char **argv) {
         print_line("ITERATION_START role=measured",
                    " sequence=", sequence,
                    " measured_index=", measured_index,
-                   " pool_mode=preconnected",
+                   " pool_mode=head_primed",
                    " pool_connections_at_start=", pool_connections_at_start,
                    " pool_ktls_connections_at_start=", pool_ktls_at_start);
 
@@ -6621,12 +7067,12 @@ int run_program(int argc, char **argv) {
             fail("getrusage after transfer: " + errno_string());
 
         const bool last = sequence == opt.iterations;
+        pass = print_iteration_checkpoint(
+            opt, objects, reactors, scheduler, stats, fatal,
+            transfer_start, transfer_end,
+            sequence, measured_index,
+            pool_connections_at_start, tls_connections_before);
         if (!last) {
-            pass = print_iteration_checkpoint(
-                opt, objects, reactors, scheduler, stats, fatal,
-                transfer_start, transfer_end,
-                sequence, measured_index,
-                pool_connections_at_start, tls_connections_before);
             if (!pass) break;
             continue;
         }
@@ -6653,7 +7099,7 @@ int run_program(int argc, char **argv) {
         final.startup = startup;
         final.ramp_samples = telemetry.ramp_samples();
         pass = print_final_summary(opt, lanes, objects, reactors, scheduler,
-                                   stats, fatal, final);
+                                   stats, fatal, final) && pass;
     }
     // DeviceAllocation members remain alive until after the summary and
     // RESULT_JSON have been emitted.  Their destructors cudaFree only on exit.
