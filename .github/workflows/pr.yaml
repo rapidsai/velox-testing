@@ -37,9 +37,12 @@ jobs:
 
   devcontainer:
     name: devcontainer (${{ matrix.arch }}, ${{ matrix.cuda }})
+    timeout-minutes: 360
     runs-on: linux-${{ matrix.arch }}-cpu8
     permissions:
+      actions: read
       contents: read
+      id-token: write
       packages: read
     strategy:
       fail-fast: false
@@ -47,17 +50,151 @@ jobs:
         arch: [amd64, arm64]
         cuda: ["13.3"]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          path: velox-testing
+          fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
-      - id: build
-        name: Build devcontainer
-        uses: ./.github/actions/build-devcontainer
+      - name: Checkout cuDF
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          arch: ${{ matrix.arch }}
-          cuda: ${{ matrix.cuda }}
-          push: false
+          repository: rapidsai/cudf
+          ref: main
+          path: cudf
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Checkout KvikIO
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: rapidsai/kvikio
+          ref: main
+          path: kvikio
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Checkout Presto
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: prestodb/presto
+          ref: master
+          path: presto
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Checkout rapidsmpf
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: rapidsai/rapidsmpf
+          ref: main
+          path: rapidsmpf
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Checkout RMM
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: rapidsai/rmm
+          ref: main
+          path: rmm
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Checkout UCXX
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: rapidsai/ucxx
+          ref: main
+          path: ucxx
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Checkout Velox
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: facebookincubator/velox
+          ref: main
+          path: velox
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Get sccache credentials
+        shell: bash
+        run: |
+          identity_token="$(
+            curl -fsSL \
+              -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=token.rapids.nvidia.com" \
+            | jq -r '.value'
+          )"
+          sccache_token="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${identity_token}" \
+              https://token.rapids.nvidia.com/gh/token/exchange \
+            | jq -r '.token'
+          )"
+          test -n "${sccache_token}"
+          test "${sccache_token}" != "null"
+          echo "::add-mask::${sccache_token}"
+          echo "SCCACHE_DIST_AUTH_TOKEN=${sccache_token}" >> "${GITHUB_ENV}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6.2.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 43200
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Build in devcontainer
+        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca  # v0.3.1900000450
+        with:
+          push: never
+          checkoutPath: velox-testing
+          configFile: .devcontainer/cuda${{ matrix.cuda }}/devcontainer.json
+          imageName: docker.io/rapidsai/velox-testing-devcontainer
+          imageTag: cuda${{ matrix.cuda }}-${{ matrix.arch }}
+          cacheFrom: ghcr.io/rapidsai/velox-testing/devcontainer:latest-cuda${{ matrix.cuda }}
+          env: |
+            AWS_ACCESS_KEY_ID=${{ env.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY=${{ env.AWS_SECRET_ACCESS_KEY }}
+            AWS_SESSION_TOKEN=${{ env.AWS_SESSION_TOKEN }}
+            SCCACHE_DIST_AUTH_TOKEN=${{ env.SCCACHE_DIST_AUTH_TOKEN }}
+            SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
+            SCCACHE_DIST_MAX_RETRIES=inf
+            SCCACHE_ERROR_LOG=/home/coder/velox-testing/sccache.log
+            SCCACHE_IDLE_TIMEOUT=0
+            SCCACHE_REGION=${{ vars.AWS_REGION }}
+            SCCACHE_SERVER_LOG=sccache=debug
+          runCmd: |
+            set -euo pipefail
+            rapids-make-pip-env || :
+            cd /home/coder/velox-testing
+            sccache --zero-stats
+            build-all -j0
+            sccache --show-adv-stats
+
+      - if: ${{ !cancelled() }}
+        name: Upload sccache logs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: sccache-client-logs-${{ matrix.cuda }}-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: velox-testing/sccache*.log
+          compression-level: 9
 
   detect-changes:
     permissions:
