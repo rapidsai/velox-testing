@@ -92,6 +92,7 @@ class BenchmarkMetadata:
     num_drivers: int | None = None
     gpu_name: str | None = None
     image_digest: str | None = None
+    data_dir: str | None = None
     presto_sha: str | None = None
     presto_branch: str | None = None
     presto_repo: str | None = None
@@ -244,8 +245,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--storage-configuration-name",
-        required=True,
-        help="Storage configuration name",
+        required=False,
+        default=None,
+        help="Storage configuration name. Auto-detected from metadata.json in the dataset "
+        "directory (via data_dir in benchmark_result.json context) if omitted. "
+        "Run register_storage_config.py first to populate metadata.json.",
     )
     parser.add_argument(
         "--cache-state",
@@ -710,6 +714,44 @@ async def _post_submission(api_url: str, api_key: str, payload: dict, timeout: f
     return response.status_code, response.text
 
 
+def _resolve_storage_configuration(data_dir: str | None, benchmark_dir: Path) -> str | None:
+    """Read storage_configuration_name from metadata.json in the dataset directory.
+
+    Tries {data_dir}/metadata.json first, then falls back to {benchmark_dir}/metadata.json
+    (in case metadata was copied alongside the benchmark results).
+    """
+    candidates: list[Path] = []
+    if data_dir:
+        candidates.append(Path(data_dir) / "metadata.json")
+    candidates.append(benchmark_dir / "metadata.json")
+
+    found_any = False
+    for path in candidates:
+        if path.exists():
+            found_any = True
+            try:
+                metadata = json.loads(path.read_text())
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"  Warning: could not read {path}: {e}", file=sys.stderr)
+                continue
+            name = metadata.get("storage_configuration_name")
+            if name:
+                print(f"  Auto-detected storage configuration '{name}' from {path}", file=sys.stderr)
+                return name
+            print(
+                f"  Found {path} but it has no storage_configuration_name. "
+                "Run register_storage_config.py to register this dataset.",
+                file=sys.stderr,
+            )
+
+    if not found_any:
+        print(
+            "  No metadata.json found to auto-detect storage configuration.",
+            file=sys.stderr,
+        )
+    return None
+
+
 async def _process_benchmark_dir(
     benchmark_dir: Path,
     *,
@@ -761,6 +803,32 @@ async def _process_benchmark_dir(
     except (ValueError, KeyError) as e:
         print(f"  Error loading metadata: {e}", file=sys.stderr)
         return 1
+
+    # Resolve storage configuration name: explicit arg → auto-detect from metadata.json.
+    resolved_storage_config = _resolve_storage_configuration(benchmark_metadata.data_dir, benchmark_dir)
+    if storage_configuration_name is None:
+        if resolved_storage_config is None:
+            print(
+                "  Error: --storage-configuration-name was not provided and could not be "
+                "auto-detected. Run register_storage_config.py on the dataset directory first.",
+                file=sys.stderr,
+            )
+            return 1
+        storage_configuration_name = resolved_storage_config
+    elif resolved_storage_config and resolved_storage_config != storage_configuration_name:
+        print(
+            f"  Warning: --storage-configuration-name '{storage_configuration_name}' does not "
+            f"match '{resolved_storage_config}' found in metadata.json. Proceeding with the "
+            "provided value.",
+            file=sys.stderr,
+        )
+    elif resolved_storage_config is None:
+        print(
+            f"  Warning: --storage-configuration-name '{storage_configuration_name}' could not "
+            "be validated — no registered storage_configuration_name found in metadata.json. "
+            "Run register_storage_config.py to register this dataset.",
+            file=sys.stderr,
+        )
 
     # Fall back to the container image_digest captured in the benchmark
     # results context when no explicit identifier_hash was provided on the CLI.

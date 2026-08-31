@@ -31,6 +31,16 @@ class DataGenArgs:
     keep_original_dataset: bool
     approx_row_group_bytes: int
     codec_definitions: str = None
+    register: bool = False
+    register_machine: str = None
+    register_name: str = None
+    register_storage_system: str = None
+    register_compression: str = None
+    register_region: str = "n/a"
+    register_is_gds_enabled: bool = None
+    register_label: list = None
+    register_path: str = None
+    register_dry_run: bool = False
 
 
 @pytest.fixture
