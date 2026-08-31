@@ -206,6 +206,7 @@ jobs:
           cat "${DATA_DIR}/metadata.json"
           echo "--- generated files ---"
           find "${DATA_DIR}" -type f -exec ls -lh {} + | awk '{print $5, $NF}' | sort -k2
+          benchmark_data_tools/scripts/log_parquet_schemas.sh --data-dir-path "${DATA_DIR}"
 
       - &login_ghcr
         name: Log in to the Container registry

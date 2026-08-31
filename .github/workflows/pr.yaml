@@ -78,6 +78,8 @@ jobs:
           filters: |
             benchmark_data_tools:
               - "benchmark_data_tools/**"
+              - "common/testing/integration_tests/data/tpch/**"
+              - "presto/testing/common/schemas/tpch/**"
 
   test_benchmark_data_tools:
     needs: detect-changes
