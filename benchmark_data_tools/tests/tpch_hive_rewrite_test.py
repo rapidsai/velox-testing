@@ -13,9 +13,11 @@ from hive.rewrite_tpch_dataset import (
     SizeCalibration,
     build_date_ranges,
     load_codec_definitions,
+    load_work_spec,
     ordered_source_row_groups,
     parse_args,
     partition_path,
+    scaled_candidate_rows,
     validate_basic_output,
 )
 
@@ -61,6 +63,21 @@ def test_date_ranges_split_month_at_gpu_budget():
     ]
 
 
+def test_date_ranges_do_not_add_a_day_after_reaching_size_tolerance():
+    ranges = build_date_ranges(
+        [estimate(date(1994, 1, day), 10, 55) for day in range(1, 11)],
+        compression_ratio=1.0,
+        target_file_bytes=512,
+        planning_budget_bytes=1024,
+        file_size_tolerance=0.05,
+    )
+
+    assert [(item.minimum_date.day, item.maximum_date.day) for item in ranges] == [
+        (1, 9),
+        (10, 10),
+    ]
+
+
 def test_date_range_rejects_one_day_above_budget():
     with pytest.raises(ValueError, match="One day"):
         build_date_ranges(
@@ -77,6 +94,36 @@ def test_size_calibration_uses_sample_then_completed_files():
     assert calibration.predicted_rows() == 5_120
     calibration.observe(rows=6_000, physical_bytes=600)
     assert calibration.predicted_rows() == 5_120
+
+
+def test_measured_sizing_scales_oversized_candidate_within_same_day():
+    assert scaled_candidate_rows(
+        candidate_rows=8_000_000,
+        physical_bytes=800 * 1024 * 1024,
+        target_bytes=512 * 1024 * 1024,
+        available_rows=8_000_000,
+    ) == 5_120_000
+
+
+def test_measured_sizing_can_grow_candidate_and_caps_at_available_rows():
+    assert scaled_candidate_rows(
+        candidate_rows=4_000_000,
+        physical_bytes=400 * 1024 * 1024,
+        target_bytes=512 * 1024 * 1024,
+        available_rows=6_000_000,
+    ) == 5_120_000
+    assert scaled_candidate_rows(
+        candidate_rows=4_000_000,
+        physical_bytes=200 * 1024 * 1024,
+        target_bytes=512 * 1024 * 1024,
+        available_rows=6_000_000,
+    ) == 6_000_000
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_measured_sizing_rejects_nonpositive_measurements(value):
+    with pytest.raises(ValueError, match="positive"):
+        scaled_candidate_rows(value, 100, 100, 100)
 
 
 def test_flat_source_row_groups_are_ordered_by_key_range(tmp_path):
@@ -180,6 +227,7 @@ def test_cli_exposes_first_version_controls(tmp_path):
             "orders",
             "--codec-definitions",
             str(tmp_path / "codecs.json"),
+            "--overwrite-staging",
             "--overwrite",
         ]
     )
@@ -189,3 +237,77 @@ def test_cli_exposes_first_version_controls(tmp_path):
     assert args.gpu_memory_bytes == 1024
     assert args.tables == ["orders"]
     assert args.overwrite
+    assert args.overwrite_staging
+
+
+def test_work_spec_assigns_independent_months_row_groups_and_copies(tmp_path):
+    path = tmp_path / "worker-03.json"
+    path.write_text(
+        json.dumps(
+            {
+                "worker_id": "worker-03",
+                "partition_tables": {
+                    "orders": {
+                        "first_month": "1993-04",
+                        "last_month": "1993-09",
+                    }
+                },
+                "flat_tables": {
+                    "partsupp": {
+                        "first_row_group": 24,
+                        "last_row_group": 32,
+                    }
+                },
+                "copy_tables": ["nation"],
+            }
+        )
+    )
+
+    work = load_work_spec(path)
+
+    assert work.worker_id == "worker-03"
+    assert work.partition_tables["orders"].bounds() == (
+        date(1993, 4, 1),
+        date(1993, 9, 30),
+    )
+    assert work.flat_tables["partsupp"].first_row_group == 24
+    assert work.copy_tables == ("nation",)
+
+
+@pytest.mark.parametrize(
+    "data, message",
+    [
+        ({"worker_id": "", "copy_tables": ["nation"]}, "worker_id"),
+        (
+            {
+                "worker_id": "worker",
+                "partition_tables": {
+                    "orders": {
+                        "first_month": "1994-02",
+                        "last_month": "1994-01",
+                    }
+                },
+            },
+            "reversed",
+        ),
+        (
+            {
+                "worker_id": "worker",
+                "flat_tables": {
+                    "customer": {
+                        "first_row_group": 4,
+                        "last_row_group": 4,
+                    }
+                },
+            },
+            "Invalid row-group range",
+        ),
+        ({"worker_id": "worker", "copy_tables": ["unknown"]}, "Unknown tables"),
+    ],
+)
+def test_work_spec_rejects_invalid_assignments(tmp_path, data, message):
+    path = tmp_path / "invalid.json"
+    path.write_text(json.dumps(data))
+
+    with pytest.raises(ValueError, match=message):
+        load_work_spec(path)
