@@ -27,6 +27,7 @@ required=(
   COORDINATOR_QUERY_MEMORY_PER_NODE_GIB WORKER_SYSTEM_MEMORY_GIB
   WORKER_QUERY_MEMORY_GIB WORKER_MEMORY_LIMIT_GIB WORKER_MEMORY_SHRINK_GIB
   ASYNC_DATA_CACHE_ENABLED ASYNC_CACHE_SSD_GIB ASYNC_CACHE_NUM_SHARDS
+  SPILL_ENABLED SPILL_PATH MAX_SPILL_GIB QUERY_MAX_SPILL_GIB
   COORDINATOR_IMAGE WORKER_IMAGE
 )
 for name in "${required[@]}"; do
@@ -194,6 +195,14 @@ if [[ ${ROLE} == coordinator ]]; then
   fi
   set_property "${final}/config.properties" experimental.enable-dynamic-filtering \
     "${DYNAMIC_FILTERING_ENABLED}"
+  upsert_property "${final}/config.properties" experimental.spill-enabled \
+    "${SPILL_ENABLED}"
+  if [[ ${SPILL_ENABLED} == true ]]; then
+    upsert_property "${final}/config.properties" experimental.max-spill-per-node \
+      "${MAX_SPILL_GIB}GB"
+    upsert_property "${final}/config.properties" experimental.query-max-spill-per-node \
+      "${QUERY_MAX_SPILL_GIB}GB"
+  fi
   python3 - "${final}/jvm.config" "${COORDINATOR_HEAP_GIB}" <<'PY'
 import sys
 from pathlib import Path
@@ -241,6 +250,23 @@ else
     "${ASYNC_CACHE_SSD_GIB}"
   upsert_property "${final}/config.properties" async-cache-num-shards \
     "${ASYNC_CACHE_NUM_SHARDS}"
+  # Prestissimo uses its native spill gate on workers. The
+  # experimental.spill-enabled property is the Java coordinator setting and
+  # does not enable Velox operator spilling.
+  upsert_property "${final}/config.properties" spill-enabled \
+    "${SPILL_ENABLED}"
+  if [[ ${SPILL_ENABLED} == true ]]; then
+    upsert_property "${final}/config.properties" max-spill-bytes \
+      "$((MAX_SPILL_GIB * 1024 * 1024 * 1024))"
+    upsert_property "${final}/config.properties" experimental.spiller-spill-path \
+      "${SPILL_PATH}"
+    upsert_property "${final}/config.properties" experimental.max-spill-per-node \
+      "${MAX_SPILL_GIB}GB"
+    upsert_property "${final}/config.properties" experimental.query-max-spill-per-node \
+      "${QUERY_MAX_SPILL_GIB}GB"
+    upsert_property "${final}/config.properties" \
+      experimental.spiller-max-used-space-threshold 0.9
+  fi
   upsert_property "${final}/config.properties" runtime-metrics-collection-enabled \
     true
   if [[ ${ENGINE_VARIANT} == gpu ]]; then
@@ -285,6 +311,8 @@ else
   fi
   set_property "${final}/node.properties" node.id \
     "aws-${RUN_ID}-worker-${WORKER_INDEX}"
+  upsert_property "${final}/node.properties" node.internal-address \
+    "$(hostname -I | awk '{print $1}')"
 fi
 
 cp -a "${final}/." "${assembled}/"
@@ -300,7 +328,11 @@ tuning_id=$(
     "split=${HIVE_MAX_SPLIT_SIZE}" \
     "loader=${HIVE_SPLIT_LOADER_CONCURRENCY}" \
     "dynamic_filtering=${DYNAMIC_FILTERING_ENABLED}" \
-    "exchange_tuning=${CPU_EXCHANGE_TUNING_ENABLED}" |
+    "exchange_tuning=${CPU_EXCHANGE_TUNING_ENABLED}" \
+    "spill_enabled=${SPILL_ENABLED}" \
+    "spill_path=${SPILL_PATH}" \
+    "max_spill_gib=${MAX_SPILL_GIB}" \
+    "query_max_spill_gib=${QUERY_MAX_SPILL_GIB}" |
     sha256sum | cut -c1-12
 )
 history="${runtime_root}/config_history/${tuning_id}/${role_key}"
@@ -314,7 +346,11 @@ cat >"${history}/tuning.json" <<EOF
   "hive_max_split_size": "${HIVE_MAX_SPLIT_SIZE}",
   "hive_split_loader_concurrency": ${HIVE_SPLIT_LOADER_CONCURRENCY},
   "dynamic_filtering_enabled": ${DYNAMIC_FILTERING_ENABLED},
-  "cpu_exchange_tuning_enabled": ${CPU_EXCHANGE_TUNING_ENABLED}
+  "cpu_exchange_tuning_enabled": ${CPU_EXCHANGE_TUNING_ENABLED},
+  "spill_enabled": ${SPILL_ENABLED},
+  "spill_path": "${SPILL_PATH}",
+  "max_spill_gib": ${MAX_SPILL_GIB},
+  "query_max_spill_gib": ${QUERY_MAX_SPILL_GIB}
 }
 EOF
 
@@ -361,7 +397,7 @@ else
   worker_launch_args=()
   worker_logs_dir=${logs_dir}
   worker_data_dir=${data_dir}
-  if ((ASYNC_CACHE_SSD_GIB > 0)); then
+  if ((ASYNC_CACHE_SSD_GIB > 0)) || [[ ${SPILL_ENABLED} == true ]]; then
     cache_mount_args=(-v /mnt/nvme:/mnt/nvme)
   fi
   if [[ ${ENGINE_VARIANT} == gpu ]]; then

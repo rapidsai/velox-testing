@@ -277,6 +277,17 @@ For each query, plot iteration 1 separately and average iterations 2-5 for the
 reported result. The hot/cold distinction comes only from the archived cache
 and input-path configuration, not from a second repetition model.
 
+## Local NVMe spill
+
+`SPILL_ENABLED=true` mounts the worker's instance-store NVMe device at
+`/mnt/nvme` and configures native workers to spill under `SPILL_PATH`.
+Spilling is independent of async data cache, so cache-off runs can use
+`ASYNC_DATA_CACHE_ENABLED=false`, `ASYNC_CACHE_SSD_GIB=0`, and still spill.
+
+When SSD cache and spill share one device, use separate directories and size
+`ASYNC_CACHE_SSD_GIB`, `MAX_SPILL_GIB`, and `QUERY_MAX_SPILL_GIB` to leave
+filesystem headroom.
+
 ## Generated state and artifacts
 
 Local mutable state defaults to:

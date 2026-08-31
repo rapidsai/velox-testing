@@ -69,6 +69,10 @@ def valid_config() -> dict[str, str]:
         "ASYNC_CACHE_SSD_GIB": "0",
         "ASYNC_CACHE_SSD_PATH": "",
         "ASYNC_CACHE_NUM_SHARDS": "16",
+        "SPILL_ENABLED": "false",
+        "SPILL_PATH": "/mnt/nvme/spill",
+        "MAX_SPILL_GIB": "150",
+        "QUERY_MAX_SPILL_GIB": "150",
         "OWNER": "tester",
         "EXPIRY_HOURS": "8",
         "SSM_READY_TIMEOUT_SECONDS": "900",
@@ -190,6 +194,7 @@ class ClusterTest(unittest.TestCase):
         self.assertIn("WORKER_INDEX=3", rendered)
         self.assertIn("COORDINATOR_ADDRESS=10.0.0.1", rendered)
         self.assertIn("ASYNC_DATA_CACHE_ENABLED=false", rendered)
+        self.assertIn("SPILL_ENABLED=false", rendered)
         self.assertIn("TASK_MAX_DRIVERS_PER_TASK=16", rendered)
         self.assertIn("HIVE_MAX_SPLIT_SIZE=256MB", rendered)
         self.assertIn("ENGINE_VARIANT=cpu", rendered)
@@ -204,6 +209,43 @@ class ClusterTest(unittest.TestCase):
         config["CPU_EXCHANGE_TUNING_ENABLED"] = "yes"
         with self.assertRaisesRegex(aws_cluster.ClusterError, "true or false"):
             self.make_cluster(config).validate()
+
+    def test_validation_accepts_spill_without_async_cache(self) -> None:
+        config = valid_config()
+        config["SPILL_ENABLED"] = "true"
+        cluster = self.make_cluster(config)
+        cluster.validate()
+        rendered = cluster.remote_env("10.0.0.1", "worker", 0)
+        self.assertIn("SPILL_ENABLED=true", rendered)
+        self.assertIn("SPILL_PATH=/mnt/nvme/spill", rendered)
+
+    def test_validation_rejects_non_nvme_spill_path(self) -> None:
+        config = valid_config()
+        config["SPILL_ENABLED"] = "true"
+        config["SPILL_PATH"] = "/tmp/spill"
+        with self.assertRaisesRegex(aws_cluster.ClusterError, "under /mnt/nvme"):
+            self.make_cluster(config).validate()
+
+    def test_remote_worker_config_uses_native_spill_gate(self) -> None:
+        configure_script = (
+            Path(__file__).parent / "remote" / "configure_and_start.sh"
+        ).read_text()
+        worker_config = configure_script.split(
+            "else\n  set_property \"${final}/config.properties\" http-server.http.port",
+            1,
+        )[1]
+        self.assertIn(
+            'upsert_property "${final}/config.properties" spill-enabled',
+            worker_config,
+        )
+        self.assertIn(
+            'upsert_property "${final}/config.properties" max-spill-bytes',
+            worker_config,
+        )
+        self.assertIn(
+            'upsert_property "${final}/node.properties" node.internal-address',
+            worker_config,
+        )
 
     def test_validation_accepts_gpu_variant(self) -> None:
         config = valid_config()

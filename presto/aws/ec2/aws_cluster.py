@@ -184,6 +184,10 @@ class Cluster:
             "CUDA_MODULE_LOADING",
             "ASYNC_CACHE_SSD_GIB",
             "ASYNC_CACHE_NUM_SHARDS",
+            "SPILL_ENABLED",
+            "SPILL_PATH",
+            "MAX_SPILL_GIB",
+            "QUERY_MAX_SPILL_GIB",
         )
         if cloud:
             require(
@@ -226,6 +230,8 @@ class Cluster:
             "WORKER_QUERY_MEMORY_GIB",
             "WORKER_MEMORY_LIMIT_GIB",
             "WORKER_MEMORY_SHRINK_GIB",
+            "MAX_SPILL_GIB",
+            "QUERY_MAX_SPILL_GIB",
         ):
             positive_int(self.config, key)
         if self.workers not in (1, 2, 8, 16, 32):
@@ -263,6 +269,7 @@ class Cluster:
             "GPU_USE_BUFFERED_INPUT",
             "GPU_USE_KVIKIO",
             "EFA_ENABLED",
+            "SPILL_ENABLED",
         ):
             value = self.config.get(key, "false")
             if value not in ("true", "false"):
@@ -280,6 +287,15 @@ class Cluster:
             raise ClusterError("ASYNC_CACHE_SSD_PATH is required when ASYNC_CACHE_SSD_GIB is nonzero")
         if ssd_gib and not self.config["ASYNC_CACHE_SSD_PATH"].startswith("/mnt/nvme/"):
             raise ClusterError("ASYNC_CACHE_SSD_PATH must be under /mnt/nvme/")
+        if self.config["SPILL_ENABLED"] == "true":
+            if not self.config["SPILL_PATH"].startswith("/mnt/nvme/"):
+                raise ClusterError("SPILL_PATH must be under /mnt/nvme/")
+            if (
+                ssd_gib
+                and self.config["SPILL_PATH"].rstrip("/")
+                == self.config["ASYNC_CACHE_SSD_PATH"].rstrip("/")
+            ):
+                raise ClusterError("SPILL_PATH and ASYNC_CACHE_SSD_PATH must differ")
         if positive_int(self.config, "WORKER_QUERY_MEMORY_GIB") >= positive_int(
             self.config, "WORKER_SYSTEM_MEMORY_GIB"
         ):
@@ -834,6 +850,10 @@ class Cluster:
             "ASYNC_CACHE_SSD_GIB": self.config["ASYNC_CACHE_SSD_GIB"],
             "ASYNC_CACHE_SSD_PATH": self.config.get("ASYNC_CACHE_SSD_PATH", ""),
             "ASYNC_CACHE_NUM_SHARDS": self.config["ASYNC_CACHE_NUM_SHARDS"],
+            "SPILL_ENABLED": self.config["SPILL_ENABLED"],
+            "SPILL_PATH": self.config["SPILL_PATH"],
+            "MAX_SPILL_GIB": self.config["MAX_SPILL_GIB"],
+            "QUERY_MAX_SPILL_GIB": self.config["QUERY_MAX_SPILL_GIB"],
             "COORDINATOR_IMAGE": self.config["COORDINATOR_IMAGE"],
             "WORKER_IMAGE": self.config["WORKER_IMAGE"],
         }
@@ -843,8 +863,15 @@ class Cluster:
         self.validate(cloud=True)
         coordinator, workers = self.expected_inventory()
         address = coordinator.private_ip or coordinator.private_dns
-        if nonnegative_int(self.config, "ASYNC_CACHE_SSD_GIB"):
-            cache_path = shlex.quote(self.config["ASYNC_CACHE_SSD_PATH"])
+        ssd_gib = nonnegative_int(self.config, "ASYNC_CACHE_SSD_GIB")
+        spill_enabled = self.config["SPILL_ENABLED"] == "true"
+        if ssd_gib or spill_enabled:
+            storage_paths = []
+            if ssd_gib:
+                storage_paths.append(self.config["ASYNC_CACHE_SSD_PATH"])
+            if spill_enabled:
+                storage_paths.append(self.config["SPILL_PATH"])
+            quoted_paths = " ".join(shlex.quote(path) for path in storage_paths)
             prepare_command_id = self.send_command(
                 [worker.instance_id for worker in workers],
                 [
@@ -872,13 +899,13 @@ class Cluster:
                         "fi; "
                         "fi"
                     ),
-                    f"mkdir -p {cache_path}",
-                    f"chmod 0777 /mnt/nvme {cache_path}",
+                    f"mkdir -p {quoted_paths}",
+                    f"chmod 0777 /mnt/nvme {quoted_paths}",
                 ],
-                f"prepare NVMe cache {self.run_id}",
+                f"prepare NVMe storage {self.run_id}",
                 wait=True,
             )
-            self.record_command("prepare_nvme_cache", prepare_command_id)
+            self.record_command("prepare_nvme_storage", prepare_command_id)
         command_id = self.send_command(
             [coordinator.instance_id],
             [
