@@ -8,7 +8,10 @@
 Orders and lineitem are Hive-partitioned by month. Large flat tables are split
 without breaking leading-key groups, and nation and region are copied. Source
 and staging are filesystem paths; the destination may be a filesystem path or
-an S3 URI.
+an S3 URI. Independent workers can share a destination using --work-spec:
+partition-table assignments must cover disjoint whole-month ranges, flat-table
+assignments must cover disjoint half-open row-group ranges, and each copy table
+must have exactly one owner.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import argparse
 import json
 import os
 import shutil
+from calendar import monthrange
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -78,6 +82,33 @@ class DateRange:
     maximum_date: date
     estimated_rows: int
     estimated_uncompressed_bytes: int
+
+
+@dataclass(frozen=True)
+class PartitionWork:
+    first_month: str
+    last_month: str
+
+    def bounds(self) -> tuple[date, date]:
+        first = datetime.strptime(self.first_month, "%Y-%m").date().replace(day=1)
+        last = datetime.strptime(self.last_month, "%Y-%m").date().replace(day=1)
+        if first > last:
+            raise ValueError(f"Partition month range is reversed: {self.first_month}..{self.last_month}")
+        return first, last.replace(day=monthrange(last.year, last.month)[1])
+
+
+@dataclass(frozen=True)
+class FlatWork:
+    first_row_group: int
+    last_row_group: int
+
+
+@dataclass(frozen=True)
+class WorkSpec:
+    worker_id: str
+    partition_tables: dict[str, PartitionWork]
+    flat_tables: dict[str, FlatWork]
+    copy_tables: tuple[str, ...]
 
 
 @dataclass
@@ -158,6 +189,41 @@ def load_codec_definitions(path: Path | None) -> dict[str, dict[str, Any]]:
     return result
 
 
+def load_work_spec(path: Path) -> WorkSpec:
+    data = json.loads(path.read_text())
+    worker_id = data.get("worker_id")
+    if not isinstance(worker_id, str) or not worker_id:
+        raise ValueError("Work spec requires a non-empty worker_id")
+    partition_data = data.get("partition_tables", {})
+    flat_data = data.get("flat_tables", {})
+    copy_tables = tuple(data.get("copy_tables", ()))
+    unknown = (
+        set(partition_data) - set(PARTITION_TABLES)
+        | set(flat_data) - set(FLAT_SPLIT_TABLES)
+        | set(copy_tables) - set(COPY_TABLES)
+    )
+    if unknown:
+        raise ValueError(f"Unknown tables in work spec: {sorted(unknown)}")
+    partition_tables = {
+        table: PartitionWork(item["first_month"], item["last_month"])
+        for table, item in partition_data.items()
+    }
+    for item in partition_tables.values():
+        item.bounds()
+    flat_tables = {
+        table: FlatWork(int(item["first_row_group"]), int(item["last_row_group"]))
+        for table, item in flat_data.items()
+    }
+    for table, item in flat_tables.items():
+        if item.first_row_group < 0 or item.last_row_group <= item.first_row_group:
+            raise ValueError(f"Invalid row-group range for {table}: {item}")
+    if not partition_tables and not flat_tables and not copy_tables:
+        raise ValueError("Work spec has no assigned work")
+    if len(copy_tables) != len(set(copy_tables)):
+        raise ValueError("Work spec contains duplicate copy tables")
+    return WorkSpec(worker_id, partition_tables, flat_tables, copy_tables)
+
+
 def _table_input_metadata(
     gpu_table: Any,
     schema: pa.Schema,
@@ -217,6 +283,21 @@ def validate_basic_output(path: Path, schema: pa.Schema, expected_rows: int) -> 
     return {"rows": expected_rows, "physical_bytes": path.stat().st_size}
 
 
+def scaled_candidate_rows(
+    candidate_rows: int,
+    physical_bytes: int,
+    target_bytes: int,
+    available_rows: int,
+) -> int:
+    """Scale a measured row count toward the physical byte target."""
+    if candidate_rows <= 0 or physical_bytes <= 0 or target_bytes <= 0 or available_rows <= 0:
+        raise ValueError("Measured sizing inputs must be positive")
+    return max(
+        1,
+        min(available_rows, round(candidate_rows * target_bytes / physical_bytes)),
+    )
+
+
 def source_row_group_batches(path: Path, chunk_bytes: int) -> list[tuple[int, ...]]:
     metadata = pq.ParquetFile(path).metadata
     batches: list[tuple[int, ...]] = []
@@ -235,10 +316,43 @@ def source_row_group_batches(path: Path, chunk_bytes: int) -> list[tuple[int, ..
     return batches
 
 
-def read_source_row_groups(path: Path, row_groups: Sequence[int]) -> Any:
+def read_source_row_groups(
+    path: Path,
+    row_groups: Sequence[int],
+    schema: pa.Schema | None = None,
+    date_column: str | None = None,
+    lower: date | None = None,
+    upper: date | None = None,
+) -> Any:
     options = plc.io.parquet.ParquetReaderOptions.builder(plc.io.SourceInfo([str(path)])).build()
     options.set_row_groups([list(row_groups)])
-    return plc.io.parquet.read_parquet(options).tbl
+    if date_column is not None:
+        if schema is None or lower is None or upper is None:
+            raise ValueError("Date-filtered reads require schema and bounds")
+    table = plc.io.parquet.read_parquet(options).tbl
+    if date_column is None:
+        return table
+    dates = table.columns()[schema.names.index(date_column)]
+    bool_type = plc.DataType(plc.TypeId.BOOL8)
+    lower_mask = plc.binaryop.binary_operation(
+        dates,
+        plc.Scalar.from_arrow(pa.scalar(lower, type=pa.date32())),
+        plc.binaryop.BinaryOperator.GREATER_EQUAL,
+        bool_type,
+    )
+    upper_mask = plc.binaryop.binary_operation(
+        dates,
+        plc.Scalar.from_arrow(pa.scalar(upper, type=pa.date32())),
+        plc.binaryop.BinaryOperator.LESS_EQUAL,
+        bool_type,
+    )
+    mask = plc.binaryop.binary_operation(
+        lower_mask,
+        upper_mask,
+        plc.binaryop.BinaryOperator.LOGICAL_AND,
+        bool_type,
+    )
+    return plc.stream_compaction.apply_boolean_mask(table, mask)
 
 
 def sort_gpu_table(gpu_table: Any, schema: pa.Schema, sort_columns: Sequence[str]) -> Any:
@@ -260,15 +374,6 @@ def gpu_planning_budget(gpu_memory_bytes: int) -> int:
     return gpu_input_budget(gpu_memory_bytes) * GPU_PLANNING_SAFETY_PERCENT // 100
 
 
-def _date_filter(schema: pa.Schema, date_column: str, lower: date, upper: date) -> Any:
-    column = plc.expressions.ColumnReference(schema.names.index(date_column))
-    lower_literal = plc.expressions.Literal(plc.Scalar.from_arrow(pa.scalar(lower, type=pa.date32())))
-    upper_literal = plc.expressions.Literal(plc.Scalar.from_arrow(pa.scalar(upper, type=pa.date32())))
-    ge = plc.expressions.Operation(plc.expressions.ASTOperator.GREATER_EQUAL, column, lower_literal)
-    le = plc.expressions.Operation(plc.expressions.ASTOperator.LESS_EQUAL, column, upper_literal)
-    return plc.expressions.Operation(plc.expressions.ASTOperator.LOGICAL_AND, ge, le)
-
-
 def predicate_read_run(
     path: Path,
     schema: pa.Schema,
@@ -277,7 +382,6 @@ def predicate_read_run(
     upper: date,
 ) -> Any:
     options = plc.io.parquet.ParquetReaderOptions.builder(plc.io.SourceInfo([str(path)])).build()
-    options.set_filter(_date_filter(schema, date_column, lower, upper))
     table = plc.io.parquet.read_parquet(options).tbl
     dates = table.columns()[schema.names.index(date_column)]
     bool_type = plc.DataType(plc.TypeId.BOOL8)
@@ -308,6 +412,7 @@ def stage_sorted_runs(
     schema: pa.Schema,
     source_files: Sequence[Path],
     codec: dict[str, Any],
+    work: PartitionWork | None = None,
 ) -> list[Path]:
     spec = TABLE_SPECS[table]
     statistics = table_statistics(source_files)
@@ -315,10 +420,23 @@ def stage_sorted_runs(
     run_dir = args.staging / table / "runs"
     run_dir.mkdir(parents=True)
     runs = []
+    bounds = work.bounds() if work is not None else None
     for source_index, source_file in enumerate(source_files):
         for batch_index, row_groups in enumerate(source_row_group_batches(source_file, args.gpu_read_chunk_bytes)):
             output = run_dir / f"source-{source_index:05d}-batch-{batch_index:05d}.parquet"
-            chunk = read_source_row_groups(source_file, row_groups)
+            chunk = (
+                read_source_row_groups(
+                    source_file,
+                    row_groups,
+                    schema,
+                    spec.date_column,
+                    *bounds,
+                )
+                if bounds is not None
+                else read_source_row_groups(source_file, row_groups)
+            )
+            if chunk.num_rows() == 0:
+                continue
             sorted_chunk = sort_gpu_table(chunk, schema, spec.sort_columns)
             write_gpu_parquet(output, sorted_chunk, schema, row_group_rows, codec)
             runs.append(output)
@@ -370,6 +488,7 @@ def build_date_ranges(
     compression_ratio: float,
     target_file_bytes: int,
     planning_budget_bytes: int,
+    file_size_tolerance: float = 0.05,
 ) -> list[DateRange]:
     """Build month-local ranges, flushing after reaching the size target."""
     ranges: list[DateRange] = []
@@ -394,6 +513,14 @@ def build_date_ranges(
         projected_uncompressed = sum(item.uncompressed_bytes for item in current) + estimate.uncompressed_bytes
         if current and (month_changed or projected_uncompressed > planning_budget_bytes):
             flush()
+        current_compressed = sum(item.uncompressed_bytes for item in current) * compression_ratio
+        projected_compressed = projected_uncompressed * compression_ratio
+        if (
+            current
+            and current_compressed >= target_file_bytes * (1 - file_size_tolerance)
+            and projected_compressed > target_file_bytes * (1 + file_size_tolerance)
+        ):
+            flush()
         if estimate.uncompressed_bytes > planning_budget_bytes:
             raise ValueError(f"One day exceeds the GPU planning budget: {estimate.day}")
         current.append(estimate)
@@ -409,25 +536,39 @@ def rewrite_partition_table(
     destination: OutputDestination,
     table: str,
     codecs: dict[str, dict[str, Any]],
+    work: PartitionWork | None = None,
 ) -> None:
     source_files = parquet_files(args.source / table)
     schema = inspect_schema(source_files)
     statistics = table_statistics(source_files)
     codec = codecs.get(table, {})
-    runs = stage_sorted_runs(args, table, schema, source_files, codec)
+    runs = stage_sorted_runs(args, table, schema, source_files, codec, work)
+    if not runs:
+        raise RuntimeError(f"No source rows found for assigned {table} months")
+    assigned_statistics = table_statistics(runs)
     estimates, compression_ratio = date_estimates(runs, TABLE_SPECS[table].date_column)
     ranges = build_date_ranges(
         estimates,
         compression_ratio,
         args.target_file_bytes,
         gpu_planning_budget(args.gpu_memory_bytes),
+        args.file_size_tolerance,
     )
     row_group_rows = max(1, round(args.row_group_bytes / statistics["uncompressed_bytes_per_row"]))
     spec = TABLE_SPECS[table]
     partition_indices: Counter[str] = Counter()
     output_rows = 0
+    buffer = None
+    calibration = SizeCalibration(
+        args.target_file_bytes,
+        assigned_statistics["rows"],
+        sum(path.stat().st_size for path in runs),
+    )
+    has_measured_output = False
+    minimum_file_bytes = round(args.target_file_bytes * (1 - args.file_size_tolerance))
+    maximum_file_bytes = round(args.target_file_bytes * (1 + args.file_size_tolerance))
 
-    for output_range in ranges:
+    for range_index, output_range in enumerate(ranges):
         pieces = [
             piece
             for run in runs
@@ -448,23 +589,98 @@ def rewrite_partition_table(
             raise RuntimeError(f"{table} date range exceeds the GPU input budget")
         merged = plc.concatenate.concatenate(pieces)
         sorted_table = sort_gpu_table(merged, schema, spec.sort_columns)
-        relative = partition_path(
-            table,
-            spec.partition_column,
-            output_range.partition_value,
-            partition_indices[output_range.partition_value],
+        buffer = sorted_table if buffer is None else plc.concatenate.concatenate([buffer, sorted_table])
+        partition_ends = (
+            range_index + 1 == len(ranges)
+            or ranges[range_index + 1].partition_value != output_range.partition_value
         )
-        local_output = args.staging / table / "output" / relative
-        local_output.parent.mkdir(parents=True, exist_ok=True)
-        write_gpu_parquet(local_output, sorted_table, schema, row_group_rows, codec)
-        details = validate_basic_output(local_output, schema, sorted_table.num_rows())
-        details.update(destination.publish_file(local_output, relative))
-        print(f"{relative}: {details['rows']} rows, {details['physical_bytes'] / MIB:.1f} MiB")
-        output_rows += details["rows"]
-        partition_indices[output_range.partition_value] += 1
-        local_output.unlink()
 
-    if output_rows != statistics["rows"]:
+        while buffer is not None:
+            available_rows = buffer.num_rows()
+            candidate_rows = min(available_rows, calibration.predicted_rows())
+            if candidate_rows == available_rows and not partition_ends:
+                break
+
+            relative = partition_path(
+                table,
+                spec.partition_column,
+                output_range.partition_value,
+                partition_indices[output_range.partition_value],
+            )
+            local_output = args.staging / table / "output" / relative
+            local_output.parent.mkdir(parents=True, exist_ok=True)
+            attempted_rows: set[int] = set()
+            details = None
+
+            for _ in range(12):
+                attempted_rows.add(candidate_rows)
+                candidate = plc.copying.slice(buffer, [0, candidate_rows])[0]
+                local_output.unlink(missing_ok=True)
+                write_gpu_parquet(local_output, candidate, schema, row_group_rows, codec)
+                measured = validate_basic_output(local_output, schema, candidate_rows)
+                physical_bytes = measured["physical_bytes"]
+                is_partition_tail = partition_ends and candidate_rows == available_rows
+
+                if (
+                    minimum_file_bytes <= physical_bytes <= maximum_file_bytes
+                    or (is_partition_tail and physical_bytes <= maximum_file_bytes)
+                ):
+                    details = measured
+                    break
+                if physical_bytes < minimum_file_bytes and candidate_rows == available_rows:
+                    if not partition_ends:
+                        local_output.unlink()
+                        break
+                    details = measured
+                    break
+
+                next_rows = scaled_candidate_rows(
+                    candidate_rows,
+                    physical_bytes,
+                    args.target_file_bytes,
+                    available_rows,
+                )
+                if next_rows == candidate_rows:
+                    next_rows += -1 if physical_bytes > maximum_file_bytes else 1
+                    next_rows = max(1, min(available_rows, next_rows))
+                if next_rows in attempted_rows:
+                    raise RuntimeError(
+                        f"Measured file sizing did not converge for {relative}: "
+                        f"{candidate_rows} rows produced {physical_bytes} bytes"
+                    )
+                candidate_rows = next_rows
+
+            if details is None:
+                if local_output.exists():
+                    local_output.unlink()
+                if not partition_ends:
+                    break
+                raise RuntimeError(f"Measured file sizing did not converge for {relative}")
+
+            details.update(destination.publish_file(local_output, relative))
+            print(f"{relative}: {details['rows']} rows, {details['physical_bytes'] / MIB:.1f} MiB")
+            if not has_measured_output:
+                calibration = SizeCalibration(
+                    args.target_file_bytes,
+                    details["rows"],
+                    details["physical_bytes"],
+                )
+                has_measured_output = True
+            else:
+                calibration.observe(details["rows"], details["physical_bytes"])
+            output_rows += details["rows"]
+            partition_indices[output_range.partition_value] += 1
+            local_output.unlink()
+            buffer = (
+                plc.copying.slice(buffer, [candidate_rows, available_rows])[0]
+                if candidate_rows < available_rows
+                else None
+            )
+
+        if partition_ends and buffer is not None:
+            raise RuntimeError(f"Failed to flush the {table} partition {output_range.partition_value}")
+
+    if output_rows != assigned_statistics["rows"]:
         raise RuntimeError(f"Output row count differs from source for {table}")
     shutil.rmtree(args.staging / table / "runs")
 
@@ -547,12 +763,41 @@ def rewrite_flat_table(
     destination: OutputDestination,
     table: str,
     codecs: dict[str, dict[str, Any]],
+    work: FlatWork | None = None,
 ) -> None:
     source_files = parquet_files(args.source / table)
     schema = inspect_schema(source_files)
     statistics = table_statistics(source_files)
     sort_columns = FLAT_SPLIT_SPECS[table]
     groups = ordered_source_row_groups(source_files, sort_columns)
+    global_group_start = 0
+    if work is not None:
+        if work.last_row_group > len(groups):
+            raise ValueError(f"{table} row-group range ends after {len(groups)}")
+        global_group_start = work.first_row_group
+        if work.first_row_group:
+            previous_path, previous_index = groups[work.first_row_group - 1]
+            current_path, current_index = groups[work.first_row_group]
+            previous_key = _row_group_endpoint_key(
+                pq.ParquetFile(previous_path), previous_index, sort_columns[:1], False
+            )
+            current_key = _row_group_endpoint_key(
+                pq.ParquetFile(current_path), current_index, sort_columns[:1], True
+            )
+            if current_key <= previous_key:
+                raise ValueError(f"{table} work starts inside a {sort_columns[0]} key group")
+        if work.last_row_group < len(groups):
+            current_path, current_index = groups[work.last_row_group - 1]
+            next_path, next_index = groups[work.last_row_group]
+            current_key = _row_group_endpoint_key(
+                pq.ParquetFile(current_path), current_index, sort_columns[:1], False
+            )
+            next_key = _row_group_endpoint_key(
+                pq.ParquetFile(next_path), next_index, sort_columns[:1], True
+            )
+            if next_key <= current_key:
+                raise ValueError(f"{table} work ends inside a {sort_columns[0]} key group")
+        groups = groups[work.first_row_group : work.last_row_group]
     row_group_rows = max(1, round(args.row_group_bytes / statistics["uncompressed_bytes_per_row"]))
     codec = codecs.get(table, {})
     calibration = flat_table_calibration(args, table, schema, groups[0], row_group_rows, codec)
@@ -588,7 +833,11 @@ def rewrite_flat_table(
                 raise RuntimeError(f"{table} leading-key group exceeds one output buffer")
         source_slice = plc.copying.slice(buffer, [0, candidate_rows])[0]
         output_table = sort_gpu_table(source_slice, schema, sort_columns)
-        relative = f"{table}/part-{file_index:05d}.parquet"
+        relative = (
+            f"{table}/part-rg-{global_group_start:08d}-{file_index:05d}.parquet"
+            if work is not None
+            else f"{table}/part-{file_index:05d}.parquet"
+        )
         local_output = args.staging / table / "output" / relative
         local_output.parent.mkdir(parents=True, exist_ok=True)
         write_gpu_parquet(local_output, output_table, schema, row_group_rows, codec)
@@ -603,12 +852,17 @@ def rewrite_flat_table(
             plc.copying.slice(buffer, [candidate_rows, available_rows])[0] if candidate_rows < available_rows else None
         )
 
-    if output_rows != statistics["rows"]:
+    expected_rows = sum(pq.ParquetFile(path).metadata.row_group(index).num_rows for path, index in groups)
+    if output_rows != expected_rows:
         raise RuntimeError(f"Output row count differs from source for {table}")
 
 
-def publish_copy_tables(args: Any, destination: OutputDestination) -> None:
-    for table in COPY_TABLES:
+def publish_copy_tables(
+    args: Any,
+    destination: OutputDestination,
+    tables: Sequence[str] = COPY_TABLES,
+) -> None:
+    for table in tables:
         source_table = args.source / table
         if not source_table.is_dir():
             raise FileNotFoundError(f"Missing source table: {source_table}")
@@ -649,14 +903,23 @@ def run(args: Any) -> None:
             raise ValueError("Source, destination, and staging paths must be disjoint")
 
     codecs = load_codec_definitions(args.codec_definitions)
-    prepare_staging(args.staging, args.overwrite)
+    work_spec = load_work_spec(args.work_spec) if args.work_spec is not None else None
+    prepare_staging(args.staging, args.overwrite or args.overwrite_staging)
     destination = make_destination(location, args.s3_region)
-    destination.prepare(args.overwrite)
+    if work_spec is None:
+        destination.prepare(args.overwrite)
+        for table in args.tables:
+            rewrite_partition_table(args, destination, table, codecs)
+    else:
+        if args.overwrite:
+            raise ValueError("--overwrite cannot be used with a shared work-spec destination")
+        for table, work in work_spec.partition_tables.items():
+            rewrite_partition_table(args, destination, table, codecs, work)
+        for table, work in work_spec.flat_tables.items():
+            rewrite_flat_table(args, destination, table, codecs, work)
+        publish_copy_tables(args, destination, work_spec.copy_tables)
 
-    for table in args.tables:
-        rewrite_partition_table(args, destination, table, codecs)
-
-    if set(args.tables) == set(PARTITION_TABLES):
+    if work_spec is None and set(args.tables) == set(PARTITION_TABLES):
         for table in FLAT_SPLIT_TABLES:
             rewrite_flat_table(args, destination, table, codecs)
         publish_copy_tables(args, destination)
@@ -672,16 +935,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
     )
     parser.add_argument("--target-file-bytes", type=int, default=512 * MIB)
+    parser.add_argument("--file-size-tolerance", type=float, default=0.05)
     parser.add_argument("--row-group-bytes", type=int, default=128 * MIB)
     parser.add_argument("--gpu-read-chunk-bytes", type=int, default=2 * 1024 * MIB)
     parser.add_argument("--gpu-memory-bytes", type=int, default=48 * 1024 * MIB)
     parser.add_argument("--tables", nargs="+", choices=PARTITION_TABLES, default=list(PARTITION_TABLES))
+    parser.add_argument(
+        "--work-spec",
+        type=Path,
+        help="JSON assignment for one independent worker sharing a destination",
+    )
     parser.add_argument("--codec-definitions", type=Path)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--overwrite-staging",
+        action="store_true",
+        help="Replace only local staging; safe for workers sharing a destination",
+    )
     args = parser.parse_args(argv)
     for name in ("target_file_bytes", "row_group_bytes", "gpu_read_chunk_bytes", "gpu_memory_bytes"):
         if getattr(args, name) <= 0:
             parser.error("size options must be positive")
+    if not 0 <= args.file_size_tolerance < 1:
+        parser.error("--file-size-tolerance must be in [0, 1)")
     return args
 
 
