@@ -683,10 +683,6 @@ function collect_results {
     mkdir -p "${result_dir}/configs"
     cp "${CONFIGS}/etc_coordinator/config_native.properties" "${result_dir}/configs/coordinator.config"
     cp "${CONFIGS}/etc_worker_0/config_native.properties"    "${result_dir}/configs/worker.config"
-
-    echo "Copying logs to ${result_dir}/..."
-    cp "${LOGS}"/*.log "${result_dir}/"
-    cp "${LOGS}"/*.out "${LOGS}"/*.err "${result_dir}/" 2>/dev/null || true
 }
 
 function inject_benchmark_metadata {
