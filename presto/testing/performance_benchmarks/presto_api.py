@@ -58,3 +58,13 @@ def get_nodes(hostname: str, port: int) -> list | None:
     if not isinstance(raw, list):
         return None
     return raw
+
+
+def count_unique_node_uris(nodes: list) -> int:
+    """Count worker endpoints, ignoring stale duplicate node records."""
+    uris = {
+        node["uri"]
+        for node in nodes
+        if isinstance(node, dict) and isinstance(node.get("uri"), str) and node["uri"]
+    }
+    return len(uris)
