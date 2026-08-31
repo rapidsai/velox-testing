@@ -15,4 +15,4 @@ CREATE TABLE hive.{schema}.lineitem (
     l_shipinstruct VARCHAR NOT NULL,
     l_shipmode VARCHAR NOT NULL,
     l_comment VARCHAR NOT NULL
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

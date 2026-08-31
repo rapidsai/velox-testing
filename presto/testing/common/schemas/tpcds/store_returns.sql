@@ -19,4 +19,4 @@ CREATE TABLE hive.{schema}.store_returns (
     sr_reversed_charge DOUBLE,
     sr_store_credit DOUBLE,
     sr_net_loss DOUBLE
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')
