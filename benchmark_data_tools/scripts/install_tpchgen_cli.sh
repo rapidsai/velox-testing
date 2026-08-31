@@ -11,6 +11,21 @@ INSTALL_DIR="$SCRIPT_DIR/../.local_installs/bin"
 REPO_URL="https://github.com/TomAugspurger/tpchgen-rs.git"
 REPO_BRANCH="tom/sync-upstream-clean"
 IMAGE_NAME="tpchgen-cli-builder"
+REGISTRY_IMAGE="ghcr.io/rapidsai/velox-testing-images:tpchgen-cli"
+PUSH=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --push)
+            PUSH=true
+            shift
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            exit 1
+            ;;
+    esac
+done
 
 TEMP_DIR=$(mktemp -d)
 trap 'rm -rf $TEMP_DIR' EXIT
@@ -25,9 +40,19 @@ echo "Extracting tpchgen-cli binary..."
 CONTAINER_ID=$(docker create "$IMAGE_NAME")
 mkdir -p "$INSTALL_DIR"
 docker cp "$CONTAINER_ID:/usr/local/bin/tpchgen-cli" "$INSTALL_DIR/tpchgen-cli"
-
-echo "Cleaning up..."
 docker rm "$CONTAINER_ID"
-docker rmi "$IMAGE_NAME"
+
+if [[ "$PUSH" == true ]]; then
+    echo "Tagging image as $REGISTRY_IMAGE..."
+    docker tag "$IMAGE_NAME" "$REGISTRY_IMAGE"
+    docker rmi "$IMAGE_NAME"
+    echo "Pushing $REGISTRY_IMAGE..."
+    docker push "$REGISTRY_IMAGE"
+    echo "Cleaning up..."
+    docker rmi "$REGISTRY_IMAGE"
+else
+    echo "Cleaning up..."
+    docker rmi "$IMAGE_NAME"
+fi
 
 echo "tpchgen-cli installed at $INSTALL_DIR/tpchgen-cli"
