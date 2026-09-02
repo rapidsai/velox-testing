@@ -42,6 +42,7 @@ services:
         - VELOX_SHA=${VELOX_SHA:-}
         - VELOX_BRANCH=${VELOX_BRANCH:-}
         - VELOX_REPOSITORY=${VELOX_REPO:-}
+        - KVIKIO_BUILD_NSYS_PLUGIN=${KVIKIO_BUILD_NSYS_PLUGIN:-ON}
     environment:
       - GLOG_logtostderr=1
       - SERVER_START_TIMESTAMP=${SERVER_START_TIMESTAMP:-}

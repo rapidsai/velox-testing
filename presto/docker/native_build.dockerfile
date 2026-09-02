@@ -18,6 +18,7 @@ ARG EXTRA_CMAKE_FLAGS="\
     -DVELOX_BUILD_TESTING=OFF \
     -DPRESTO_STATS_REPORTER_TYPE=PROMETHEUS"
 ARG CUDA_ARCHITECTURES="75;80;86;90;100;120"
+ARG KVIKIO_BUILD_NSYS_PLUGIN=ON
 ARG TARGETARCH
 ARG ENABLE_SCCACHE=OFF
 ARG SCCACHE_SERVER_LOG="sccache=info"
@@ -66,7 +67,7 @@ RUN \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
     --mount=type=cache,target=/root/.cache/sccache/preprocessor \
     --mount=type=cache,target=/root/.cache/sccache-dist-client \
-    --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \
+    --mount=type=secret,id=github_token,target=/run/secrets/github_token \
     --mount=type=secret,id=aws_credentials,target=/root/.aws/credentials \
     --mount=type=bind,source=velox-testing/scripts/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
 <<EOF
@@ -86,6 +87,12 @@ if [ -f "${BUILD_BASE_DIR}/CMakeCache.txt" ]; then
 fi
 
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
+  if [ -f /run/secrets/github_token ]; then
+    set +x;
+    SCCACHE_DIST_AUTH_TOKEN=$(cat /run/secrets/github_token);
+    export SCCACHE_DIST_AUTH_TOKEN;
+    set -x;
+  fi;
   if [ -n "${SCCACHE_NO_DIST_COMPILE:-}" ]; then
     export SCCACHE_NO_DIST_COMPILE=1;
   fi
@@ -93,6 +100,9 @@ if [ "$ENABLE_SCCACHE" = "ON" ]; then
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
 fi
+
+EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DKvikIO_BUILD_NSYS_PLUGIN=${KVIKIO_BUILD_NSYS_PLUGIN}";
+export EXTRA_CMAKE_FLAGS;
 
 make --directory="/presto_native_staging/presto" cmake-and-build BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR};
 
