@@ -30,19 +30,14 @@ x-presto-native-worker-gpu: &gpu_worker_base
             - driver: nvidia
               count: all
               capabilities: [gpu]
-  # devices:
-    #   # required for GDS
-    #   - /dev/infiniband/rdma_cm
-    #   - /dev/infiniband/uverbs0
-    #   - /dev/infiniband/uverbs1
-    #   - /dev/infiniband/uverbs2
-    #   - /dev/infiniband/uverbs3
-    #   - /dev/infiniband/uverbs4
-    #   - /dev/infiniband/uverbs5
-    #   - /dev/infiniband/uverbs6
-    #   - /dev/infiniband/uverbs7
-    #   - /dev/infiniband/uverbs8
-    #   - /dev/infiniband/uverbs9
+{% if ucx_efa %}
+  devices:
+    - /dev/infiniband/rdma_cm
+    - /dev/infiniband/uverbs0
+    - /dev/infiniband/uverbs1
+    - /dev/infiniband/uverbs2
+    - /dev/infiniband/uverbs3
+{% endif %}
   depends_on:
     - presto-coordinator
   volumes:
@@ -70,18 +65,29 @@ services:
   presto-native-worker-gpu-{{ gpu_id }}:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu-{{ gpu_id }}
+{% if ucx_efa %}
+    network_mode: host
+{% endif %}
     environment:
       WORKER_ID: {{ gpu_id }}
       NVIDIA_VISIBLE_DEVICES: all
       PROFILE: ${PROFILE:-}
       PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
-      UCX_LOG_LEVEL: info #debug
+{% if ucx_efa %}
+      UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-cuda:32M}
+      UCX_RNDV_FRAG_MEM_TYPES: ${UCX_RNDV_FRAG_MEM_TYPES:-cuda}
+      UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-1}
+      UCX_TLS: ${UCX_TLS:-tcp,srd,cuda_copy}
+      UCX_NET_DEVICES: ${UCX_NET_DEVICES_GPU_{{ gpu_id }}:-}
+      UCX_SOCKADDR_TLS_PRIORITY: ${UCX_SOCKADDR_TLS_PRIORITY:-tcp}
+{% else %}
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
+{% endif %}
+      UCX_LOG_LEVEL: info #debug
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
-      # don't know, leave it for now
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
@@ -97,6 +103,9 @@ services:
   presto-native-worker-gpu:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu
+{% if ucx_efa %}
+    network_mode: host
+{% endif %}
 {%- if workers %}
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
@@ -104,12 +113,22 @@ services:
       PROFILE: ${PROFILE:-}
       PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
-      UCX_LOG_LEVEL: info #debug
+{% if ucx_efa %}
+      UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-cuda:32M}
+      UCX_RNDV_FRAG_MEM_TYPES: ${UCX_RNDV_FRAG_MEM_TYPES:-cuda}
+      UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-1}
+      UCX_TLS: ${UCX_TLS:-tcp,srd,cuda_copy}
+      UCX_SOCKADDR_TLS_PRIORITY: ${UCX_SOCKADDR_TLS_PRIORITY:-tcp}
+{% for gpu_id in workers %}
+      UCX_NET_DEVICES_GPU_{{ gpu_id }}: ${UCX_NET_DEVICES_GPU_{{ gpu_id }}:-}
+{% endfor %}
+{% else %}
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
+{% endif %}
+      UCX_LOG_LEVEL: info #debug
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
-      # don't know, leave it for now
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
@@ -120,12 +139,20 @@ services:
       PROFILE: ${PROFILE:-}
       PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
-      UCX_LOG_LEVEL: info #debug
+{% if ucx_efa %}
+      UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-cuda:32M}
+      UCX_RNDV_FRAG_MEM_TYPES: ${UCX_RNDV_FRAG_MEM_TYPES:-cuda}
+      UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-1}
+      UCX_TLS: ${UCX_TLS:-tcp,srd,cuda_copy}
+      UCX_NET_DEVICES: ${UCX_NET_DEVICES:-}
+      UCX_SOCKADDR_TLS_PRIORITY: ${UCX_SOCKADDR_TLS_PRIORITY:-tcp}
+{% else %}
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
       UCX_TLS: tcp,cuda_copy,cuda_ipc
+{% endif %}
+      UCX_LOG_LEVEL: info #debug
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
-      # don't know, leave it for now
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
