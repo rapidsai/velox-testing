@@ -8,11 +8,13 @@ RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu
 
 ARG GPU=ON
 ARG UCX_VERSION=1.22.0
+COPY velox-testing/presto/docker/ucx-11865-rtx-ipc-bandwidth.patch /tmp/ucx-11865-rtx-ipc-bandwidth.patch
 RUN if [ "$GPU" = "ON" ]; then \
-    dnf install -y rdma-core-devel && \
+    dnf install -y patch rdma-core-devel && \
     mkdir -p /tmp/ucx-src /tmp/ucx-build && \
     wget -qO- "https://github.com/openucx/ucx/releases/download/v${UCX_VERSION}/ucx-${UCX_VERSION}.tar.gz" \
       | tar -C /tmp/ucx-src --strip-components=1 -xz && \
+    patch -d /tmp/ucx-src -p1 < /tmp/ucx-11865-rtx-ipc-bandwidth.patch && \
     cd /tmp/ucx-build && \
     /tmp/ucx-src/contrib/configure-release \
       --prefix=/usr/local \
@@ -29,7 +31,7 @@ RUN if [ "$GPU" = "ON" ]; then \
     make -j"$(nproc)" && \
     make install && \
     ldconfig && \
-    rm -rf /tmp/ucx-src /tmp/ucx-build; \
+    rm -rf /tmp/ucx-src /tmp/ucx-build /tmp/ucx-11865-rtx-ipc-bandwidth.patch; \
     fi
 
 ARG BUILD_TYPE=release

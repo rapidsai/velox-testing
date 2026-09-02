@@ -77,8 +77,8 @@ services:
 {% if ucx_efa %}
       UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-cuda:32M}
       UCX_RNDV_FRAG_MEM_TYPES: ${UCX_RNDV_FRAG_MEM_TYPES:-cuda}
-      UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-1}
-      UCX_TLS: ${UCX_TLS:-tcp,srd,cuda_copy}
+      UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-2}
+      UCX_TLS: ${UCX_TLS:-tcp,srd,sm,cuda_copy,cuda_ipc}
       UCX_NET_DEVICES: ${UCX_NET_DEVICES_GPU_{{ gpu_id }}:-}
       UCX_SOCKADDR_TLS_PRIORITY: ${UCX_SOCKADDR_TLS_PRIORITY:-tcp}
 {% else %}
@@ -116,8 +116,8 @@ services:
 {% if ucx_efa %}
       UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-cuda:32M}
       UCX_RNDV_FRAG_MEM_TYPES: ${UCX_RNDV_FRAG_MEM_TYPES:-cuda}
-      UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-1}
-      UCX_TLS: ${UCX_TLS:-tcp,srd,cuda_copy}
+      UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-2}
+      UCX_TLS: ${UCX_TLS:-tcp,srd,sm,cuda_copy,cuda_ipc}
       UCX_SOCKADDR_TLS_PRIORITY: ${UCX_SOCKADDR_TLS_PRIORITY:-tcp}
 {% for gpu_id in workers %}
       UCX_NET_DEVICES_GPU_{{ gpu_id }}: ${UCX_NET_DEVICES_GPU_{{ gpu_id }}:-}
@@ -142,8 +142,8 @@ services:
 {% if ucx_efa %}
       UCX_RNDV_FRAG_SIZE: ${UCX_RNDV_FRAG_SIZE:-cuda:32M}
       UCX_RNDV_FRAG_MEM_TYPES: ${UCX_RNDV_FRAG_MEM_TYPES:-cuda}
-      UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-1}
-      UCX_TLS: ${UCX_TLS:-tcp,srd,cuda_copy}
+      UCX_MAX_RNDV_RAILS: ${UCX_MAX_RNDV_RAILS:-2}
+      UCX_TLS: ${UCX_TLS:-tcp,srd,sm,cuda_copy,cuda_ipc}
       UCX_NET_DEVICES: ${UCX_NET_DEVICES:-}
       UCX_SOCKADDR_TLS_PRIORITY: ${UCX_SOCKADDR_TLS_PRIORITY:-tcp}
 {% else %}
