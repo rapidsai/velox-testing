@@ -42,6 +42,7 @@ services:
         - VELOX_SHA=${VELOX_SHA:-}
         - VELOX_BRANCH=${VELOX_BRANCH:-}
         - VELOX_REPOSITORY=${VELOX_REPO:-}
+        - UCX_VERSION=${UCX_VERSION:-1.22.0}
     environment:
       - GLOG_logtostderr=1
       - SERVER_START_TIMESTAMP=${SERVER_START_TIMESTAMP:-}

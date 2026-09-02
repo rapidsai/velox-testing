@@ -7,6 +7,31 @@ RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu
     dnf install -y nsight-systems-cli-2026.3.1 numactl
 
 ARG GPU=ON
+ARG UCX_VERSION=1.22.0
+RUN if [ "$GPU" = "ON" ]; then \
+    dnf install -y rdma-core-devel && \
+    mkdir -p /tmp/ucx-src /tmp/ucx-build && \
+    wget -qO- "https://github.com/openucx/ucx/releases/download/v${UCX_VERSION}/ucx-${UCX_VERSION}.tar.gz" \
+      | tar -C /tmp/ucx-src --strip-components=1 -xz && \
+    cd /tmp/ucx-build && \
+    /tmp/ucx-src/contrib/configure-release \
+      --prefix=/usr/local \
+      --with-sysroot \
+      --enable-cma \
+      --enable-mt \
+      --with-gnu-ld \
+      --with-rdmacm \
+      --with-verbs \
+      --without-gda \
+      --without-go \
+      --without-java \
+      --with-cuda=/usr/local/cuda && \
+    make -j"$(nproc)" && \
+    make install && \
+    ldconfig && \
+    rm -rf /tmp/ucx-src /tmp/ucx-build; \
+    fi
+
 ARG BUILD_TYPE=release
 ARG BUILD_BASE_DIR=/presto_native_${BUILD_TYPE}_gpu_${GPU}_build
 ARG NUM_THREADS=12
