@@ -30,10 +30,8 @@ class DataGenArgs:
     max_rows_per_file: int
     keep_original_dataset: bool
     approx_row_group_bytes: int
+    duckdb_memory_limit: str = "512GiB"
     codec_definitions: str = None
-    # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
-    timing_json: str = None
-    # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
 
 
 @pytest.fixture(params=["tpch", "tpcds"])

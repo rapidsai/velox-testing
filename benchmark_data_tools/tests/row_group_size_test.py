@@ -13,6 +13,12 @@ from .common_fixtures import get_all_parquet_relative_file_paths
 # A small table cannot fill a single row group, so every row group it produces falls
 # below the target. Files with fewer than this many row groups are not size checked.
 _MIN_ROW_GROUPS_FOR_SIZE_CHECK = 10
+# With V1 pages, a 1 MiB target is too close to DuckDB's 2,048-row
+# quantization step for wide TPC-DS tables: adjacent valid row counts can land
+# on opposite sides of the 10% median bound. Eight MiB still creates many row
+# groups at SF1 while making the quantization error small enough to test the
+# probe rather than the writer's minimum row-count increment.
+_ROW_GROUP_TARGET_BYTES = 8 * 1024 * 1024
 # DuckDB's parallel Parquet writer can flush partial row groups before the final
 # group. These are writer artifacts rather than sizing decisions, so tolerate a
 # small fraction while requiring the file-level median to remain close to target.
@@ -40,7 +46,7 @@ def test_approx_row_group_bytes_parameter(setup_and_teardown):
     - Small tables are excluded from size checks (see _MIN_ROW_GROUPS_FOR_SIZE_CHECK)
     """
     data_dir_path, args = setup_and_teardown
-    args.approx_row_group_bytes = 1024 * 1024
+    args.approx_row_group_bytes = _ROW_GROUP_TARGET_BYTES
     generate_data_files(args)
 
     uses_duckdb = args.benchmark_type != "tpch" or args.use_duckdb

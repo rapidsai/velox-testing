@@ -59,13 +59,13 @@ def test_duckdb_export_configuration_starts_after_materialization(
     args.benchmark_type = benchmark_type
     args.use_duckdb = use_duckdb
     args.convert_decimals_to_floats = False
-    args.num_threads = 1
+    args.num_threads = 8
 
     observed_settings = {}
     writer_settings = []
     installed_extensions = []
+    connection_configs = []
     real_connect = duckdb.connect
-    real_export_tables = generator._export_tables
     real_copy_to_parquet = generator.copy_to_parquet
 
     class InstallConnection:
@@ -81,6 +81,7 @@ def test_duckdb_export_configuration_starts_after_materialization(
     def connect(*connect_args, **connect_kwargs):
         if not connect_args and not connect_kwargs:
             return InstallConnection()
+        connection_configs.append(connect_kwargs["config"])
         return real_connect(*connect_args, **connect_kwargs)
 
     def materialize_tables(materialize_args, conn):
@@ -89,25 +90,25 @@ def test_duckdb_export_configuration_starts_after_materialization(
         conn.sql("CREATE TABLE synthetic AS SELECT i AS value FROM range(9) AS rows(i)")
         return {"synthetic": 2}
 
-    def export_tables(export_args, row_group_rows, conn):
-        observed_settings["export"] = get_duckdb_setting(conn, "preserve_insertion_order")
-        return real_export_tables(export_args, row_group_rows, conn)
-
     def copy_to_parquet(select_query, file_path, rows_per_row_group, conn):
-        writer_settings.append(get_duckdb_setting(conn, "preserve_insertion_order"))
+        writer_settings.append(
+            (
+                get_duckdb_setting(conn, "preserve_insertion_order"),
+                get_duckdb_setting(conn, "threads"),
+            )
+        )
         return real_copy_to_parquet(select_query, file_path, rows_per_row_group, conn)
 
     monkeypatch.setattr(generator.duckdb, "connect", connect)
-    monkeypatch.setattr(generator, "_DUCKDB_EXPORT_THREADS", None)
     monkeypatch.setattr(generator, "_materialize_tables", materialize_tables)
-    monkeypatch.setattr(generator, "_export_tables", export_tables)
     monkeypatch.setattr(generator, "copy_to_parquet", copy_to_parquet)
 
     generator.generate_data_files(args)
 
     assert installed_extensions == [f"INSTALL {benchmark_type}"]
-    assert observed_settings == {"materialization": "true", "export": "false"}
-    assert writer_settings == ["false", "false", "false"]
+    assert connection_configs == [{"memory_limit": "512GiB"}]
+    assert observed_settings == {"materialization": "true"}
+    assert writer_settings == [("false", "3")] * 3
 
     part_paths = sorted((data_dir_path / "synthetic").glob("*.parquet"))
     assert [path.name for path in part_paths] == [
@@ -122,15 +123,6 @@ def test_duckdb_export_configuration_starts_after_materialization(
         [4, 5, 6, 7],
         [8],
     ]
-
-
-@pytest.mark.parametrize(("value", "expected"), [("false", "false"), ("true", "true")])
-def test_export_preserve_insertion_order_environment(monkeypatch, value, expected):
-    monkeypatch.setenv("VELOX_TESTING_DUCKDB_PRESERVE_INSERTION_ORDER", value)
-    with duckdb.connect() as conn:
-        generator.configure_duckdb_export(conn)
-
-        assert get_duckdb_setting(conn, "preserve_insertion_order") == expected
 
 
 def test_export_plan_is_one_queue_across_tables(tmp_path):
@@ -161,21 +153,6 @@ def test_export_plan_is_one_queue_across_tables(tmp_path):
         "rowid >= 8 AND rowid < 12",
         "",
     ]
-
-
-def test_row_group_rows_environment_overrides_probe_estimate(tmp_path, monkeypatch):
-    args = build_plan_only_args(tmp_path)
-    monkeypatch.setenv("VELOX_TESTING_DUCKDB_ROW_GROUP_ROWS", "6")
-    with duckdb.connect() as conn:
-        conn.sql("CREATE TABLE alpha AS SELECT i FROM range(10) AS t(i)")
-        conn.sql("CREATE TABLE beta AS SELECT i FROM range(3) AS t(i)")
-        tasks = generator._plan_export_tasks(
-            args,
-            {"alpha": 2048, "beta": 2048},
-            conn,
-        )
-
-    assert [task.rows_per_row_group for task in tasks] == [6, 6, 6, 3]
 
 
 def test_export_writers_share_one_global_budget(setup_and_teardown, monkeypatch):

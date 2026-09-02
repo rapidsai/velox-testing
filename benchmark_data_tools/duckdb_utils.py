@@ -64,8 +64,7 @@ def get_select_query(table_name, convert_decimals_to_floats, conn=duckdb):
     if convert_decimals_to_floats:
         column_metadata_rows = conn.query(f"DESCRIBE {table_name}").fetchall()
         column_projections = [
-            get_column_projection_with_decimals_as_double(column_metadata)
-            for column_metadata in column_metadata_rows
+            get_column_projection_with_decimals_as_double(column_metadata) for column_metadata in column_metadata_rows
         ]
         query = f"SELECT {','.join(column_projections)} FROM {table_name}"
     else:

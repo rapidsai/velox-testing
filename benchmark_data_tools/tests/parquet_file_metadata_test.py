@@ -10,15 +10,14 @@ from .common_fixtures import get_all_parquet_relative_file_paths
 
 
 def test_generated_files_use_expected_page_format(setup_and_teardown):
-    """Verify DuckDB writes v1 while the tpchgen path retains its v2 format."""
+    """Verify every generated Parquet file uses the v1 page format."""
     data_dir_path, args = setup_and_teardown
     generate_data_files(args)
-    expected_version = 1 if args.use_duckdb or args.benchmark_type != "tpch" else 2
 
     for file_path in get_all_parquet_relative_file_paths(data_dir_path):
         metadata = pq.ParquetFile(f"{data_dir_path}/{file_path}").metadata
-        assert int(float(metadata.format_version)) == expected_version, (
-            f"Expected Parquet v{expected_version} format for '{file_path}', got '{metadata.format_version}'"
+        assert int(float(metadata.format_version)) == 1, (
+            f"Expected Parquet v1 format for '{file_path}', got '{metadata.format_version}'"
         )
 
 
