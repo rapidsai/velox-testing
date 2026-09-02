@@ -265,4 +265,22 @@ def test_page_cache_repopulate_uses_explicit_numa_node(monkeypatch):
 
     with pytest.raises(ValueError, match="must be 0 or 1"):
         generator._repopulate_database_file_cache("/tmp/data.duckdb", "all")
+
+
+# BEGIN PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+def test_per_task_lifecycle_is_allowed(monkeypatch):
+    monkeypatch.setenv("VELOX_TESTING_DUCKDB_EXPORT_LIFECYCLE", "per_task_processes")
+    assert generator._export_lifecycle() == "per_task_processes"
+
+
+def test_weighted_budget_covers_one_slot_per_task():
+    weights = {f"t{index}": 100_000_000 if index < 87 else 1 for index in range(198)}
+    threads = generator._allocate_weighted_budget(weights, 384, 1)
+    memory = generator._allocate_weighted_budget(weights, 1536, 1)
+    assert sum(threads.values()) == 384
+    assert min(threads.values()) >= 1
+    assert max(threads.values()) > min(threads.values())
+    assert sum(memory.values()) == 1536
+    assert min(memory.values()) >= 1
+# END PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
 # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)

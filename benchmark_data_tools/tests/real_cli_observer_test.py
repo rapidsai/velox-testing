@@ -123,6 +123,25 @@ def test_validation_records_and_enforces_schema_mode(tmp_path, convert_decimals_
     assert any("export_lifecycle" in reason for reason in lifecycle_result["reasons"])
 
 
+def test_validation_accepts_rounded_duckdb_memory_display(tmp_path):
+    data_dir, timing_path, expected = _write_fixture(tmp_path, False)
+    timing = json.loads(timing_path.read_text())
+    timing["duckdb_settings_after_export_config"]["memory_limit"] = "1.7 TiB"
+    timing_path.write_text(json.dumps(timing))
+    expected["memory_limit"] = "1792GiB"
+    expected["memory_limit_bytes"] = 1792 * 1024**3
+
+    rounded = observer._validate_outputs(0, data_dir, timing_path, 1.0, expected)
+
+    assert rounded["valid"], rounded["reasons"]
+
+    expected["memory_limit"] = "2TiB"
+    expected["memory_limit_bytes"] = 2 * 1024**4
+    mismatch = observer._validate_outputs(0, data_dir, timing_path, 1.0, expected)
+    assert not mismatch["valid"]
+    assert any("memory_limit" in reason for reason in mismatch["reasons"])
+
+
 def test_conversion_expectation_is_required():
     parser = observer._parser()
     with pytest.raises(SystemExit):

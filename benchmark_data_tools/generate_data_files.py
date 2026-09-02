@@ -9,6 +9,7 @@ import os
 
 # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
 import platform
+import queue
 import resource
 
 # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
@@ -53,12 +54,36 @@ _EXPORT_LIFECYCLES = frozenset(
     ("same_connection", "reopen_read_write", "reopen_read_only")
 )
 # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
+# ============================================================================
+# BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+# Research-only: isolate each table's COPY work in its own spawned process and
+# DuckDB DatabaseInstance. No shipping path reads these variables.
+_PER_TABLE_PROCESS_MODE = "per_table_processes"
+_PER_TABLE_TOTAL_THREADS_ENV = "VELOX_TESTING_PER_TABLE_TOTAL_THREADS"
+_PER_TABLE_TOTAL_MEMORY_GIB_ENV = "VELOX_TESTING_PER_TABLE_TOTAL_MEMORY_GIB"
+# END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+# ============================================================================
+# BEGIN PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+# Research-only: one spawned process / DatabaseInstance per COPY task (file).
+_PER_TASK_PROCESS_MODE = "per_task_processes"
+_PER_TASK_TOTAL_THREADS_ENV = "VELOX_TESTING_PER_TASK_TOTAL_THREADS"
+_PER_TASK_TOTAL_MEMORY_GIB_ENV = "VELOX_TESTING_PER_TASK_TOTAL_MEMORY_GIB"
+_PER_TASK_PAGE_CACHE_PREWARM_ENV = "VELOX_TESTING_PER_TASK_PAGE_CACHE_PREWARM"
+_PER_TASK_IO_MODE_ENV = "VELOX_TESTING_PER_TASK_IO_MODE"
+# END PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+# ============================================================================
 _RESEARCH_EXPORT_LIFECYCLES = frozenset(
     (
         "same_connection_trim",
         "reopen_drop_file_cache",
         "reopen_keep_instance",
         "reopen_fresh_process",
+        # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+        _PER_TABLE_PROCESS_MODE,
+        # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+        # BEGIN PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+        _PER_TASK_PROCESS_MODE,
+        # END PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
     )
 )
 _RESEARCH_INITIAL_CONFIG_ENV = "VELOX_TESTING_DUCKDB_INITIAL_CONFIG_JSON"
@@ -73,6 +98,7 @@ _RESEARCH_INITIAL_CONFIG_KEYS = frozenset(
         "allocator_background_threads",
         "allocator_flush_threshold",
         "allocator_bulk_deallocation_flush_threshold",
+        "temp_directory",
     )
 )
 _TIMING_SCHEMA_VERSION = 5
@@ -797,6 +823,700 @@ def _export_in_fresh_process(database_path, args, row_group_rows, metrics):
             "prewarm_bytes": 0,
         }
     metrics_path.unlink(missing_ok=True)
+
+
+# ============================================================================
+# BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+# This entire block is an isolated research path. It intentionally uses one
+# spawned process (hence one DuckDB DatabaseInstance) per source table.
+def _per_table_task_counts(args, conn):
+    counts = {}
+    rows = {}
+    for (table_name,) in conn.sql("SHOW TABLES").fetchall():
+        row_count = int(conn.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
+        rows[table_name] = row_count
+        counts[table_name] = (
+            max(math.ceil(row_count / args.max_rows_per_file), 1)
+            if args.max_rows_per_file
+            else 1
+        )
+    return counts, rows
+
+
+def _allocate_weighted_budget(weights, total, minimum):
+    names = sorted(weights)
+    required = minimum * len(names)
+    if total < required:
+        raise ValueError(
+            f"budget {total} is smaller than {required} "
+            f"({minimum} minimum for each of {len(names)} tables)"
+        )
+    remaining = total - required
+    weight_sum = sum(weights.values())
+    raw = {name: remaining * weights[name] / weight_sum for name in names}
+    result = {name: minimum + math.floor(raw[name]) for name in names}
+    leftover = total - sum(result.values())
+    for name in sorted(names, key=lambda item: (-(raw[item] % 1), item))[:leftover]:
+        result[name] += 1
+    assert sum(result.values()) == total
+    return result
+
+
+def _per_table_export_worker(
+    database_path,
+    args,
+    row_group_rows,
+    table_name,
+    task_count,
+    instance_threads,
+    instance_memory_gib,
+    metrics_path,
+    monotonic_origin,
+    start_gate,
+    ready_queue,
+):
+    child_metrics = (
+        {
+            "_monotonic_origin": monotonic_origin,
+            "intervals_seconds": {},
+            "phase_intervals": {},
+            "lifecycle_boundaries": {},
+        }
+        if metrics_path is not None
+        else None
+    )
+    child_args = argparse.Namespace(**vars(args))
+    child_args.num_threads = task_count
+    config = _duckdb_connection_config()
+    config.update(
+        {
+            "threads": str(instance_threads),
+            "memory_limit": f"{instance_memory_gib}GiB",
+        }
+    )
+    try:
+        conn = duckdb.connect(str(database_path), read_only=True, config=config)
+        try:
+            preserve_insertion_order = str(_duckdb_preserve_insertion_order()).lower()
+            conn.execute(f"SET preserve_insertion_order={preserve_insertion_order}")
+            if child_metrics is not None:
+                child_metrics["duckdb_settings_after_export_config"] = _duckdb_settings(conn)
+                child_metrics["per_table_instance"] = {
+                    "table": table_name,
+                    "tasks": task_count,
+                    "writers": task_count,
+                    "threads": instance_threads,
+                    "memory_limit_gib": instance_memory_gib,
+                    "pid": os.getpid(),
+                }
+            _export_tables(
+                child_args,
+                row_group_rows,
+                conn,
+                child_metrics,
+                table_names={table_name},
+                external_start_gate=start_gate,
+                ready_queue=ready_queue,
+            )
+        finally:
+            conn.close()
+        if metrics_path is not None:
+            _write_json_atomically(metrics_path, child_metrics)
+    except BaseException as error:
+        ready_queue.put(
+            {
+                "table": table_name,
+                "error": f"{type(error).__name__}: {error}",
+            }
+        )
+        raise
+
+
+def _maximum_concurrency(copy_tasks):
+    events = []
+    for task in copy_tasks:
+        events.append((float(task["start_offset_seconds"]), 1))
+        events.append((float(task["copy_end_offset_seconds"]), -1))
+    current = 0
+    maximum = 0
+    for _, delta in sorted(events, key=lambda item: (item[0], item[1])):
+        current += delta
+        maximum = max(maximum, current)
+    return maximum
+
+
+def _aggregate_child_cpu_seconds(children):
+    total = 0.0
+    for child in children:
+        boundaries = child.get("lifecycle_boundaries") or {}
+        start = (boundaries.get("copy_start") or {}).get("process") or {}
+        end = (boundaries.get("copy_end") or {}).get("process") or {}
+        total += (
+            float(end.get("user_cpu_seconds") or 0)
+            + float(end.get("system_cpu_seconds") or 0)
+            - float(start.get("user_cpu_seconds") or 0)
+            - float(start.get("system_cpu_seconds") or 0)
+        )
+    return total
+
+
+def _export_in_per_table_processes(database_path, args, row_group_rows, metrics, conn):
+    task_counts, source_rows = _per_table_task_counts(args, conn)
+    total_threads = int(
+        os.environ.get(
+            _PER_TABLE_TOTAL_THREADS_ENV,
+            _DUCKDB_EXPORT_THREADS or os.cpu_count() or 1,
+        )
+    )
+    total_memory_gib = int(
+        os.environ.get(_PER_TABLE_TOTAL_MEMORY_GIB_ENV, "1536")
+    )
+    thread_allocations = _allocate_weighted_budget(task_counts, total_threads, 1)
+    memory_allocations = _allocate_weighted_budget(task_counts, total_memory_gib, 4)
+
+    close_started = time.monotonic()
+    conn.close()
+    _record_interval(metrics, "export_connection_close", close_started)
+
+    context = multiprocessing.get_context("spawn")
+    start_gate = context.Event()
+    ready_queue = context.Queue()
+    process_records = []
+    origin = metrics["_monotonic_origin"] if metrics is not None else time.monotonic()
+    metrics_dir = Path(database_path).with_name("per-table-process-metrics")
+    metrics_dir.mkdir(exist_ok=False)
+
+    for table_name in sorted(task_counts):
+        metrics_path = metrics_dir / f"{table_name}.json"
+        process = context.Process(
+            target=_per_table_export_worker,
+            args=(
+                str(database_path),
+                args,
+                row_group_rows,
+                table_name,
+                task_counts[table_name],
+                thread_allocations[table_name],
+                memory_allocations[table_name],
+                str(metrics_path) if metrics is not None else None,
+                origin,
+                start_gate,
+                ready_queue,
+            ),
+            name=f"duckdb-copy-{table_name}",
+        )
+        process.start()
+        process_records.append((table_name, process, metrics_path))
+
+    ready = {}
+    deadline = time.monotonic() + 300
+    while len(ready) < len(process_records):
+        timeout = max(0.1, deadline - time.monotonic())
+        if timeout <= 0:
+            raise TimeoutError("timed out waiting for per-table COPY processes")
+        try:
+            record = ready_queue.get(timeout=min(timeout, 5))
+        except queue.Empty:
+            failed = [
+                (name, process.exitcode)
+                for name, process, _ in process_records
+                if process.exitcode not in (None, 0)
+            ]
+            if failed:
+                raise RuntimeError(f"per-table process failed before gate: {failed}")
+            continue
+        if record.get("error"):
+            raise RuntimeError(
+                f"per-table process {record['table']} failed before gate: {record['error']}"
+            )
+        ready[record["table"]] = record
+
+    copy_started = time.monotonic()
+    start_gate.set()
+    failures = []
+    for table_name, process, _ in process_records:
+        process.join()
+        if process.exitcode != 0:
+            failures.append((table_name, process.exitcode))
+    copy_finished = time.monotonic()
+    if failures:
+        raise RuntimeError(f"per-table COPY processes failed: {failures}")
+
+    if metrics is not None:
+        children = [json.loads(path.read_text()) for _, _, path in process_records]
+        copy_tasks = sorted(
+            [
+                task
+                for child in children
+                for task in (child.get("export") or {}).get("copy_tasks", [])
+            ],
+            key=lambda task: task["start_offset_seconds"],
+        )
+        copy_cpu_seconds = _aggregate_child_cpu_seconds(children)
+        copy_start_offset = copy_started - origin
+        copy_duration = copy_finished - copy_started
+        metrics["export"] = {
+            "source_rows": sum(source_rows.values()),
+            "source_files": len(source_rows),
+            "source_rows_by_table": source_rows,
+            "row_group_rows_override": _duckdb_row_group_rows(),
+            "planned_tasks": sum(task_counts.values()),
+            "planned_writers": sum(task_counts.values()),
+            "task_order": os.environ.get("VELOX_TESTING_COPY_TASK_ORDER", "fifo"),
+            "copy_start_gate_enabled": True,
+            "copy_start_gate_release_offset_seconds": copy_start_offset,
+            "actual_max_concurrent_copy": _maximum_concurrency(copy_tasks),
+            "copy_duration_sum_seconds": sum(
+                float(task["duration_seconds"]) for task in copy_tasks
+            ),
+            "copy_tasks": copy_tasks,
+            "per_table_processes": [
+                child["per_table_instance"] for child in children
+            ],
+        }
+        metrics["intervals_seconds"]["parquet_copy_publish_wall"] = copy_duration
+        metrics["phase_intervals"]["parquet_copy_publish_wall"] = {
+            "start_offset_seconds": copy_start_offset,
+            "duration_seconds": copy_duration,
+        }
+        metrics["lifecycle_boundaries"]["copy_start"] = {
+            "offset_seconds": copy_start_offset,
+            "process": {"user_cpu_seconds": 0.0, "system_cpu_seconds": 0.0},
+            "active_writers": 0,
+        }
+        metrics["lifecycle_boundaries"]["copy_end"] = {
+            "offset_seconds": copy_finished - origin,
+            "process": {
+                "user_cpu_seconds": copy_cpu_seconds,
+                "system_cpu_seconds": 0.0,
+            },
+            "active_writers": 0,
+        }
+        metrics["duckdb_settings_after_export_config"] = {
+            "threads": str(total_threads),
+            "memory_limit": f"{total_memory_gib}GiB",
+            "preserve_insertion_order": str(
+                _duckdb_preserve_insertion_order()
+            ).lower(),
+            "per_table_databaseinstances": "true",
+        }
+        metrics["export_lifecycle"] = {
+            "mode": _PER_TABLE_PROCESS_MODE,
+            "reopened": True,
+            "reopened_read_only": False,
+            "buffer_trim": False,
+            "file_cache_dropped": False,
+            "instance_preserved_by_keeper": False,
+            "fresh_process": True,
+            "prewarm_bytes": 0,
+            "per_table_process_count": len(process_records),
+            "total_threads_budget": total_threads,
+            "total_memory_gib_budget": total_memory_gib,
+        }
+    shutil.rmtree(metrics_dir)
+    return None
+# END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+# ============================================================================
+# BEGIN PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+# One COPY file per spawned process. Thread and GiB budgets are weighted by
+# estimated rows and must sum to the configured totals.
+def _per_task_io_mode():
+    value = os.environ.get(_PER_TASK_IO_MODE_ENV, "MMAP").strip()
+    allowed = ("MMAP", "BUFFERED_IO")
+    if value.upper() == "MMAP":
+        return "MMAP"
+    if value.upper() == "BUFFERED_IO":
+        return "BUFFERED_IO"
+    raise ValueError(
+        f"{_PER_TASK_IO_MODE_ENV} must be one of {allowed}, not {value!r}"
+    )
+
+
+def _per_task_page_cache_prewarm_enabled():
+    value = os.environ.get(_PER_TASK_PAGE_CACHE_PREWARM_ENV, "1")
+    if value not in ("0", "1"):
+        raise ValueError(f"{_PER_TASK_PAGE_CACHE_PREWARM_ENV} must be 0 or 1")
+    return value == "1"
+
+
+def _per_task_prewarm_page_cache(database_path):
+    """Sequential-read the DuckDB file into the kernel page cache.
+
+    DuckDB has no shared buffer manager across processes. mmap (IO_MODE MMAP)
+    plus a populated page cache is the supported way for many processes to
+    share the same physical file pages. This helper does not drop cache first.
+    """
+    paths = [Path(database_path)]
+    wal = Path(f"{database_path}.wal")
+    if wal.exists():
+        paths.append(wal)
+    bytes_read = 0
+    for path in paths:
+        with open(path, "rb", buffering=0) as handle:
+            try:
+                os.posix_fadvise(handle.fileno(), 0, 0, os.POSIX_FADV_WILLNEED)
+            except OSError:
+                pass
+            while True:
+                chunk = handle.read(64 * 1024 * 1024)
+                if not chunk:
+                    break
+                bytes_read += len(chunk)
+    return bytes_read
+
+
+def _per_task_os_thread_count():
+    try:
+        return len(os.listdir("/proc/self/task"))
+    except OSError:
+        return None
+
+
+def _release_duckdb_default_connection():
+    """Drop the implicit in-memory connection created by `import duckdb`.
+
+    That connection is built with host-sized pools (threads and async_threads
+    both default to the logical CPU count), so every worker process otherwise
+    carries hundreds of idle OS threads before it opens its own instance.
+    """
+    default = getattr(duckdb, "default_connection", None)
+    if default is None:
+        return False
+    try:
+        connection = default() if callable(default) else default
+        connection.close()
+    except Exception:
+        return False
+    return True
+
+
+def _per_task_temporary_storage_bytes(child):
+    tags = (
+        ((child.get("lifecycle_boundaries") or {}).get("copy_end") or {})
+        .get("database", {})
+        .get("duckdb_memory_by_tag")
+        or []
+    )
+    return sum(
+        int(tag.get("temporary_storage_bytes") or 0)
+        for tag in tags
+        if isinstance(tag, dict)
+    )
+
+
+def _per_task_export_worker(
+    database_path,
+    task,
+    instance_threads,
+    instance_memory_gib,
+    metrics_path,
+    monotonic_origin,
+    start_gate,
+    ready_queue,
+    task_key,
+    io_mode,
+):
+    child_metrics = (
+        {
+            "_monotonic_origin": monotonic_origin,
+            "intervals_seconds": {},
+            "phase_intervals": {},
+            "lifecycle_boundaries": {},
+        }
+        if metrics_path is not None
+        else None
+    )
+    threads_before_release = _per_task_os_thread_count()
+    default_connection_released = _release_duckdb_default_connection()
+    threads_after_release = _per_task_os_thread_count()
+    config = _duckdb_connection_config()
+    config.update(
+        {
+            "threads": str(instance_threads),
+            "memory_limit": f"{instance_memory_gib}GiB",
+            # `threads` caps scheduler task slots only; async_threads defaults to
+            # the host CPU count, so a private instance is not a small instance
+            # until this is sized too.
+            "async_threads": str(instance_threads),
+            "external_threads": "1",
+            # MMAP maps the database file; the kernel then shares those
+            # file-backed physical pages across worker processes.
+            "default_io_mode": io_mode,
+        }
+    )
+    try:
+        conn = duckdb.connect(str(database_path), read_only=True, config=config)
+        try:
+            preserve_insertion_order = str(_duckdb_preserve_insertion_order()).lower()
+            conn.execute(f"SET preserve_insertion_order={preserve_insertion_order}")
+            observer = (
+                _WriterObserver(monotonic_origin) if child_metrics is not None else None
+            )
+            if child_metrics is not None:
+                child_metrics["duckdb_settings_after_export_config"] = _duckdb_settings(
+                    conn
+                )
+                child_metrics["per_task_instance"] = {
+                    "task_key": task_key,
+                    "table": task.table_name,
+                    "file": Path(task.file_path).name,
+                    "estimated_rows": task.estimated_rows,
+                    "writers": 1,
+                    "threads": instance_threads,
+                    "async_threads": instance_threads,
+                    "io_mode": io_mode,
+                    "memory_limit_gib": instance_memory_gib,
+                    "pid": os.getpid(),
+                    "os_threads_at_import": threads_before_release,
+                    "os_threads_after_default_release": threads_after_release,
+                    "os_threads_after_connect": _per_task_os_thread_count(),
+                    "default_connection_released": default_connection_released,
+                }
+                _capture_boundary(
+                    child_metrics, "copy_start", conn, database_path, observer
+                )
+            ready_queue.put(
+                {
+                    "task_key": task_key,
+                    "table": task.table_name,
+                    "file": Path(task.file_path).name,
+                }
+            )
+            submitted_at = time.monotonic() if observer is not None else None
+            _write_part(task, conn, start_gate, observer, submitted_at)
+            if child_metrics is not None:
+                child_metrics["export"] = observer.snapshot()
+                _capture_boundary(
+                    child_metrics, "copy_end", conn, database_path, observer
+                )
+                child_metrics["per_task_instance"][
+                    "temporary_storage_bytes"
+                ] = _per_task_temporary_storage_bytes(child_metrics)
+        finally:
+            conn.close()
+        if metrics_path is not None:
+            _write_json_atomically(metrics_path, child_metrics)
+    except BaseException as error:
+        ready_queue.put(
+            {
+                "task_key": task_key,
+                "table": task.table_name,
+                "error": f"{type(error).__name__}: {error}",
+            }
+        )
+        raise
+
+
+def _export_in_per_task_processes(database_path, args, row_group_rows, metrics, conn):
+    tasks = _plan_export_tasks(args, row_group_rows, conn, metrics)
+    total_threads = int(
+        os.environ.get(
+            _PER_TASK_TOTAL_THREADS_ENV,
+            _DUCKDB_EXPORT_THREADS or os.cpu_count() or 1,
+        )
+    )
+    total_memory_gib = int(os.environ.get(_PER_TASK_TOTAL_MEMORY_GIB_ENV, "1536"))
+    weights = {
+        f"{index:04d}-{Path(task.file_path).name}": max(int(task.estimated_rows), 1)
+        for index, task in enumerate(tasks)
+    }
+    thread_allocations = _allocate_weighted_budget(weights, total_threads, 1)
+    memory_allocations = _allocate_weighted_budget(weights, total_memory_gib, 1)
+
+    close_started = time.monotonic()
+    conn.close()
+    _record_interval(metrics, "export_connection_close", close_started)
+    io_mode = _per_task_io_mode()
+    page_cache_prewarm_bytes = 0
+    if _per_task_page_cache_prewarm_enabled():
+        prewarm_started = time.monotonic()
+        page_cache_prewarm_bytes = _per_task_prewarm_page_cache(database_path)
+        _record_interval(metrics, "database_file_cache_repopulate", prewarm_started)
+
+    context = multiprocessing.get_context("spawn")
+    start_gate = context.Event()
+    ready_queue = context.Queue()
+    process_records = []
+    origin = metrics["_monotonic_origin"] if metrics is not None else time.monotonic()
+    metrics_dir = Path(database_path).with_name("per-task-process-metrics")
+    metrics_dir.mkdir(exist_ok=False)
+
+    for index, task in enumerate(tasks):
+        task_key = f"{index:04d}-{Path(task.file_path).name}"
+        metrics_path = metrics_dir / f"{task_key}.json"
+        process = context.Process(
+            target=_per_task_export_worker,
+            args=(
+                str(database_path),
+                task,
+                thread_allocations[task_key],
+                memory_allocations[task_key],
+                str(metrics_path) if metrics is not None else None,
+                origin,
+                start_gate,
+                ready_queue,
+                task_key,
+                io_mode,
+            ),
+            name=f"duckdb-copy-{task_key}",
+        )
+        process.start()
+        process_records.append((task_key, process, metrics_path))
+
+    ready = {}
+    deadline = time.monotonic() + 1800
+    try:
+        while len(ready) < len(process_records):
+            timeout = max(0.1, deadline - time.monotonic())
+            if timeout <= 0:
+                raise TimeoutError("timed out waiting for per-task COPY processes")
+            try:
+                record = ready_queue.get(timeout=min(timeout, 5))
+            except queue.Empty:
+                failed = [
+                    (name, process.exitcode)
+                    for name, process, _ in process_records
+                    if process.exitcode not in (None, 0)
+                ]
+                if failed:
+                    raise RuntimeError(f"per-task process failed before gate: {failed}")
+                continue
+            if record.get("error"):
+                raise RuntimeError(
+                    f"per-task process {record.get('task_key')} failed before gate: "
+                    f"{record['error']}"
+                )
+            ready[record["task_key"]] = record
+
+        copy_started = time.monotonic()
+        start_gate.set()
+        failures = []
+        for task_key, process, _ in process_records:
+            process.join()
+            if process.exitcode != 0:
+                failures.append((task_key, process.exitcode))
+        copy_finished = time.monotonic()
+        if failures:
+            raise RuntimeError(f"per-task COPY processes failed: {failures}")
+    except BaseException:
+        start_gate.set()
+        for _, process, _ in process_records:
+            if process.is_alive():
+                process.kill()
+            process.join(timeout=5)
+        shutil.rmtree(metrics_dir, ignore_errors=True)
+        raise
+
+    if metrics is not None:
+        children = [json.loads(path.read_text()) for _, _, path in process_records]
+        copy_tasks = sorted(
+            [
+                task
+                for child in children
+                for task in (child.get("export") or {}).get("copy_tasks", [])
+            ],
+            key=lambda task: task["start_offset_seconds"],
+        )
+        copy_cpu_seconds = _aggregate_child_cpu_seconds(children)
+        copy_start_offset = copy_started - origin
+        copy_duration = copy_finished - copy_started
+        temp_values = [_per_task_temporary_storage_bytes(child) for child in children]
+        instances = []
+        for child in children:
+            record = dict(child.get("per_task_instance") or {})
+            record["temporary_storage_bytes"] = _per_task_temporary_storage_bytes(child)
+            instances.append(record)
+        metrics["export"] = {
+            **(metrics.get("export") or {}),
+            "planned_tasks": len(tasks),
+            "planned_writers": len(tasks),
+            "task_order": os.environ.get("VELOX_TESTING_COPY_TASK_ORDER", "fifo"),
+            "copy_start_gate_enabled": True,
+            "copy_start_gate_release_offset_seconds": copy_start_offset,
+            "actual_max_concurrent_copy": _maximum_concurrency(copy_tasks),
+            "copy_duration_sum_seconds": sum(
+                float(task["duration_seconds"]) for task in copy_tasks
+            ),
+            "copy_tasks": copy_tasks,
+            "per_task_processes": instances,
+            "spill": {
+                "temporary_storage_bytes_sum": int(sum(temp_values)),
+                "temporary_storage_bytes_max_child": int(max(temp_values, default=0)),
+                "children_with_spill": sum(1 for value in temp_values if value > 0),
+            },
+        }
+        metrics["intervals_seconds"]["parquet_copy_publish_wall"] = copy_duration
+        metrics["phase_intervals"]["parquet_copy_publish_wall"] = {
+            "start_offset_seconds": copy_start_offset,
+            "duration_seconds": copy_duration,
+        }
+        metrics["lifecycle_boundaries"]["copy_start"] = {
+            "offset_seconds": copy_start_offset,
+            "process": {"user_cpu_seconds": 0.0, "system_cpu_seconds": 0.0},
+            "active_writers": 0,
+        }
+        metrics["lifecycle_boundaries"]["copy_end"] = {
+            "offset_seconds": copy_finished - origin,
+            "process": {
+                "user_cpu_seconds": copy_cpu_seconds,
+                "system_cpu_seconds": 0.0,
+            },
+            "active_writers": 0,
+            "database": {
+                "duckdb_memory_by_tag": [
+                    {
+                        "tag": "per_task_aggregate_temporary_storage",
+                        "temporary_storage_bytes": int(sum(temp_values)),
+                    }
+                ]
+            },
+        }
+        metrics["duckdb_settings_after_export_config"] = {
+            "threads": str(total_threads),
+            "memory_limit": f"{total_memory_gib}GiB",
+            "preserve_insertion_order": str(
+                _duckdb_preserve_insertion_order()
+            ).lower(),
+            "per_task_databaseinstances": "true",
+        }
+        metrics["export_lifecycle"] = {
+            "mode": _PER_TASK_PROCESS_MODE,
+            "reopened": True,
+            "reopened_read_only": False,
+            "buffer_trim": False,
+            "file_cache_dropped": False,
+            "instance_preserved_by_keeper": False,
+            "fresh_process": True,
+            "prewarm_bytes": 0,
+            "page_cache_prewarm_bytes": page_cache_prewarm_bytes,
+            "page_cache_prewarm_enabled": _per_task_page_cache_prewarm_enabled(),
+            "io_mode": io_mode,
+            "per_task_process_count": len(process_records),
+            "total_threads_budget": total_threads,
+            "total_memory_gib_budget": total_memory_gib,
+            "thread_allocation_min": min(thread_allocations.values()),
+            "thread_allocation_max": max(thread_allocations.values()),
+            "memory_allocation_min_gib": min(memory_allocations.values()),
+            "memory_allocation_max_gib": max(memory_allocations.values()),
+            "temporary_storage_bytes_sum": int(sum(temp_values)),
+            "temporary_storage_bytes_max_child": int(max(temp_values, default=0)),
+            "children_with_spill": sum(1 for value in temp_values if value > 0),
+            "child_os_threads_after_connect_sum": sum(
+                int(record.get("os_threads_after_connect") or 0)
+                for record in instances
+            ),
+            "child_os_threads_after_connect_max": max(
+                (int(record.get("os_threads_after_connect") or 0) for record in instances),
+                default=0,
+            ),
+            "child_default_connections_released": sum(
+                1 for record in instances if record.get("default_connection_released")
+            ),
+        }
+    shutil.rmtree(metrics_dir)
+    return None
+# END PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+# ============================================================================
 # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
 
 
@@ -837,6 +1557,25 @@ def generate_data_files_with_duckdb(
         if metrics is None:
             row_group_rows = _materialize_tables(args, conn)
             # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
+            # =================================================================
+            # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+            if _export_lifecycle() == _PER_TABLE_PROCESS_MODE:
+                _export_in_per_table_processes(
+                    database_path, args, row_group_rows, metrics, conn
+                )
+                conn = None
+                return
+            # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+            # =================================================================
+            # BEGIN PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+            if _export_lifecycle() == _PER_TASK_PROCESS_MODE:
+                _export_in_per_task_processes(
+                    database_path, args, row_group_rows, metrics, conn
+                )
+                conn = None
+                return
+            # END PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+            # =================================================================
             if _export_lifecycle() == "reopen_fresh_process":
                 conn.close()
                 conn = None
@@ -850,6 +1589,25 @@ def generate_data_files_with_duckdb(
             # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
             row_group_rows = _materialize_tables(args, conn, metrics)
             _capture_boundary(metrics, "materialization_end", conn, database_path)
+            # =================================================================
+            # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+            if _export_lifecycle() == _PER_TABLE_PROCESS_MODE:
+                _export_in_per_table_processes(
+                    database_path, args, row_group_rows, metrics, conn
+                )
+                conn = None
+                return
+            # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+            # =================================================================
+            # BEGIN PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+            if _export_lifecycle() == _PER_TASK_PROCESS_MODE:
+                _export_in_per_task_processes(
+                    database_path, args, row_group_rows, metrics, conn
+                )
+                conn = None
+                return
+            # END PER-TASK DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+            # =================================================================
             if _export_lifecycle() == "reopen_fresh_process":
                 started = time.monotonic()
                 conn.close()
@@ -910,7 +1668,8 @@ def _duckdb_settings(conn):
         "'threads','memory_limit','preserve_insertion_order',"
         "'pin_threads','external_threads','async_threads',"
         "'scheduler_process_partial','allocator_background_threads',"
-        "'allocator_flush_threshold','allocator_bulk_deallocation_flush_threshold'"
+        "'allocator_flush_threshold','allocator_bulk_deallocation_flush_threshold',"
+        "'temp_directory'"
     )
     return dict(
         conn.execute(
@@ -995,6 +1754,13 @@ def _export_tables(
     conn,
     # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
     metrics=None,
+    # =========================================================================
+    # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+    table_names=None,
+    external_start_gate=None,
+    ready_queue=None,
+    # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+    # =========================================================================
     # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
 ):
     """Write every materialized table out as Parquet.
@@ -1011,6 +1777,9 @@ def _export_tables(
         conn,
         # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
         metrics,
+        # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+        table_names,
+        # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
         # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
     )
     # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
@@ -1024,7 +1793,7 @@ def _export_tables(
         )
     _record_interval(metrics, "export_planning", started)
     observer = _WriterObserver(metrics["_monotonic_origin"]) if metrics is not None else None
-    start_gate_enabled = _copy_start_gate_enabled()
+    start_gate_enabled = _copy_start_gate_enabled() or external_start_gate is not None
     if metrics is not None:
         metrics["export"]["planned_tasks"] = len(tasks)
         metrics["export"]["planned_writers"] = min(args.num_threads, len(tasks))
@@ -1036,6 +1805,10 @@ def _export_tables(
     try:
         # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
         if args.num_threads == 1 or len(tasks) <= 1:
+            # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+            if ready_queue is not None:
+                ready_queue.put({"table": tasks[0].table_name, "tasks": len(tasks)})
+            # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
             for task in tasks:
                 # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
                 submitted_at = time.monotonic() if observer is not None else None
@@ -1043,7 +1816,9 @@ def _export_tables(
                 _write_part(
                     task,
                     conn,
-                    None,
+                    # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+                    external_start_gate,
+                    # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
                     # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
                     observer,
                     submitted_at,
@@ -1051,7 +1826,13 @@ def _export_tables(
                 )
         else:
             with ThreadPoolExecutor(max_workers=min(args.num_threads, len(tasks))) as executor:
-                start_gate = threading.Event() if start_gate_enabled else None
+                # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+                start_gate = (
+                    external_start_gate
+                    if external_start_gate is not None
+                    else (threading.Event() if start_gate_enabled else None)
+                )
+                # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
                 # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
                 submission_started = time.monotonic()
                 submission_details = []
@@ -1100,7 +1881,11 @@ def _export_tables(
                         previous_submit_returned = submit_returned
                         # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
                 finally:
-                    if start_gate is not None:
+                    # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+                    if ready_queue is not None:
+                        ready_queue.put({"table": tasks[0].table_name, "tasks": len(tasks)})
+                    if start_gate is not None and external_start_gate is None:
+                    # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
                         start_gate.set()
                 # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
                 if metrics is not None:
@@ -1137,6 +1922,9 @@ def _plan_export_tasks(
     conn,
     # BEGIN LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
     metrics=None,
+    # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+    table_names=None,
+    # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
     # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
 ):
     """Describe every Parquet file to write, before any of them is written.
@@ -1149,6 +1937,12 @@ def _plan_export_tasks(
     source_tables = {}
     # END LOCAL E2E PROFILING (REMOVE BEFORE UPSTREAM)
     for (table_name,) in conn.sql("SHOW TABLES").fetchall():
+        # =====================================================================
+        # BEGIN PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+        if table_names is not None and table_name not in table_names:
+            continue
+        # END PER-TABLE DATABASEINSTANCE EXPERIMENT — DELETE AS ONE BLOCK
+        # =====================================================================
         table_data_dir = f"{args.data_dir_path}/{table_name}"
         Path(table_data_dir).mkdir(exist_ok=False)
 
