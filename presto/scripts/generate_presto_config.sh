@@ -60,6 +60,21 @@ function duplicate_worker_configs() {
   sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=${exch_port}+g" ${worker_native_config}
   # Give each worker a unique id.
   sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
+
+  # EFA workers use host networking. They share the host address, use unique
+  # HTTP/UCX ports, and reach the coordinator through its published host port.
+  if [[ "${PRESTO_WORKER_HOST_NETWORK:-false}" == "true" ]]; then
+    local internal_address="${PRESTO_WORKER_INTERNAL_ADDRESS:?PRESTO_WORKER_INTERNAL_ADDRESS must be set for host-network workers}"
+    sed -i "s+discovery\.uri=.*+discovery.uri=http://127.0.0.1:8080+g" \
+      "${worker_config}/config_native.properties" \
+      "${worker_config}/config_java.properties"
+    if grep -q '^node\.internal-address=' "${worker_config}/node.properties"; then
+      sed -i "s+node\.internal-address=.*+node.internal-address=${internal_address}+g" \
+        "${worker_config}/node.properties"
+    else
+      echo "node.internal-address=${internal_address}" >> "${worker_config}/node.properties"
+    fi
+  fi
 }
 
 # get host values
