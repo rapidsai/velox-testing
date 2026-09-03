@@ -30,7 +30,7 @@ class DataGenArgs:
     max_rows_per_file: int
     keep_original_dataset: bool
     approx_row_group_bytes: int
-    duckdb_memory_limit: str = "512GiB"
+    memory_limit: int | None = None
     codec_definitions: str = None
 
 

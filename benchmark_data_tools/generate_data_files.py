@@ -77,6 +77,26 @@ def generate_partition(
 
 
 def generate_data_files(args):
+    if args.memory_limit is not None and args.benchmark_type == "tpch":
+        # TODO: Extend --memory-limit to TPC-H and link the upstream issue here.
+        raise ValueError("--memory-limit is only supported for TPC-DS generation")
+
+    if args.memory_limit is not None and args.memory_limit <= 0:
+        raise ValueError("--memory-limit must be a positive byte count")
+
+    if args.memory_limit is None and (args.benchmark_type == "tpcds" or args.use_duckdb):
+        with open("/proc/meminfo") as meminfo:
+            available_memory_bytes = next(
+                int(line.split()[1]) * 1024 for line in meminfo if line.startswith("MemAvailable:")
+            )
+        args.memory_limit = available_memory_bytes // 2
+        if args.verbose:
+            print(
+                f"Using default DuckDB memory limit of {args.memory_limit:,} bytes "
+                "(50% of available RAM)",
+                flush=True,
+            )
+
     if args.codec_definitions:
         if args.benchmark_type != "tpch":
             raise ValueError("--codec-definitions is currently only supported for TPC-H benchmarks")
@@ -200,7 +220,7 @@ def generate_data_files_with_duckdb(args):
         with duckdb.connect() as install_conn:
             install_conn.sql(f"INSTALL {args.benchmark_type}")
 
-        with duckdb.connect(str(database_path), config={"memory_limit": args.duckdb_memory_limit}) as conn:
+        with duckdb.connect(str(database_path), config={"memory_limit": f"{args.memory_limit}B"}) as conn:
             row_group_rows = materialize_tables(args, conn)
             export_tables(args, row_group_rows, conn)
 
@@ -504,11 +524,12 @@ if __name__ == "__main__":
         help="Approximate row group size in bytes. 128MB by default.",
     )
     parser.add_argument(
-        "--duckdb-memory-limit",
-        type=str,
+        "--memory-limit",
+        type=int,
         required=False,
-        default="512GiB",
-        help="DuckDB memory limit for materialization and export. 512GiB by default.",
+        default=None,
+        help="Memory limit in bytes for TPC-DS DuckDB generation. "
+        "Defaults to 50%% of available system RAM when omitted.",
     )
     parser.add_argument(
         "--codec-definitions",
