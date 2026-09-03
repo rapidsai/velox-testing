@@ -35,6 +35,8 @@ x-presto-native-worker-gpu: &gpu_worker_base
 {% if ucx_efa %}
   # Confirm the host device names with `ls /dev/infiniband` and expose the
   # uverbs devices required by the selected UCX_NET_DEVICES_GPU_<id> values.
+  # See presto/scripts/start_g7e48_ucx_efa_cluster.sh for an EC2 provisioning
+  # reference and a topology-discovering cluster-start example.
   devices:
     - /dev/infiniband/rdma_cm
     - /dev/infiniband/uverbs0
