@@ -239,9 +239,9 @@ def materialize_tables(args, conn):
         return row_group_rows
 
 
-def configure_duckdb_export(conn, num_tasks):
+def configure_duckdb_export(conn, num_threads):
     """Apply production DuckDB settings immediately before Parquet export."""
-    conn.execute(f"SET threads={num_tasks}")
+    conn.execute(f"SET threads={num_threads}")
     conn.execute("SET preserve_insertion_order=false")
 
 
@@ -255,19 +255,19 @@ class ExportTask(NamedTuple):
 
 
 def export_tables(args, row_group_rows, conn):
-    """Write one task per table part using a num_threads-sized pool."""
+    """Write one table-part task per worker."""
     tasks = plan_export_tasks(args, row_group_rows, conn)
     if not tasks:
         return
 
     num_tasks = len(tasks)
-    configure_duckdb_export(conn, num_tasks)
-    if args.num_threads == 1:
+    configure_duckdb_export(conn, args.num_threads)
+    if num_tasks == 1:
         for task in tasks:
             write_part(task, conn)
         return
 
-    with ThreadPoolExecutor(max_workers=args.num_threads) as executor:
+    with ThreadPoolExecutor(max_workers=num_tasks) as executor:
         futures = [executor.submit(write_part, task, conn) for task in tasks]
         try:
             for future in futures:
@@ -484,7 +484,7 @@ if __name__ == "__main__":
         type=int,
         required=False,
         default=4,
-        help="Thread pool size for concurrent generation and Parquet export tasks.",
+        help="Number of DuckDB threads, or concurrent TPC-H generation tasks.",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", required=False, default=False, help="Extra verbose logging"
