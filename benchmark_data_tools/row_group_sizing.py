@@ -66,13 +66,13 @@ def get_row_group_row_counts(
         for (table_name,) in conn.execute("SHOW TABLES").fetchall():
             select_query = get_select_query(table_name, convert_decimals_to_floats, conn)
             table_rows = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-            rows = _measure_row_group_rows(conn, select_query, table_rows, target_bytes)
+            rows = measure_row_group_rows(conn, select_query, table_rows, target_bytes)
             if rows is not None:
                 row_counts[table_name] = rows
     return row_counts
 
 
-def _measure_row_group_rows(conn, select_query, table_rows, target_bytes):
+def measure_row_group_rows(conn, select_query, table_rows, target_bytes):
     """Rows per row group so that a row group weighs about target_bytes."""
     if table_rows == 0:
         return None
@@ -82,25 +82,25 @@ def _measure_row_group_rows(conn, select_query, table_rows, target_bytes):
 
         # First pass: estimate bytes/row using DuckDB's default row-group size.
         copy_to_parquet(f"{select_query} LIMIT {_STAGE1_ROWS}", probe_path, conn=conn)
-        rows = _rows_for_target(_bytes_per_row(probe_path), target_bytes)
+        rows = rows_for_target(bytes_per_row(probe_path), target_bytes)
         if rows is None or rows >= table_rows:
             # A second write cannot fill the estimated row group or improve the result.
             return rows
 
         # Second pass: bytes/row changes with row-group size, so remeasure near the requested size.
         copy_to_parquet(f"{select_query} LIMIT {rows}", probe_path, rows, conn)
-        refined = _rows_for_target(_bytes_per_row(probe_path), target_bytes)
+        refined = rows_for_target(bytes_per_row(probe_path), target_bytes)
 
     return rows if refined is None else refined
 
 
-def _bytes_per_row(path):
+def bytes_per_row(path):
     """Read bytes/row from the probe's only row group."""
     row_group = pq.ParquetFile(path).metadata.row_group(0)
     return row_group.total_byte_size / row_group.num_rows
 
 
-def _rows_for_target(bytes_per_row, target_bytes):
+def rows_for_target(bytes_per_row, target_bytes):
     """Round to the nearest 2,048-row multiple instead of letting DuckDB round up."""
     if not bytes_per_row:
         return None

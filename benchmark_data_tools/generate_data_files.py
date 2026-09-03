@@ -201,11 +201,11 @@ def generate_data_files_with_duckdb(args):
             install_conn.sql(f"INSTALL {args.benchmark_type}")
 
         with duckdb.connect(str(database_path), config={"memory_limit": args.duckdb_memory_limit}) as conn:
-            row_group_rows = _materialize_tables(args, conn)
-            _export_tables(args, row_group_rows, conn)
+            row_group_rows = materialize_tables(args, conn)
+            export_tables(args, row_group_rows, conn)
 
 
-def _materialize_tables(args, conn):
+def materialize_tables(args, conn):
     """Generate the target dataset, returning the probed rows per row group per table."""
     if args.verbose:
         print("Starting row-group proxy probe", flush=True)
@@ -245,7 +245,7 @@ def configure_duckdb_export(conn, num_tasks):
     conn.execute("SET preserve_insertion_order=false")
 
 
-class _ExportTask(NamedTuple):
+class ExportTask(NamedTuple):
     """One Parquet file to write: a whole table, or one rowid range of a split table."""
 
     table_name: str
@@ -254,21 +254,21 @@ class _ExportTask(NamedTuple):
     rows_per_row_group: int
 
 
-def _export_tables(args, row_group_rows, conn):
-    """Write all table parts from one queue bounded by num_threads."""
-    tasks = _plan_export_tasks(args, row_group_rows, conn)
+def export_tables(args, row_group_rows, conn):
+    """Write one task per table part using a num_threads-sized pool."""
+    tasks = plan_export_tasks(args, row_group_rows, conn)
     if not tasks:
         return
 
-    num_tasks = min(args.num_threads, len(tasks))
+    num_tasks = len(tasks)
     configure_duckdb_export(conn, num_tasks)
-    if num_tasks == 1:
+    if args.num_threads == 1:
         for task in tasks:
-            _write_part(task, conn)
+            write_part(task, conn)
         return
 
-    with ThreadPoolExecutor(max_workers=num_tasks) as executor:
-        futures = [executor.submit(_write_part, task, conn) for task in tasks]
+    with ThreadPoolExecutor(max_workers=args.num_threads) as executor:
+        futures = [executor.submit(write_part, task, conn) for task in tasks]
         try:
             for future in futures:
                 future.result()
@@ -278,7 +278,7 @@ def _export_tables(args, row_group_rows, conn):
             raise
 
 
-def _plan_export_tasks(args, row_group_rows, conn):
+def plan_export_tasks(args, row_group_rows, conn):
     """Describe every output file before starting any Parquet writer."""
     tasks = []
     for (table_name,) in conn.sql("SHOW TABLES").fetchall():
@@ -297,7 +297,7 @@ def _plan_export_tasks(args, row_group_rows, conn):
                 start_row = part * args.max_rows_per_file
                 partition_query += f" WHERE rowid >= {start_row} AND rowid < {start_row + args.max_rows_per_file}"
             tasks.append(
-                _ExportTask(
+                ExportTask(
                     table_name=table_name,
                     query=partition_query,
                     file_path=f"{table_data_dir}/{table_name}-{part + 1}.parquet",
@@ -307,7 +307,7 @@ def _plan_export_tasks(args, row_group_rows, conn):
     return tasks
 
 
-def _write_part(task, root_conn):
+def write_part(task, root_conn):
     """Write and atomically publish one Parquet file."""
     partial_path = Path(f"{task.file_path}.partial")
     try:
@@ -484,7 +484,7 @@ if __name__ == "__main__":
         type=int,
         required=False,
         default=4,
-        help="Number of concurrent data generation tasks",
+        help="Thread pool size for concurrent generation and Parquet export tasks.",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", required=False, default=False, help="Extra verbose logging"

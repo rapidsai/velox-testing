@@ -59,7 +59,7 @@ def test_duckdb_export_configuration_starts_after_materialization(
     args.benchmark_type = benchmark_type
     args.use_duckdb = use_duckdb
     args.convert_decimals_to_floats = False
-    args.num_threads = 8
+    args.num_threads = 2
 
     observed_settings = {}
     writer_settings = []
@@ -100,7 +100,7 @@ def test_duckdb_export_configuration_starts_after_materialization(
         return real_copy_to_parquet(select_query, file_path, rows_per_row_group, conn)
 
     monkeypatch.setattr(generator.duckdb, "connect", connect)
-    monkeypatch.setattr(generator, "_materialize_tables", materialize_tables)
+    monkeypatch.setattr(generator, "materialize_tables", materialize_tables)
     monkeypatch.setattr(generator, "copy_to_parquet", copy_to_parquet)
 
     generator.generate_data_files(args)
@@ -137,7 +137,7 @@ def test_export_plan_is_one_queue_across_tables(tmp_path):
     with duckdb.connect() as conn:
         conn.sql("CREATE TABLE alpha AS SELECT i FROM range(10) AS t(i)")
         conn.sql("CREATE TABLE beta AS SELECT i FROM range(3) AS t(i)")
-        tasks = generator._plan_export_tasks(args, {}, conn)
+        tasks = generator.plan_export_tasks(args, {}, conn)
 
     assert [task.table_name for task in tasks] == ["alpha", "alpha", "alpha", "beta"]
     assert [Path(task.file_path).name for task in tasks] == [
