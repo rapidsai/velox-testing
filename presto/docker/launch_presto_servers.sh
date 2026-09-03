@@ -6,6 +6,13 @@ set -e
 # Run ldconfig once
 ldconfig
 
+if [[ "${PRESTO_UCX_EFA_ENABLED:-false}" == "true" ]]; then
+  /opt/verify_ucx_runtime.sh
+fi
+# UCX treats every UCX_* variable as runtime configuration. The image keeps
+# BUNDLED_UCX_VERSION as provenance, so do not forward the build-time alias.
+unset UCX_VERSION
+
 LOGS_DIR="/opt/presto-server/logs"
 mkdir -p "${LOGS_DIR}"
 : "${SERVER_START_TIMESTAMP:?SERVER_START_TIMESTAMP must be set before starting the container}"
