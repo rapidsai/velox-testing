@@ -36,7 +36,6 @@ OPTIONS:
     --profile-args       Arguments to pass to the profiler when it launches the Presto server.
                          This will override the default arguments.
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
-    --config-profile     Apply a named workload-specific config profile while regenerating config.
     --logs-dir           Directory for server log files (default: <script_dir>/presto_logs).
                          Old log files are archived to an archive/ subdirectory on each startup.
     --sccache            Enable sccache distributed compilation caching (requires auth files
@@ -60,7 +59,6 @@ EXAMPLES:
     $SCRIPT_NAME -w 4
     $SCRIPT_NAME -w 4 -g 4,5,6,7
     $SCRIPT_NAME --profile
-    $SCRIPT_NAME --overwrite-config --config-profile g7e48-local-nvme-q18
     $SCRIPT_NAME --sccache -b worker
     $SCRIPT_NAME --sccache --sccache-version 0.12.0-rapids.1 -b worker
     $SCRIPT_NAME --sccache --sccache-enable-dist -b worker
@@ -80,7 +78,6 @@ export NUM_WORKERS=1
 export KVIKIO_THREADS=8
 export VCPU_PER_WORKER=""
 export UCX_EFA=false
-export PRESTO_CONFIG_PROFILE=""
 LOGS_DIR=""
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
@@ -191,15 +188,6 @@ parse_args() {
         OVERWRITE_CONFIG=true
         shift
         ;;
-      --config-profile)
-        if [[ -n ${2:-} ]]; then
-          export PRESTO_CONFIG_PROFILE=$2
-          shift 2
-        else
-          echo "Error: --config-profile requires a value"
-          exit 1
-        fi
-        ;;
       --skip-generate-config)
         SKIP_GENERATE_CONFIG=true
         shift
@@ -243,11 +231,6 @@ parse_args "$@"
 
 if [[ "$UCX_EFA" == true && "$VARIANT_TYPE" != gpu ]]; then
   echo "Error: --ucx-efa is supported only for the GPU variant" >&2
-  exit 1
-fi
-
-if [[ -n "${PRESTO_CONFIG_PROFILE}" && ! "${PRESTO_CONFIG_PROFILE}" =~ ^[A-Za-z0-9._-]+$ ]]; then
-  echo "Error: --config-profile must contain only letters, digits, dots, underscores, and hyphens" >&2
   exit 1
 fi
 
