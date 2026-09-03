@@ -130,9 +130,6 @@ services:
     network_mode: host
 {% endif %}
 {%- if workers %}
-    # Profiling requires one container. Host networking still exposes every
-    # ENA; launch_presto_servers.sh assigns one to each child process.
-    network_mode: host
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
       NVIDIA_VISIBLE_DEVICES: all
