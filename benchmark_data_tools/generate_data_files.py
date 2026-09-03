@@ -78,7 +78,7 @@ def generate_partition(
 
 def generate_data_files(args):
     if args.memory_limit is not None and args.benchmark_type == "tpch":
-        # TODO: Extend --memory-limit to TPC-H and link the upstream issue here.
+        # TODO: Extend --memory-limit to TPC-H and link the upstream issue here (rapidsai/velox-testing#414).
         raise ValueError("--memory-limit is only supported for TPC-DS generation")
 
     if args.memory_limit is not None and args.memory_limit <= 0:
