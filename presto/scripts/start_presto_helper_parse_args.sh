@@ -48,8 +48,11 @@ OPTIONS:
 ENVIRONMENT VARIABLES:
     SCCACHE_AUTH_DIR     Directory containing sccache auth files (default: ~/.sccache-auth/).
     PRESTO_CTAS_SCRATCH_DIR    Optional writable host scratch directory mounted for temporary CTAS benchmark results.
-    PRESTO_WORKER_INTERNAL_ADDRESS  Host private IPv4 advertised by host-network workers.
-    UCX_NET_DEVICES_GPU_<id>       UCX devices assigned to each GPU worker.
+    PRESTO_WORKER_INTERNAL_ADDRESS  Host private IPv4 advertised by host-network workers. Use
+                                    'ip -4 -o addr show dev <interface>' to find it.
+    UCX_NET_DEVICES_GPU_<id>       UCX devices assigned to each GPU worker, formatted as
+                                    '<rdma-device>:<port>,<tcp-interface>'. Use 'rdma link show'
+                                    and 'nvidia-smi topo -m' to identify local device pairs.
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -299,6 +302,9 @@ if [[ "$UCX_EFA" == true ]]; then
   else
     mapfile -t ucx_gpu_ids < <(seq 0 "$((NUM_WORKERS - 1))")
   fi
+  # `rdma link show` reports each RDMA device, port, and associated network
+  # interface. Match those interfaces to GPUs with `nvidia-smi topo -m` or
+  # their NUMA nodes before setting UCX_NET_DEVICES_GPU_<id>.
   for gpu_id in "${ucx_gpu_ids[@]}"; do
     ucx_device_var="UCX_NET_DEVICES_GPU_${gpu_id}"
     if [[ -z ${!ucx_device_var:-} ]]; then
