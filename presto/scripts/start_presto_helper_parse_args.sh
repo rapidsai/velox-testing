@@ -294,7 +294,11 @@ fi
 
 if [[ "$UCX_EFA" == true ]]; then
   : "${PRESTO_WORKER_INTERNAL_ADDRESS:?set PRESTO_WORKER_INTERNAL_ADDRESS for --ucx-efa}"
-  IFS=',' read -ra ucx_gpu_ids <<< "${GPU_IDS:-0}"
+  if [[ -n ${GPU_IDS:-} ]]; then
+    ucx_gpu_ids=("${GPU_ID_ARRAY[@]}")
+  else
+    mapfile -t ucx_gpu_ids < <(seq 0 "$((NUM_WORKERS - 1))")
+  fi
   for gpu_id in "${ucx_gpu_ids[@]}"; do
     ucx_device_var="UCX_NET_DEVICES_GPU_${gpu_id}"
     if [[ -z ${!ucx_device_var:-} ]]; then
