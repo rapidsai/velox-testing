@@ -63,7 +63,6 @@ done
 start_args=(
   --ucx-efa
   --overwrite-config
-  --config-profile g7e48-local-nvme-q18
   --single-container
   --kvikio-threads 16
   --num-drivers 2

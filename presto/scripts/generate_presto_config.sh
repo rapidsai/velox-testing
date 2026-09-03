@@ -23,10 +23,9 @@ function echo_success {
   echo -e "${GREEN}$1${NC}"
 }
 
-function apply_config_overrides() {
+function append_config_overrides() {
   local overrides_dir=$1
-  local replace_existing=${2:-false}
-  local src_file rel_path dest_file line key escaped_key
+  local src_file rel_path dest_file
   local -a override_files=()
 
   [[ -d "${overrides_dir}" ]] || return 0
@@ -35,16 +34,6 @@ function apply_config_overrides() {
     rel_path="${src_file#${overrides_dir}/}"
     dest_file="${CONFIG_DIR}/${rel_path}"
     [[ -f "${dest_file}" ]] || continue
-
-    if [[ "${replace_existing}" == "true" ]]; then
-      while IFS= read -r line || [[ -n "${line}" ]]; do
-        if [[ "${line}" =~ ^([A-Za-z0-9._-]+)= ]]; then
-          key=${BASH_REMATCH[1]}
-          escaped_key=${key//./\\.}
-          sed -i "/^${escaped_key}=/d" "${dest_file}"
-        fi
-      done < "${src_file}"
-    fi
 
     printf '\n' >> "${dest_file}"
     cat "${src_file}" >> "${dest_file}"
@@ -166,20 +155,11 @@ EOF
 
   # Apply variant-specific defaults.
   OVERRIDES_DIR="${SCRIPT_DIR}/../docker/config/template/overrides/${VARIANT_TYPE}"
-  apply_config_overrides "${OVERRIDES_DIR}"
+  append_config_overrides "${OVERRIDES_DIR}"
 
   # EFA transport requirements are opt-in and independent of workload tuning.
   if [[ "${UCX_EFA:-false}" == "true" ]]; then
-    apply_config_overrides "${SCRIPT_DIR}/../docker/config/template/overrides/ucx-efa"
-  fi
-
-  # Named profiles may replace existing generated properties for one workload.
-  if [[ -n "${PRESTO_CONFIG_PROFILE:-}" ]]; then
-    PROFILE_DIR="${SCRIPT_DIR}/../docker/config/template/profiles/${PRESTO_CONFIG_PROFILE}"
-    if [[ ! -d "${PROFILE_DIR}" ]]; then
-      echo_error "ERROR: Unknown Presto config profile: ${PRESTO_CONFIG_PROFILE}"
-    fi
-    apply_config_overrides "${PROFILE_DIR}" true
+    append_config_overrides "${SCRIPT_DIR}/../docker/config/template/overrides/ucx-efa"
   fi
 
   # success message
