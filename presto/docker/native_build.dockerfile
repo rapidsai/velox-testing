@@ -106,8 +106,6 @@ RUN \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
     --mount=type=cache,target=/root/.cache/sccache/preprocessor \
     --mount=type=cache,target=/root/.cache/sccache-dist-client \
-    --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \
-    --mount=type=secret,id=aws_credentials,target=/root/.aws/credentials \
     --mount=type=bind,source=velox-testing/scripts/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
 <<EOF
 set -euxo pipefail;
