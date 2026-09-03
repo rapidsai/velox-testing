@@ -118,6 +118,8 @@ if [ "$GPU" = "ON" ]; then
   export PATH="${BUNDLED_UCX_ROOT}/bin:${PATH}";
   export LD_LIBRARY_PATH="${BUNDLED_UCX_ROOT}/lib:${BUNDLED_UCX_ROOT}/lib/ucx:${LD_LIBRARY_PATH:-}";
   export UCX_MODULE_DIR="${BUNDLED_UCX_ROOT}/lib/ucx";
+  export PKG_CONFIG_PATH="${BUNDLED_UCX_ROOT}/lib/pkgconfig:${PKG_CONFIG_PATH:-}";
+  EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DUCX_LIBRARY=${BUNDLED_UCX_ROOT}/lib/libucp.so -DUCX_INCLUDE_DIR=${BUNDLED_UCX_ROOT}/include -DCMAKE_PREFIX_PATH=${BUNDLED_UCX_ROOT}\;/usr/local";
 fi
 
 # Clear stale CMake cache if the compiler changed
