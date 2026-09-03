@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Reproduce the compression-free, local-NVMe SF3K Q18 EFA/SRD benchmark on
 # the audited g7e.48xlarge topology. Iteration 1 warms caches; iteration 2 is
 # the reported hot result.
+#
+# AWS prerequisite: provision one EFA-capable network interface on each of
+# NetworkCardIndex 0, 1, 2, and 3. A default g7e.48xlarge launch may expose
+# only the first card. See:
+# https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/efa-start.html
 set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -33,12 +41,16 @@ export UCX_RNDV_FRAG_SIZE='cuda:32M'
 export UCX_RNDV_FRAG_MEM_TYPES=cuda
 export UCX_MAX_RNDV_RAILS=1
 
+missing_rdma_devices=()
 for device in rdma_cm uverbs0 uverbs1 uverbs2 uverbs3; do
-  [[ -c "/dev/infiniband/$device" ]] || {
-    echo "Missing /dev/infiniband/$device" >&2
-    exit 1
-  }
+  [[ -c "/dev/infiniband/$device" ]] || missing_rdma_devices+=("$device")
 done
+if (( ${#missing_rdma_devices[@]} )); then
+  echo "Expected four EFA network cards; launch the instance with EFA interfaces assigned to NetworkCardIndex 0-3." >&2
+  echo "Missing /dev/infiniband devices: ${missing_rdma_devices[*]}" >&2
+  echo "See https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/efa-start.html" >&2
+  exit 1
+fi
 
 for nic in enp135s0 enp153s0 enp170s0 enp187s0; do
   sudo -n ethtool -L "$nic" combined 16
@@ -51,6 +63,7 @@ done
 start_args=(
   --ucx-efa
   --overwrite-config
+  --config-profile g7e48-local-nvme-q18
   --single-container
   --kvikio-threads 16
   --num-drivers 2
