@@ -9,12 +9,8 @@ RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu
 ARG GPU=ON
 ARG BUNDLED_UCX_VERSION=1.22.0
 ARG BUNDLED_UCX_SHA256=258941cddd14ca60d38c0d31b9b09ec1052c901086841011a498da8b55a3cb24
-ENV BUNDLED_UCX_ROOT=/opt/presto-ucx/${BUNDLED_UCX_VERSION} \
-    UCX_VERSION=${BUNDLED_UCX_VERSION}
-ENV PATH=${BUNDLED_UCX_ROOT}/bin:${PATH} \
-    LD_LIBRARY_PATH=${BUNDLED_UCX_ROOT}/lib:${BUNDLED_UCX_ROOT}/lib/ucx:/usr/lib64/presto-native-libs \
-    UCX_MODULE_DIR=${BUNDLED_UCX_ROOT}/lib/ucx
 RUN if [ "$GPU" = "ON" ]; then \
+    bundled_ucx_root="/opt/presto-ucx/${BUNDLED_UCX_VERSION}" && \
     dnf install -y rdma-core-devel && \
     mkdir -p /tmp/ucx-src /tmp/ucx-build && \
     wget -qO /tmp/ucx.tar.gz \
@@ -23,7 +19,7 @@ RUN if [ "$GPU" = "ON" ]; then \
     tar -C /tmp/ucx-src --strip-components=1 -xzf /tmp/ucx.tar.gz && \
     cd /tmp/ucx-build && \
     /tmp/ucx-src/contrib/configure-release \
-      --prefix="${BUNDLED_UCX_ROOT}" \
+      --prefix="${bundled_ucx_root}" \
       --with-sysroot \
       --enable-cma \
       --enable-mt \
@@ -37,15 +33,16 @@ RUN if [ "$GPU" = "ON" ]; then \
       --with-cuda=/usr/local/cuda && \
     make -j"$(nproc)" && \
     make install && \
-    test "$("${BUNDLED_UCX_ROOT}/bin/ucx_info" -v | awk '/Library version:/{print $4}')" = "${BUNDLED_UCX_VERSION}" && \
-    test -e "${BUNDLED_UCX_ROOT}/lib/ucx/libuct_cuda.so" && \
-    test -e "${BUNDLED_UCX_ROOT}/lib/ucx/libuct_ib_efa.so" && \
-    echo "${BUNDLED_UCX_ROOT}/lib" > /etc/ld.so.conf.d/presto_bundled_ucx.conf && \
+    LD_LIBRARY_PATH="${bundled_ucx_root}/lib:${bundled_ucx_root}/lib/ucx" \
+      "${bundled_ucx_root}/bin/ucx_info" -v \
+      | grep -F "Library version: ${BUNDLED_UCX_VERSION}" && \
+    test -e "${bundled_ucx_root}/lib/ucx/libuct_cuda.so" && \
+    test -e "${bundled_ucx_root}/lib/ucx/libuct_ib_efa.so" && \
+    echo "${bundled_ucx_root}/lib" > /etc/ld.so.conf.d/presto_bundled_ucx.conf && \
+    echo "${BUNDLED_UCX_VERSION}" > /opt/presto-ucx/VERSION && \
     ldconfig && \
     rm -rf /tmp/ucx.tar.gz /tmp/ucx-src /tmp/ucx-build; \
     fi
-
-ENV BUNDLED_UCX_VERSION=${BUNDLED_UCX_VERSION}
 
 ARG BUILD_TYPE=release
 ARG BUILD_BASE_DIR=/presto_native_${BUILD_TYPE}_gpu_${GPU}_build
@@ -115,6 +112,14 @@ set -euxo pipefail;
 source /opt/rh/gcc-toolset-14/enable;
 export CC=/opt/rh/gcc-toolset-14/root/bin/gcc CXX=/opt/rh/gcc-toolset-14/root/bin/g++;
 
+if [ "$GPU" = "ON" ]; then
+  BUNDLED_UCX_ROOT="/opt/presto-ucx/${BUNDLED_UCX_VERSION}";
+  export BUNDLED_UCX_ROOT BUNDLED_UCX_VERSION;
+  export PATH="${BUNDLED_UCX_ROOT}/bin:${PATH}";
+  export LD_LIBRARY_PATH="${BUNDLED_UCX_ROOT}/lib:${BUNDLED_UCX_ROOT}/lib/ucx:${LD_LIBRARY_PATH:-}";
+  export UCX_MODULE_DIR="${BUNDLED_UCX_ROOT}/lib/ucx";
+fi
+
 # Clear stale CMake cache if the compiler changed
 if [ -f "${BUILD_BASE_DIR}/CMakeCache.txt" ]; then
   CACHED_CXX=$(grep -m1 'CMAKE_CXX_COMPILER:' "${BUILD_BASE_DIR}/CMakeCache.txt" | cut -d= -f2 || true);
@@ -156,6 +161,11 @@ COPY velox-testing/presto/docker/launch_presto_servers.sh \
      /opt/
 
 RUN if [ "$GPU" = "ON" ]; then \
+      export BUNDLED_UCX_ROOT="/opt/presto-ucx/${BUNDLED_UCX_VERSION}" && \
+      export BUNDLED_UCX_VERSION && \
+      export PATH="${BUNDLED_UCX_ROOT}/bin:${PATH}" && \
+      export LD_LIBRARY_PATH="${BUNDLED_UCX_ROOT}/lib:${BUNDLED_UCX_ROOT}/lib/ucx:${LD_LIBRARY_PATH:-}" && \
+      export UCX_MODULE_DIR="${BUNDLED_UCX_ROOT}/lib/ucx" && \
       /opt/verify_ucx_runtime.sh --build-check && \
       resolved_ucp=$(ldd /usr/bin/presto_server | awk '$1 ~ /^libucp\.so/{print $3; exit}') && \
       case "${resolved_ucp}" in \

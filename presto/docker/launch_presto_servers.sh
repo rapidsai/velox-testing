@@ -3,15 +3,30 @@
 # SPDX-License-Identifier: Apache-2.0
 
 set -e
-# Run ldconfig once
+# Activate image-owned UCX only when the GPU build wrote its version marker.
+# CPU images do not contain this marker and retain their original environment.
+if [[ -f /opt/presto-ucx/VERSION ]]; then
+  read -r BUNDLED_UCX_VERSION < /opt/presto-ucx/VERSION
+  BUNDLED_UCX_ROOT="/opt/presto-ucx/${BUNDLED_UCX_VERSION}"
+  export BUNDLED_UCX_VERSION BUNDLED_UCX_ROOT
+  export PATH="${BUNDLED_UCX_ROOT}/bin:${PATH}"
+  if [[ -n ${LD_LIBRARY_PATH:-} ]]; then
+    export LD_LIBRARY_PATH="${BUNDLED_UCX_ROOT}/lib:${BUNDLED_UCX_ROOT}/lib/ucx:${LD_LIBRARY_PATH}"
+  else
+    export LD_LIBRARY_PATH="${BUNDLED_UCX_ROOT}/lib:${BUNDLED_UCX_ROOT}/lib/ucx"
+  fi
+  export UCX_MODULE_DIR="${BUNDLED_UCX_ROOT}/lib/ucx"
+  # UCX treats every UCX_* variable as runtime configuration. The image keeps
+  # BUNDLED_UCX_VERSION as provenance, so do not forward the build-time alias.
+  unset UCX_VERSION
+fi
+
+# Run ldconfig once after selecting the image's runtime libraries.
 ldconfig
 
 if [[ "${PRESTO_UCX_EFA_ENABLED:-false}" == "true" ]]; then
   /opt/verify_ucx_runtime.sh
 fi
-# UCX treats every UCX_* variable as runtime configuration. The image keeps
-# BUNDLED_UCX_VERSION as provenance, so do not forward the build-time alias.
-unset UCX_VERSION
 
 LOGS_DIR="/opt/presto-server/logs"
 mkdir -p "${LOGS_DIR}"
