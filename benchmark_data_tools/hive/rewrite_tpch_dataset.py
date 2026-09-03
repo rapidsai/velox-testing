@@ -589,95 +589,110 @@ def rewrite_partition_table(
             raise RuntimeError(f"{table} date range exceeds the GPU input budget")
         merged = plc.concatenate.concatenate(pieces)
         sorted_table = sort_gpu_table(merged, schema, spec.sort_columns)
-        buffer = sorted_table if buffer is None else plc.concatenate.concatenate([buffer, sorted_table])
-        partition_ends = (
+        del pieces, merged
+        range_ends_partition = (
             range_index + 1 == len(ranges)
             or ranges[range_index + 1].partition_value != output_range.partition_value
         )
+        sorted_rows = sorted_table.num_rows()
+        sorted_offset = 0
 
-        while buffer is not None:
-            available_rows = buffer.num_rows()
-            candidate_rows = min(available_rows, calibration.predicted_rows())
-            if candidate_rows == available_rows and not partition_ends:
-                break
+        while sorted_offset < sorted_rows:
+            # Keep concatenation bounded to roughly two output files. Appending the
+            # entire sorted date range can require a second date-sized allocation.
+            chunk_rows = max(1, calibration.predicted_rows() + 1)
+            chunk_end = min(sorted_rows, sorted_offset + chunk_rows)
+            chunk = plc.copying.slice(sorted_table, [sorted_offset, chunk_end])[0]
+            sorted_offset = chunk_end
+            buffer = chunk if buffer is None else plc.concatenate.concatenate([buffer, chunk])
+            del chunk
+            partition_ends = range_ends_partition and sorted_offset == sorted_rows
 
-            relative = partition_path(
-                table,
-                spec.partition_column,
-                output_range.partition_value,
-                partition_indices[output_range.partition_value],
-            )
-            local_output = args.staging / table / "output" / relative
-            local_output.parent.mkdir(parents=True, exist_ok=True)
-            attempted_rows: set[int] = set()
-            details = None
-
-            for _ in range(12):
-                attempted_rows.add(candidate_rows)
-                candidate = plc.copying.slice(buffer, [0, candidate_rows])[0]
-                local_output.unlink(missing_ok=True)
-                write_gpu_parquet(local_output, candidate, schema, row_group_rows, codec)
-                measured = validate_basic_output(local_output, schema, candidate_rows)
-                physical_bytes = measured["physical_bytes"]
-                is_partition_tail = partition_ends and candidate_rows == available_rows
-
-                if (
-                    minimum_file_bytes <= physical_bytes <= maximum_file_bytes
-                    or (is_partition_tail and physical_bytes <= maximum_file_bytes)
-                ):
-                    details = measured
+            while buffer is not None:
+                available_rows = buffer.num_rows()
+                candidate_rows = min(available_rows, calibration.predicted_rows())
+                if candidate_rows == available_rows and not partition_ends:
                     break
-                if physical_bytes < minimum_file_bytes and candidate_rows == available_rows:
-                    if not partition_ends:
-                        local_output.unlink()
+
+                relative = partition_path(
+                    table,
+                    spec.partition_column,
+                    output_range.partition_value,
+                    partition_indices[output_range.partition_value],
+                )
+                local_output = args.staging / table / "output" / relative
+                local_output.parent.mkdir(parents=True, exist_ok=True)
+                attempted_rows: set[int] = set()
+                details = None
+
+                for _ in range(12):
+                    attempted_rows.add(candidate_rows)
+                    candidate = plc.copying.slice(buffer, [0, candidate_rows])[0]
+                    local_output.unlink(missing_ok=True)
+                    write_gpu_parquet(local_output, candidate, schema, row_group_rows, codec)
+                    measured = validate_basic_output(local_output, schema, candidate_rows)
+                    physical_bytes = measured["physical_bytes"]
+                    is_partition_tail = partition_ends and candidate_rows == available_rows
+
+                    if (
+                        minimum_file_bytes <= physical_bytes <= maximum_file_bytes
+                        or (is_partition_tail and physical_bytes <= maximum_file_bytes)
+                    ):
+                        details = measured
                         break
-                    details = measured
-                    break
+                    if physical_bytes < minimum_file_bytes and candidate_rows == available_rows:
+                        if not partition_ends:
+                            local_output.unlink()
+                            break
+                        details = measured
+                        break
 
-                next_rows = scaled_candidate_rows(
-                    candidate_rows,
-                    physical_bytes,
-                    args.target_file_bytes,
-                    available_rows,
-                )
-                if next_rows == candidate_rows:
-                    next_rows += -1 if physical_bytes > maximum_file_bytes else 1
-                    next_rows = max(1, min(available_rows, next_rows))
-                if next_rows in attempted_rows:
-                    raise RuntimeError(
-                        f"Measured file sizing did not converge for {relative}: "
-                        f"{candidate_rows} rows produced {physical_bytes} bytes"
+                    next_rows = scaled_candidate_rows(
+                        candidate_rows,
+                        physical_bytes,
+                        args.target_file_bytes,
+                        available_rows,
                     )
-                candidate_rows = next_rows
+                    if next_rows == candidate_rows:
+                        next_rows += -1 if physical_bytes > maximum_file_bytes else 1
+                        next_rows = max(1, min(available_rows, next_rows))
+                    if next_rows in attempted_rows:
+                        raise RuntimeError(
+                            f"Measured file sizing did not converge for {relative}: "
+                            f"{candidate_rows} rows produced {physical_bytes} bytes"
+                        )
+                    candidate_rows = next_rows
 
-            if details is None:
-                if local_output.exists():
-                    local_output.unlink()
-                if not partition_ends:
-                    break
-                raise RuntimeError(f"Measured file sizing did not converge for {relative}")
+                del candidate
+                if details is None:
+                    if local_output.exists():
+                        local_output.unlink()
+                    if not partition_ends:
+                        break
+                    raise RuntimeError(f"Measured file sizing did not converge for {relative}")
 
-            details.update(destination.publish_file(local_output, relative))
-            print(f"{relative}: {details['rows']} rows, {details['physical_bytes'] / MIB:.1f} MiB")
-            if not has_measured_output:
-                calibration = SizeCalibration(
-                    args.target_file_bytes,
-                    details["rows"],
-                    details["physical_bytes"],
+                details.update(destination.publish_file(local_output, relative))
+                print(f"{relative}: {details['rows']} rows, {details['physical_bytes'] / MIB:.1f} MiB")
+                if not has_measured_output:
+                    calibration = SizeCalibration(
+                        args.target_file_bytes,
+                        details["rows"],
+                        details["physical_bytes"],
+                    )
+                    has_measured_output = True
+                else:
+                    calibration.observe(details["rows"], details["physical_bytes"])
+                output_rows += details["rows"]
+                partition_indices[output_range.partition_value] += 1
+                local_output.unlink()
+                buffer = (
+                    plc.copying.slice(buffer, [candidate_rows, available_rows])[0]
+                    if candidate_rows < available_rows
+                    else None
                 )
-                has_measured_output = True
-            else:
-                calibration.observe(details["rows"], details["physical_bytes"])
-            output_rows += details["rows"]
-            partition_indices[output_range.partition_value] += 1
-            local_output.unlink()
-            buffer = (
-                plc.copying.slice(buffer, [candidate_rows, available_rows])[0]
-                if candidate_rows < available_rows
-                else None
-            )
 
-        if partition_ends and buffer is not None:
+        del sorted_table
+        if range_ends_partition and buffer is not None:
             raise RuntimeError(f"Failed to flush the {table} partition {output_range.partition_value}")
 
     if output_rows != assigned_statistics["rows"]:
