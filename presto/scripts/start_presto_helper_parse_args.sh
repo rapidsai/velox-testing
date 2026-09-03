@@ -25,6 +25,9 @@ OPTIONS:
                          Must be used with --num-workers. If not specified, defaults to "0,1,...,N-1"
                          where N is the value from --num-workers (GPU variant only).
     --single-container   Launch multiple Presto servers in a single container (GPU variant only).
+    --ucx-efa            Enable EFA/SRD worker networking using the UCX bundled in the GPU image.
+                         Requires PRESTO_WORKER_INTERNAL_ADDRESS and per-GPU
+                         UCX_NET_DEVICES_GPU_<id> variables.
     --build-type         Build type for native CPU and GPU image builds. Possible values are "release",
                          "relwithdebinfo", or "debug". Values are case insensitive. The default value
                          is "release".
@@ -45,6 +48,11 @@ OPTIONS:
 ENVIRONMENT VARIABLES:
     SCCACHE_AUTH_DIR     Directory containing sccache auth files (default: ~/.sccache-auth/).
     PRESTO_CTAS_SCRATCH_DIR    Optional writable host scratch directory mounted for temporary CTAS benchmark results.
+    PRESTO_WORKER_INTERNAL_ADDRESS  Host private IPv4 advertised by host-network workers. Use
+                                    'ip -4 -o addr show dev <interface>' to find it.
+    UCX_NET_DEVICES_GPU_<id>       UCX devices assigned to each GPU worker, formatted as
+                                    '<rdma-device>:<port>,<tcp-interface>'. Use 'rdma link show'
+                                    and 'nvidia-smi topo -m' to identify local device pairs.
 
 EXAMPLES:
     $SCRIPT_NAME --no-cache
@@ -72,6 +80,7 @@ export PROFILE=OFF
 export NUM_WORKERS=1
 export KVIKIO_THREADS=8
 export VCPU_PER_WORKER=""
+export UCX_EFA=false
 LOGS_DIR=""
 ENABLE_SCCACHE=false
 SCCACHE_AUTH_DIR="${SCCACHE_AUTH_DIR:-$HOME/.sccache-auth}"
@@ -146,6 +155,11 @@ parse_args() {
         export SINGLE_CONTAINER=true
         shift
         ;;
+      --ucx-efa)
+        export UCX_EFA=true
+        export PRESTO_WORKER_HOST_NETWORK=true
+        shift
+        ;;
       --build-type)
         if [[ -n $2 ]]; then
           # Convert value to lowercase using the "L" transformation operator.
@@ -218,6 +232,11 @@ parse_args() {
 
 parse_args "$@"
 
+if [[ "$UCX_EFA" == true && "$VARIANT_TYPE" != gpu ]]; then
+  echo "Error: --ucx-efa is supported only for the GPU variant" >&2
+  exit 1
+fi
+
 if [[ -n "${PRESTO_CTAS_SCRATCH_DIR:-}" ]]; then
   mkdir -p "${PRESTO_CTAS_SCRATCH_DIR}"
   PRESTO_CTAS_SCRATCH_DIR="$(readlink -f "${PRESTO_CTAS_SCRATCH_DIR}")"
@@ -274,4 +293,23 @@ if [[ -n $GPU_IDS ]]; then
     echo "Error: number of GPU IDs ($GPU_ID_COUNT) must match --num-workers ($NUM_WORKERS)"
     exit 1
   fi
+fi
+
+if [[ "$UCX_EFA" == true ]]; then
+  : "${PRESTO_WORKER_INTERNAL_ADDRESS:?set PRESTO_WORKER_INTERNAL_ADDRESS for --ucx-efa}"
+  if [[ -n ${GPU_IDS:-} ]]; then
+    ucx_gpu_ids=("${GPU_ID_ARRAY[@]}")
+  else
+    mapfile -t ucx_gpu_ids < <(seq 0 "$((NUM_WORKERS - 1))")
+  fi
+  # `rdma link show` reports each RDMA device, port, and associated network
+  # interface. Match those interfaces to GPUs with `nvidia-smi topo -m` or
+  # their NUMA nodes before setting UCX_NET_DEVICES_GPU_<id>.
+  for gpu_id in "${ucx_gpu_ids[@]}"; do
+    ucx_device_var="UCX_NET_DEVICES_GPU_${gpu_id}"
+    if [[ -z ${!ucx_device_var:-} ]]; then
+      echo "Error: set $ucx_device_var for --ucx-efa" >&2
+      exit 1
+    fi
+  done
 fi
