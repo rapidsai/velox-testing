@@ -33,6 +33,8 @@ x-presto-native-worker-gpu: &gpu_worker_base
               count: all
               capabilities: [gpu]
 {% if ucx_efa %}
+  # Confirm the host device names with `ls /dev/infiniband` and expose the
+  # uverbs devices required by the selected UCX_NET_DEVICES_GPU_<id> values.
   devices:
     - /dev/infiniband/rdma_cm
     - /dev/infiniband/uverbs0
