@@ -49,6 +49,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
   volumes:
   # required for numa
     - /sys/devices/system/node:/sys/devices/system/node
+    - ${PRESTO_HOSTS_FILE:-/etc/hosts}:/etc/hosts:ro
     - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
     - ../../config/generated/gpu/etc_worker/node.properties:/opt/presto-server/etc/node.properties
     - ../../config/generated/gpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
@@ -117,6 +118,7 @@ services:
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
     volumes:
       - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
+      - ${PRESTO_HOSTS_FILE:-/etc/hosts}:/etc/hosts:ro
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/config_native.properties:/opt/presto-server/etc/config.properties
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
@@ -219,6 +221,7 @@ services:
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
     volumes:
+      - ${PRESTO_HOSTS_FILE:-/etc/hosts}:/etc/hosts:ro
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}
