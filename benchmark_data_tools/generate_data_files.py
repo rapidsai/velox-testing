@@ -51,7 +51,7 @@ def generate_partition(
         "--format",
         "parquet",
         "--parquet-version",
-        "1",
+        "2",
         "--parquet-row-group-bytes",
         str(approx_row_group_bytes),
     ]
