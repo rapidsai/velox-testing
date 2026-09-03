@@ -151,6 +151,10 @@ if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
   mkdir -p "${LOGS_DIR}/archive"
   mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
 fi
+# Remove stale provenance files so a run that does not write them (e.g. a Java
+# worker, or an image without baked provenance) does not report the previous
+# run's values. run_context.py reads these fixed filenames from LOGS_DIR.
+rm -f "${LOGS_DIR}/worker_provenance.json" "${LOGS_DIR}/coordinator_provenance.json"
 export SERVER_START_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
 export LOGS_DIR
 
@@ -176,7 +180,7 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
-  RENDER_ARGS="--template-path $TEMPLATE_PATH --output-path $RENDERED_PATH --num-workers $NUM_WORKERS --single-container $SINGLE_CONTAINER --kvikio-threads $KVIKIO_THREADS --sccache $ENABLE_SCCACHE"
+  RENDER_ARGS="--template-path $TEMPLATE_PATH --output-path $RENDERED_PATH --num-workers $NUM_WORKERS --single-container $SINGLE_CONTAINER --kvikio-threads $KVIKIO_THREADS --sccache $ENABLE_SCCACHE --ucx-efa $UCX_EFA"
   if [[ -n $GPU_IDS ]]; then
     RENDER_ARGS="$RENDER_ARGS --gpu-ids $GPU_IDS"
   fi

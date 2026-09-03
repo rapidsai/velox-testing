@@ -23,6 +23,23 @@ function echo_success {
   echo -e "${GREEN}$1${NC}"
 }
 
+function append_config_overrides() {
+  local overrides_dir=$1
+  local src_file rel_path dest_file
+  local -a override_files=()
+
+  [[ -d "${overrides_dir}" ]] || return 0
+  mapfile -d '' override_files < <(find "${overrides_dir}" -type f -print0)
+  for src_file in "${override_files[@]}"; do
+    rel_path="${src_file#${overrides_dir}/}"
+    dest_file="${CONFIG_DIR}/${rel_path}"
+    [[ -f "${dest_file}" ]] || continue
+
+    printf '\n' >> "${dest_file}"
+    cat "${src_file}" >> "${dest_file}"
+  done
+}
+
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -60,6 +77,21 @@ function duplicate_worker_configs() {
   sed -i "s+cudf.exchange.server.port=.*+cudf.exchange.server.port=${exch_port}+g" ${worker_native_config}
   # Give each worker a unique id.
   sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
+
+  # EFA workers use host networking. They share the host address, use unique
+  # HTTP/UCX ports, and reach the coordinator through its published host port.
+  if [[ "${PRESTO_WORKER_HOST_NETWORK:-false}" == "true" ]]; then
+    local internal_address="${PRESTO_WORKER_INTERNAL_ADDRESS:?PRESTO_WORKER_INTERNAL_ADDRESS must be set for host-network workers}"
+    sed -i "s+discovery\.uri=.*+discovery.uri=http://127.0.0.1:8080+g" \
+      "${worker_config}/config_native.properties" \
+      "${worker_config}/config_java.properties"
+    if grep -q '^node\.internal-address=' "${worker_config}/node.properties"; then
+      sed -i "s+node\.internal-address=.*+node.internal-address=${internal_address}+g" \
+        "${worker_config}/node.properties"
+    else
+      echo "node.internal-address=${internal_address}" >> "${worker_config}/node.properties"
+    fi
+  fi
 }
 
 # get host values
@@ -121,17 +153,13 @@ EOF
     sed -i "s|hive.metastore.catalog.dir=.*|hive.metastore.uri=${HIVE_METASTORE_URI}|" "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties" "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
   fi
 
-  # Apply variant-specific override files by appending them to the generated configs
+  # Apply variant-specific defaults.
   OVERRIDES_DIR="${SCRIPT_DIR}/../docker/config/template/overrides/${VARIANT_TYPE}"
-  if [[ -d "${OVERRIDES_DIR}" ]]; then
-    mapfile -d '' override_files < <(find "${OVERRIDES_DIR}" -type f -print0)
-    for src_file in "${override_files[@]}"; do
-      rel_path="${src_file#${OVERRIDES_DIR}/}"
-      dest_file="${CONFIG_DIR}/${rel_path}"
-      if [[ -f "${dest_file}" ]]; then
-        cat "${src_file}" >> "${dest_file}"
-      fi
-    done
+  append_config_overrides "${OVERRIDES_DIR}"
+
+  # EFA transport requirements are opt-in and independent of workload tuning.
+  if [[ "${UCX_EFA:-false}" == "true" ]]; then
+    append_config_overrides "${SCRIPT_DIR}/../docker/config/template/overrides/ucx-efa"
   fi
 
   # success message

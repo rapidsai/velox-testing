@@ -7,6 +7,13 @@ set -e
 LOGS_DIR="/opt/presto-server/logs"
 mkdir -p "${LOGS_DIR}"
 : "${SERVER_START_TIMESTAMP:?SERVER_START_TIMESTAMP must be set before starting the container}"
+
+# Surface baked-in image provenance in the shared logs dir so the host-side
+# pytest (Docker) or in-container pytest (SLURM) can read it via LOGS_DIR.
+if [ -f /opt/velox-testing/provenance.json ]; then
+  cp /opt/velox-testing/provenance.json "${LOGS_DIR}/coordinator_provenance.json"
+fi
+
 log_file="${LOGS_DIR}/coordinator_${SERVER_START_TIMESTAMP}.log"
 
 exec /opt/presto-server/bin/launcher run >> "${log_file}" 2>&1
