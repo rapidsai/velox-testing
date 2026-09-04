@@ -92,6 +92,12 @@ class BenchmarkMetadata:
     num_drivers: int | None = None
     gpu_name: str | None = None
     image_digest: str | None = None
+    presto_sha: str | None = None
+    presto_branch: str | None = None
+    presto_repo: str | None = None
+    velox_sha: str | None = None
+    velox_branch: str | None = None
+    velox_repo: str | None = None
 
     @classmethod
     def from_parsed(cls, raw: dict) -> "BenchmarkMetadata":
@@ -266,7 +272,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--commit-hash",
         default=None,
-        help="Git commit hash for the query engine",
+        help=(
+            "Git commit hash for the query engine. When omitted, it is derived from the image "
+            "provenance SHAs as 'presto-<sha>-velox-<sha>'. Unlike branch/repo below, the provenance "
+            "SHAs are taken only from the benchmark context and cannot be overridden (there is no "
+            "--presto-sha/--velox-sha); use --commit-hash to override the derived value."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -298,22 +309,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--velox-branch",
         default=None,
-        help="Velox branch used to build the worker image.",
+        help="Velox branch used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--velox-repo",
         default=None,
-        help="Velox repository used to build the worker image.",
+        help="Velox repository used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--presto-branch",
         default=None,
-        help="Presto branch used to build the worker image.",
+        help="Presto branch used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--presto-repo",
         default=None,
-        help="Presto repository used to build the worker image.",
+        help="Presto repository used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--concurrency-streams",
@@ -387,8 +398,10 @@ def _build_submission_payload(
     validation_results: dict | None = None,
     velox_branch: str | None = None,
     velox_repo: str | None = None,
+    velox_sha: str | None = None,
     presto_branch: str | None = None,
     presto_repo: str | None = None,
+    presto_sha: str | None = None,
     labels: list[str] | None = None,
     notes: str | None = None,
 ) -> dict:
@@ -413,8 +426,18 @@ def _build_submission_payload(
     # Use placeholders for version info if not provided
     if version is None:
         version = "unknown"
+    # Derive commit_hash from the image provenance SHAs when not explicitly given:
+    # "presto-<sha>-velox-<sha>" (worker), "presto-<sha>" (coordinator, no velox).
+    # Abbreviate the SHAs to keep the composite value short; the full SHAs are still
+    # submitted in the presto_sha/velox_sha engine_config entries.
     if commit_hash is None:
-        commit_hash = "unknown"
+        short = 12
+        commit_parts = []
+        if presto_sha:
+            commit_parts.append(f"presto-{presto_sha[:short]}")
+        if velox_sha:
+            commit_parts.append(f"velox-{velox_sha[:short]}")
+        commit_hash = "-".join(commit_parts) if commit_parts else "unknown"
 
     # Build query logs from results
     query_logs = []
@@ -504,14 +527,19 @@ def _build_submission_payload(
     }
 
     engine_config_payload = engine_config.serialize() if engine_config else {}
-    if velox_branch or velox_repo or presto_branch or presto_repo:
-        engine_config_payload = {
-            **engine_config_payload,
-            "velox_branch": velox_branch,
-            "velox_repo": velox_repo,
-            "presto_branch": presto_branch,
-            "presto_repo": presto_repo,
-        }
+    # Add image provenance as separate entries; omit empties so a coordinator-only
+    # image (no velox fields) contributes just its presto entries.
+    provenance_fields = {
+        "presto_branch": presto_branch,
+        "presto_sha": presto_sha,
+        "presto_repo": presto_repo,
+        "velox_branch": velox_branch,
+        "velox_sha": velox_sha,
+        "velox_repo": velox_repo,
+    }
+    provenance_fields = {k: v for k, v in provenance_fields.items() if v}
+    if provenance_fields:
+        engine_config_payload = {**engine_config_payload, **provenance_fields}
 
     payload: dict = {
         "sku_name": sku_name,
@@ -746,6 +774,15 @@ async def _process_benchmark_dir(
         )
         return 1
 
+    # Fall back to image provenance labels captured in the benchmark context.
+    velox_branch = velox_branch or benchmark_metadata.velox_branch
+    velox_repo = velox_repo or benchmark_metadata.velox_repo
+    presto_branch = presto_branch or benchmark_metadata.presto_branch
+    presto_repo = presto_repo or benchmark_metadata.presto_repo
+    # SHAs come only from the baked image provenance (no CLI override).
+    velox_sha = benchmark_metadata.velox_sha
+    presto_sha = benchmark_metadata.presto_sha
+
     # Resolve config directory: explicit override → auto-detect from variant
     effective_config_dir = config_dir
     variant = _ENGINE_TO_VARIANT.get(benchmark_metadata.engine)
@@ -849,8 +886,10 @@ async def _process_benchmark_dir(
                 validation_results=validation_results,
                 velox_branch=velox_branch,
                 velox_repo=velox_repo,
+                velox_sha=velox_sha,
                 presto_branch=presto_branch,
                 presto_repo=presto_repo,
+                presto_sha=presto_sha,
                 labels=labels,
                 notes=notes,
             )
