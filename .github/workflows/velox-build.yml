@@ -78,6 +78,14 @@ jobs:
         run: |
           sed -i 's/ARM_BUILD_TARGET:-"local"/ARM_BUILD_TARGET:-"generic"/' velox/scripts/setup-helper-functions.sh
 
+      # TODO: Remove once facebookincubator/velox makes the python symlink idempotent.
+      # install_velox_deps_from_dnf now leaves /usr/bin/python in place (python-unversioned-command
+      # or a CUDA image change), so plain ln -s fails on every velox-deps matrix cell.
+      - name: Patch python symlink to overwrite if present
+        run: |
+          sed -i 's|ln -s $(which python3) /usr/bin/python|ln -sfn $(which python3) /usr/bin/python|' \
+            velox/scripts/docker/centos-multi.dockerfile
+
       - &setup_proxy_cache
         name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main  # zizmor: ignore[unpinned-uses]
