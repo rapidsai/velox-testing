@@ -25,16 +25,17 @@ on:
         default: 'staging'
       auto_fetch_prs:
         description: >-
-          Auto-fetch non-draft PRs with 'cudf' label
-          from 'facebookincubator/velox' (https://github.com/facebookincubator/velox)
+          Auto-fetch open non-draft facebookincubator/velox PRs from
+          https://github.com/orgs/NVIDIA/projects/306/views/4 whose Velox Staging
+          field is Staging
         type: boolean
         required: false
         default: true
       pr_labels:
-        description: Comma-separated PR labels to auto-fetch
+        description: Comma-separated PR labels to auto-fetch (overrides the project board)
         type: string
         required: false
-        default: 'cudf'
+        default: ''
       manual_pr_numbers:
         description: "Comma-separated PR numbers to merge (e.g., '12345,12346')"
         type: string
@@ -54,12 +55,12 @@ on:
         description: 'Additional repository to merge from'
         type: string
         required: false
-        default: 'rapidsai/velox'
+        default: ''
       additional_branch:
         description: 'Branch from additional repository to merge'
         type: string
         required: false
-        default: 'cudf_exchange/rebase_latest/ibm-research-preview'
+        default: ''
 
 jobs:
   velox-create-staging:
