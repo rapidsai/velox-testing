@@ -287,7 +287,17 @@ def export_tables(args, row_group_rows, conn):
             write_part(task, conn)
         return
 
-    with ThreadPoolExecutor(max_workers=num_tasks) as executor:
+    # Cap COPY writers by available logical CPUs. -j only sets DuckDB threads.
+    logical_cpus = len(os.sched_getaffinity(0))
+    max_workers = min(num_tasks, logical_cpus)
+    if args.verbose:
+        print(
+            f"Exporting {num_tasks} Parquet files with {max_workers} concurrent writers "
+            f"({logical_cpus} available logical CPUs)",
+            flush=True,
+        )
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(write_part, task, conn) for task in tasks]
         try:
             for future in futures:
