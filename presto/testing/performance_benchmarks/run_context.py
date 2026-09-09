@@ -16,7 +16,7 @@ from pathlib import Path
 import prestodb
 
 from ..common import test_utils
-from .presto_api import get_cluster_tag, get_nodes
+from .presto_api import count_unique_node_uris, get_cluster_tag, get_nodes
 
 # Enabled by run_benchmark.sh --verbose (sets PRESTO_BENCHMARK_DEBUG=1)
 _DEBUG = os.environ.get("PRESTO_BENCHMARK_DEBUG", "") == "1" or os.environ.get("DEBUG", "") == "1"
@@ -28,12 +28,12 @@ def _debug(msg: str) -> None:
 
 
 def _get_node_count(hostname: str, port: int) -> int | None:
-    """Return number of nodes in the Presto /v1/node list (workers only; coordinator not listed)."""
+    """Return unique worker endpoints from Presto's /v1/node response."""
     nodes = get_nodes(hostname, port)
     if nodes is None:
         return None
-    n = len(nodes)
-    _debug(f"get_node_count: {n} node(s)")
+    n = count_unique_node_uris(nodes)
+    _debug(f"get_node_count: {n} unique endpoint(s) from {len(nodes)} node record(s)")
     return n
 
 
