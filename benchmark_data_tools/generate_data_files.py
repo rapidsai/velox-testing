@@ -14,12 +14,16 @@ from pathlib import Path
 from typing import NamedTuple
 
 import duckdb
+import psutil
 from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
 from row_group_sizing import row_group_row_count_probe
 
 _INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
 _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
+_MIN_DEFAULT_MEMORY_LIMIT = 16 * 1024**3
+_MIN_PROBE_MEMORY_LIMIT = 1 * 1024**3
+_MAX_PROBE_MEMORY_LIMIT = 16 * 1024**3
 
 
 def generate_partition(
@@ -84,18 +88,21 @@ def generate_data_files(args):
     if args.memory_limit is not None and args.memory_limit <= 0:
         raise ValueError("--memory-limit must be a positive byte count")
 
-    if args.memory_limit is None and (args.benchmark_type == "tpcds" or args.use_duckdb):
-        with open("/proc/meminfo") as meminfo:
-            available_memory_bytes = next(
-                int(line.split()[1]) * 1024 for line in meminfo if line.startswith("MemAvailable:")
-            )
-        args.memory_limit = available_memory_bytes // 2
-        if args.verbose:
-            print(
-                f"Using default DuckDB memory limit of {args.memory_limit:,} bytes "
-                "(50% of available RAM)",
-                flush=True,
-            )
+    probe_memory_limit = None
+    if args.benchmark_type == "tpcds" or args.use_duckdb:
+        available_memory = psutil.virtual_memory().available
+        if args.memory_limit is None:
+            args.memory_limit = max(available_memory // 2, _MIN_DEFAULT_MEMORY_LIMIT)
+            if args.verbose:
+                print(
+                    f"Using default DuckDB memory limit of {args.memory_limit:,} bytes",
+                    flush=True,
+                )
+
+        remaining_memory = available_memory - args.memory_limit
+        probe_memory_limit = min(remaining_memory // 2, _MAX_PROBE_MEMORY_LIMIT)
+        if probe_memory_limit < _MIN_PROBE_MEMORY_LIMIT:
+            raise RuntimeError("Insufficient memory to run the row-group probe concurrently (requires at least 1 GiB)")
 
     if args.codec_definitions:
         if args.benchmark_type != "tpch":
@@ -120,7 +127,7 @@ def generate_data_files(args):
     else:
         if args.verbose:
             print("generating with duckdb")
-        generate_data_files_with_duckdb(args)
+        generate_data_files_with_duckdb(args, probe_memory_limit)
 
     write_metadata(args)
 
@@ -212,7 +219,7 @@ def write_metadata(args):
         file.write("\n")
 
 
-def generate_data_files_with_duckdb(args):
+def generate_data_files_with_duckdb(args, probe_memory_limit):
     """Materialize the dataset into an intermediate DuckDB file, then export Parquet from it."""
     with tempfile.TemporaryDirectory(prefix=".duckdb-main-", dir=args.data_dir_path) as work_directory:
         database_path = Path(work_directory) / "intermediate.duckdb"
@@ -221,14 +228,17 @@ def generate_data_files_with_duckdb(args):
             install_conn.sql(f"INSTALL {args.benchmark_type}")
 
         with duckdb.connect(str(database_path), config={"memory_limit": f"{args.memory_limit}B"}) as conn:
-            row_group_rows = materialize_tables(args, conn)
+            row_group_rows = materialize_tables(args, conn, probe_memory_limit)
             export_tables(args, row_group_rows, conn)
 
 
-def materialize_tables(args, conn):
+def materialize_tables(args, conn, probe_memory_limit):
     """Generate the target dataset, returning the probed rows per row group per table."""
     if args.verbose:
-        print("Starting row-group proxy probe", flush=True)
+        print(
+            f"Starting row-group proxy probe with a {probe_memory_limit:,}-byte memory limit",
+            flush=True,
+        )
 
     with row_group_row_count_probe(
         args.benchmark_type,
@@ -236,6 +246,7 @@ def materialize_tables(args, conn):
         args.scale_factor,
         args.convert_decimals_to_floats,
         args.data_dir_path,
+        probe_memory_limit,
     ) as probed_row_counts:
         if args.verbose:
             print(
@@ -262,6 +273,7 @@ def materialize_tables(args, conn):
 def configure_duckdb_export(conn, num_threads):
     """Apply production DuckDB settings immediately before Parquet export."""
     conn.execute(f"SET threads={num_threads}")
+    # Allow unordered exports to increase export speed.
     conn.execute("SET preserve_insertion_order=false")
 
 
@@ -283,8 +295,7 @@ def export_tables(args, row_group_rows, conn):
     num_tasks = len(tasks)
     configure_duckdb_export(conn, args.num_threads)
     if num_tasks == 1:
-        for task in tasks:
-            write_part(task, conn)
+        write_part(tasks[0], conn)
         return
 
     # Cap COPY writers by available logical CPUs. -j only sets DuckDB threads.
@@ -539,7 +550,7 @@ if __name__ == "__main__":
         required=False,
         default=None,
         help="Memory limit in bytes for TPC-DS DuckDB generation. "
-        "Defaults to 50%% of available system RAM when omitted.",
+        "Defaults to the greater of 50%% of available system RAM and 16 GiB.",
     )
     parser.add_argument(
         "--codec-definitions",

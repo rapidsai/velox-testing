@@ -5,6 +5,7 @@ click==8.2.1
 duckdb==1.6.0.dev291
 idna==3.10
 presto-python-client==0.8.4
+psutil==7.2.2
 requests==2.32.4
 six==1.17.0
 urllib3==2.5.0

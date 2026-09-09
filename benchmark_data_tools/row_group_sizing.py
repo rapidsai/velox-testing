@@ -16,7 +16,6 @@ _ROW_GROUP_GRANULARITY = 2048
 _STAGE1_ROWS = 122_880
 
 _MAX_PROBE_SCALE_FACTOR = 100
-_PROBE_MEMORY_LIMIT = "16GiB"
 
 
 @contextmanager
@@ -26,6 +25,7 @@ def row_group_row_count_probe(
     target_scale_factor,
     convert_decimals_to_floats,
     data_dir_path,
+    probe_memory_limit,
 ):
     """Yield a callable that waits for row-count estimates from a spawned process."""
     with (
@@ -40,6 +40,7 @@ def row_group_row_count_probe(
             target_scale_factor,
             convert_decimals_to_floats,
             probe_directory,
+            probe_memory_limit,
         )
         yield future.result
 
@@ -50,6 +51,7 @@ def get_row_group_row_counts(
     target_scale_factor,
     convert_decimals_to_floats,
     probe_directory,
+    probe_memory_limit,
 ):
     """Measure rows per row group for every table in a throwaway dataset."""
     scale_factor = (
@@ -57,8 +59,10 @@ def get_row_group_row_counts(
     )
 
     row_counts = {}
-    with duckdb.connect(str(Path(probe_directory) / "probe.duckdb")) as conn:
-        conn.execute(f"SET memory_limit='{_PROBE_MEMORY_LIMIT}'")
+    with duckdb.connect(
+        str(Path(probe_directory) / "probe.duckdb"),
+        config={"memory_limit": f"{probe_memory_limit}B"},
+    ) as conn:
         init_benchmark_tables(benchmark_type, scale_factor, conn)
 
         # One thread so buffers are not multiplied by the generation thread count.
