@@ -26,6 +26,7 @@ from .ctas import (
     finalize_ctas_results,
 )
 from .metrics_collector import collect_metrics
+from .presto_api import get_cluster_tag
 from .run_context import gather_run_context
 
 
@@ -148,6 +149,12 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     bench_output_dir = get_output_dir(request.config)
     hostname = request.config.getoption("--hostname")
     port = request.config.getoption("--port")
+
+    # Query-discovery and scale-factor fixtures use this cursor before this
+    # fixture is constructed. Keep those host-resident metadata exchanges on
+    # the ordinary path, then enable UCX only for the benchmark executions.
+    if get_cluster_tag(hostname, port) == "native-gpu":
+        presto_cursor.execute("SET SESSION native_cudf_exchange_enabled = true").fetchall()
 
     if profile:
         assert profile_script_path is not None

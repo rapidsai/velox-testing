@@ -52,6 +52,14 @@ def parse_args():
         required=False,
         help="Enable sccache build secrets in the rendered compose file.",
     )
+    parser.add_argument(
+        "--ucx-efa",
+        type=str_to_bool,
+        default=False,
+        dest="ucx_efa",
+        required=False,
+        help="Enable EFA/SRD worker networking with the UCX bundled in the image.",
+    )
     return parser.parse_args()
 
 
@@ -94,6 +102,7 @@ def main() -> int:
         single_container=parsed_args.single_container,
         kvikio_threads=parsed_args.kvikio_threads,
         sccache=parsed_args.sccache,
+        ucx_efa=parsed_args.ucx_efa,
     )
 
     os.makedirs(os.path.dirname(parsed_args.output_path), exist_ok=True)
