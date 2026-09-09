@@ -33,7 +33,10 @@ def setup_and_teardown(request, presto_cursor):
         create_hive_tables.create_tables(presto_cursor, schema_name, schemas_dir, data_sub_directory)
 
     tables = presto_cursor.execute(f"SHOW TABLES in {schema_name}").fetchall()
-    for (table,) in tables:
+    for (table,) in sorted(tables):
+        create_table = presto_cursor.execute(f"SHOW CREATE TABLE hive.{schema_name}.{table}").fetchone()[0]
+        print(f"--- presto schema: hive.{schema_name}.{table} ---")
+        print(create_table)
         location = get_table_external_location(schema_name, table, presto_cursor)
         print(f"  {schema_name}.{table}: location={location}")
         if not request.config.getoption("--reference-results-dir"):
