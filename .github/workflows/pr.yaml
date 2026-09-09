@@ -18,6 +18,7 @@ jobs:
       - devcontainer
       - detect-changes
       - test_benchmark_data_tools
+      - test_sccache_setup
     permissions:
       contents: read
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main  # zizmor: ignore[unpinned-uses]
@@ -65,6 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       benchmark_data_tools: ${{ steps.filter.outputs.benchmark_data_tools }}
+      sccache: ${{ steps.filter.outputs.sccache }}
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -78,6 +80,11 @@ jobs:
           filters: |
             benchmark_data_tools:
               - "benchmark_data_tools/**"
+            sccache:
+              - "scripts/sccache/sccache_setup.sh"
+              - "scripts/sccache/sccache_setup_test.sh"
+              - "presto/docker/native_build.dockerfile"
+              - "velox/docker/adapters_build.dockerfile"
 
   test_benchmark_data_tools:
     needs: detect-changes
@@ -93,3 +100,18 @@ jobs:
 
       - name: Test benchmark_data_tools
         uses: ./.github/actions/test-benchmark-data-tools
+
+  test_sccache_setup:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.sccache == 'true' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Test sccache setup
+        run: bash scripts/sccache/sccache_setup_test.sh
