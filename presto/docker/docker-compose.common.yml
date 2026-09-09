@@ -30,7 +30,11 @@ services:
       - AWS_REGION=${AWS_REGION:-}
     volumes:
       - ./launch_coordinator.sh:/opt/launch_coordinator.sh:ro
-    entrypoint: [ "bash", "/opt/launch_coordinator.sh" ]
+    # Research: emulate a single-NUMA 24xlarge; do not borrow NUMA1 memory.
+    cpuset: "0-47,96-143"
+    cap_add: [SYS_NICE]
+    mem_limit: 16g
+    entrypoint: [ "numactl", "--cpunodebind=0", "--membind=0", "bash", "/opt/launch_coordinator.sh" ]
     command: []
 
   presto-base-native-worker:
