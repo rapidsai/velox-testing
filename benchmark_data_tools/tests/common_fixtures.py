@@ -34,7 +34,7 @@ class DataGenArgs:
 
 
 @pytest.fixture
-def setup_and_teardown():
+def setup_and_teardown(install_tpchgen_cli):
     test_data_dir_path = os.path.abspath("./tpch_test")
     try:
         args = DataGenArgs(
