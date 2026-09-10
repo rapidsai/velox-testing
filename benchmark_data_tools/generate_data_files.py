@@ -21,9 +21,8 @@ from row_group_sizing import row_group_row_count_probe
 _INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
 _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
-_MIN_DEFAULT_MEMORY_LIMIT = 16 * 1024**3
-_MIN_PROBE_MEMORY_LIMIT = 1 * 1024**3
-_MAX_PROBE_MEMORY_LIMIT = 16 * 1024**3
+_PROBE_MEMORY_PERCENT = 20
+_MIN_MEMORY_LIMIT = 1 * 1024**3
 
 
 def generate_partition(
@@ -88,21 +87,16 @@ def generate_data_files(args):
     if args.memory_limit is not None and args.memory_limit <= 0:
         raise ValueError("--memory-limit must be a positive byte count")
 
-    probe_memory_limit = None
     if args.benchmark_type == "tpcds" or args.use_duckdb:
-        available_memory = psutil.virtual_memory().available
-        if args.memory_limit is None:
-            args.memory_limit = max(available_memory // 2, _MIN_DEFAULT_MEMORY_LIMIT)
-            if args.verbose:
-                print(
-                    f"Using default DuckDB memory limit of {args.memory_limit:,} bytes",
-                    flush=True,
-                )
-
-        remaining_memory = available_memory - args.memory_limit
-        probe_memory_limit = min(remaining_memory // 2, _MAX_PROBE_MEMORY_LIMIT)
-        if probe_memory_limit < _MIN_PROBE_MEMORY_LIMIT:
-            raise RuntimeError("Insufficient memory to run the row-group probe concurrently (requires at least 1 GiB)")
+        using_default_memory_limit = args.memory_limit is None
+        if using_default_memory_limit:
+            args.memory_limit = psutil.virtual_memory().available // 2
+        args.memory_limit = max(args.memory_limit, _MIN_MEMORY_LIMIT)
+        if args.verbose and using_default_memory_limit:
+            print(
+                f"Using default DuckDB memory limit of {args.memory_limit:,} bytes",
+                flush=True,
+            )
 
     if args.codec_definitions:
         if args.benchmark_type != "tpch":
@@ -127,7 +121,7 @@ def generate_data_files(args):
     else:
         if args.verbose:
             print("generating with duckdb")
-        generate_data_files_with_duckdb(args, probe_memory_limit)
+        generate_data_files_with_duckdb(args)
 
     write_metadata(args)
 
@@ -219,16 +213,20 @@ def write_metadata(args):
         file.write("\n")
 
 
-def generate_data_files_with_duckdb(args, probe_memory_limit):
+def generate_data_files_with_duckdb(args):
     """Materialize the dataset into an intermediate DuckDB file, then export Parquet from it."""
     with tempfile.TemporaryDirectory(prefix=".duckdb-main-", dir=args.data_dir_path) as work_directory:
         database_path = Path(work_directory) / "intermediate.duckdb"
+        probe_memory_limit = args.memory_limit * _PROBE_MEMORY_PERCENT // 100
+        main_memory_limit = args.memory_limit - probe_memory_limit
         # Avoid concurrent first-time extension installation across processes.
         with duckdb.connect() as install_conn:
             install_conn.sql(f"INSTALL {args.benchmark_type}")
 
-        with duckdb.connect(str(database_path), config={"memory_limit": f"{args.memory_limit}B"}) as conn:
+        with duckdb.connect(str(database_path), config={"memory_limit": f"{main_memory_limit}B"}) as conn:
             row_group_rows = materialize_tables(args, conn, probe_memory_limit)
+            # The probe has exited, so the main connection can use the full memory budget.
+            conn.execute(f"SET memory_limit='{args.memory_limit}B'")
             export_tables(args, row_group_rows, conn)
 
 
@@ -298,13 +296,11 @@ def export_tables(args, row_group_rows, conn):
         write_part(tasks[0], conn)
         return
 
-    # Cap COPY writers by available logical CPUs. -j only sets DuckDB threads.
-    logical_cpus = len(os.sched_getaffinity(0))
-    max_workers = min(num_tasks, logical_cpus)
+    # -j caps both DuckDB execution threads and concurrent COPY workers.
+    max_workers = min(num_tasks, args.num_threads)
     if args.verbose:
         print(
-            f"Exporting {num_tasks} Parquet files with {max_workers} concurrent writers "
-            f"({logical_cpus} available logical CPUs)",
+            f"Exporting {num_tasks} Parquet files with {max_workers} concurrent writers",
             flush=True,
         )
 
@@ -550,7 +546,7 @@ if __name__ == "__main__":
         required=False,
         default=None,
         help="Memory limit in bytes for TPC-DS DuckDB generation. "
-        "Defaults to the greater of 50%% of available system RAM and 16 GiB.",
+        "Defaults to 50%% of available system RAM, with a 1 GiB minimum.",
     )
     parser.add_argument(
         "--codec-definitions",
