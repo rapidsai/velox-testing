@@ -1,0 +1,104 @@
+name: Apply staging image provenance
+description: >-
+  Re-tag an image with immutable source provenance labels and a baked
+  /opt/velox-testing/provenance.json file.
+
+inputs:
+  base_image:
+    description: Fully-qualified reference of the image to annotate.
+    required: true
+  tags:
+    description: Tag(s) to push the annotated image under (newline-separated).
+    required: true
+  image_role:
+    description: Logical image role, such as velox or presto-worker.
+    required: true
+  architecture:
+    description: Target CPU architecture.
+    required: true
+  cuda_version:
+    description: CUDA version used by the image.
+    required: false
+    default: ''
+  build_created:
+    description: UTC build timestamp in RFC 3339 form.
+    required: true
+  presto_sha:
+    description: Resolved full Presto commit SHA.
+    required: false
+    default: ''
+  presto_repository:
+    description: Presto repository in owner/name form.
+    required: false
+    default: ''
+  presto_ref:
+    description: Requested Presto branch, tag, or SHA.
+    required: false
+    default: ''
+  velox_sha:
+    description: Resolved full Velox commit SHA.
+    required: false
+    default: ''
+  velox_repository:
+    description: Velox repository in owner/name form.
+    required: false
+    default: ''
+  velox_ref:
+    description: Requested Velox branch, tag, or SHA.
+    required: false
+    default: ''
+  velox_testing_sha:
+    description: Full velox-testing commit SHA containing the build workflow.
+    required: true
+  velox_testing_repository:
+    description: velox-testing repository in owner/name form.
+    required: true
+  velox_testing_ref:
+    description: velox-testing branch or tag used to start the build.
+    required: true
+  workflow_file:
+    description: Repository-relative path of the workflow file.
+    required: true
+  workflow_run_url:
+    description: URL of the GitHub Actions workflow run.
+    required: true
+
+outputs:
+  digest:
+    description: Digest of the pushed provenance-bearing image.
+    value: ${{ steps.push.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build and push provenance-bearing image
+      id: push
+      uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+      with:
+        context: velox-testing/staging/docker
+        file: velox-testing/staging/docker/provenance.dockerfile
+        build-args: |
+          BASE_IMAGE=${{ inputs.base_image }}
+          IMAGE_ROLE=${{ inputs.image_role }}
+          ARCHITECTURE=${{ inputs.architecture }}
+          CUDA_VERSION=${{ inputs.cuda_version }}
+          BUILD_CREATED=${{ inputs.build_created }}
+          PRESTO_SHA=${{ inputs.presto_sha }}
+          PRESTO_REPOSITORY=${{ inputs.presto_repository }}
+          PRESTO_REF=${{ inputs.presto_ref }}
+          VELOX_SHA=${{ inputs.velox_sha }}
+          VELOX_REPOSITORY=${{ inputs.velox_repository }}
+          VELOX_REF=${{ inputs.velox_ref }}
+          VELOX_TESTING_SHA=${{ inputs.velox_testing_sha }}
+          VELOX_TESTING_REPOSITORY=${{ inputs.velox_testing_repository }}
+          VELOX_TESTING_REF=${{ inputs.velox_testing_ref }}
+          WORKFLOW_FILE=${{ inputs.workflow_file }}
+          WORKFLOW_RUN_ID=${{ github.run_id }}
+          WORKFLOW_RUN_ATTEMPT=${{ github.run_attempt }}
+          WORKFLOW_RUN_URL=${{ inputs.workflow_run_url }}
+        # The base image was already emitted as zstd. Reuse its immutable
+        # layers and compress only the small provenance layer added here.
+        outputs: type=registry,compression=zstd,compression-level=15
+        provenance: mode=max
+        push: true
+        tags: ${{ inputs.tags }}
