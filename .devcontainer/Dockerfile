@@ -4,7 +4,7 @@
 # RAPIDS build utilities and cuDF development.
 
 ARG CUDA_VERSION=12.9
-ARG BASE=rapidsai/devcontainers:latest-cpp-cuda12.9-ucx1.19.0-openmpi5.0.7
+ARG BASE=rapidsai/devcontainers:latest-cpp-cuda12.9-ucx1.21.0-openmpi5.0.7
 
 FROM ${BASE}
 
