@@ -1,0 +1,437 @@
+name: staging-images
+run-name: >-
+  staging-images (${{ inputs.velox_ref }} + ${{ inputs.presto_ref }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      velox_repository: &velox_repository
+        description: Velox repository in owner/name form
+        type: string
+        default: rapidsai/velox
+      velox_ref: &velox_ref
+        description: Velox branch, tag, full SHA, or presto-pinned
+        type: string
+        default: staging
+      presto_repository: &presto_repository
+        description: Presto repository in owner/name form
+        type: string
+        default: karthikeyann/presto
+      presto_ref: &presto_ref
+        description: Presto branch, tag, or full commit SHA
+        type: string
+        default: staging
+      architecture:
+        description: Target architecture
+        type: choice
+        required: true
+        default: amd64
+        options:
+          - amd64
+          - arm64
+      cuda_version:
+        description: CUDA version for the GPU images
+        type: choice
+        required: true
+        default: '12.9'
+        options:
+          - '12.9'
+          - '13.1'
+      run_smoke_tests: &run_smoke_tests
+        description: Run GPU startup smoke tests after verification
+        type: boolean
+        default: true
+      publish_stable_tags: &publish_stable_tags
+        description: Publish independent convenience aliases; use the artifact manifest for a matched image set
+        type: boolean
+        default: false
+
+  workflow_call:
+    inputs:
+      velox_repository: *velox_repository
+      velox_ref: *velox_ref
+      presto_repository: *presto_repository
+      presto_ref: *presto_ref
+      architecture:
+        description: Target architecture (amd64 or arm64)
+        type: string
+        default: amd64
+      cuda_version:
+        description: CUDA version (12.9 or 13.1)
+        type: string
+        default: '12.9'
+      run_smoke_tests: *run_smoke_tests
+      publish_stable_tags: *publish_stable_tags
+    outputs:
+      velox_image:
+        description: Digest-pinned Velox image
+        value: ${{ jobs.verify-images.outputs.velox_immutable }}
+      presto_worker_image:
+        description: Digest-pinned Presto native worker image
+        value: ${{ jobs.verify-images.outputs.presto_worker_immutable }}
+      presto_coordinator_image:
+        description: Digest-pinned Presto coordinator image
+        value: ${{ jobs.verify-images.outputs.presto_coordinator_immutable }}
+
+permissions: {}
+
+concurrency:
+  group: staging-images-${{ github.ref }}-${{ inputs.architecture }}
+  cancel-in-progress: false
+
+# GHCR package names are flat, so this workflow uses a tag prefix matching its
+# name. The existing ci-image-cleanup workflow removes package versions older
+# than 30 days; no package visibility or cleanup settings are changed here.
+env:
+  IMAGE_REPOSITORY: ghcr.io/rapidsai/velox-testing-images
+  PACKAGE_API_PATH: orgs/rapidsai/packages/container/velox-testing-images
+  TAG_PREFIX: &tag_prefix staging-images-
+
+jobs:
+  resolve-sources:
+    name: Resolve immutable source commits
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      velox_sha: ${{ steps.resolve.outputs.velox_sha }}
+      velox_short_sha: ${{ steps.resolve.outputs.velox_short_sha }}
+      presto_sha: ${{ steps.resolve.outputs.presto_sha }}
+      presto_short_sha: ${{ steps.resolve.outputs.presto_short_sha }}
+      date: ${{ steps.resolve.outputs.date }}
+      build_created: ${{ steps.configuration.outputs.build_created }}
+      build_variant: ${{ steps.configuration.outputs.build_variant }}
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate and configure build
+        id: configuration
+        env:
+          ARCHITECTURE: ${{ inputs.architecture }}
+          CUDA_VERSION: ${{ inputs.cuda_version }}
+          PRESTO_REPOSITORY: ${{ inputs.presto_repository }}
+          VELOX_REPOSITORY: ${{ inputs.velox_repository }}
+        run: |
+          for repository in "${VELOX_REPOSITORY}" "${PRESTO_REPOSITORY}"; do
+            [[ "${repository}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "Invalid repository: ${repository}" >&2; exit 1; }
+          done
+          [[ " amd64 arm64 " == *" ${ARCHITECTURE} "* ]] || { echo "Unsupported architecture: ${ARCHITECTURE}" >&2; exit 1; }
+          [[ " 12.9 13.1 " == *" ${CUDA_VERSION} "* ]] || { echo "Unsupported CUDA version: ${CUDA_VERSION}" >&2; exit 1; }
+
+          echo "build_created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "${GITHUB_OUTPUT}"
+          echo "build_variant=staging-${ARCHITECTURE}-vt-${GITHUB_SHA:0:7}" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve Velox and Presto refs
+        id: resolve
+        uses: ./.github/actions/resolve-commits
+        with:
+          velox_repository: ${{ inputs.velox_repository }}
+          velox_commit: ${{ inputs.velox_ref }}
+          presto_repository: ${{ inputs.presto_repository }}
+          presto_commit: ${{ inputs.presto_ref }}
+          github_token: ${{ github.token }}
+
+      - name: Require private package and reject anonymous access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$(gh api "${PACKAGE_API_PATH}" --jq '.visibility')" == "private" ]] || { echo "Refusing to publish to a non-private package." >&2; exit 1; }
+          test_tag=$(gh api "${PACKAGE_API_PATH}/versions?per_page=100" --jq '[.[] | (.metadata.container.tags // [])[]][0] // empty')
+          [[ -n "${test_tag}" ]] || { echo "No existing tag found for privacy check." >&2; exit 1; }
+          anonymous_config="${RUNNER_TEMP}/staging-images-anonymous"
+          mkdir -p "${anonymous_config}"
+          if DOCKER_CONFIG="${anonymous_config}" docker manifest inspect "${IMAGE_REPOSITORY}:${test_tag}" >/dev/null 2>&1; then
+            echo "Anonymous access succeeded; refusing to publish." >&2
+            exit 1
+          fi
+
+  velox-build:
+    name: Build Velox through shared workflow
+    needs: [resolve-sources]
+    permissions: &build_permissions
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+      artifact-metadata: write
+    uses: ./.github/workflows/velox-build.yml
+    with:
+      velox_repository: ${{ inputs.velox_repository }}
+      velox_sha: ${{ needs.resolve-sources.outputs.velox_sha }}
+      velox_short_sha: ${{ needs.resolve-sources.outputs.velox_short_sha }}
+      velox_ref: ${{ inputs.velox_ref }}
+      date: ${{ needs.resolve-sources.outputs.date }}
+      build_created: ${{ needs.resolve-sources.outputs.build_created }}
+      build_variant: ${{ needs.resolve-sources.outputs.build_variant }}
+      architecture: &selected_architecture ${{ inputs.architecture }}
+      cuda_version: &selected_cuda ${{ inputs.cuda_version }}
+      tag_prefix: *tag_prefix
+
+  presto-build:
+    name: Build Presto through shared workflow
+    needs: [resolve-sources]
+    permissions: *build_permissions
+    uses: ./.github/workflows/presto-build.yml
+    with:
+      velox_repository: ${{ inputs.velox_repository }}
+      presto_repository: ${{ inputs.presto_repository }}
+      velox_sha: ${{ needs.resolve-sources.outputs.velox_sha }}
+      velox_short_sha: ${{ needs.resolve-sources.outputs.velox_short_sha }}
+      velox_ref: ${{ inputs.velox_ref }}
+      presto_sha: ${{ needs.resolve-sources.outputs.presto_sha }}
+      presto_short_sha: ${{ needs.resolve-sources.outputs.presto_short_sha }}
+      presto_ref: ${{ inputs.presto_ref }}
+      date: ${{ needs.resolve-sources.outputs.date }}
+      build_created: ${{ needs.resolve-sources.outputs.build_created }}
+      build_variant: ${{ needs.resolve-sources.outputs.build_variant }}
+      architecture: *selected_architecture
+      cuda_version: *selected_cuda
+      tag_prefix: *tag_prefix
+
+  verify-images:
+    name: Verify private images and provenance
+    needs: [resolve-sources, velox-build, presto-build]
+    runs-on: linux-${{ inputs.architecture }}-cpu16
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    outputs:
+      velox_immutable: ${{ steps.images.outputs.velox_immutable }}
+      presto_worker_immutable: ${{ steps.images.outputs.presto_worker_immutable }}
+      presto_coordinator_immutable: ${{ steps.images.outputs.presto_coordinator_immutable }}
+    env:
+      ARCHITECTURE: ${{ inputs.architecture }}
+      BUILD_DATE: ${{ needs.resolve-sources.outputs.date }}
+      BUILD_VARIANT: ${{ needs.resolve-sources.outputs.build_variant }}
+      CUDA_VERSION: ${{ inputs.cuda_version }}
+      PRESTO_REPOSITORY: ${{ inputs.presto_repository }}
+      PRESTO_REF: ${{ inputs.presto_ref }}
+      PRESTO_SHA: ${{ needs.resolve-sources.outputs.presto_sha }}
+      PRESTO_SHORT_SHA: ${{ needs.resolve-sources.outputs.presto_short_sha }}
+      VELOX_REPOSITORY: ${{ inputs.velox_repository }}
+      VELOX_REF: ${{ inputs.velox_ref }}
+      VELOX_SHA: ${{ needs.resolve-sources.outputs.velox_sha }}
+      VELOX_SHORT_SHA: ${{ needs.resolve-sources.outputs.velox_short_sha }}
+    steps:
+      - &checkout
+        name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - &setup_buildx
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
+      - &login_registry
+        name: Log in to the Container registry
+        uses: ./.github/actions/container-registry-login
+
+      - name: Verify images and write immutable build manifest
+        id: images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VELOX_IMAGE="${IMAGE_REPOSITORY}:${TAG_PREFIX}velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}"
+          PRESTO_WORKER_IMAGE="${IMAGE_REPOSITORY}:${TAG_PREFIX}presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}"
+          PRESTO_COORDINATOR_IMAGE="${IMAGE_REPOSITORY}:${TAG_PREFIX}presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}-${BUILD_VARIANT}-${GITHUB_RUN_ID}"
+          export VELOX_IMAGE PRESTO_WORKER_IMAGE PRESTO_COORDINATOR_IMAGE
+
+          resolve_digest() {
+            local digest
+            digest=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$1")
+            [[ "${digest}" =~ ^sha256:[[:xdigit:]]{64}$ ]] || {
+              echo "Invalid registry digest: ${digest}" >&2
+              return 1
+            }
+            printf '%s' "${digest}"
+          }
+          VELOX_DIGEST=$(resolve_digest "${VELOX_IMAGE}")
+          PRESTO_WORKER_DIGEST=$(resolve_digest "${PRESTO_WORKER_IMAGE}")
+          PRESTO_COORDINATOR_DIGEST=$(resolve_digest "${PRESTO_COORDINATOR_IMAGE}")
+          export VELOX_DIGEST PRESTO_WORKER_DIGEST PRESTO_COORDINATOR_DIGEST
+
+          emit_image() {
+            local name="$1" image="$2" digest="$3"
+            printf '%s_image=%s\n%s_digest=%s\n%s_immutable=%s@%s\n' \
+              "${name}" "${image}" "${name}" "${digest}" "${name}" "${image}" "${digest}" >> "${GITHUB_OUTPUT}"
+          }
+          emit_image velox "${VELOX_IMAGE}" "${VELOX_DIGEST}"
+          emit_image presto_worker "${PRESTO_WORKER_IMAGE}" "${PRESTO_WORKER_DIGEST}"
+          emit_image presto_coordinator "${PRESTO_COORDINATOR_IMAGE}" "${PRESTO_COORDINATOR_DIGEST}"
+
+          visibility=$(gh api "${PACKAGE_API_PATH}" --jq '.visibility')
+          [[ "${visibility}" == "private" ]] || { echo "Package visibility changed to '${visibility}'." >&2; exit 1; }
+          anonymous_config="${RUNNER_TEMP}/staging-images-anonymous"
+          mkdir -p "${anonymous_config}"
+          for image in "${VELOX_IMAGE}" "${PRESTO_WORKER_IMAGE}" "${PRESTO_COORDINATOR_IMAGE}"; do
+            if DOCKER_CONFIG="${anonymous_config}" docker manifest inspect "${image}" >/dev/null 2>&1; then
+              echo "Anonymous access succeeded for ${image}." >&2
+              exit 1
+            fi
+            echo "Confirmed ${image} rejects anonymous access."
+          done
+
+          verify_provenance() {
+            local role="$1" image="$2" cuda="$3"
+            local presto_repo="$4" presto_ref="$5" presto_sha="$6"
+            local velox_repo="$7" velox_ref="$8" velox_sha="$9"
+            local provenance
+            docker pull "${image}"
+            [[ "$(docker image inspect --format '{{ index .Config.Labels "velox-testing.workflow.sha" }}' "${image}")" == "${GITHUB_SHA}" ]]
+            provenance=$(docker run --rm --entrypoint cat "${image}" /opt/velox-testing/provenance.json)
+            jq -e \
+              --arg role "${role}" --arg cuda "${cuda}" \
+              --arg presto_repo "${presto_repo}" --arg presto_ref "${presto_ref}" --arg presto_sha "${presto_sha}" \
+              --arg velox_repo "${velox_repo}" --arg velox_ref "${velox_ref}" --arg velox_sha "${velox_sha}" '
+                .schema_version == "1"
+                and .architecture == env.ARCHITECTURE
+                and .image_role == $role
+                and .cuda_version == $cuda
+                and .presto_repo == $presto_repo
+                and .presto_ref == $presto_ref
+                and .presto_sha == $presto_sha
+                and .velox_repo == $velox_repo
+                and .velox_ref == $velox_ref
+                and .velox_sha == $velox_sha
+                and .velox_testing_repo == env.GITHUB_REPOSITORY
+                and .velox_testing_ref == env.GITHUB_REF_NAME
+                and .velox_testing_sha == env.GITHUB_SHA
+                and .workflow_file == env.GITHUB_WORKFLOW_REF
+                and .workflow_run_id == env.GITHUB_RUN_ID
+                and .workflow_run_attempt == env.GITHUB_RUN_ATTEMPT
+              ' <<< "${provenance}" >/dev/null
+          }
+          verify_provenance velox "${VELOX_IMAGE}@${VELOX_DIGEST}" "${CUDA_VERSION}" \
+            "" "" "" "${VELOX_REPOSITORY}" "${VELOX_REF}" "${VELOX_SHA}"
+          verify_provenance presto-worker "${PRESTO_WORKER_IMAGE}@${PRESTO_WORKER_DIGEST}" "${CUDA_VERSION}" \
+            "${PRESTO_REPOSITORY}" "${PRESTO_REF}" "${PRESTO_SHA}" "${VELOX_REPOSITORY}" "${VELOX_REF}" "${VELOX_SHA}"
+          verify_provenance presto-coordinator "${PRESTO_COORDINATOR_IMAGE}@${PRESTO_COORDINATOR_DIGEST}" "" \
+            "${PRESTO_REPOSITORY}" "${PRESTO_REF}" "${PRESTO_SHA}" "" "" ""
+
+          jq -n '
+            def image($reference; $digest): {
+              reference: $reference,
+              digest: $digest,
+              immutable_reference: ($reference + "@" + $digest)
+            };
+            {
+              schema_version: 1,
+              architecture: env.ARCHITECTURE,
+              cuda_version: env.CUDA_VERSION,
+              sources: {
+                presto: {repository: env.PRESTO_REPOSITORY, requested_ref: env.PRESTO_REF, sha: env.PRESTO_SHA},
+                velox: {repository: env.VELOX_REPOSITORY, requested_ref: env.VELOX_REF, sha: env.VELOX_SHA},
+                velox_testing: {repository: env.GITHUB_REPOSITORY, requested_ref: env.GITHUB_REF_NAME, sha: env.GITHUB_SHA}
+              },
+              workflow: {
+                file: env.GITHUB_WORKFLOW_REF,
+                run_url: (env.GITHUB_SERVER_URL + "/" + env.GITHUB_REPOSITORY + "/actions/runs/" + env.GITHUB_RUN_ID)
+              },
+              images: {
+                velox: image(env.VELOX_IMAGE; env.VELOX_DIGEST),
+                presto_worker: image(env.PRESTO_WORKER_IMAGE; env.PRESTO_WORKER_DIGEST),
+                presto_coordinator: image(env.PRESTO_COORDINATOR_IMAGE; env.PRESTO_COORDINATOR_DIGEST)
+              }
+            }
+          ' > staging-images-manifest.json
+      - name: Attest final Velox manifest
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.IMAGE_REPOSITORY }}
+          subject-digest: ${{ steps.images.outputs.velox_digest }}
+          push-to-registry: true
+
+      - name: Attest final Presto worker manifest
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.IMAGE_REPOSITORY }}
+          subject-digest: ${{ steps.images.outputs.presto_worker_digest }}
+          push-to-registry: true
+
+      - name: Attest final Presto coordinator manifest
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-name: ${{ env.IMAGE_REPOSITORY }}
+          subject-digest: ${{ steps.images.outputs.presto_coordinator_digest }}
+          push-to-registry: true
+
+      - name: Upload immutable build manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: staging-images-manifest-${{ github.run_id }}
+          path: staging-images-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+  smoke-test:
+    name: GPU startup smoke test
+    needs: [verify-images]
+    if: ${{ inputs.run_smoke_tests }}
+    runs-on: linux-${{ inputs.architecture }}-gpu-l4-latest-1
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - *checkout
+
+      - *login_registry
+
+      - name: Check Velox and Presto GPU startup
+        env:
+          VELOX_IMAGE: ${{ needs.verify-images.outputs.velox_immutable }}
+          PRESTO_IMAGE: ${{ needs.verify-images.outputs.presto_worker_immutable }}
+        run: |
+          docker run --rm --gpus all "${VELOX_IMAGE}" nvidia-smi
+          docker run --rm --gpus all \
+            -v "${GITHUB_WORKSPACE}/presto/docker/config/smoke-test:/opt/presto-server/etc:ro" \
+            "${PRESTO_IMAGE}" bash -c '
+          set -euo pipefail
+          nvidia-smi
+          ldconfig
+          mkdir -p /var/lib/presto/data/hive/metastore
+          /usr/bin/presto_server --etc-dir=/opt/presto-server/etc &
+          server_pid=$!
+          trap "kill ${server_pid} 2>/dev/null || true; wait ${server_pid} 2>/dev/null || true" EXIT
+          for _ in {1..12}; do
+            state=$(curl -sf http://localhost:8080/v1/info/state 2>/dev/null || true)
+            [[ "${state}" == "\"ACTIVE\"" ]] && { echo "presto_server reached ACTIVE state"; exit 0; }
+            sleep 5
+          done
+          echo "presto_server did not reach ACTIVE state within 60 seconds" >&2
+          exit 1
+          '
+
+  publish-stable-tags:
+    name: Publish staging latest aliases
+    needs: [verify-images, smoke-test]
+    if: ${{ always() && inputs.publish_stable_tags && needs.verify-images.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.smoke-test.result) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - *checkout
+
+      - *setup_buildx
+
+      - *login_registry
+
+      - name: Update stable aliases
+        env:
+          ARCHITECTURE: ${{ inputs.architecture }}
+          CUDA_VERSION: ${{ inputs.cuda_version }}
+          VELOX_IMAGE: ${{ needs.verify-images.outputs.velox_immutable }}
+          PRESTO_WORKER_IMAGE: ${{ needs.verify-images.outputs.presto_worker_immutable }}
+          PRESTO_COORDINATOR_IMAGE: ${{ needs.verify-images.outputs.presto_coordinator_immutable }}
+        run: |
+          docker buildx imagetools create --tag "${IMAGE_REPOSITORY}:${TAG_PREFIX}velox-latest-gpu-cuda${CUDA_VERSION}-${ARCHITECTURE}" "${VELOX_IMAGE}"
+          docker buildx imagetools create --tag "${IMAGE_REPOSITORY}:${TAG_PREFIX}presto-latest-gpu-cuda${CUDA_VERSION}-${ARCHITECTURE}" "${PRESTO_WORKER_IMAGE}"
+          docker buildx imagetools create --tag "${IMAGE_REPOSITORY}:${TAG_PREFIX}presto-coordinator-latest-${ARCHITECTURE}" "${PRESTO_COORDINATOR_IMAGE}"
