@@ -18,10 +18,43 @@ class DataLocation:
     key: str
 
 
+def _first_sample_label(cache_mode: str) -> str | None:
+    """Label for the standalone first-iteration column, or None if the mode has none.
+
+    off/lukewarm report iteration 0 as "Lukewarm"; cold-once resets before each query so
+    its iteration 0 is a genuine "Cold" sample followed by hot ones. cold (every
+    iteration is reset) and hot (warm-ups are never reported) have no first-sample
+    column. Single source of truth for _agg_headers, AGG_KEYS and
+    compute_aggregate_timings.
+    """
+    if cache_mode == "cold-once":
+        return "Cold"
+    if cache_mode in ("cold", "hot"):
+        return None
+    return "Lukewarm"
+
+
+def _agg_headers(cache_mode: str, iterations: int) -> list[str]:
+    """Column headers for the terminal report, per --cache-mode (see cache_reset.py for
+    the mode definitions and _first_sample_label for what each mode reports)."""
+    label = "Cold" if cache_mode == "cold" else "Hot"
+    first = _first_sample_label(cache_mode)
+    if iterations == 1:
+        return [f"{first}(ms)"] if first else [f"{label}(ms)"]
+    headers = [f"Avg {label}(ms)", f"Min {label}(ms)", f"Max {label}(ms)", f"Median {label}(ms)", f"GMean {label}(ms)"]
+    if first:
+        headers.append(f"{first}(ms)")
+    return headers
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     text_report = []
     iterations = config.getoption("--iterations")
     tag = config.getoption("--tag")
+    # None when the engine doesn't register --cache-mode (spark_gluten): keep its report
+    # byte-identical by omitting the mode line and falling back to lukewarm's layout.
+    cache_mode_opt = config.getoption("--cache-mode", default=None)
+    cache_mode = cache_mode_opt or "off"
     if not hasattr(terminalreporter._session, "benchmark_results"):
         return
 
@@ -38,22 +71,17 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
         _write_line(terminalreporter, text_report, "")
         _write_line(terminalreporter, text_report, f"Iterations Count: {iterations}")
+        if cache_mode_opt and cache_mode_opt != "off":
+            mode_line = f"Cache Mode: {cache_mode_opt}"
+            if cache_mode_opt != "cold":
+                mode_line += f" (warmup iterations: {config.getoption('--warmup-iterations', default=1)})"
+            _write_line(terminalreporter, text_report, mode_line)
         _write_line(terminalreporter, text_report, f"{data_location_display_name} Name: {data_location_name}")
         if tag:
             _write_line(terminalreporter, text_report, f"Tag: {tag}")
         _write_line(terminalreporter, text_report, "")
 
-        if iterations > 1:
-            AGG_HEADERS = [
-                "Avg Hot(ms)",
-                "Min Hot(ms)",
-                "Max Hot(ms)",
-                "Median Hot(ms)",
-                "GMean Hot(ms)",
-                "Lukewarm(ms)",
-            ]
-        else:
-            AGG_HEADERS = ["Lukewarm(ms)"]
+        AGG_HEADERS = _agg_headers(cache_mode, iterations)
         width = max([len(agg_header) for agg_header in AGG_HEADERS])
         width = max(width, result[BenchmarkKeys.FORMAT_WIDTH_KEY]) + 2  # Additional padding on each side
         header = " Query ID "
@@ -112,27 +140,32 @@ def build_and_write_benchmark_result(session, json_result):
     before calling this function.
     """
     iterations = session.config.getoption("--iterations")
+    cache_mode = session.config.getoption("--cache-mode", default="off")
+    warmup_iterations = session.config.getoption("--warmup-iterations", default=1)
 
     bench_output_dir = get_output_dir(session.config)
     bench_output_dir.mkdir(parents=True, exist_ok=True)
 
-    if iterations > 1:
+    first_label = _first_sample_label(cache_mode)
+    first_key = BenchmarkKeys.COLD_KEY if first_label == "Cold" else BenchmarkKeys.LUKEWARM_KEY
+    if iterations == 1:
+        AGG_KEYS = [first_key] if first_label else [BenchmarkKeys.AVG_KEY]
+    else:
         AGG_KEYS = [
             BenchmarkKeys.AVG_KEY,
             BenchmarkKeys.MIN_KEY,
             BenchmarkKeys.MAX_KEY,
             BenchmarkKeys.MEDIAN_KEY,
             BenchmarkKeys.GMEAN_KEY,
-            BenchmarkKeys.LUKEWARM_KEY,
         ]
-    else:
-        AGG_KEYS = [BenchmarkKeys.LUKEWARM_KEY]
+        if first_label:
+            AGG_KEYS.append(first_key)
 
     if not hasattr(session, "benchmark_results"):
         return
 
     for benchmark_type, result in session.benchmark_results.items():
-        compute_aggregate_timings(result)
+        compute_aggregate_timings(result, cache_mode, warmup_iterations)
         json_result[benchmark_type] = {
             BenchmarkKeys.AGGREGATE_TIMES_KEY: {},
             BenchmarkKeys.RAW_TIMES_KEY: result[BenchmarkKeys.RAW_TIMES_KEY],
@@ -170,6 +203,21 @@ def pytest_sessionfinish(session, exitstatus):
     if tag:
         json_result[BenchmarkKeys.CONTEXT_KEY][BenchmarkKeys.TAG_KEY] = tag
 
+    # Only present for engines that register --cache-mode; the reported columns depend
+    # on it, so a saved report is ambiguous without it.
+    cache_mode = session.config.getoption("--cache-mode", default=None)
+    if cache_mode and cache_mode != "off":
+        context = json_result[BenchmarkKeys.CONTEXT_KEY]
+        context[BenchmarkKeys.CACHE_MODE_KEY] = cache_mode
+        if cache_mode != "cold":
+            context[BenchmarkKeys.WARMUP_ITERATIONS_KEY] = session.config.getoption("--warmup-iterations", default=1)
+        # Which layers the resets actually cleared, as reported by the engine's reset
+        # code — a tier that isn't configured, or that --skip-drop-cache skipped, is not
+        # listed, so this cannot claim a reset that never happened.
+        layers = getattr(session, "_cache_reset_layers", None)
+        if layers:
+            context[BenchmarkKeys.CACHE_RESET_LAYERS_KEY] = sorted(layers)
+
     if hasattr(session, "run_context"):
         for key, value in session.run_context.items():
             json_result[BenchmarkKeys.CONTEXT_KEY][key] = value
@@ -189,25 +237,46 @@ def get_output_dir(config):
     return Path(bench_output_dir)
 
 
-def compute_aggregate_timings(benchmark_results):
+def compute_aggregate_timings(benchmark_results, cache_mode="off", warmup_iterations=1):
+    """Reduce each query's raw per-iteration timings to the reported aggregate stats.
+
+    cold: stats over all iterations (each was independently reset).
+    hot/lukewarm: stats over timings[warmup_iterations:]; lukewarm additionally
+    reports iteration 0 alone (see _first_sample_label).
+    """
     raw_times = benchmark_results[BenchmarkKeys.RAW_TIMES_KEY]
     benchmark_results[BenchmarkKeys.AGGREGATE_TIMES_KEY] = {}
     format_width = 0
     for query_id, timings in raw_times.items():
         if timings:
-            first_iteration = timings[0]
-            if len(timings) > 1:
-                hot_timings = timings[1:]
-                stats = (
-                    round(statistics.mean(hot_timings), 2),
-                    min(hot_timings),
-                    max(hot_timings),
-                    statistics.median(hot_timings),
-                    round(statistics.geometric_mean(hot_timings), 2),
-                    first_iteration,
-                )
+            if len(timings) == 1:
+                if cache_mode == "hot":
+                    print(
+                        f"Warning: {query_id} has only 1 iteration under --cache-mode=hot "
+                        f"(--warmup-iterations={warmup_iterations}); the reported 'Hot' value is "
+                        "actually an unwarmed/priming run, not a true steady-state measurement."
+                    )
+                # The lone iteration IS the sample under every mode: cold uses all of
+                # timings, hot/lukewarm's warmup-slice-or-fallback both reduce to
+                # timings[0] too, so there's nothing mode-specific to branch on here.
+                stats = (timings[0],)
             else:
-                stats = (first_iteration,)
+                if cache_mode != "cold" and not timings[warmup_iterations:]:
+                    print(
+                        f"Warning: {query_id}: --warmup-iterations={warmup_iterations} >= its "
+                        f"{len(timings)} iterations; falling back to reporting only the last "
+                        "iteration, which may still include cache warm-up/priming effects."
+                    )
+                sample = timings if cache_mode == "cold" else (timings[warmup_iterations:] or timings[-1:])
+                stats = (
+                    round(statistics.mean(sample), 2),
+                    min(sample),
+                    max(sample),
+                    statistics.median(sample),
+                    round(statistics.geometric_mean(sample), 2),
+                )
+                if _first_sample_label(cache_mode):
+                    stats += (timings[0],)
             format_width = max(format_width, *[len(str(stat)) for stat in stats])
         else:
             stats = None
