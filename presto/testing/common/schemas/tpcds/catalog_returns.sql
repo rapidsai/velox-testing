@@ -26,4 +26,4 @@ CREATE TABLE hive.{schema}.catalog_returns (
     cr_reversed_charge DOUBLE,
     cr_store_credit DOUBLE,
     cr_net_loss DOUBLE
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

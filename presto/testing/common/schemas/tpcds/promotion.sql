@@ -18,4 +18,4 @@ CREATE TABLE hive.{schema}.promotion (
     p_channel_details VARCHAR,
     p_purpose VARCHAR,
     p_discount_active VARCHAR
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')
