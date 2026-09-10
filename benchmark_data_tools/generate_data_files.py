@@ -8,15 +8,21 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import NamedTuple
 
 import duckdb
-from duckdb_utils import init_benchmark_tables, is_decimal_column
+import psutil
+from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
+from row_group_sizing import row_group_row_count_probe
 
 _INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
 _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
+_PROBE_MEMORY_PERCENT = 20
+_MIN_MEMORY_LIMIT = 1 * 1024**3
 
 
 def generate_partition(
@@ -74,6 +80,22 @@ def generate_partition(
 
 
 def generate_data_files(args):
+    if args.memory_limit is not None and args.benchmark_type == "tpch":
+        # TODO: Extend --memory-limit to TPC-H and link the upstream issue here (rapidsai/velox-testing#414).
+        raise ValueError("--memory-limit is only supported for TPC-DS generation")
+
+    if args.memory_limit is not None and args.memory_limit <= 0:
+        raise ValueError("--memory-limit must be a positive byte count")
+
+    if args.benchmark_type == "tpcds" or args.use_duckdb:
+        if args.memory_limit is None:
+            args.memory_limit = max(psutil.virtual_memory().available // 2, _MIN_MEMORY_LIMIT)
+            if args.verbose:
+                print(
+                    f"Using default DuckDB memory limit of {args.memory_limit:,} bytes",
+                    flush=True,
+                )
+
     if args.codec_definitions:
         if args.benchmark_type != "tpch":
             raise ValueError("--codec-definitions is currently only supported for TPC-H benchmarks")
@@ -98,6 +120,8 @@ def generate_data_files(args):
         if args.verbose:
             print("generating with duckdb")
         generate_data_files_with_duckdb(args)
+
+    write_metadata(args)
 
 
 def generate_data_files_with_tpchgen(args, codec_defs):
@@ -139,8 +163,6 @@ def generate_data_files_with_tpchgen(args, codec_defs):
 
     if args.verbose:
         print(f"Raw data created at: {raw_data_path}")
-
-    write_metadata(args)
 
 
 # This dictionary maps each table to the number of partitions it should have based on it's
@@ -190,42 +212,148 @@ def write_metadata(args):
 
 
 def generate_data_files_with_duckdb(args):
-    init_benchmark_tables(args.benchmark_type, args.scale_factor)
+    """Materialize the dataset into an intermediate DuckDB file, then export Parquet from it."""
+    with tempfile.TemporaryDirectory(prefix=".duckdb-main-", dir=args.data_dir_path) as work_directory:
+        database_path = Path(work_directory) / "intermediate.duckdb"
+        probe_memory_limit = args.memory_limit * _PROBE_MEMORY_PERCENT // 100
+        main_memory_limit = args.memory_limit - probe_memory_limit
+        # Avoid concurrent first-time extension installation across processes.
+        with duckdb.connect() as install_conn:
+            install_conn.sql(f"INSTALL {args.benchmark_type}")
 
-    with open(f"{args.data_dir_path}/metadata.json", "w") as file:
-        json.dump({"scale_factor": args.scale_factor}, file, indent=2)
-        file.write("\n")
+        with duckdb.connect(str(database_path), config={"memory_limit": f"{main_memory_limit}B"}) as conn:
+            row_group_rows = materialize_tables(args, conn, probe_memory_limit)
+            # The probe has exited, so the main connection can use the full memory budget.
+            conn.execute(f"SET memory_limit='{args.memory_limit}B'")
+            export_tables(args, row_group_rows, conn)
 
-    tables = duckdb.sql("SHOW TABLES").fetchall()
-    for (table_name,) in tables:
-        table_data_dir = f"{args.data_dir_path}/{table_name}"
-        Path(table_data_dir).mkdir(exist_ok=False)
-        duckdb.sql(
-            f"COPY ({get_select_query(table_name, args.convert_decimals_to_floats)}) "
-            f"TO '{table_data_dir}/{table_name}.parquet' (FORMAT parquet)"
+
+def materialize_tables(args, conn, probe_memory_limit):
+    """Generate the target dataset, returning the probed rows per row group per table."""
+    if args.verbose:
+        print(
+            f"Starting row-group proxy probe with a {probe_memory_limit:,}-byte memory limit",
+            flush=True,
         )
 
+    with row_group_row_count_probe(
+        args.benchmark_type,
+        args.approx_row_group_bytes,
+        args.scale_factor,
+        args.convert_decimals_to_floats,
+        args.data_dir_path,
+        probe_memory_limit,
+    ) as probed_row_counts:
+        if args.verbose:
+            print(
+                f"Materializing {args.benchmark_type.upper()} SF{args.scale_factor:g} into a storage-backed database",
+                flush=True,
+            )
+        init_benchmark_tables(args.benchmark_type, args.scale_factor, conn)
+        if args.verbose:
+            print("Materialization completed", flush=True)
 
-def get_select_query(table_name, convert_decimals_to_floats):
-    if convert_decimals_to_floats:
-        column_metadata_rows = duckdb.query(f"DESCRIBE {table_name}").fetchall()
-        column_projections = [
-            get_column_projection(column_metadata, convert_decimals_to_floats)
-            for column_metadata in column_metadata_rows
-        ]
-        query = f"SELECT {','.join(column_projections)} FROM {table_name}"
-    else:
-        query = f"SELECT * FROM {table_name}"
-    return query
+        # Let the export read one settled state.
+        conn.sql("CHECKPOINT")
+        row_group_rows = probed_row_counts()
+        if args.verbose:
+            target_mib = args.approx_row_group_bytes / (1024 * 1024)
+            for table_name, rows in sorted(row_group_rows.items()):
+                print(
+                    f"Estimated '{table_name}' row group: {rows:,} rows for approximately {target_mib:g} MiB",
+                    flush=True,
+                )
+        return row_group_rows
 
 
-def get_column_projection(column_metadata, convert_decimals_to_floats):
-    col_name, col_type, *_ = column_metadata
-    if convert_decimals_to_floats and is_decimal_column(col_type):
-        projection = f"CAST({col_name} AS DOUBLE) AS {col_name}"
-    else:
-        projection = col_name
-    return projection
+def configure_duckdb_export(conn, num_threads):
+    """Apply production DuckDB settings immediately before Parquet export."""
+    conn.execute(f"SET threads={num_threads}")
+    # Allow unordered exports to increase export speed.
+    conn.execute("SET preserve_insertion_order=false")
+
+
+class ExportTask(NamedTuple):
+    """One Parquet file to write: a whole table, or one rowid range of a split table."""
+
+    table_name: str
+    query: str
+    file_path: str
+    rows_per_row_group: int
+
+
+def export_tables(args, row_group_rows, conn):
+    """Write one table-part task per worker."""
+    tasks = plan_export_tasks(args, row_group_rows, conn)
+    if not tasks:
+        return
+
+    num_tasks = len(tasks)
+    configure_duckdb_export(conn, args.num_threads)
+    if num_tasks == 1:
+        write_part(tasks[0], conn)
+        return
+
+    # -j caps both DuckDB execution threads and concurrent COPY workers.
+    max_workers = min(num_tasks, args.num_threads)
+    if args.verbose:
+        print(
+            f"Exporting {num_tasks} Parquet files with {max_workers} concurrent writers",
+            flush=True,
+        )
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(write_part, task, conn) for task in tasks]
+        try:
+            for future in futures:
+                future.result()
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
+
+
+def plan_export_tasks(args, row_group_rows, conn):
+    """Describe every output file before starting any Parquet writer."""
+    tasks = []
+    for (table_name,) in conn.sql("SHOW TABLES").fetchall():
+        table_data_dir = f"{args.data_dir_path}/{table_name}"
+        Path(table_data_dir).mkdir(exist_ok=False)
+
+        select_query = get_select_query(table_name, args.convert_decimals_to_floats, conn)
+        row_count = conn.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+        estimated_rows_per_row_group = row_group_rows.get(table_name, row_count)
+        rows_per_row_group = min(estimated_rows_per_row_group, row_count)
+        num_partitions = max(math.ceil(row_count / args.max_rows_per_file), 1) if args.max_rows_per_file else 1
+
+        for part in range(num_partitions):
+            partition_query = select_query
+            if num_partitions > 1:
+                start_row = part * args.max_rows_per_file
+                partition_query += f" WHERE rowid >= {start_row} AND rowid < {start_row + args.max_rows_per_file}"
+            tasks.append(
+                ExportTask(
+                    table_name=table_name,
+                    query=partition_query,
+                    file_path=f"{table_data_dir}/{table_name}-{part + 1}.parquet",
+                    rows_per_row_group=rows_per_row_group,
+                )
+            )
+    return tasks
+
+
+def write_part(task, root_conn):
+    """Write and atomically publish one Parquet file."""
+    partial_path = Path(f"{task.file_path}.partial")
+    try:
+        conn = root_conn.cursor()
+        try:
+            copy_to_parquet(task.query, str(partial_path), task.rows_per_row_group, conn)
+        finally:
+            conn.close()
+        os.replace(partial_path, task.file_path)
+    finally:
+        partial_path.unlink(missing_ok=True)
 
 
 def get_tpchgen_codec_args(codec_defs, table_name):
@@ -309,7 +437,7 @@ def build_default_codec_defs():
     Achieved ~11% improvement over baseline with ~15% smaller dataset.
     """
     with duckdb.connect() as conn:
-        conn.execute(f"INSTALL tpch; LOAD tpch; CALL dbgen(sf = {_SAMPLE_SF});")
+        init_benchmark_tables("tpch", _SAMPLE_SF, conn)
 
         tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
         config = {"tables": []}
@@ -391,7 +519,7 @@ if __name__ == "__main__":
         type=int,
         required=False,
         default=4,
-        help="Number of threads to generate data with tpchgen",
+        help="Number of DuckDB threads, or concurrent TPC-H generation tasks.",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", required=False, default=False, help="Extra verbose logging"
@@ -409,6 +537,14 @@ if __name__ == "__main__":
         required=False,
         default=128 * 1024 * 1024,
         help="Approximate row group size in bytes. 128MB by default.",
+    )
+    parser.add_argument(
+        "--memory-limit",
+        type=int,
+        required=False,
+        default=None,
+        help="Memory limit in bytes for TPC-DS DuckDB generation. "
+        "Defaults to 50%% of available system RAM, with a 1 GiB minimum.",
     )
     parser.add_argument(
         "--codec-definitions",
