@@ -1,9 +1,6 @@
 name: staging
 
 on:
-  # TEMPORARY: lets this branch be exercised before it reaches main, where
-  # workflow_dispatch becomes available. Remove before merging.
-  push:
   schedule:
     - cron: "0 3 * * *"
   workflow_call:
