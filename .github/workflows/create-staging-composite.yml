@@ -63,6 +63,11 @@ on:
       fork_pat:
         description: 'GitHub PAT for target repository'
         required: true
+      project_board_pat:
+        description: >-
+          Optional PAT with read:project (and read:org) for the project board
+          used by auto-fetch. Falls back to fork_pat when unset.
+        required: false
 
 jobs:
   create-staging:
@@ -111,6 +116,10 @@ jobs:
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step merge-additional
 
       - name: 📋 Fetch PR list
+        # Reading a project board needs scopes the fork PAT may not carry, so
+        # allow a dedicated token here without widening it for the git steps.
+        env:
+          GH_TOKEN: ${{ secrets.project_board_pat || secrets.fork_pat }}
         run: ${SCRIPT_PATH} ${BASE_ARGS} --step fetch-prs
 
       - name: 🧪 Test merge compatibility

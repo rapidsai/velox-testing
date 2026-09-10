@@ -82,3 +82,4 @@ jobs:
       script_path: ./velox-testing/velox/scripts/create_staging.sh
     secrets:
       fork_pat: ${{ secrets.VELOX_FORK_PAT || secrets.GITHUB_TOKEN }}
+      project_board_pat: ${{ secrets.PROJECT_BOARD_TOKEN }}
