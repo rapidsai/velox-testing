@@ -88,15 +88,13 @@ def generate_data_files(args):
         raise ValueError("--memory-limit must be a positive byte count")
 
     if args.benchmark_type == "tpcds" or args.use_duckdb:
-        using_default_memory_limit = args.memory_limit is None
-        if using_default_memory_limit:
-            args.memory_limit = psutil.virtual_memory().available // 2
-        args.memory_limit = max(args.memory_limit, _MIN_MEMORY_LIMIT)
-        if args.verbose and using_default_memory_limit:
-            print(
-                f"Using default DuckDB memory limit of {args.memory_limit:,} bytes",
-                flush=True,
-            )
+        if args.memory_limit is None:
+            args.memory_limit = max(psutil.virtual_memory().available // 2, _MIN_MEMORY_LIMIT)
+            if args.verbose:
+                print(
+                    f"Using default DuckDB memory limit of {args.memory_limit:,} bytes",
+                    flush=True,
+                )
 
     if args.codec_definitions:
         if args.benchmark_type != "tpch":
