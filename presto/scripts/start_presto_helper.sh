@@ -151,6 +151,10 @@ if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
   mkdir -p "${LOGS_DIR}/archive"
   mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
 fi
+# Remove stale provenance files so a run that does not write them (e.g. a Java
+# worker, or an image without baked provenance) does not report the previous
+# run's values. run_context.py reads these fixed filenames from LOGS_DIR.
+rm -f "${LOGS_DIR}/worker_provenance.json" "${LOGS_DIR}/coordinator_provenance.json"
 export SERVER_START_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
 export LOGS_DIR
 

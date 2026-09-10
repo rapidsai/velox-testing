@@ -62,29 +62,51 @@ def split_code_blocks(section: str) -> list[str]:
 
 
 def chunk_text(text: str, max_len: int = SLACK_BLOCK_TEXT_LIMIT) -> list[str]:
-    """Split text into chunks that fit within Slack's block text limit."""
+    """Split text into chunks that fit within Slack's block text limit.
+
+    When a fenced code block is split, each piece is re-wrapped with fences.
+    Those extra characters are reserved so no chunk exceeds *max_len* (Slack
+    rejects section text over 3000 characters).
+    """
     if len(text) <= max_len:
         return [text]
     is_code = text.lstrip().startswith("```")
+    # Room left for "\n```" when closing a split code chunk.
+    body_limit = max_len - 4 if is_code else max_len
     chunks: list[str] = []
-    lines = text.splitlines(keepends=True)
     current: list[str] = []
     current_len = 0
-    for line in lines:
-        if current_len + len(line) > max_len and current:
-            chunk = "".join(current).rstrip()
-            if is_code and not chunk.rstrip().endswith("```"):
-                chunk += "\n```"
-            chunks.append(chunk)
-            current = []
-            current_len = 0
-            if is_code:
-                current.append("```\n")
-                current_len = 4
+
+    def flush(*, final: bool) -> None:
+        nonlocal current, current_len
+        chunk = "".join(current).rstrip()
+        if not chunk.strip("`").strip():
+            # Nothing but fences so far; keep buffering instead of emitting.
+            if final:
+                current, current_len = [], 0
+            return
+        if is_code and chunk.count("```") % 2:
+            chunk += "\n```"
+        chunks.append(chunk)
+        current = []
+        current_len = 0
+        if is_code and not final:
+            current.append("```\n")
+            current_len = 4
+
+    for line in text.splitlines(keepends=True):
+        if current and current_len + len(line) > body_limit:
+            flush(final=False)
+        # A single line longer than the budget has to be broken mid-line.
+        while len(line) > body_limit - current_len:
+            room = body_limit - current_len
+            current.append(line[:room])
+            current_len += room
+            line = line[room:]
+            flush(final=False)
         current.append(line)
         current_len += len(line)
-    if current:
-        chunks.append("".join(current).rstrip())
+    flush(final=True)
     return chunks
 
 

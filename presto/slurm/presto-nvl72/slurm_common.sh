@@ -52,6 +52,11 @@ export UCX_KEEPALIVE_INTERVAL=1ms
 
 mkdir -p "${LOGS}"
 
+# Remove stale provenance files so a run that does not write them (e.g. a Java
+# worker, or an image without baked provenance) does not report the previous
+# run's values. run_context.py reads these fixed filenames from LOGS_DIR.
+rm -f "${LOGS}/worker_provenance.json" "${LOGS}/coordinator_provenance.json"
+
 # Pre-flight info — shared header without a trailing separator so callers can
 # echo mode-specific lines before closing the block.
 echo "========================================"

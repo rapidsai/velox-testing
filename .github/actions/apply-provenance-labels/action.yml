@@ -1,0 +1,61 @@
+name: Apply provenance labels
+description: >-
+  Re-tag an already-built image through provenance_labels.dockerfile so it
+  carries the velox-testing provenance labels and baked /opt/velox-testing/provenance.json.
+
+inputs:
+  base_image:
+    description: Fully-qualified reference of the already-built image to layer provenance onto.
+    required: true
+  tags:
+    description: Tag(s) to push the provenance-labelled image under (newline-separated).
+    required: true
+  presto_sha:
+    description: Presto commit SHA.
+    required: true
+  presto_repository:
+    description: Presto repository.
+    required: false
+    default: ""
+  presto_branch:
+    description: Presto branch (empty on CI, which knows only the SHA).
+    required: false
+    default: ""
+  velox_sha:
+    description: Velox commit SHA (empty for coordinator images, which do not build Velox).
+    required: false
+    default: ""
+  velox_repository:
+    description: Velox repository.
+    required: false
+    default: ""
+  velox_branch:
+    description: Velox branch (empty on CI).
+    required: false
+    default: ""
+
+outputs:
+  digest:
+    description: Digest of the pushed provenance-labelled image.
+    value: ${{ steps.push.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build and push provenance-labelled image
+      id: push
+      uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+      with:
+        context: velox-testing/presto/docker
+        file: velox-testing/presto/docker/provenance_labels.dockerfile
+        build-args: |
+          BASE_IMAGE=${{ inputs.base_image }}
+          PRESTO_SHA=${{ inputs.presto_sha }}
+          PRESTO_BRANCH=${{ inputs.presto_branch }}
+          PRESTO_REPOSITORY=${{ inputs.presto_repository }}
+          VELOX_SHA=${{ inputs.velox_sha }}
+          VELOX_BRANCH=${{ inputs.velox_branch }}
+          VELOX_REPOSITORY=${{ inputs.velox_repository }}
+        outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+        push: true
+        tags: ${{ inputs.tags }}

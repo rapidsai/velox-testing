@@ -97,8 +97,17 @@ jobs:
           IMAGE="${REGISTRY}/${IMAGE_NAME}:velox-${VELOX_SHORT_SHA}-${IMAGE_TAG}-${BUILD_DATE}${RUN_ID_SUFFIX}"
           echo "Testing image: ${IMAGE}"
           docker_pull_with_retry "${IMAGE}"
-          docker run --rm "${IMAGE}" bash -c \
-            "cd /opt/velox-build/release && ctest -j 16 --label-exclude cuda_driver --output-on-failure --no-tests=error"
+          docker run \
+            --rm \
+            --ulimit nofile=65536:65536 \
+            "${IMAGE}" \
+            bash -c \
+            "cd /opt/velox-build/release && \
+              ctest \
+                -j 16 \
+                --label-exclude cuda_driver \
+                --output-on-failure \
+                --no-tests=error"
 
   test-velox-gpu:
     name: test-velox-gpu (${{ matrix.image_tag }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
