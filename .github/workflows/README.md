@@ -7,7 +7,7 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | Workflow | Purpose | Notes |
 |----------|---------|-------|
 | **Staging Branch Management** |||
-| `staging.yml` | Creates the staging branch, then builds CI images from it | Schedule (3am UTC) + manual dispatch |
+| `staging.yml` | Nightly staging branch refresh (Velox; Presto to follow) | Schedule (3am UTC) + manual dispatch |
 | `create-staging-composite.yml` | Reusable workflow for creating staging branches | Supports additional repo merge + PR merging |
 | `velox-create-staging.yml` | Creates Velox staging branch by merging cuDF PRs | Auto-fetches PRs from the NVIDIA project board by default |
 | `presto-create-staging.yml` | Creates Presto staging branch by merging specified PRs | Requires manual PR numbers (no auto-fetch) |
@@ -213,9 +213,7 @@ Browse available tags at [ghcr.io/rapidsai/velox-testing-images](https://github.
 ```
 STAGING
 ───────
-              ┌─► velox-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
-staging.yml ──┤
-              └─► velox.yml ──► [CI images from rapidsai/velox@staging]
+staging.yml ──► velox-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
 
 velox-create-staging.yml (workflow_dispatch) ──► create-staging-composite.yml ──► [staging branch]
 presto-create-staging.yml (workflow_dispatch) ──► create-staging-composite.yml ──► [staging branch]
