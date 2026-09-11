@@ -1,0 +1,27 @@
+name: staging
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  velox-staging:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/velox-create-staging.yml
+    with:
+      target_repository: rapidsai/velox
+      target_branch: staging
+      auto_fetch_prs: true
+      # staging is rebuilt from upstream main every run, so the push is never a
+      # fast-forward over the previous branch.
+      force_push: true
+    secrets: inherit  # zizmor: ignore[secrets-inherit]

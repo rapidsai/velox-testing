@@ -62,7 +62,7 @@ on:
 jobs:
   presto-create-staging:
     permissions:
-      contents: write
+      contents: read
     uses: ./.github/workflows/create-staging-composite.yml
     with:
       base_repository: ${{ inputs.base_repository }}
@@ -78,4 +78,4 @@ jobs:
       additional_branch: ${{ inputs.additional_branch }}
       script_path: ./velox-testing/presto/scripts/create_staging.sh
     secrets:
-      fork_pat: ${{ secrets.PRESTO_FORK_PAT || secrets.GITHUB_TOKEN }}
+      fork_pat: ${{ secrets.PRESTO_FORK_PAT }}

@@ -30,6 +30,12 @@ MODE="local"
 STEP_NAME=""
 declare -A PR_SHA
 
+# NVIDIA libcudf project board used by Velox auto-fetch.
+# https://github.com/orgs/NVIDIA/projects/306/views/4
+VELOX_STAGING_PROJECT_OWNER="NVIDIA"
+VELOX_STAGING_PROJECT_NUMBER="306"
+VELOX_STAGING_PROJECT_QUERY="velox-staging:Staging is:pr is:open"
+
 log() { echo "$@" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 STEP=0
@@ -121,10 +127,11 @@ Options:
   --base-branch branch             Base branch (default: ${BASE_BRANCH})
   --target-branch branch           Target branch (default: ${TARGET_BRANCH})
   --work-dir path                  Directory to clone target repo (default: ${WORK_DIR})
-  --auto-fetch-prs true|false      Auto-fetch non-draft PRs with label (default: ${AUTO_FETCH_PRS})
+  --auto-fetch-prs true|false      Auto-fetch open non-draft PRs from the NVIDIA project board
+                                   (https://github.com/orgs/NVIDIA/projects/306/views/4)
   --manual-pr-numbers "1,2,3"      Comma-separated PR numbers to merge (disables auto-fetch)
   --exclude-pr-numbers "4,5,6"    Comma-separated PR numbers to exclude from auto-fetch results
-  --pr-labels labels               Comma-separated PR labels to auto-fetch (default: ${PR_LABELS})
+  --pr-labels labels               If set, auto-fetch by GitHub labels instead of the project board
   --manifest-template path         Manifest template path (default: repo template)
   --force-push true|false          Force push to target branch (default: ${FORCE_PUSH})
   --additional-repository repo     Additional repository to merge from (e.g., rapidsai/cudf)
@@ -149,8 +156,7 @@ Examples:
   ./scripts/create_staging_branch.sh \\
     --target-path ../velox \\
     --base-repository facebookincubator/velox \\
-    --base-branch main \\
-    --pr-labels "cudf"
+    --base-branch main
 
   # Manual PR list (auto-fetch disabled automatically):
   ./scripts/create_staging_branch.sh \\
@@ -162,7 +168,6 @@ Examples:
   ./scripts/create_staging_branch.sh \\
     --target-path ../velox \\
     --base-repository facebookincubator/velox \\
-    --pr-labels "cudf" \\
     --additional-repository rapidsai/cudf \\
     --additional-branch velox-exchange
 
@@ -295,24 +300,77 @@ reset_target_branch() {
   log "Base commit: ${BASE_COMMIT}"
 }
 
+# Open, non-draft PR numbers in BASE_REPO (space-separated).
+list_open_nondraft_prs() {
+  gh pr list \
+    --repo "${BASE_REPO}" \
+    --state open \
+    --limit 200 \
+    --json number,isDraft \
+    --jq '.[] | select(.isDraft == false) | .number' \
+    | tr '\n' ' ' | xargs || true
+}
+
+# PRs on https://github.com/orgs/NVIDIA/projects/306 whose "Velox Staging"
+# field is Staging, limited to BASE_REPO. Token needs the read:project scope.
+fetch_prs_from_project() {
+  local jq_filter
+  jq_filter=".items[]
+    | select((.content.type == \"PullRequest\")
+        and (.\"velox Staging\" == \"Staging\")
+        and (.content.repository == \"${BASE_REPO}\"))
+    | .content.number"
+
+  local board_prs open_prs kept skipped pr
+  board_prs="$(gh project item-list "${VELOX_STAGING_PROJECT_NUMBER}" \
+    --owner "${VELOX_STAGING_PROJECT_OWNER}" \
+    --limit 200 \
+    --query "${VELOX_STAGING_PROJECT_QUERY}" \
+    --format json \
+    -q "${jq_filter}" | tr '\n' ' ' | xargs || true)"
+  open_prs="$(list_open_nondraft_prs)"
+
+  kept=""
+  for pr in ${board_prs}; do
+    skipped=true
+    for open_pr in ${open_prs}; do
+      if [[ "${pr}" == "${open_pr}" ]]; then
+        skipped=false
+        break
+      fi
+    done
+    if [[ "${skipped}" == "true" ]]; then
+      log "Skipping project PR #${pr} (not an open non-draft PR on ${BASE_REPO})"
+      continue
+    fi
+    kept="${kept} ${pr}"
+  done
+  echo "${kept}" | xargs || true
+}
+
 fetch_pr_list() {
   local pr_list=""
   if [[ "${AUTO_FETCH_PRS}" == "true" ]]; then
-    step "Auto-fetch PRs with labels: ${PR_LABELS}"
-    local label_args=()
-    local labels=()
-    IFS=',' read -r -a labels <<< "${PR_LABELS}"
-    for label in "${labels[@]}"; do
-      label="$(echo "${label}" | xargs)"
-      [[ -z "${label}" ]] && continue
-      label_args+=(--label "${label}")
-    done
-    pr_list="$(gh pr list \
-      --repo "${BASE_REPO}" \
-      "${label_args[@]}" \
-      --state open \
-      --json number,isDraft \
-      --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs || true)"
+    if [[ -n "${PR_LABELS}" ]]; then
+      step "Auto-fetch PRs with labels: ${PR_LABELS}"
+      local label_args=()
+      local labels=()
+      IFS=',' read -r -a labels <<< "${PR_LABELS}"
+      for label in "${labels[@]}"; do
+        label="$(echo "${label}" | xargs)"
+        [[ -z "${label}" ]] && continue
+        label_args+=(--label "${label}")
+      done
+      pr_list="$(gh pr list \
+        --repo "${BASE_REPO}" \
+        "${label_args[@]}" \
+        --state open \
+        --json number,isDraft \
+        --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs || true)"
+    else
+      step "Fetch Staging PRs from Preso GPU Project Board"
+      pr_list="$(fetch_prs_from_project)"
+    fi
   else
     pr_list="$(echo "${MANUAL_PR_NUMBERS}" | tr ',' ' ' | xargs || true)"
   fi
