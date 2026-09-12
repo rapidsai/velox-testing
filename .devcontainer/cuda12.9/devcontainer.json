@@ -1,7 +1,7 @@
 {
   "name": "velox-dev-cuda12.9",
   "build": {
-    "context": "${localWorkspaceFolder}/..",
+    "context": "${localWorkspaceFolder}",
     "dockerfile": "${localWorkspaceFolder}/.devcontainer/Dockerfile",
     "args": {
       "CUDA_VERSION": "12.9",
