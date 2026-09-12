@@ -33,6 +33,14 @@ inputs:
     description: Velox branch (empty on CI).
     required: false
     default: ""
+  image_role:
+    description: Image role.
+  architecture:
+    description: Target architecture.
+  cuda_version:
+    description: CUDA version.
+  build_created:
+    description: UTC build timestamp in RFC 3339 form.
 
 outputs:
   digest:
@@ -48,6 +56,7 @@ runs:
       with:
         context: velox-testing/presto/docker
         file: velox-testing/presto/docker/provenance_labels.dockerfile
+        target: ${{ inputs.build_created != '' && 'extended' || 'basic' }}
         build-args: |
           BASE_IMAGE=${{ inputs.base_image }}
           PRESTO_SHA=${{ inputs.presto_sha }}
@@ -56,6 +65,17 @@ runs:
           VELOX_SHA=${{ inputs.velox_sha }}
           VELOX_BRANCH=${{ inputs.velox_branch }}
           VELOX_REPOSITORY=${{ inputs.velox_repository }}
-        outputs: type=registry,compression=zstd,force-compression=true,compression-level=15
+          IMAGE_ROLE=${{ inputs.image_role }}
+          ARCHITECTURE=${{ inputs.architecture }}
+          CUDA_VERSION=${{ inputs.cuda_version }}
+          BUILD_CREATED=${{ inputs.build_created }}
+          VELOX_TESTING_SHA=${{ github.sha }}
+          VELOX_TESTING_REPOSITORY=${{ github.repository }}
+          VELOX_TESTING_REF=${{ github.ref_name }}
+          WORKFLOW_FILE=${{ github.workflow_ref }}
+          WORKFLOW_RUN_ID=${{ github.run_id }}
+          WORKFLOW_RUN_ATTEMPT=${{ github.run_attempt }}
+          WORKFLOW_RUN_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        outputs: type=registry,compression=zstd,force-compression=${{ inputs.build_created == '' }},compression-level=15
         push: true
         tags: ${{ inputs.tags }}
