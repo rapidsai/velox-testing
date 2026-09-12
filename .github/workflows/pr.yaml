@@ -18,6 +18,7 @@ jobs:
       - devcontainer
       - detect-changes
       - test_benchmark_data_tools
+      - test_benchmark_harness
     permissions:
       contents: read
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main  # zizmor: ignore[unpinned-uses]
@@ -202,6 +203,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       benchmark_data_tools: ${{ steps.filter.outputs.benchmark_data_tools }}
+      benchmark_harness: ${{ steps.filter.outputs.benchmark_harness }}
     steps:
       - name: Checkout velox-testing
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -215,6 +217,9 @@ jobs:
           filters: |
             benchmark_data_tools:
               - "benchmark_data_tools/**"
+            benchmark_harness:
+              - "common/testing/**"
+              - "presto/testing/**"
 
   test_benchmark_data_tools:
     needs: detect-changes
@@ -230,3 +235,36 @@ jobs:
 
       - name: Test benchmark_data_tools
         uses: ./.github/actions/test-benchmark-data-tools
+
+  test_benchmark_harness:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.benchmark_harness == 'true' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest requests
+        shell: bash
+
+      - name: Run benchmark harness unit tests
+        # "python -m pytest" (not bare "pytest") so the repo root lands on sys.path for
+        # the common.* / presto.* imports. Separate invocations because common/testing
+        # and presto/testing are both packages named "testing" and collide on module
+        # names within one run.
+        run: |
+          python -m pytest common/testing/cache_mode_reporting_test.py
+          python -m pytest presto/testing/cache_reset_test.py
+        shell: bash

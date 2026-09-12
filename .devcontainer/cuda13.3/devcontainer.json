@@ -5,7 +5,7 @@
     "dockerfile": "${localWorkspaceFolder}/.devcontainer/Dockerfile",
     "args": {
       "CUDA_VERSION": "13.3",
-      "BASE": "rapidsai/devcontainers:latest-cpp-cuda13.3-ucx1.19.0-openmpi5.0.10"
+      "BASE": "rapidsai/devcontainers:latest-cpp-cuda13.3-ucx1.21.0-openmpi5.0.10"
     },
     "cacheFrom": [
       "ghcr.io/rapidsai/velox-testing/devcontainer:latest-cuda13.3"
