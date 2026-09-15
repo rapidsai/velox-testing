@@ -65,8 +65,8 @@ on:
         required: true
       project_board_pat:
         description: >-
-          Optional PAT with read:project (and read:org) for the project board
-          used by auto-fetch. Falls back to fork_pat when unset.
+          Optional PAT with read:project for the project board used by
+          auto-fetch. Falls back to fork_pat when unset.
         required: false
 
 jobs:

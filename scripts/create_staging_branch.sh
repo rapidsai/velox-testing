@@ -30,11 +30,17 @@ MODE="local"
 STEP_NAME=""
 declare -A PR_SHA
 
-# NVIDIA libcudf project board used by Velox auto-fetch.
+# NVIDIA libcudf project board used by auto-fetch.
 # https://github.com/orgs/NVIDIA/projects/306/views/4
-VELOX_STAGING_PROJECT_OWNER="NVIDIA"
-VELOX_STAGING_PROJECT_NUMBER="306"
-VELOX_STAGING_PROJECT_QUERY="velox-staging:Staging is:pr is:open"
+# One board serves both the Velox and Presto staging paths: cards for either
+# repository share the "Velox Staging" field, so results are separated by
+# BASE_REPO rather than by board or field.
+# Addressed by node ID: it survives the board being renamed, moved between
+# owners, or renumbered, and it skips the owner-type lookup that `gh project`
+# performs (which needs read:org on top of read:project).
+STAGING_PROJECT_ID="PVT_kwDOABpemM4BgGAW"
+STAGING_PROJECT_FIELD="Velox Staging"
+STAGING_PROJECT_FIELD_VALUE="Staging"
 
 log() { echo "$@" >&2; }
 die() { log "ERROR: $*"; exit 1; }
@@ -300,51 +306,62 @@ reset_target_branch() {
   log "Base commit: ${BASE_COMMIT}"
 }
 
-# Open, non-draft PR numbers in BASE_REPO (space-separated).
-list_open_nondraft_prs() {
-  gh pr list \
-    --repo "${BASE_REPO}" \
-    --state open \
-    --limit 200 \
-    --json number,isDraft \
-    --jq '.[] | select(.isDraft == false) | .number' \
-    | tr '\n' ' ' | xargs || true
-}
-
-# PRs on https://github.com/orgs/NVIDIA/projects/306 whose "Velox Staging"
-# field is Staging, limited to BASE_REPO. Token needs the read:project scope.
+# PRs on the project board whose "Velox Staging" field is Staging, limited to
+# open non-draft PRs in BASE_REPO so the Velox and Presto paths only ever see
+# their own repository's cards. Token needs the read:project scope.
 fetch_prs_from_project() {
-  local jq_filter
-  jq_filter=".items[]
-    | select((.content.type == \"PullRequest\")
-        and (.\"velox Staging\" == \"Staging\")
-        and (.content.repository == \"${BASE_REPO}\"))
-    | .content.number"
+  local graphql_query jq_filter rows kept
+  graphql_query='
+query($id: ID!, $field: String!, $endCursor: String) {
+  node(id: $id) {
+    ... on ProjectV2 {
+      items(first: 100, after: $endCursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          fieldValueByName(name: $field) {
+            ... on ProjectV2ItemFieldSingleSelectValue { name }
+          }
+          content {
+            __typename
+            ... on PullRequest {
+              number
+              isDraft
+              state
+              repository { nameWithOwner }
+            }
+          }
+        }
+      }
+    }
+  }
+}'
+  jq_filter=".data.node.items.nodes[]
+    | select(.fieldValueByName.name == \"${STAGING_PROJECT_FIELD_VALUE}\")
+    | select(.content.__typename == \"PullRequest\")
+    | [.content.repository.nameWithOwner, (.content.number | tostring),
+       .content.state, (.content.isDraft | tostring)]
+    | @tsv"
 
-  local board_prs open_prs kept skipped pr
-  board_prs="$(gh project item-list "${VELOX_STAGING_PROJECT_NUMBER}" \
-    --owner "${VELOX_STAGING_PROJECT_OWNER}" \
-    --limit 200 \
-    --query "${VELOX_STAGING_PROJECT_QUERY}" \
-    --format json \
-    -q "${jq_filter}" | tr '\n' ' ' | xargs || true)"
-  open_prs="$(list_open_nondraft_prs)"
+  # Deliberately not suppressing failures: an auth or scope error must fail the
+  # step rather than look like an empty board.
+  rows="$(gh api graphql --paginate \
+    -f id="${STAGING_PROJECT_ID}" \
+    -f field="${STAGING_PROJECT_FIELD}" \
+    -f query="${graphql_query}" \
+    -q "${jq_filter}")"
 
   kept=""
-  for pr in ${board_prs}; do
-    skipped=true
-    for open_pr in ${open_prs}; do
-      if [[ "${pr}" == "${open_pr}" ]]; then
-        skipped=false
-        break
-      fi
-    done
-    if [[ "${skipped}" == "true" ]]; then
-      log "Skipping project PR #${pr} (not an open non-draft PR on ${BASE_REPO})"
+  local repo number state is_draft
+  while IFS=$'\t' read -r repo number state is_draft; do
+    [[ -z "${number}" ]] && continue
+    [[ "${repo}" == "${BASE_REPO}" ]] || continue
+    if [[ "${state}" != "OPEN" || "${is_draft}" == "true" ]]; then
+      log "Skipping project PR #${number} (state=${state}, draft=${is_draft})"
       continue
     fi
-    kept="${kept} ${pr}"
-  done
+    kept="${kept} ${number}"
+  done <<< "${rows}"
+
   echo "${kept}" | xargs || true
 }
 
@@ -368,7 +385,7 @@ fetch_pr_list() {
         --json number,isDraft \
         --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs || true)"
     else
-      step "Fetch Staging PRs from Preso GPU Project Board"
+      step "Fetch Staging PRs from the project board"
       pr_list="$(fetch_prs_from_project)"
     fi
   else

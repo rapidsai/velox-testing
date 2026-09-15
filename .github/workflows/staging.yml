@@ -25,3 +25,14 @@ jobs:
       # fast-forward over the previous branch.
       force_push: true
     secrets: inherit  # zizmor: ignore[secrets-inherit]
+
+  presto-staging:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/presto-create-staging.yml
+    with:
+      target_repository: rapidsai/presto
+      target_branch: staging
+      auto_fetch_prs: true
+      force_push: true
+    secrets: inherit  # zizmor: ignore[secrets-inherit]

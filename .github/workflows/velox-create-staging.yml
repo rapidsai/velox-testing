@@ -25,7 +25,7 @@ on:
         default: 'staging'
       auto_fetch_prs: &auto_fetch_prs
         description: >-
-          Auto-fetch open non-draft facebookincubator/velox PRs from the project board.
+          Auto-fetch open non-draft staging facebookincubator/velox PRs from the project board.
         type: boolean
         required: false
         default: true
