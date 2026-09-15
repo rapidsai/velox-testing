@@ -415,7 +415,16 @@ fetch_pr_list() {
   fi
 
   if [[ -z "${pr_list}" ]]; then
-    die "No PRs found to merge."
+    # An explicit PR list that ends up empty is a misconfiguration; an empty
+    # board is a normal state, so emit a zero count and let the caller skip the
+    # merge and push steps instead of failing the run.
+    [[ "${AUTO_FETCH_PRS}" == "true" ]] || die "No PRs found to merge."
+    log "No PRs found to merge; skipping the remaining steps."
+    PR_LIST=""
+    export PR_LIST
+    emit_output PR_LIST ""
+    emit_output PR_COUNT 0
+    return 0
   fi
   PR_LIST="${pr_list}"
   export PR_LIST
@@ -851,6 +860,10 @@ main() {
   reset_target_branch "${WORK_DIR}"
   merge_additional_repository "${WORK_DIR}"
   fetch_pr_list
+  if [[ -z "${PR_LIST}" ]]; then
+    log "Nothing to merge; leaving ${TARGET_BRANCH} untouched."
+    return 0
+  fi
   test_merge_compatibility "${WORK_DIR}" "${PR_LIST}"
   test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}"
   merge_prs "${WORK_DIR}" "${PR_LIST}"
