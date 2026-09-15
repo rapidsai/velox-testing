@@ -30,6 +30,18 @@ MODE="local"
 STEP_NAME=""
 declare -A PR_SHA
 
+# NVIDIA libcudf project board used by auto-fetch.
+# https://github.com/orgs/NVIDIA/projects/306/views/4
+# One board serves both the Velox and Presto staging paths: cards for either
+# repository share the "Velox Staging" field, so results are separated by
+# BASE_REPO rather than by board or field.
+# Addressed by node ID: it survives the board being renamed, moved between
+# owners, or renumbered, and it skips the owner-type lookup that `gh project`
+# performs (which needs read:org on top of read:project).
+STAGING_PROJECT_ID="PVT_kwDOABpemM4BgGAW"
+STAGING_PROJECT_FIELD="Velox Staging"
+STAGING_PROJECT_FIELD_VALUE="Staging"
+
 log() { echo "$@" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 STEP=0
@@ -121,10 +133,11 @@ Options:
   --base-branch branch             Base branch (default: ${BASE_BRANCH})
   --target-branch branch           Target branch (default: ${TARGET_BRANCH})
   --work-dir path                  Directory to clone target repo (default: ${WORK_DIR})
-  --auto-fetch-prs true|false      Auto-fetch non-draft PRs with label (default: ${AUTO_FETCH_PRS})
+  --auto-fetch-prs true|false      Auto-fetch open non-draft PRs from the NVIDIA project board
+                                   (https://github.com/orgs/NVIDIA/projects/306/views/4)
   --manual-pr-numbers "1,2,3"      Comma-separated PR numbers to merge (disables auto-fetch)
   --exclude-pr-numbers "4,5,6"    Comma-separated PR numbers to exclude from auto-fetch results
-  --pr-labels labels               Comma-separated PR labels to auto-fetch (default: ${PR_LABELS})
+  --pr-labels labels               If set, auto-fetch by GitHub labels instead of the project board
   --manifest-template path         Manifest template path (default: repo template)
   --force-push true|false          Force push to target branch (default: ${FORCE_PUSH})
   --additional-repository repo     Additional repository to merge from (e.g., rapidsai/cudf)
@@ -149,8 +162,7 @@ Examples:
   ./scripts/create_staging_branch.sh \\
     --target-path ../velox \\
     --base-repository facebookincubator/velox \\
-    --base-branch main \\
-    --pr-labels "cudf"
+    --base-branch main
 
   # Manual PR list (auto-fetch disabled automatically):
   ./scripts/create_staging_branch.sh \\
@@ -162,7 +174,6 @@ Examples:
   ./scripts/create_staging_branch.sh \\
     --target-path ../velox \\
     --base-repository facebookincubator/velox \\
-    --pr-labels "cudf" \\
     --additional-repository rapidsai/cudf \\
     --additional-branch velox-exchange
 
@@ -295,24 +306,88 @@ reset_target_branch() {
   log "Base commit: ${BASE_COMMIT}"
 }
 
+# PRs on the project board whose "Velox Staging" field is Staging, limited to
+# open non-draft PRs in BASE_REPO so the Velox and Presto paths only ever see
+# their own repository's cards. Token needs the read:project scope.
+fetch_prs_from_project() {
+  local graphql_query jq_filter rows kept
+  graphql_query='
+query($id: ID!, $field: String!, $endCursor: String) {
+  node(id: $id) {
+    ... on ProjectV2 {
+      items(first: 100, after: $endCursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          fieldValueByName(name: $field) {
+            ... on ProjectV2ItemFieldSingleSelectValue { name }
+          }
+          content {
+            __typename
+            ... on PullRequest {
+              number
+              isDraft
+              state
+              repository { nameWithOwner }
+            }
+          }
+        }
+      }
+    }
+  }
+}'
+  jq_filter=".data.node.items.nodes[]
+    | select(.fieldValueByName.name == \"${STAGING_PROJECT_FIELD_VALUE}\")
+    | select(.content.__typename == \"PullRequest\")
+    | [.content.repository.nameWithOwner, (.content.number | tostring),
+       .content.state, (.content.isDraft | tostring)]
+    | @tsv"
+
+  # Deliberately not suppressing failures: an auth or scope error must fail the
+  # step rather than look like an empty board.
+  rows="$(gh api graphql --paginate \
+    -f id="${STAGING_PROJECT_ID}" \
+    -f field="${STAGING_PROJECT_FIELD}" \
+    -f query="${graphql_query}" \
+    -q "${jq_filter}")"
+
+  kept=""
+  local repo number state is_draft
+  while IFS=$'\t' read -r repo number state is_draft; do
+    [[ -z "${number}" ]] && continue
+    [[ "${repo}" == "${BASE_REPO}" ]] || continue
+    if [[ "${state}" != "OPEN" || "${is_draft}" == "true" ]]; then
+      log "Skipping project PR #${number} (state=${state}, draft=${is_draft})"
+      continue
+    fi
+    kept="${kept} ${number}"
+  done <<< "${rows}"
+
+  echo "${kept}" | xargs || true
+}
+
 fetch_pr_list() {
   local pr_list=""
   if [[ "${AUTO_FETCH_PRS}" == "true" ]]; then
-    step "Auto-fetch PRs with labels: ${PR_LABELS}"
-    local label_args=()
-    local labels=()
-    IFS=',' read -r -a labels <<< "${PR_LABELS}"
-    for label in "${labels[@]}"; do
-      label="$(echo "${label}" | xargs)"
-      [[ -z "${label}" ]] && continue
-      label_args+=(--label "${label}")
-    done
-    pr_list="$(gh pr list \
-      --repo "${BASE_REPO}" \
-      "${label_args[@]}" \
-      --state open \
-      --json number,isDraft \
-      --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs || true)"
+    if [[ -n "${PR_LABELS}" ]]; then
+      step "Auto-fetch PRs with labels: ${PR_LABELS}"
+      local label_args=()
+      local labels=()
+      IFS=',' read -r -a labels <<< "${PR_LABELS}"
+      for label in "${labels[@]}"; do
+        label="$(echo "${label}" | xargs)"
+        [[ -z "${label}" ]] && continue
+        label_args+=(--label "${label}")
+      done
+      pr_list="$(gh pr list \
+        --repo "${BASE_REPO}" \
+        "${label_args[@]}" \
+        --state open \
+        --json number,isDraft \
+        --jq '.[] | select(.isDraft == false) | .number' | tr '\n' ' ' | xargs || true)"
+    else
+      step "Fetch Staging PRs from the project board"
+      pr_list="$(fetch_prs_from_project)"
+    fi
   else
     pr_list="$(echo "${MANUAL_PR_NUMBERS}" | tr ',' ' ' | xargs || true)"
   fi
@@ -340,7 +415,16 @@ fetch_pr_list() {
   fi
 
   if [[ -z "${pr_list}" ]]; then
-    die "No PRs found to merge."
+    # An explicit PR list that ends up empty is a misconfiguration; an empty
+    # board is a normal state, so emit a zero count and let the caller skip the
+    # merge and push steps instead of failing the run.
+    [[ "${AUTO_FETCH_PRS}" == "true" ]] || die "No PRs found to merge."
+    log "No PRs found to merge; skipping the remaining steps."
+    PR_LIST=""
+    export PR_LIST
+    emit_output PR_LIST ""
+    emit_output PR_COUNT 0
+    return 0
   fi
   PR_LIST="${pr_list}"
   export PR_LIST
@@ -776,6 +860,10 @@ main() {
   reset_target_branch "${WORK_DIR}"
   merge_additional_repository "${WORK_DIR}"
   fetch_pr_list
+  if [[ -z "${PR_LIST}" ]]; then
+    log "Nothing to merge; leaving ${TARGET_BRANCH} untouched."
+    return 0
+  fi
   test_merge_compatibility "${WORK_DIR}" "${PR_LIST}"
   test_pairwise_compatibility "${WORK_DIR}" "${PR_LIST}"
   merge_prs "${WORK_DIR}" "${PR_LIST}"

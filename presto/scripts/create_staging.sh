@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,15 +12,17 @@ usage() {
   cat << EOF
 Presto Staging Branch Creator
 
-Creates a staging branch by merging specified PRs from prestodb/presto.
+Creates a staging branch by merging PRs from the NVIDIA libcudf project
+board (Velox Staging = Staging) that target prestodb/presto.
 Target path: ${DEFAULT_TARGET_PATH}
 
 Examples:
-  ./presto/scripts/create_staging.sh --manual-pr-numbers "1,2,3"   # Merge specific PRs (required)
-  ./presto/scripts/create_staging.sh --auto-fetch-prs true --pr-labels "gpu"  # Auto-fetch by label
-  ./presto/scripts/create_staging.sh --manual-pr-numbers "1,2" --force-push true  # Force push
+  ./presto/scripts/create_staging.sh                               # Auto-fetch Staging-column PRs
+  ./presto/scripts/create_staging.sh --manual-pr-numbers "1,2,3"   # Merge specific PRs
+  ./presto/scripts/create_staging.sh --pr-labels "gpu"             # Auto-fetch by label instead
+  ./presto/scripts/create_staging.sh --force-push true             # Force push to remote
 
-Note: Auto-fetch is disabled by default. Use --manual-pr-numbers or enable --auto-fetch-prs.
+Note: In local mode (default), push to remote is skipped. Use --mode ci to push.
 EOF
 }
 
@@ -34,5 +39,4 @@ exec "${PARENT_SCRIPT}" \
   --base-repository "prestodb/presto" \
   --base-branch "master" \
   --target-branch "staging" \
-  --auto-fetch-prs false \
   "$@"
