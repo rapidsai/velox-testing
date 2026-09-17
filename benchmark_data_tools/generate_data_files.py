@@ -24,6 +24,23 @@ _SAMPLE_SF = 0.01
 _PROBE_MEMORY_PERCENT = 20
 _MIN_MEMORY_LIMIT = 1 * 1024**3
 
+_BENCHMARK_DATA_TOOLS_DIR = Path(__file__).resolve().parent
+_TPCHGEN_CLI_METADATA_PATH = _BENCHMARK_DATA_TOOLS_DIR / ".local_installs" / "tpchgen-cli.json"
+
+
+def load_tpchgen_cli_metadata():
+    """Return install metadata written by install_tpchgen_cli.sh, if present."""
+    if not _TPCHGEN_CLI_METADATA_PATH.is_file():
+        return None
+    with _TPCHGEN_CLI_METADATA_PATH.open(encoding="utf-8") as file:
+        return json.load(file)
+
+
+def tpchgen_supports_fork_parquet_flags(metadata):
+    if metadata is None:
+        return False
+    return bool(metadata.get("supports_fork_parquet_flags"))
+
 
 def generate_partition(
     table,
@@ -35,12 +52,14 @@ def generate_partition(
     approx_row_group_bytes,
     convert_decimals_to_floats,
     codec_defs,
+    tpchgen_metadata,
 ):
     if verbose:
         print(f"Generating '{table}' partition: {partition}")
     Path(f"{raw_data_path}/part-{partition}").mkdir(parents=True, exist_ok=True)
     command = [
         "tpchgen-cli",
+        "parquet",
         "-T",
         table,
         "-s",
@@ -51,15 +70,13 @@ def generate_partition(
         str(num_partitions),
         "--part",
         str(partition),
-        "--format",
-        "parquet",
         "--parquet-version",
         "2",
-        "--parquet-row-group-bytes",
+        "--row-group-bytes",
         str(approx_row_group_bytes),
     ]
 
-    if convert_decimals_to_floats:
+    if convert_decimals_to_floats and tpchgen_supports_fork_parquet_flags(tpchgen_metadata):
         command.extend(["--decimal-column-type", "f64"])
 
     command.extend(get_tpchgen_codec_args(codec_defs, table))
@@ -68,7 +85,7 @@ def generate_partition(
         subprocess.run(command, check=True, stderr=subprocess.PIPE, text=True)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
-        if "--parquet-compression" in stderr:
+        if "--compression" in stderr:
             bad_value = next(t["compression"] for t in codec_defs["tables"] if t["name"] == table)
             raise ValueError(
                 f"Invalid 'compression' value '{bad_value}' for table '{table}' in codec definitions. "
@@ -129,6 +146,7 @@ def generate_data_files_with_tpchgen(args, codec_defs):
     if local_installs_bin.exists():
         os.environ["PATH"] = os.pathsep.join([str(local_installs_bin), os.environ["PATH"]])
 
+    tpchgen_metadata = load_tpchgen_cli_metadata()
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
     raw_data_path = args.data_dir_path
 
@@ -152,6 +170,7 @@ def generate_data_files_with_tpchgen(args, codec_defs):
                         args.approx_row_group_bytes,
                         args.convert_decimals_to_floats,
                         codec_defs,
+                        tpchgen_metadata,
                     )
                 )
             max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
@@ -377,7 +396,7 @@ def get_tpchgen_codec_args(codec_defs, table_name):
 
     table_compression = table_config.get("compression")
     if table_compression:
-        args.append(f"--parquet-compression={table_compression.upper()}")
+        args.append(f"--compression={table_compression.upper()}")
 
     columns = table_config.get("columns", [])
     if not columns:
