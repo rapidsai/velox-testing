@@ -62,10 +62,16 @@ function duplicate_worker_configs() {
   sed -i "s+node\.id.*+node\.id=worker_${worker_id}+g" ${worker_config}/node.properties
 }
 
-# get host values
-NPROC=$(nproc)
-# lsmem will report in SI.  Make sure we get values in GB.
-RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024*1024)); }')
+# get host values (overridable: PRESTO_NPROC / PRESTO_MEMORY_GB, e.g. from a benchmark driver)
+NPROC=${PRESTO_NPROC:-$(nproc)}
+# Size from MemTotal, not lsmem's online memory: lsmem includes the memory the kernel keeps for
+# itself, and Velox's MmapAllocator maps system-memory-gb in ONE mmap that the kernel refuses
+# (default heuristic overcommit) when it exceeds MemTotal + swap - seen on a 2.3 TB host.
+if [[ -n "${PRESTO_MEMORY_GB:-}" ]]; then
+  RAM_GB=${PRESTO_MEMORY_GB}
+else
+  RAM_GB=$(awk '/^MemTotal:/ {print int($2 / (1024*1024)); }' /proc/meminfo)
+fi
 
 # variant-specific behavior
 # for GPU you must set vcpu_per_worker to a small number, not the CPU count
@@ -90,7 +96,7 @@ CONFIG_DIR=generated/${VARIANT_TYPE}
 
 # generate only if no existing config or overwrite flag is set
 if [[ ! -d ${CONFIG_DIR} || "${OVERWRITE_CONFIG}" == "true" ]]; then
-  echo "Generating Presto Config files for '${VARIANT_TYPE}' for host with ${NPROC} CPU cores and ${RAM_GB}GB RAM"
+  echo "Generating Presto Config files for '${VARIANT_TYPE}' for host with ${NPROC} CPU cores and ${RAM_GB}GB RAM${PRESTO_MEMORY_GB:+ (PRESTO_MEMORY_GB override)}"
 
   # (re-)generate the config.json file
   rm -rf ${CONFIG_DIR}
