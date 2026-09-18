@@ -246,7 +246,6 @@ echo ""
 echo "Output files:"
 ls -lh "${OUT_FILE}" "${ERR_FILE}" 2>/dev/null || echo "No output files found"
 show_job_output "${OUT_FILE}" "${ERR_FILE}" "logs/cli.log" "benchmark results"
-[[ "${JOB_STATE}" == "COMPLETED" ]] || exit 1
 
 if [[ -n "${OUTPUT_PATH}" ]]; then
     echo ""
@@ -255,3 +254,5 @@ if [[ -n "${OUTPUT_PATH}" ]]; then
     cp -r result_dir/. "${OUTPUT_PATH}/"
     echo_success "Results copied to ${OUTPUT_PATH}"
 fi
+
+[[ "${JOB_STATE}" == "COMPLETED" ]] || exit 1
