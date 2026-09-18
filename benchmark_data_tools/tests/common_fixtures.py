@@ -32,6 +32,9 @@ class DataGenArgs:
     approx_row_group_bytes: int
     memory_limit: int | None = None
     codec_definitions: str = None
+    parquet_version: str = "v2"
+    nationkey_type: str = "i32"
+    regionkey_type: str = "i32"
 
 
 @pytest.fixture(params=["tpch", "tpcds"])
