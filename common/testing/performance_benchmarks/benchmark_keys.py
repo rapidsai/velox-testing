@@ -20,6 +20,10 @@ class BenchmarkKeys(str, Enum):
     TAG_KEY = "tag"
     CONTEXT_KEY = "context"
     ITERATIONS_COUNT_KEY = "iterations_count"
+    CACHE_MODE_KEY = "cache_mode"
+    CACHE_RESET_LAYERS_KEY = "cache_reset_layers"
+    COLD_KEY = "cold"
+    WARMUP_ITERATIONS_KEY = "warmup_iterations"
     SCHEMA_NAME_KEY = "schema_name"
     # Run configuration (from run context; written to context in benchmark_result.json)
     TIMESTAMP_KEY = "timestamp"

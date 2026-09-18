@@ -17,7 +17,15 @@ def benchmark_result_collector(request):
 
 @pytest.fixture(scope="session", autouse=True)
 def drop_cache_once(request):
-    """Session-scoped fixture that drops the cache once at the start of the benchmark run."""
+    """Drops the OS page cache once at the start of the benchmark run.
+
+    This is the legacy path, kept for --cache-mode=off (the presto default, and the only
+    mode Java workers support) and for engines that don't register --cache-mode at all
+    (e.g. spark_gluten). Every other mode schedules its own reset — including the OS
+    page-cache drop — at its own cadence, so this fixture stands down for them.
+    """
+    if request.config.getoption("--cache-mode", default="off") != "off":
+        return
     drop_cache_enabled = not request.config.getoption("--skip-drop-cache")
     if drop_cache_enabled:
         drop_cache()
