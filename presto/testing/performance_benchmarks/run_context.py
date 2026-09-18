@@ -8,7 +8,6 @@ read from worker log files (LOGS_DIR env var). Scale factor and n_workers come f
 schema and Presto /v1/node respectively.
 """
 
-import json
 import os
 import re
 from pathlib import Path
@@ -62,15 +61,12 @@ def _get_schema_info(hostname: str, port: int, user: str, schema_name: str) -> d
             return result
         table = tables[0][0]
         location = test_utils.get_table_external_location(schema_name, table, cursor)
-        meta_path = (Path(location).parent / "metadata.json").resolve()
-        if not meta_path.is_file():
-            return result
-        with open(meta_path) as f:
-            data = json.load(f)
-        sf = data.get("scale_factor") or data.get("options", {}).get("scale_factor")
+        # Use os.path instead of pathlib.Path to avoid messing up the remote path URI
+        parent = os.path.dirname(location)
+        sf = test_utils.read_scale_factor(f"{parent}/metadata.json")
         if sf is not None:
             result["scale_factor"] = sf
-        result["data_dir"] = str(Path(location).parent)
+        result["data_dir"] = parent
         return result
     except Exception as e:
         _debug(f"schema info lookup failed: {e}")
