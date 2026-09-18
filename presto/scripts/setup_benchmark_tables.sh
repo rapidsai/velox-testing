@@ -73,12 +73,12 @@ if [[ "$DOCKER_DEPLOYMENT" == "true" ]]; then
 fi
 
 
-"${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p $SCHEMA_GEN_SCRIPT_PATH \
+"${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet -p $SCHEMA_GEN_SCRIPT_PATH \
                                --benchmark-type $BENCHMARK_TYPE \
                                --schemas-dir-path $TEMP_SCHEMA_DIR \
                                --data-dir-name "${PRESTO_DATA_DIR}/${DATA_DIR_NAME}"
 
-"${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p $CREATE_TABLES_SCRIPT_PATH \
+"${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet -p $CREATE_TABLES_SCRIPT_PATH \
                                -r $CREATE_TABLES_REQUIREMENTS_PATH \
                                --schema-name $SCHEMA_NAME \
                                --schemas-dir-path $TEMP_SCHEMA_DIR \

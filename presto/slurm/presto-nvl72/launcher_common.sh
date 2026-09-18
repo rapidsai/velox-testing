@@ -7,16 +7,17 @@
 # and run-interactive.sh scripts.
 # ==============================================================================
 # Sourced (not executed). Assumes defaults.env has already been sourced so that
-# ~/.cluster_config.env values (CLUSTER_GPU_*, CLUSTER_CPU_*) are in the env.
+# ~/presto_cluster_config.env values (CLUSTER_GPU_*, CLUSTER_CPU_*) are in the env.
 #
 # Public functions:
 #   resolve_cluster_variant <gpu|cpu>
 #       Reads CLUSTER_{GPU,CPU}_* and populates the generic CLUSTER_DEFAULT_*,
 #       CLUSTER_CPUS_PER_TASK, CLUSTER_NUM_WORKERS_PER_NODE, CLUSTER_TIME_*,
 #       CLUSTER_DEFAULT_PORT, CLUSTER_UCX_NET_DEVICES, CLUSTER_USE_NUMA,
-#       CLUSTER_EXTRA_MOUNTS, CLUSTER_NUMA_GPUS_PER_NODE, CLUSTER_LIB*_PATH
-#       variables, plus COORD_IMAGE / WORKER_IMAGE. Pre-existing values are
-#       preserved (so command-line flags and shell exports still win).
+#       CLUSTER_EXTRA_MOUNTS, CLUSTER_NUMA_GPUS_PER_NODE, CLUSTER_LIB*_PATH,
+#       CLUSTER_USE_MMAP_ALLOCATOR variables, plus COORD_IMAGE / WORKER_IMAGE.
+#       Pre-existing values are preserved (so command-line flags and shell
+#       exports still win).
 #
 #   build_cluster_sbatch_args [<time-value>]
 #       Sets the global CLUSTER_SBATCH_ARGS array with --cpus-per-task,
@@ -33,6 +34,7 @@
 _launcher_common_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${WORKER_ENV_FILE:=${_launcher_common_dir}/worker.env}"
 : "${VT_ROOT:=$(cd "${_launcher_common_dir}/../../.." && pwd -P)}"
+source "${_launcher_common_dir}/echo_helpers.sh"
 unset _launcher_common_dir
 
 # ----------------------------------------------------------------------------
@@ -182,9 +184,9 @@ show_job_output() {
     local out_file="$1" err_file="${2:-}" extra_log="${3:-}" extra_label="${4:-CLI log}"
     echo ""
     if [[ "${JOB_STATE:-}" == "COMPLETED" ]]; then
-        echo "Job completed (state: ${JOB_STATE}, exit: ${JOB_EXIT_CODE})"
+        echo_success "Job completed (state: ${JOB_STATE}, exit: ${JOB_EXIT_CODE})"
     elif [[ -n "${JOB_STATE:-}" ]]; then
-        echo "Job FAILED (state: ${JOB_STATE}, exit: ${JOB_EXIT_CODE})"
+        echo -e "${RED}Job FAILED (state: ${JOB_STATE}, exit: ${JOB_EXIT_CODE})${NC}"
     else
         echo "Job completed!"   # wait_for_job not used; legacy path
     fi
@@ -281,6 +283,7 @@ resolve_cluster_variant() {
     _resolve_var CLUSTER_EXTRA_MOUNTS         "${prefix}_EXTRA_MOUNTS"
     _resolve_var COORD_IMAGE                  "${prefix}_DEFAULT_COORD_IMAGE"
     _resolve_var WORKER_IMAGE                 "${prefix}_DEFAULT_WORKER_IMAGE"
+    _resolve_var CLUSTER_USE_MMAP_ALLOCATOR   "${prefix}_USE_MMAP_ALLOCATOR"   true
 
     if [[ "${variant}" == "gpu" ]]; then
         _resolve_var CLUSTER_USE_NUMA                  CLUSTER_GPU_USE_NUMA                  1
@@ -306,6 +309,7 @@ build_common_export_vars() {
     EXPORT_VARS="ALL,SCALE_FACTOR=${SCALE_FACTOR},SCRIPT_DIR=${SCRIPT_DIR}"
     EXPORT_VARS+=",NUM_GPUS_PER_NODE=${NUM_GPUS_PER_NODE},WORKER_IMAGE=${WORKER_IMAGE},COORD_IMAGE=${COORD_IMAGE}"
     EXPORT_VARS+=",USE_NUMA=${USE_NUMA},VARIANT_TYPE=${VARIANT_TYPE}"
+    EXPORT_VARS+=",USE_MMAP_ALLOCATOR=${USE_MMAP_ALLOCATOR}"
     EXPORT_VARS+=",WORKER_ENV_FILE=${WORKER_ENV_FILE}"
     EXPORT_VARS+=",CLUSTER_DEFAULT_PORT=${CLUSTER_DEFAULT_PORT}"
     local v

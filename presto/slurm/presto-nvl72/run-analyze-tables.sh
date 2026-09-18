@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-set -exuo pipefail
+set -euo pipefail
 
 # ==============================================================================
 # Presto Analyze Tables Execution Script
@@ -62,7 +62,7 @@ run_coord_image "export PRESTO_DATA_DIR=/var/lib/presto/data/hive/data/user_data
         --no-docker" "cli"
 
 echo "========================================"
-echo "Analyze tables complete!"
+echo_success "Analyze tables complete!"
 echo "Hive metastore updated at: ${VT_ROOT}/.hive_metastore"
 echo "Logs available at: ${LOGS}"
 echo "========================================"
