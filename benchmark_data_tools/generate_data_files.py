@@ -41,6 +41,7 @@ def generate_partition(
     Path(f"{raw_data_path}/part-{partition}").mkdir(parents=True, exist_ok=True)
     command = [
         "tpchgen-cli",
+        "parquet",
         "-T",
         table,
         "-s",
@@ -51,11 +52,9 @@ def generate_partition(
         str(num_partitions),
         "--part",
         str(partition),
-        "--format",
-        "parquet",
         "--parquet-version",
         "2",
-        "--parquet-row-group-bytes",
+        "--row-group-bytes",
         str(approx_row_group_bytes),
     ]
 
@@ -68,7 +67,7 @@ def generate_partition(
         subprocess.run(command, check=True, stderr=subprocess.PIPE, text=True)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
-        if "--parquet-compression" in stderr:
+        if "--compression" in stderr:
             bad_value = next(t["compression"] for t in codec_defs["tables"] if t["name"] == table)
             raise ValueError(
                 f"Invalid 'compression' value '{bad_value}' for table '{table}' in codec definitions. "
@@ -377,7 +376,7 @@ def get_tpchgen_codec_args(codec_defs, table_name):
 
     table_compression = table_config.get("compression")
     if table_compression:
-        args.append(f"--parquet-compression={table_compression.upper()}")
+        args.append(f"--compression={table_compression.upper()}")
 
     columns = table_config.get("columns", [])
     if not columns:
