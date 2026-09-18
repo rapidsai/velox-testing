@@ -16,6 +16,7 @@ from common.testing.performance_benchmarks.conftest import get_output_dir
 from common.testing.performance_benchmarks.profiler_utils import start_profiler, stop_profiler
 
 from ..integration_tests.analyze_tables import check_tables_analyzed
+from .cache_reset import cold_run_reset
 from .ctas import (
     CTAS_CATALOG,
     CTAS_SCHEMA,
@@ -27,6 +28,18 @@ from .ctas import (
 )
 from .metrics_collector import collect_metrics
 from .run_context import gather_run_context
+
+# Session attribute marking that --cache-mode=lukewarm's one-time reset has run.
+_LUKEWARM_RESET_DONE = "_cache_mode_lukewarm_reset_done"
+# Modes that clear worker-side caches, and so require native (not Java) workers.
+_WORKER_CLEARING_MODES = frozenset({"lukewarm", "cold-once", "cold"})
+# Session attribute holding the cache layers a reset actually cleared, for run metadata.
+CACHE_RESET_LAYERS = "_cache_reset_layers"
+
+
+def _record_reset_layers(request, layers):
+    """Accumulate the cache layers a reset actually cleared onto the session."""
+    setattr(request.session, CACHE_RESET_LAYERS, getattr(request.session, CACHE_RESET_LAYERS, set()) | layers)
 
 
 def write_query_result(cursor, output_dir, query_id):
@@ -102,6 +115,13 @@ def run_context_collector(request):
         user=user,
         schema_name=schema_name,
     )
+    cache_mode = request.config.getoption("--cache-mode")
+    if cache_mode in _WORKER_CLEARING_MODES and ctx.get("engine") == "presto-java":
+        pytest.exit(
+            f"--cache-mode={cache_mode} needs native Presto workers: Java workers do not expose the Velox "
+            "cache-control API at /v1/operation. Use --cache-mode=off (the default) or hot.",
+            returncode=1,
+        )
     ctx["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     yield ctx
     request.session.run_context = ctx
@@ -148,6 +168,12 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     bench_output_dir = get_output_dir(request.config)
     hostname = request.config.getoption("--hostname")
     port = request.config.getoption("--port")
+    cache_mode = request.config.getoption("--cache-mode")
+    connector_id = request.config.getoption("--connector-id")
+    skip_drop_cache = request.config.getoption("--skip-drop-cache")
+
+    if profile and cache_mode == "cold":
+        print("[CacheMode=cold] Warning: profile trace will include per-iteration cache-reset overhead.")
 
     if profile:
         assert profile_script_path is not None
@@ -170,12 +196,25 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
         profile_output_file_path = None
         scratch_table = None
         try:
+            # Once-per-query and once-per-session resets run before the profiler starts,
+            # so their overhead stays out of the trace.
+            if cache_mode == "cold-once":
+                print(f"[CacheMode=cold-once] Resetting caches before {query_id}'s iterations.")
+                _record_reset_layers(request, cold_run_reset(hostname, port, connector_id, skip_drop_cache))
+            elif cache_mode == "lukewarm" and not getattr(request.session, _LUKEWARM_RESET_DONE, False):
+                print("[CacheMode=lukewarm] Resetting caches once before the first measured query.")
+                _record_reset_layers(request, cold_run_reset(hostname, port, connector_id, skip_drop_cache))
+                setattr(request.session, _LUKEWARM_RESET_DONE, True)
             if profile:
                 # Base path without .nsys-rep extension: {dir}/{query_id}
                 profile_output_file_path = f"{profile_output_dir_path.absolute()}/{query_id}"
                 start_profiler(profile_script_path, profile_output_file_path)
             result = []
             for iteration_num in range(iterations):
+                if cache_mode == "cold":
+                    # Reset before every iteration — no first-vs-rest split, unlike hot/lukewarm.
+                    print(f"[CacheMode=cold] Resetting caches before {query_id} iteration {iteration_num}.")
+                    _record_reset_layers(request, cold_run_reset(hostname, port, connector_id, skip_drop_cache))
                 if ctas_results is not None:
                     # Retain the first iteration as the query result. Later
                     # iterations use short-lived tables so every measured

@@ -41,7 +41,21 @@ OPTIONS:
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
     --profile-script-path   Path to a custom profiler functions script. Defaults to ./profiler_functions.sh.
-    --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
+    --skip-drop-cache       Skip the OS page-cache drop step, under any --cache-mode (dropped by default).
+    --cache-mode            Cache reset schedule: "off" (default), "lukewarm", "cold-once", "cold", or
+                            "hot". Never restarts Presto. Only "off" and "hot" work against Java workers;
+                            the rest need native workers' Velox cache-control API.
+                              off:       legacy behavior — OS page-cache drop once, no worker clearing.
+                              lukewarm:  full reset once, before the first measured query.
+                              cold-once: full reset before each query's iterations — one cold sample,
+                                         then hot ones.
+                              cold:      full reset before every iteration.
+                              hot:       no resets; --warmup-iterations primes the cache.
+                            See presto/testing/performance_benchmarks/cache_reset.py.
+    --warmup-iterations     Leading iterations per query that prime the cache and are excluded from the
+                            aggregate stats. Must be less than --iterations. Default: 1.
+    --connector-id          Connector ID to target for worker cache-clear operations. Must match the
+                            catalog name (default: "hive").
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
     --run-as-ctas-queries   Run queries as distributed Hive CTAS operations instead of returning results
                             through the coordinator. PRESTO_CTAS_SCRATCH_DIR must be set and mounted when the cluster starts.
@@ -75,6 +89,7 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 --metrics
     PRESTO_CTAS_SCRATCH_DIR=/results $0 -b tpch -s bench_sf100 --run-as-ctas-queries
     $0 -b tpch -s bench_sf100 --verbose
+    $0 -b tpch -s bench_sf100 --cache-mode cold-once
 
 EOF
 }
@@ -192,6 +207,33 @@ parse_args() {
       --skip-drop-cache)
         SKIP_DROP_CACHE=true
         shift
+        ;;
+      --cache-mode)
+        if [[ -n $2 ]]; then
+          CACHE_MODE=$2
+          shift 2
+        else
+          echo "Error: --cache-mode requires a value"
+          exit 1
+        fi
+        ;;
+      --warmup-iterations)
+        if [[ -n $2 ]]; then
+          WARMUP_ITERATIONS=$2
+          shift 2
+        else
+          echo "Error: --warmup-iterations requires a value"
+          exit 1
+        fi
+        ;;
+      --connector-id)
+        if [[ -n $2 ]]; then
+          CONNECTOR_ID=$2
+          shift 2
+        else
+          echo "Error: --connector-id requires a value"
+          exit 1
+        fi
         ;;
       --skip-analyze-check)
         SKIP_ANALYZE_CHECK=true
@@ -320,6 +362,18 @@ fi
 
 if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
+fi
+
+if [[ -n ${CACHE_MODE} ]]; then
+  PYTEST_ARGS+=("--cache-mode ${CACHE_MODE}")
+fi
+
+if [[ -n ${WARMUP_ITERATIONS} ]]; then
+  PYTEST_ARGS+=("--warmup-iterations ${WARMUP_ITERATIONS}")
+fi
+
+if [[ -n ${CONNECTOR_ID} ]]; then
+  PYTEST_ARGS+=("--connector-id ${CONNECTOR_ID}")
 fi
 
 if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then

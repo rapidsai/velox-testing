@@ -7,9 +7,10 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | Workflow | Purpose | Notes |
 |----------|---------|-------|
 | **Staging Branch Management** |||
+| `staging.yml` | Nightly Velox + Presto staging branch refresh | Schedule (3am UTC) + manual dispatch |
 | `create-staging-composite.yml` | Reusable workflow for creating staging branches | Supports additional repo merge + PR merging |
-| `velox-create-staging.yml` | Creates Velox staging branch by merging cuDF PRs | Auto-fetches PRs with `cudf` label by default |
-| `presto-create-staging.yml` | Creates Presto staging branch by merging specified PRs | Requires manual PR numbers (no auto-fetch) |
+| `velox-create-staging.yml` | Creates Velox staging branch by merging cuDF PRs | Auto-fetches PRs from the NVIDIA project board by default |
+| `presto-create-staging.yml` | Creates Presto staging branch by merging Presto PRs | Auto-fetches PRs from the same NVIDIA project board by default |
 | **CI Images** |||
 | `velox-nightly.yml` | Nightly Velox builds + tests + benchmarks (upstream) | Schedule (5am UTC) + manual dispatch |
 | `presto-nightly.yml` | Nightly Presto builds + tests (upstream, pinned) | Schedule (5am UTC) + manual dispatch |
@@ -187,6 +188,7 @@ Browse available tags at [ghcr.io/rapidsai/velox-testing-images](https://github.
 |--------|---------|
 | `VELOX_FORK_PAT` | GitHub PAT with write access to target Velox repository |
 | `PRESTO_FORK_PAT` | GitHub PAT with write access to target Presto repository |
+| `PROJECT_BOARD_TOKEN` | GitHub PAT with `read:project` for the staging project board; used only by the Fetch PR list step |
 | `AWS_ARN_STRING` | AWS ARN for S3 access |
 | `AWS_ACCESS_KEY_ID` | AWS access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
@@ -211,8 +213,12 @@ Browse available tags at [ghcr.io/rapidsai/velox-testing-images](https://github.
 ```
 STAGING
 ───────
-velox-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
-presto-create-staging.yml ──► create-staging-composite.yml ──► [staging branch]
+              ┌─► velox-create-staging.yml ──► create-staging-composite.yml ──► [velox staging branch]
+staging.yml ──┤
+              └─► presto-create-staging.yml ──► create-staging-composite.yml ──► [presto staging branch]
+
+velox-create-staging.yml (workflow_dispatch) ──► create-staging-composite.yml ──► [staging branch]
+presto-create-staging.yml (workflow_dispatch) ──► create-staging-composite.yml ──► [staging branch]
 
 CI IMAGES (VELOX)
 ─────────────────
