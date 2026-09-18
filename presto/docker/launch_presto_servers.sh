@@ -3,8 +3,30 @@
 # SPDX-License-Identifier: Apache-2.0
 
 set -e
-# Run ldconfig once
+# Activate image-owned UCX only when the GPU build wrote its version marker.
+# CPU images do not contain this marker and retain their original environment.
+if [[ -f /opt/presto-ucx/VERSION ]]; then
+  read -r BUNDLED_UCX_VERSION < /opt/presto-ucx/VERSION
+  BUNDLED_UCX_ROOT="/opt/presto-ucx/${BUNDLED_UCX_VERSION}"
+  export BUNDLED_UCX_VERSION BUNDLED_UCX_ROOT
+  export PATH="${BUNDLED_UCX_ROOT}/bin:${PATH}"
+  if [[ -n ${LD_LIBRARY_PATH:-} ]]; then
+    export LD_LIBRARY_PATH="${BUNDLED_UCX_ROOT}/lib:${BUNDLED_UCX_ROOT}/lib/ucx:${LD_LIBRARY_PATH}"
+  else
+    export LD_LIBRARY_PATH="${BUNDLED_UCX_ROOT}/lib:${BUNDLED_UCX_ROOT}/lib/ucx"
+  fi
+  export UCX_MODULE_DIR="${BUNDLED_UCX_ROOT}/lib/ucx"
+  # UCX treats every UCX_* variable as runtime configuration. The image keeps
+  # BUNDLED_UCX_VERSION as provenance, so do not forward the build-time alias.
+  unset UCX_VERSION
+fi
+
+# Run ldconfig once after selecting the image's runtime libraries.
 ldconfig
+
+if [[ "${PRESTO_UCX_EFA_ENABLED:-false}" == "true" ]]; then
+  /opt/verify_ucx_runtime.sh
+fi
 
 LOGS_DIR="/opt/presto-server/logs"
 mkdir -p "${LOGS_DIR}"
@@ -49,6 +71,15 @@ launch_worker() {
     fi
 
     cuda_env=("CUDA_VISIBLE_DEVICES=$worker_id")
+    local ucx_device_env_name="UCX_NET_DEVICES_GPU_${worker_id}"
+    local ucx_device="${UCX_NET_DEVICES:-}"
+    if [[ -n "${!ucx_device_env_name:-}" ]]; then
+      ucx_device="${!ucx_device_env_name}"
+    fi
+    if [[ -n "$ucx_device" ]]; then
+      cuda_env+=("UCX_NET_DEVICES=$ucx_device")
+      echo "UCX network device: $ucx_device"
+    fi
     gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null -i "$worker_id")"
   # No GPU: fall back to NUMA interleaving across all nodes for CPU workers.
   # Requires SYS_NICE capability in the container (set via cap_add in docker-compose).

@@ -27,6 +27,7 @@ from .ctas import (
     finalize_ctas_results,
 )
 from .metrics_collector import collect_metrics
+from .presto_api import get_cluster_tag
 from .run_context import gather_run_context
 
 # Session attribute marking that --cache-mode=lukewarm's one-time reset has run.
@@ -174,6 +175,12 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
 
     if profile and cache_mode == "cold":
         print("[CacheMode=cold] Warning: profile trace will include per-iteration cache-reset overhead.")
+
+    # Query-discovery and scale-factor fixtures use this cursor before this
+    # fixture is constructed. Keep those host-resident metadata exchanges on
+    # the ordinary path, then enable UCX only for the benchmark executions.
+    if get_cluster_tag(hostname, port) == "native-gpu":
+        presto_cursor.execute("SET SESSION native_cudf_exchange_enabled = true").fetchall()
 
     if profile:
         assert profile_script_path is not None
