@@ -208,8 +208,8 @@ run_nightly() {
 
 # run_isolated() isolates a function in a sub-shell with errexit (-e) such that any error
 # in the function causes it to return an error code, but will not cause the parent shell
-# exit immediatly.  Instead if the sub-shell errors out, we will run the cleanup function
-# and then optionally run the failure function if an error occured.
+# exit immediately.  Instead if the sub-shell errors out, we will run the cleanup function
+# and then optionally run the failure function if an error occurred.
 run_isolated() {
     local fn="$1" cleanup_fn="$2" failure_fn="$3"
     local exit_code=0
