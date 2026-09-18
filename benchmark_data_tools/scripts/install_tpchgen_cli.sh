@@ -70,18 +70,14 @@ echo "Cleaning up..."
 docker rm "$CONTAINER_ID"
 docker rmi "$IMAGE_NAME"
 
-SUPPORTS_FORK_PARQUET_FLAGS=false
-if "$INSTALL_DIR/tpchgen-cli" parquet --help 2>&1 | grep -q -- '--decimal-column-type'; then
-    SUPPORTS_FORK_PARQUET_FLAGS=true
-fi
-
+# Temporary: records which branch this binary came from. Remove once the
+# fork's Parquet flags are upstream and the branch no longer matters.
 mkdir -p "$INSTALL_ROOT"
 cat >"$METADATA_FILE" <<EOF
 {
   "repo_url": "$REPO_URL",
   "branch": "$REPO_BRANCH",
-  "commit": "$COMMIT_SHA",
-  "supports_fork_parquet_flags": $SUPPORTS_FORK_PARQUET_FLAGS
+  "commit": "$COMMIT_SHA"
 }
 EOF
 

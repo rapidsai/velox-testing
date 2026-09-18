@@ -24,23 +24,6 @@ _SAMPLE_SF = 0.01
 _PROBE_MEMORY_PERCENT = 20
 _MIN_MEMORY_LIMIT = 1 * 1024**3
 
-_BENCHMARK_DATA_TOOLS_DIR = Path(__file__).resolve().parent
-_TPCHGEN_CLI_METADATA_PATH = _BENCHMARK_DATA_TOOLS_DIR / ".local_installs" / "tpchgen-cli.json"
-
-
-def load_tpchgen_cli_metadata():
-    """Return install metadata written by install_tpchgen_cli.sh, if present."""
-    if not _TPCHGEN_CLI_METADATA_PATH.is_file():
-        return None
-    with _TPCHGEN_CLI_METADATA_PATH.open(encoding="utf-8") as file:
-        return json.load(file)
-
-
-def tpchgen_supports_fork_parquet_flags(metadata):
-    if metadata is None:
-        return False
-    return bool(metadata.get("supports_fork_parquet_flags"))
-
 
 def generate_partition(
     table,
@@ -52,7 +35,6 @@ def generate_partition(
     approx_row_group_bytes,
     convert_decimals_to_floats,
     codec_defs,
-    tpchgen_metadata,
 ):
     if verbose:
         print(f"Generating '{table}' partition: {partition}")
@@ -76,7 +58,7 @@ def generate_partition(
         str(approx_row_group_bytes),
     ]
 
-    if convert_decimals_to_floats and tpchgen_supports_fork_parquet_flags(tpchgen_metadata):
+    if convert_decimals_to_floats:
         command.extend(["--decimal-column-type", "f64"])
 
     command.extend(get_tpchgen_codec_args(codec_defs, table))
@@ -146,7 +128,6 @@ def generate_data_files_with_tpchgen(args, codec_defs):
     if local_installs_bin.exists():
         os.environ["PATH"] = os.pathsep.join([str(local_installs_bin), os.environ["PATH"]])
 
-    tpchgen_metadata = load_tpchgen_cli_metadata()
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
     raw_data_path = args.data_dir_path
 
@@ -170,7 +151,6 @@ def generate_data_files_with_tpchgen(args, codec_defs):
                         args.approx_row_group_bytes,
                         args.convert_decimals_to_floats,
                         codec_defs,
-                        tpchgen_metadata,
                     )
                 )
             max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
