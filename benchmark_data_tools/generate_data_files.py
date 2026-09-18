@@ -247,10 +247,9 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "convert_decimals_to_floats": args.convert_decimals_to_floats,
         "parquet_version": _PARQUET_VERSION,
         "data_dir_path": str(Path(args.data_dir_path).resolve()),
+        "max_rows_per_file": args.max_rows_per_file,
+        "approx_row_group_bytes": args.approx_row_group_bytes,
     }
-    if using_tpchgen:
-        metadata["max_rows_per_file"] = args.max_rows_per_file
-        metadata["approx_row_group_bytes"] = args.approx_row_group_bytes
     if codec_defs is not None:
         metadata["codec_definitions"] = codec_defs
 
