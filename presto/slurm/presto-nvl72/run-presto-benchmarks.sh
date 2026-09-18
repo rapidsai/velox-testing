@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-set -exuo pipefail
+set -euo pipefail
 
 # ==============================================================================
 # Presto TPC-H Benchmark Execution Script
@@ -49,7 +49,7 @@ collect_results
 wait_for_nsys_report_generation
 
 echo "========================================"
-echo "Benchmark complete!"
+echo_success "Benchmark complete!"
 echo "Results saved to: ${SCRIPT_DIR}/results_dir"
 echo "Logs available at: ${LOGS}"
 echo "========================================"

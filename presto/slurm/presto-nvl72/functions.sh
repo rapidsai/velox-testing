@@ -89,9 +89,9 @@ function setup {
 
 function generate_configs {
     mkdir -p ${CONFIGS}
-    pushd ${VT_ROOT}/presto/scripts
+    pushd ${VT_ROOT}/presto/scripts >/dev/null
     OVERWRITE_CONFIG=true ./generate_presto_config.sh
-    popd
+    popd >/dev/null
     # These options are require to run in some cluster contexts.
     echo "--add-modules=java.management,jdk.management" >> ${CONFIGS}/etc_common/jvm.config
     echo "-Dcom.sun.management.jmxremote=false" >> ${CONFIGS}/etc_common/jvm.config

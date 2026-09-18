@@ -121,6 +121,14 @@ EOF
     sed -i "s|hive.metastore.catalog.dir=.*|hive.metastore.uri=${HIVE_METASTORE_URI}|" "${CONFIG_DIR}/etc_coordinator/catalog/hive.properties" "${CONFIG_DIR}/etc_worker/catalog/hive.properties"
   fi
 
+  # Override the Velox native allocator (see use-mmap-allocator in
+  # etc_worker/config_native.properties). Set by the slurm launchers from
+  # CLUSTER_{GPU,CPU}_USE_MMAP_ALLOCATOR; defaults to the template's "true"
+  # (Presto C++ default) when unset, e.g. for non-slurm/Docker workflows.
+  if [ -n "${USE_MMAP_ALLOCATOR:-}" ]; then
+    sed -i "s+^use-mmap-allocator=.*+use-mmap-allocator=${USE_MMAP_ALLOCATOR}+g" "${CONFIG_DIR}/etc_worker/config_native.properties"
+  fi
+
   # Apply variant-specific override files by appending them to the generated configs
   OVERRIDES_DIR="${SCRIPT_DIR}/../docker/config/template/overrides/${VARIANT_TYPE}"
   if [[ -d "${OVERRIDES_DIR}" ]]; then
