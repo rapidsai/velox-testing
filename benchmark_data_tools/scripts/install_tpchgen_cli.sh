@@ -10,10 +10,8 @@ INSTALL_DIR="$SCRIPT_DIR/../.local_installs"
 INSTALL_BIN_DIR="$INSTALL_DIR/bin"
 METADATA_FILE="$INSTALL_DIR/tpchgen-cli.json"
 
-# TODO: Before marking this PR ready for review, switch the defaults to
-# TomAugspurger/tpchgen-rs and the tom/upstream-staging branch.
-REPO_URL="https://github.com/qbacpey/tpchgen-rs.git"
-REPO_BRANCH="tom/upstream-sync-pr1"
+REPO_URL="https://github.com/TomAugspurger/tpchgen-rs.git"
+REPO_BRANCH="tom/upstream-staging"
 IMAGE_NAME="tpchgen-cli-builder"
 
 usage() {
@@ -24,8 +22,8 @@ USAGE:
     install_tpchgen_cli.sh [--repo-url URL] [--repo-branch BRANCH]
 
 OPTIONS:
-    --repo-url URL       Git repository URL (default: qbacpey/tpchgen-rs)
-    --repo-branch NAME   Branch to build (default: tom/upstream-sync-pr1)
+    --repo-url URL       Git repository URL (default: TomAugspurger/tpchgen-rs)
+    --repo-branch NAME   Branch to build (default: tom/upstream-staging)
     --help               Show this help
 EOF
 }
