@@ -6,10 +6,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_ROOT="$SCRIPT_DIR/../.local_installs"
-INSTALL_DIR="$INSTALL_ROOT/bin"
-METADATA_FILE="$INSTALL_ROOT/tpchgen-cli.json"
+INSTALL_DIR="$SCRIPT_DIR/../.local_installs"
+INSTALL_BIN_DIR="$INSTALL_DIR/bin"
+METADATA_FILE="$INSTALL_DIR/tpchgen-cli.json"
 
+# TODO: Before marking this PR ready for review, switch the defaults to
+# TomAugspurger/tpchgen-rs and the tom/upstream-staging branch.
 REPO_URL="https://github.com/qbacpey/tpchgen-rs.git"
 REPO_BRANCH="tom/upstream-sync-pr1"
 IMAGE_NAME="tpchgen-cli-builder"
@@ -22,7 +24,7 @@ USAGE:
     install_tpchgen_cli.sh [--repo-url URL] [--repo-branch BRANCH]
 
 OPTIONS:
-    --repo-url URL       Git repository URL (default: qbacpey/tpchgen-rs fork)
+    --repo-url URL       Git repository URL (default: qbacpey/tpchgen-rs)
     --repo-branch NAME   Branch to build (default: tom/upstream-sync-pr1)
     --help               Show this help
 EOF
@@ -62,17 +64,17 @@ docker build -t "$IMAGE_NAME" "$TEMP_DIR/tpchgen-rs"
 
 echo "Extracting tpchgen-cli binary..."
 CONTAINER_ID=$(docker create "$IMAGE_NAME")
-mkdir -p "$INSTALL_DIR"
-docker cp "$CONTAINER_ID:/usr/local/bin/tpchgen-cli" "$INSTALL_DIR/tpchgen-cli"
-chmod +x "$INSTALL_DIR/tpchgen-cli"
+mkdir -p "$INSTALL_BIN_DIR"
+docker cp "$CONTAINER_ID:/usr/local/bin/tpchgen-cli" "$INSTALL_BIN_DIR/tpchgen-cli"
+chmod +x "$INSTALL_BIN_DIR/tpchgen-cli"
 
 echo "Cleaning up..."
 docker rm "$CONTAINER_ID"
 docker rmi "$IMAGE_NAME"
 
-# Temporary: records which branch this binary came from. Remove once the
-# fork's Parquet flags are upstream and the branch no longer matters.
-mkdir -p "$INSTALL_ROOT"
+# Record which repo, branch and commit this binary was built from, so a
+# generated dataset can be traced back to its generator.
+mkdir -p "$INSTALL_DIR"
 cat >"$METADATA_FILE" <<EOF
 {
   "repo_url": "$REPO_URL",
@@ -82,4 +84,4 @@ cat >"$METADATA_FILE" <<EOF
 EOF
 
 echo "Wrote install metadata to $METADATA_FILE"
-echo "tpchgen-cli installed at $INSTALL_DIR/tpchgen-cli"
+echo "tpchgen-cli installed at $INSTALL_BIN_DIR/tpchgen-cli"

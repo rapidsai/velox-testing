@@ -396,7 +396,14 @@ def get_tpchgen_codec_args(codec_defs, table_name):
                 )
             args.append(f"--column-encoding={column['name']}={encoding}")
 
-    no_dict_cols = [column["name"] for column in columns if column.get("dictionary") is False]
+    # --column-encoding already disables the dictionary for the columns it names,
+    # so only pass this for columns that want no dictionary without choosing an
+    # encoding, which keeps the writer default.
+    no_dict_cols = [
+        column["name"]
+        for column in columns
+        if column.get("dictionary") is False and not column.get("encoding")
+    ]
     if no_dict_cols:
         args.append(f"--disable-dictionary-encoding={','.join(no_dict_cols)}")
 
@@ -420,6 +427,16 @@ def load_codec_definitions(path):
         for column in table.get("columns", []):
             if "name" not in column:
                 raise ValueError(f"Each column entry must have a 'name' key (table '{table['name']}'): {path}")
+            # tpchgen-cli's --column-encoding disables the dictionary for the
+            # column it names, so a column cannot have both an encoding and a
+            # dictionary. Reject it rather than silently dropping the dictionary.
+            if column.get("encoding") and column.get("dictionary") is True:
+                raise ValueError(
+                    f"Column '{column['name']}' in table '{table['name']}' sets both 'encoding' and "
+                    f"'dictionary': true, which cannot be satisfied: setting an encoding disables the "
+                    f"dictionary. Drop 'encoding' to keep the dictionary, or set 'dictionary': false. "
+                    f"({path})"
+                )
 
     return codec_defs
 

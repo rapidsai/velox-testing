@@ -69,9 +69,13 @@ def test_custom_codec_defs_from_file(setup_and_teardown):
 
     Uses tests/test_codec_definitions.json which specifies:
     - lineitem.l_orderkey: DELTA_BINARY_PACKED, no dictionary
-    - lineitem.l_returnflag: PLAIN, dictionary on
+    - lineitem.l_returnflag: no encoding, dictionary on
     - lineitem.l_comment: PLAIN, UNCOMPRESSED, no dictionary
     - orders.o_orderkey: DELTA_BINARY_PACKED, no dictionary
+
+    Note l_returnflag names no encoding: --column-encoding disables the
+    dictionary for the column it names, so keeping the dictionary means
+    leaving the encoding at the writer default.
     """
     data_dir_path, args = setup_and_teardown
     args.codec_definitions = str(TEST_CODEC_DEFINITIONS_PATH)
