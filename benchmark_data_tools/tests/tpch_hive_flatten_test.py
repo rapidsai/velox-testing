@@ -15,6 +15,7 @@ def arguments(source: Path, destination: Path, **overrides) -> Namespace:
         "destination": str(destination),
         "s3_region": None,
         "workers": 2,
+        "progress": None,
         "resume": False,
         "dry_run": False,
     }

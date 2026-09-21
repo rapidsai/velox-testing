@@ -9,19 +9,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from pathlib import PurePosixPath
-from typing import Sequence
-
-import pyarrow.fs as pafs
-
-try:
-    from .publish_output_files import DestinationLocation
-except ImportError:
-    from publish_output_files import DestinationLocation
+from pathlib import Path, PurePosixPath
+from typing import Protocol, Sequence
+from urllib.parse import quote, urlparse
 
 PARTITION_COLUMNS = {
     "orders": "o_ordermonth",
@@ -30,6 +29,112 @@ PARTITION_COLUMNS = {
 FLAT_TABLES = ("customer", "part", "partsupp", "supplier", "nation", "region")
 TABLES = tuple(PARTITION_COLUMNS) + FLAT_TABLES
 MANIFEST_NAME = "_flatten_manifest.json"
+
+
+@dataclass(frozen=True)
+class Location:
+    scheme: str
+    root: str
+
+    @classmethod
+    def parse(cls, value: str | Path) -> "Location":
+        text = str(value)
+        parsed = urlparse(text)
+        if parsed.scheme == "s3":
+            if not parsed.netloc:
+                raise ValueError(f"S3 location has no bucket: {text}")
+            prefix = parsed.path.strip("/")
+            return cls("s3", parsed.netloc + (f"/{prefix}" if prefix else ""))
+        if parsed.scheme and parsed.scheme != "file":
+            raise ValueError(f"Unsupported location scheme: {parsed.scheme}")
+        local = Path(parsed.path if parsed.scheme == "file" else text).expanduser().resolve()
+        return cls("file", str(local))
+
+
+@dataclass(frozen=True)
+class ObjectInfo:
+    path: str
+    size: int
+
+
+class Storage(Protocol):
+    def list_files(self, root: str) -> list[ObjectInfo]: ...
+
+    def copy_file(self, source: str, destination: str) -> None: ...
+
+    def write_bytes(self, path: str, contents: bytes) -> None: ...
+
+
+class LocalStorage:
+    def list_files(self, root: str) -> list[ObjectInfo]:
+        path = Path(root)
+        if not path.exists():
+            return []
+        return [ObjectInfo(str(item), item.stat().st_size) for item in sorted(path.rglob("*")) if item.is_file()]
+
+    def copy_file(self, source: str, destination: str) -> None:
+        output = Path(destination)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output.with_name(f".{output.name}.tmp")
+        temporary.unlink(missing_ok=True)
+        shutil.copy2(source, temporary)
+        os.replace(temporary, output)
+
+    def write_bytes(self, path: str, contents: bytes) -> None:
+        output = Path(path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output.with_name(f".{output.name}.tmp")
+        temporary.write_bytes(contents)
+        os.replace(temporary, output)
+
+
+class AwsCliS3Storage:
+    def __init__(self, region: str | None):
+        self.region = region
+
+    def command(self, *args: str, input_bytes: bytes | None = None) -> bytes:
+        command = ["aws"]
+        if self.region:
+            command.extend(["--region", self.region])
+        command.extend(args)
+        return subprocess.run(command, input=input_bytes, check=True, capture_output=True).stdout
+
+    def list_files(self, root: str) -> list[ObjectInfo]:
+        bucket, prefix = root.split("/", 1)
+        output = self.command(
+            "s3api",
+            "list-objects-v2",
+            "--bucket",
+            bucket,
+            "--prefix",
+            prefix.rstrip("/") + "/",
+            "--output",
+            "json",
+        )
+        document = json.loads(output)
+        return sorted(
+            (ObjectInfo(item["Key"], item["Size"]) for item in document.get("Contents", [])),
+            key=lambda item: item.path,
+        )
+
+    def copy_file(self, source: str, destination: str) -> None:
+        source_bucket, source_key = source.split("/", 1)
+        destination_bucket, destination_key = destination.split("/", 1)
+        self.command(
+            "s3api",
+            "copy-object",
+            "--bucket",
+            destination_bucket,
+            "--copy-source",
+            quote(f"{source_bucket}/{source_key}", safe="/"),
+            "--key",
+            destination_key,
+            "--metadata-directive",
+            "COPY",
+        )
+
+    def write_bytes(self, path: str, contents: bytes) -> None:
+        self.command("s3", "cp", "-", f"s3://{path}", "--only-show-errors", input_bytes=contents)
 
 
 @dataclass(frozen=True)
@@ -71,22 +176,13 @@ def flattened_path(relative: PurePosixPath) -> PurePosixPath:
     return relative
 
 
-def filesystem(location: DestinationLocation, region: str | None) -> pafs.FileSystem:
+def filesystem(location: Location, region: str | None) -> Storage:
     if location.scheme == "file":
-        return pafs.LocalFileSystem()
-    bucket = location.root.split("/", 1)[0]
-    return pafs.S3FileSystem(region=region or pafs.resolve_s3_region(bucket))
+        return LocalStorage()
+    return AwsCliS3Storage(region)
 
 
-def list_files(fs: pafs.FileSystem, root: str) -> list[pafs.FileInfo]:
-    selector = pafs.FileSelector(root.rstrip("/"), recursive=True, allow_not_found=True)
-    return sorted(
-        (item for item in fs.get_file_info(selector) if item.type == pafs.FileType.File),
-        key=lambda item: item.path,
-    )
-
-
-def build_plan(source_root: str, source_files: Sequence[pafs.FileInfo], destination_root: str) -> list[CopyEntry]:
+def build_plan(source_root: str, source_files: Sequence[ObjectInfo], destination_root: str) -> list[CopyEntry]:
     plan = []
     destinations = set()
     for source in source_files:
@@ -101,7 +197,7 @@ def build_plan(source_root: str, source_files: Sequence[pafs.FileInfo], destinat
     return plan
 
 
-def validate_locations(source: DestinationLocation, destination: DestinationLocation) -> None:
+def validate_locations(source: Location, destination: Location) -> None:
     if source.scheme != destination.scheme:
         raise ValueError("Source and destination must use the same filesystem")
     if source.scheme == "s3":
@@ -127,13 +223,13 @@ def summarize(plan: Sequence[CopyEntry]) -> dict[str, dict[str, int]]:
 
 
 def destination_state(
-    fs: pafs.FileSystem,
+    storage: Storage,
     destination_root: str,
     plan: Sequence[CopyEntry],
     resume: bool,
 ) -> tuple[list[CopyEntry], int]:
     manifest_path = PurePosixPath(destination_root, MANIFEST_NAME).as_posix()
-    existing = {item.path: item for item in list_files(fs, destination_root) if item.path != manifest_path}
+    existing = {item.path: item for item in storage.list_files(destination_root) if item.path != manifest_path}
     expected = {entry.destination: entry for entry in plan}
     unexpected = set(existing) - set(expected)
     if unexpected:
@@ -152,25 +248,60 @@ def destination_state(
     return pending, len(plan) - len(pending)
 
 
-def copy_plan(fs: pafs.FileSystem, entries: Sequence[CopyEntry], workers: int) -> None:
+def write_progress(path: Path | None, **values: object) -> None:
+    if path is None:
+        return
+    document = {"updated_at": datetime.now(timezone.utc).isoformat(), **values}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(document, indent=2) + "\n")
+    os.replace(temporary, path)
+
+
+def copy_plan(
+    storage: Storage,
+    entries: Sequence[CopyEntry],
+    workers: int,
+    progress_path: Path | None,
+    completed_files: int,
+    completed_bytes: int,
+    total_files: int,
+    total_bytes: int,
+) -> None:
     if not entries:
         return
-    if isinstance(fs, pafs.LocalFileSystem):
-        for parent in {str(PurePosixPath(entry.destination).parent) for entry in entries}:
-            fs.create_dir(parent, recursive=True)
-    completed = 0
+    lock = threading.Lock()
+    started = time.monotonic()
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(fs.copy_file, entry.source, entry.destination): entry for entry in entries}
+        futures = {executor.submit(storage.copy_file, entry.source, entry.destination): entry for entry in entries}
         for future in as_completed(futures):
             future.result()
-            completed += 1
-            if completed % 100 == 0 or completed == len(entries):
-                print(f"Copied {completed}/{len(entries)} objects", flush=True)
+            entry = futures[future]
+            with lock:
+                completed_files += 1
+                completed_bytes += entry.physical_bytes
+                elapsed = max(time.monotonic() - started, 0.001)
+                rate = (completed_bytes / elapsed) if completed_bytes else 0
+                eta = ((total_bytes - completed_bytes) / rate) if rate else None
+                write_progress(
+                    progress_path,
+                    status="copying",
+                    current_file=entry.destination,
+                    files_processed=completed_files,
+                    total_files=total_files,
+                    bytes_processed=completed_bytes,
+                    total_bytes=total_bytes,
+                    gigabytes_processed=completed_bytes / 1_000_000_000,
+                    throughput_bytes_per_second=rate,
+                    eta_seconds=eta,
+                )
+                if completed_files % 100 == 0 or completed_files == total_files:
+                    print(f"Copied {completed_files}/{total_files} objects", flush=True)
 
 
-def validate_destination(fs: pafs.FileSystem, destination_root: str, plan: Sequence[CopyEntry]) -> None:
+def validate_destination(storage: Storage, destination_root: str, plan: Sequence[CopyEntry]) -> None:
     manifest_path = PurePosixPath(destination_root, MANIFEST_NAME).as_posix()
-    actual = {item.path: item.size for item in list_files(fs, destination_root) if item.path != manifest_path}
+    actual = {item.path: item.size for item in storage.list_files(destination_root) if item.path != manifest_path}
     expected = {entry.destination: entry.physical_bytes for entry in plan}
     if actual != expected:
         missing = set(expected) - set(actual)
@@ -183,7 +314,7 @@ def validate_destination(fs: pafs.FileSystem, destination_root: str, plan: Seque
 
 
 def write_manifest(
-    fs: pafs.FileSystem,
+    storage: Storage,
     destination_root: str,
     source: str,
     destination: str,
@@ -198,26 +329,58 @@ def write_manifest(
         "entries": [asdict(entry) for entry in plan],
     }
     path = PurePosixPath(destination_root, MANIFEST_NAME).as_posix()
-    with fs.open_output_stream(path) as stream:
-        stream.write((json.dumps(manifest, indent=2) + "\n").encode())
+    storage.write_bytes(path, (json.dumps(manifest, indent=2) + "\n").encode())
 
 
 def run(args: argparse.Namespace) -> dict[str, dict[str, int]]:
-    source = DestinationLocation.parse(args.source)
-    destination = DestinationLocation.parse(args.destination)
+    source = Location.parse(args.source)
+    destination = Location.parse(args.destination)
     validate_locations(source, destination)
-    fs = filesystem(source, args.s3_region)
-    plan = build_plan(source.root, list_files(fs, source.root), destination.root)
+    storage = filesystem(source, args.s3_region)
+    progress_path = Path(args.progress).expanduser().resolve() if args.progress else None
+    write_progress(progress_path, status="listing_source", files_processed=0, bytes_processed=0)
+    plan = build_plan(source.root, storage.list_files(source.root), destination.root)
     summary = summarize(plan)
     print(json.dumps(summary, indent=2), flush=True)
-    pending, completed = destination_state(fs, destination.root, plan, args.resume)
+    pending, completed = destination_state(storage, destination.root, plan, args.resume)
+    completed_bytes = sum(entry.physical_bytes for entry in plan if entry not in pending)
+    total_bytes = sum(entry.physical_bytes for entry in plan)
     print(f"Plan: total={len(plan)}, existing={completed}, pending={len(pending)}", flush=True)
     if args.dry_run:
+        write_progress(
+            progress_path,
+            status="dry_run_complete",
+            files_processed=completed,
+            total_files=len(plan),
+            bytes_processed=completed_bytes,
+            total_bytes=total_bytes,
+        )
         return summary
 
-    copy_plan(fs, pending, args.workers)
-    validate_destination(fs, destination.root, plan)
-    write_manifest(fs, destination.root, args.source, args.destination, plan)
+    copy_plan(
+        storage,
+        pending,
+        args.workers,
+        progress_path,
+        completed,
+        completed_bytes,
+        len(plan),
+        total_bytes,
+    )
+    write_progress(progress_path, status="validating", files_processed=len(plan), bytes_processed=total_bytes)
+    validate_destination(storage, destination.root, plan)
+    write_manifest(storage, destination.root, args.source, args.destination, plan)
+    write_progress(
+        progress_path,
+        status="complete",
+        current_file=None,
+        files_processed=len(plan),
+        total_files=len(plan),
+        bytes_processed=total_bytes,
+        total_bytes=total_bytes,
+        gigabytes_processed=total_bytes / 1_000_000_000,
+        eta_seconds=0,
+    )
     print(f"Validated {len(plan)} byte-identical objects", flush=True)
     return summary
 
@@ -228,6 +391,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--destination", required=True, help="Destination filesystem path, file URI, or S3 URI")
     parser.add_argument("--s3-region")
     parser.add_argument("--workers", type=int, default=32)
+    parser.add_argument("--progress", help="Write atomic JSON progress updates to this local path")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
