@@ -3,6 +3,7 @@ charset-normalizer==3.4.3
 click==8.2.1
 # TODO: Update to DuckDB 1.6.0 when released (rapidsai/velox-testing#415).
 duckdb==1.6.0.dev291
+httpx==0.28.1
 idna==3.10
 presto-python-client==0.8.4
 psutil==7.2.2

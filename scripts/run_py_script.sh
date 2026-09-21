@@ -103,7 +103,7 @@ fi
 STAMP_FILE=".venv/.requirements_stamp"
 if [[ ! -f "$STAMP_FILE" ]] || ! diff -q "$REQUIREMENTS_FILE_PATH" "$STAMP_FILE" &>/dev/null; then
   log "Running pip install for requirements file: $REQUIREMENTS_FILE_PATH"
-  pip install -q -r $REQUIREMENTS_FILE_PATH
+  pip install -q --root-user-action=ignore -r $REQUIREMENTS_FILE_PATH
   cp "$REQUIREMENTS_FILE_PATH" "$STAMP_FILE"
 else
   log "Requirements unchanged, skipping pip install"

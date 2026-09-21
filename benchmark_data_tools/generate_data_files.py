@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import datetime
 import json
 import math
 import os
@@ -16,6 +17,7 @@ from typing import NamedTuple
 import duckdb
 import psutil
 from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
+from register_storage_config import register_storage_config
 from row_group_sizing import row_group_row_count_probe
 
 _INTEGER_TYPES = frozenset(("INTEGER", "BIGINT", "SMALLINT", "TINYINT", "HUGEINT", "INT"))
@@ -23,6 +25,12 @@ _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
 _PROBE_MEMORY_PERCENT = 20
 _MIN_MEMORY_LIMIT = 1 * 1024**3
+_PARQUET_VERSION = 2
+
+
+def get_parquet_version(benchmark_type):
+    # TODO: Switch TPC-DS to Parquet V2 after a cuDF release includes rapidsai/cudf#23314.
+    return 1 if benchmark_type == "tpcds" else _PARQUET_VERSION
 
 
 def generate_partition(
@@ -53,7 +61,7 @@ def generate_partition(
         "--part",
         str(partition),
         "--parquet-version",
-        "2",
+        str(_PARQUET_VERSION),
         "--row-group-bytes",
         str(approx_row_group_bytes),
     ]
@@ -120,7 +128,35 @@ def generate_data_files(args):
             print("generating with duckdb")
         generate_data_files_with_duckdb(args)
 
-    write_metadata(args)
+    if args.register:
+        if args.verbose:
+            print("registering storage configuration")
+        rc = register_storage_config(
+            data_dir=Path(args.data_dir_path),
+            machine=args.register_machine,
+            name=args.register_name,
+            storage_system=args.register_storage_system,
+            compression=args.register_compression,
+            region=args.register_region,
+            is_gds_enabled=args.register_is_gds_enabled,
+            extra_labels=args.register_label or [],
+            path_override=args.register_path,
+            api_url=os.environ.get("BENCHMARK_API_URL"),
+            api_key=os.environ.get("BENCHMARK_API_KEY"),
+            dry_run=args.register_dry_run,
+        )
+        if rc != 0:
+            sys.exit(rc)
+
+
+def _get_tpchgen_version() -> str | None:
+    try:
+        result = subprocess.run(["tpchgen-cli", "--version"], capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except FileNotFoundError:
+        pass
+    return None
 
 
 def generate_data_files_with_tpchgen(args, codec_defs):
@@ -128,6 +164,7 @@ def generate_data_files_with_tpchgen(args, codec_defs):
     if local_installs_bin.exists():
         os.environ["PATH"] = os.pathsep.join([str(local_installs_bin), os.environ["PATH"]])
 
+    generator_version = _get_tpchgen_version()
     tables_sf_ratio = get_table_sf_ratios(args.scale_factor, args.max_rows_per_file)
     raw_data_path = args.data_dir_path
 
@@ -162,6 +199,8 @@ def generate_data_files_with_tpchgen(args, codec_defs):
 
     if args.verbose:
         print(f"Raw data created at: {raw_data_path}")
+
+    write_metadata(args, codec_defs=codec_defs, generator_version=generator_version)
 
 
 # This dictionary maps each table to the number of partitions it should have based on it's
@@ -200,18 +239,32 @@ def rearrange_directory(raw_data_path, num_partitions):
         os.rmdir(part_dir_path)
 
 
-def write_metadata(args):
+def write_metadata(args, codec_defs=None, generator_version=None):
+    using_tpchgen = args.benchmark_type == "tpch" and not args.use_duckdb
+    metadata = {
+        "schema_version": 1,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "benchmark_type": args.benchmark_type,
+        "generator": "tpchgen" if using_tpchgen else "duckdb",
+        "generator_version": generator_version,
+        "scale_factor": args.scale_factor,
+        "convert_decimals_to_floats": args.convert_decimals_to_floats,
+        "parquet_version": get_parquet_version(args.benchmark_type),
+        "data_dir_path": str(Path(args.data_dir_path).resolve()),
+        "max_rows_per_file": args.max_rows_per_file,
+        "approx_row_group_bytes": args.approx_row_group_bytes,
+    }
+    if codec_defs is not None:
+        metadata["codec_definitions"] = codec_defs
+
     with open(f"{args.data_dir_path}/metadata.json", "w") as file:
-        metadata = {
-            "scale_factor": args.scale_factor,
-            "approx_row_group_bytes": args.approx_row_group_bytes,
-        }
         json.dump(metadata, file, indent=2)
         file.write("\n")
 
 
 def generate_data_files_with_duckdb(args):
     """Materialize the dataset into an intermediate DuckDB file, then export Parquet from it."""
+    parquet_version = get_parquet_version(args.benchmark_type)
     with tempfile.TemporaryDirectory(prefix=".duckdb-main-", dir=args.data_dir_path) as work_directory:
         database_path = Path(work_directory) / "intermediate.duckdb"
         probe_memory_limit = args.memory_limit * _PROBE_MEMORY_PERCENT // 100
@@ -221,13 +274,15 @@ def generate_data_files_with_duckdb(args):
             install_conn.sql(f"INSTALL {args.benchmark_type}")
 
         with duckdb.connect(str(database_path), config={"memory_limit": f"{main_memory_limit}B"}) as conn:
-            row_group_rows = materialize_tables(args, conn, probe_memory_limit)
+            row_group_rows = materialize_tables(args, conn, probe_memory_limit, parquet_version)
             # The probe has exited, so the main connection can use the full memory budget.
             conn.execute(f"SET memory_limit='{args.memory_limit}B'")
-            export_tables(args, row_group_rows, conn)
+            export_tables(args, row_group_rows, conn, parquet_version)
+
+    write_metadata(args, generator_version=duckdb.__version__)
 
 
-def materialize_tables(args, conn, probe_memory_limit):
+def materialize_tables(args, conn, probe_memory_limit, parquet_version):
     """Generate the target dataset, returning the probed rows per row group per table."""
     if args.verbose:
         print(
@@ -242,6 +297,7 @@ def materialize_tables(args, conn, probe_memory_limit):
         args.convert_decimals_to_floats,
         args.data_dir_path,
         probe_memory_limit,
+        parquet_version,
     ) as probed_row_counts:
         if args.verbose:
             print(
@@ -281,7 +337,7 @@ class ExportTask(NamedTuple):
     rows_per_row_group: int
 
 
-def export_tables(args, row_group_rows, conn):
+def export_tables(args, row_group_rows, conn, parquet_version):
     """Write one table-part task per worker."""
     tasks = plan_export_tasks(args, row_group_rows, conn)
     if not tasks:
@@ -290,7 +346,7 @@ def export_tables(args, row_group_rows, conn):
     num_tasks = len(tasks)
     configure_duckdb_export(conn, args.num_threads)
     if num_tasks == 1:
-        write_part(tasks[0], conn)
+        write_part(tasks[0], conn, parquet_version)
         return
 
     # -j caps both DuckDB execution threads and concurrent COPY workers.
@@ -302,7 +358,7 @@ def export_tables(args, row_group_rows, conn):
         )
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(write_part, task, conn) for task in tasks]
+        futures = [executor.submit(write_part, task, conn, parquet_version) for task in tasks]
         try:
             for future in futures:
                 future.result()
@@ -341,13 +397,19 @@ def plan_export_tasks(args, row_group_rows, conn):
     return tasks
 
 
-def write_part(task, root_conn):
+def write_part(task, root_conn, parquet_version):
     """Write and atomically publish one Parquet file."""
     partial_path = Path(f"{task.file_path}.partial")
     try:
         conn = root_conn.cursor()
         try:
-            copy_to_parquet(task.query, str(partial_path), task.rows_per_row_group, conn)
+            copy_to_parquet(
+                task.query,
+                str(partial_path),
+                task.rows_per_row_group,
+                conn,
+                parquet_version=parquet_version,
+            )
         finally:
             conn.close()
         os.replace(partial_path, task.file_path)
@@ -400,9 +462,7 @@ def get_tpchgen_codec_args(codec_defs, table_name):
     # so only pass this for columns that want no dictionary without choosing an
     # encoding, which keeps the writer default.
     no_dict_cols = [
-        column["name"]
-        for column in columns
-        if column.get("dictionary") is False and not column.get("encoding")
+        column["name"] for column in columns if column.get("dictionary") is False and not column.get("encoding")
     ]
     if no_dict_cols:
         args.append(f"--disable-dictionary-encoding={','.join(no_dict_cols)}")
@@ -569,5 +629,76 @@ if __name__ == "__main__":
         default=None,
         help="Path to a JSON file specifying per-table/per-column encoding, compression, and dictionary settings.",
     )
+
+    reg = parser.add_argument_group(
+        "storage config registration",
+        "Optional: register the generated dataset as a storage configuration immediately after "
+        "generation. Requires BENCHMARK_API_URL and BENCHMARK_API_KEY environment variables. "
+        "For datasets that will be modified before registration, run register_storage_config.py "
+        "separately instead.",
+    )
+    reg.add_argument(
+        "--register",
+        action="store_true",
+        default=False,
+        help="Register the dataset as a storage configuration after generation.",
+    )
+    reg.add_argument(
+        "--register-machine",
+        default=None,
+        help="Machine or cluster where the dataset is accessible (e.g. 'my-cluster'). Required when --register is set.",
+    )
+    reg.add_argument(
+        "--register-name",
+        default=None,
+        help="Storage configuration name override. Auto-generated if omitted.",
+    )
+    reg.add_argument(
+        "--register-storage-system",
+        default=None,
+        help="Storage system type override (e.g. 'nvme', 'lustre'). Auto-detected if omitted.",
+    )
+    reg.add_argument(
+        "--register-compression",
+        default=None,
+        help="Compression codec override. Derived from codec_definitions if omitted.",
+    )
+    reg.add_argument(
+        "--register-region",
+        default="n/a",
+        help="Storage region (default: 'n/a').",
+    )
+    reg.add_argument(
+        "--register-is-gds-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="GPU Direct Storage override. Auto-detected from lsmod if omitted.",
+    )
+    reg.add_argument(
+        "--register-label",
+        dest="register_label",
+        action="append",
+        default=None,
+        metavar="LABEL",
+        help="Additional label for the storage config. Can be specified multiple times.",
+    )
+    reg.add_argument(
+        "--register-path",
+        default=None,
+        help="Dataset path override for the storage config. Defaults to data_dir_path from metadata.json.",
+    )
+    reg.add_argument(
+        "--register-dry-run",
+        action="store_true",
+        default=False,
+        help="Print the registration payload without posting to the API.",
+    )
+
     args = parser.parse_args()
+
+    if args.register and not args.register_machine:
+        parser.error("--register-machine is required when --register is used")
+    if args.register_dry_run and not args.register:
+        parser.error("--register-dry-run requires --register")
+
     generate_data_files(args)

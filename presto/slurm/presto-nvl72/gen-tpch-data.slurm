@@ -8,7 +8,7 @@
 #SBATCH --mem=0
 #SBATCH --exclusive
 # Note: --cpus-per-task, --partition, and --account are passed as sbatch CLI
-# args by launch-gen-data.sh, sourced from ~/.cluster_config.env.
+# args by launch-gen-data.sh, sourced from ~/presto_cluster_config.env.
 
 set -euo pipefail
 

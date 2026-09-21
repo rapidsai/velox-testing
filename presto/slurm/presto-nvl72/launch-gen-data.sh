@@ -49,7 +49,7 @@ Options:
 
 Any arguments after -- are passed directly to sbatch.
 
-Cluster config (~/.cluster_config.env or \$CLUSTER_CONFIG):
+Cluster config (~/presto_cluster_config.env or \$CLUSTER_CONFIG):
   Partition and account default to CLUSTER_CPU_PARTITION / CLUSTER_CPU_ACCOUNT
   (data gen is CPU-only). Override either by exporting CLUSTER_DEFAULT_PARTITION
   or CLUSTER_DEFAULT_ACCOUNT before invoking, or pass -- --partition=... --account=...

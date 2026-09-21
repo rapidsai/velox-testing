@@ -8,7 +8,7 @@
 # Submits run-analyze-tables.slurm to Slurm.  ANALYZE TABLE disables cudf in
 # the worker configs (see run-analyze-tables.sh), so this is a CPU-only
 # workload regardless of cluster — values are always pulled from the
-# CLUSTER_CPU_* section of ~/.cluster_config.env.  Override -w/-c if you
+# CLUSTER_CPU_* section of ~/presto_cluster_config.env.  Override -w/-c if you
 # need a non-default worker/coordinator image.
 #
 # Usage:
@@ -86,6 +86,7 @@ VARIANT_TYPE="cpu"
 resolve_cluster_variant cpu
 : "${NUM_GPUS_PER_NODE:=${CLUSTER_NUM_WORKERS_PER_NODE:-}}"
 : "${USE_NUMA:=${CLUSTER_USE_NUMA:-0}}"
+: "${USE_MMAP_ALLOCATOR:=${CLUSTER_USE_MMAP_ALLOCATOR:-true}}"
 
 # Validate required values before submitting
 [[ -z "${WORKER_IMAGE}" ]]          && { echo "Error: worker image not set — set CLUSTER_CPU_DEFAULT_WORKER_IMAGE in cluster_config.env or pass -w"; exit 1; }
@@ -152,4 +153,4 @@ show_job_output "${OUT_FILE}" "${ERR_FILE}" "logs/cli.log" "CLI log"
 [[ "${JOB_STATE}" == "COMPLETED" ]] || exit 1
 
 echo ""
-echo "Hive metastore updated at: ${VT_ROOT}/.hive_metastore"
+echo_success "Hive metastore updated at: ${VT_ROOT}/.hive_metastore"
