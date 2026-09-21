@@ -117,3 +117,14 @@ def test_dry_run_does_not_create_destination(tmp_path):
     run(arguments(source, destination, dry_run=True))
 
     assert not destination.exists()
+
+
+def test_dry_run_checks_destination_state(tmp_path):
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    make_source(source)
+    destination.mkdir()
+    (destination / "unexpected.parquet").write_bytes(b"unexpected")
+
+    with pytest.raises(FileExistsError, match="unexpected objects"):
+        run(arguments(source, destination, dry_run=True))

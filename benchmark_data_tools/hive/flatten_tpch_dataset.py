@@ -210,11 +210,11 @@ def run(args: argparse.Namespace) -> dict[str, dict[str, int]]:
     plan = build_plan(source.root, list_files(fs, source.root), destination.root)
     summary = summarize(plan)
     print(json.dumps(summary, indent=2), flush=True)
+    pending, completed = destination_state(fs, destination.root, plan, args.resume)
+    print(f"Plan: total={len(plan)}, existing={completed}, pending={len(pending)}", flush=True)
     if args.dry_run:
         return summary
 
-    pending, completed = destination_state(fs, destination.root, plan, args.resume)
-    print(f"Plan: total={len(plan)}, existing={completed}, pending={len(pending)}", flush=True)
     copy_plan(fs, pending, args.workers)
     validate_destination(fs, destination.root, plan)
     write_manifest(fs, destination.root, args.source, args.destination, plan)
