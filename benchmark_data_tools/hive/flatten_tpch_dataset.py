@@ -113,7 +113,7 @@ class AwsCliS3Storage:
         )
         document = json.loads(output)
         return sorted(
-            (ObjectInfo(item["Key"], item["Size"]) for item in document.get("Contents", [])),
+            (ObjectInfo(f"{bucket}/{item['Key']}", item["Size"]) for item in document.get("Contents", [])),
             key=lambda item: item.path,
         )
 
@@ -187,6 +187,8 @@ def build_plan(source_root: str, source_files: Sequence[ObjectInfo], destination
     destinations = set()
     for source in source_files:
         relative = relative_path(source_root, source.path)
+        if relative.name.startswith("_"):
+            continue
         destination = PurePosixPath(destination_root.rstrip("/"), flattened_path(relative)).as_posix()
         if destination in destinations:
             raise ValueError(f"Multiple source objects map to {destination}")
