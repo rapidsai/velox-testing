@@ -41,8 +41,24 @@ OPTIONS:
                             Tags must contain only alphanumeric and underscore characters.
     -p, --profile           Enable profiling of benchmark queries.
     --profile-script-path   Path to a custom profiler functions script. Defaults to ./profiler_functions.sh.
-    --skip-drop-cache       Skip dropping system caches before each benchmark query (dropped by default).
+    --skip-drop-cache       Skip the OS page-cache drop step, under any --cache-mode (dropped by default).
+    --cache-mode            Cache reset schedule: "off" (default), "lukewarm", "cold-once", "cold", or
+                            "hot". Never restarts Presto. Only "off" and "hot" work against Java workers;
+                            the rest need native workers' Velox cache-control API.
+                              off:       legacy behavior — OS page-cache drop once, no worker clearing.
+                              lukewarm:  full reset once, before the first measured query.
+                              cold-once: full reset before each query's iterations — one cold sample,
+                                         then hot ones.
+                              cold:      full reset before every iteration.
+                              hot:       no resets; --warmup-iterations primes the cache.
+                            See presto/testing/performance_benchmarks/cache_reset.py.
+    --warmup-iterations     Leading iterations per query that prime the cache and are excluded from the
+                            aggregate stats. Must be less than --iterations. Default: 1.
+    --connector-id          Connector ID to target for worker cache-clear operations. Must match the
+                            catalog name (default: "hive").
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
+    --run-as-ctas-queries   Run queries as distributed Hive CTAS operations instead of returning results
+                            through the coordinator. PRESTO_CTAS_SCRATCH_DIR must be set and mounted when the cluster starts.
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
     --reference-results-dir Path to a directory containing reference (expected) parquet files.
@@ -57,6 +73,9 @@ OPTIONS:
                             Set to the full host path of the expected results directory
                             (e.g. PRESTO_EXPECTED_RESULTS_DIR=/data/sf100_expected).
                             Warning (not error) if set but the directory does not exist.
+    PRESTO_CTAS_SCRATCH_DIR
+                            Writable host scratch directory used for temporary distributed CTAS results. This must be set
+                            before both cluster startup and this script when --run-as-ctas-queries is enabled.
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
                             Use when engine is misdetected or the run fails.
@@ -68,7 +87,9 @@ EXAMPLES:
     $0 -b tpch -s bench_sf100 -t gh200_cpu_sf100
     $0 -b tpch -s bench_sf100 --profile
     $0 -b tpch -s bench_sf100 --metrics
+    PRESTO_CTAS_SCRATCH_DIR=/results $0 -b tpch -s bench_sf100 --run-as-ctas-queries
     $0 -b tpch -s bench_sf100 --verbose
+    $0 -b tpch -s bench_sf100 --cache-mode cold-once
 
 EOF
 }
@@ -187,8 +208,39 @@ parse_args() {
         SKIP_DROP_CACHE=true
         shift
         ;;
+      --cache-mode)
+        if [[ -n $2 ]]; then
+          CACHE_MODE=$2
+          shift 2
+        else
+          echo "Error: --cache-mode requires a value"
+          exit 1
+        fi
+        ;;
+      --warmup-iterations)
+        if [[ -n $2 ]]; then
+          WARMUP_ITERATIONS=$2
+          shift 2
+        else
+          echo "Error: --warmup-iterations requires a value"
+          exit 1
+        fi
+        ;;
+      --connector-id)
+        if [[ -n $2 ]]; then
+          CONNECTOR_ID=$2
+          shift 2
+        else
+          echo "Error: --connector-id requires a value"
+          exit 1
+        fi
+        ;;
       --skip-analyze-check)
         SKIP_ANALYZE_CHECK=true
+        shift
+        ;;
+      --run-as-ctas-queries)
+        RUN_AS_CTAS_QUERIES=true
         shift
         ;;
       -m|--metrics)
@@ -230,6 +282,23 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   echo "Error: A schema name must be set. Use the -s or --schema-name argument."
   print_help
   exit 1
+fi
+
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
+  if [[ -z "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR must be set when --run-as-ctas-queries is enabled." >&2
+    exit 1
+  fi
+  if [[ ! -d "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR must exist and be mounted before running CTAS benchmarks: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
+    exit 1
+  fi
+  PRESTO_CTAS_SCRATCH_DIR="$(readlink -f "${PRESTO_CTAS_SCRATCH_DIR}")"
+  export PRESTO_CTAS_SCRATCH_DIR
+  if [[ ! -w "${PRESTO_CTAS_SCRATCH_DIR}" ]]; then
+    echo "Error: PRESTO_CTAS_SCRATCH_DIR must be writable: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
+    exit 1
+  fi
 fi
 
 # Fail fast if an explicit --reference-results-dir was given but doesn't exist.
@@ -295,8 +364,24 @@ if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
 fi
 
+if [[ -n ${CACHE_MODE} ]]; then
+  PYTEST_ARGS+=("--cache-mode ${CACHE_MODE}")
+fi
+
+if [[ -n ${WARMUP_ITERATIONS} ]]; then
+  PYTEST_ARGS+=("--warmup-iterations ${WARMUP_ITERATIONS}")
+fi
+
+if [[ -n ${CONNECTOR_ID} ]]; then
+  PYTEST_ARGS+=("--connector-id ${CONNECTOR_ID}")
+fi
+
 if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-analyze-check")
+fi
+
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
+  PYTEST_ARGS+=("--run-as-ctas-queries")
 fi
 
 source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
@@ -319,7 +404,8 @@ fi
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+PYTEST_EXIT=0
+pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]} || PYTEST_EXIT=$?
 
 # Snapshot logs and engine configs into the benchmark output directory so that
 # post_results.py has self-contained, run-specific data even when multiple runs
@@ -350,7 +436,10 @@ VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../testing/requirements.txt"
 # Resolve reference results directory.
 # PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
 # Explicit --reference-results-dir was already validated before the benchmark ran.
-if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+VALIDATION_EXIT=0
+if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && ${PYTEST_EXIT} -ne 0 ]]; then
+  echo "[Validation] Skipped because the CTAS benchmark or result normalization failed."
+elif [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
   echo "[Validation] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
 else
   VALIDATE_ARGS=(--output-dir "${OUTPUT_DIR:-$(pwd)/benchmark_output}" --benchmark-type "${BENCHMARK_TYPE}")
@@ -363,12 +452,17 @@ else
   if [[ -n ${QUERIES} ]]; then
     VALIDATE_ARGS+=(--queries "${QUERIES}")
   fi
-
-  ACTUAL_OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/benchmark_output}"
-  [[ -n ${TAG} ]] && ACTUAL_OUTPUT_DIR="${ACTUAL_OUTPUT_DIR}/${TAG}"
-  echo "[Validation] Running validation: ${ACTUAL_OUTPUT_DIR}/query_results vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
+  ACTUAL_RESULTS_DIR="${EFFECTIVE_BENCHMARK_DIR}/query_results"
+  echo "[Validation] Running validation: ${ACTUAL_RESULTS_DIR} vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
   "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet \
     -p "${VALIDATE_SCRIPT}" \
     -r "${VALIDATE_REQUIREMENTS}" \
-    -- "${VALIDATE_ARGS[@]}"
+    -- "${VALIDATE_ARGS[@]}" || VALIDATION_EXIT=$?
 fi
+
+# Preserve the benchmark failure as the primary exit status while still
+# attempting artifact collection and validation.
+if [[ ${PYTEST_EXIT} -ne 0 ]]; then
+  exit "${PYTEST_EXIT}"
+fi
+exit "${VALIDATION_EXIT}"

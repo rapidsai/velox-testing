@@ -92,6 +92,13 @@ class BenchmarkMetadata:
     num_drivers: int | None = None
     gpu_name: str | None = None
     image_digest: str | None = None
+    presto_sha: str | None = None
+    presto_branch: str | None = None
+    presto_repo: str | None = None
+    velox_sha: str | None = None
+    velox_branch: str | None = None
+    velox_repo: str | None = None
+    data_dir: str | None = None
 
     @classmethod
     def from_parsed(cls, raw: dict) -> "BenchmarkMetadata":
@@ -238,8 +245,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--storage-configuration-name",
-        required=True,
-        help="Storage configuration name",
+        required=False,
+        default=None,
+        help="Storage configuration name. Auto-detected from metadata.json in the dataset "
+        "directory (via data_dir in benchmark_result.json context) if omitted. "
+        "Run register_storage_config.py first to populate metadata.json.",
     )
     parser.add_argument(
         "--cache-state",
@@ -266,7 +276,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--commit-hash",
         default=None,
-        help="Git commit hash for the query engine",
+        help=(
+            "Git commit hash for the query engine. When omitted, it is derived from the image "
+            "provenance SHAs as 'presto-<sha>-velox-<sha>'. Unlike branch/repo below, the provenance "
+            "SHAs are taken only from the benchmark context and cannot be overridden (there is no "
+            "--presto-sha/--velox-sha); use --commit-hash to override the derived value."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -298,22 +313,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--velox-branch",
         default=None,
-        help="Velox branch used to build the worker image.",
+        help="Velox branch used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--velox-repo",
         default=None,
-        help="Velox repository used to build the worker image.",
+        help="Velox repository used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--presto-branch",
         default=None,
-        help="Presto branch used to build the worker image.",
+        help="Presto branch used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--presto-repo",
         default=None,
-        help="Presto repository used to build the worker image.",
+        help="Presto repository used to build the worker image. Defaults to value from image labels in benchmark_result.json.",
     )
     parser.add_argument(
         "--concurrency-streams",
@@ -387,8 +402,10 @@ def _build_submission_payload(
     validation_results: dict | None = None,
     velox_branch: str | None = None,
     velox_repo: str | None = None,
+    velox_sha: str | None = None,
     presto_branch: str | None = None,
     presto_repo: str | None = None,
+    presto_sha: str | None = None,
     labels: list[str] | None = None,
     notes: str | None = None,
 ) -> dict:
@@ -413,8 +430,18 @@ def _build_submission_payload(
     # Use placeholders for version info if not provided
     if version is None:
         version = "unknown"
+    # Derive commit_hash from the image provenance SHAs when not explicitly given:
+    # "presto-<sha>-velox-<sha>" (worker), "presto-<sha>" (coordinator, no velox).
+    # Abbreviate the SHAs to keep the composite value short; the full SHAs are still
+    # submitted in the presto_sha/velox_sha engine_config entries.
     if commit_hash is None:
-        commit_hash = "unknown"
+        short = 12
+        commit_parts = []
+        if presto_sha:
+            commit_parts.append(f"presto-{presto_sha[:short]}")
+        if velox_sha:
+            commit_parts.append(f"velox-{velox_sha[:short]}")
+        commit_hash = "-".join(commit_parts) if commit_parts else "unknown"
 
     # Build query logs from results
     query_logs = []
@@ -504,14 +531,19 @@ def _build_submission_payload(
     }
 
     engine_config_payload = engine_config.serialize() if engine_config else {}
-    if velox_branch or velox_repo or presto_branch or presto_repo:
-        engine_config_payload = {
-            **engine_config_payload,
-            "velox_branch": velox_branch,
-            "velox_repo": velox_repo,
-            "presto_branch": presto_branch,
-            "presto_repo": presto_repo,
-        }
+    # Add image provenance as separate entries; omit empties so a coordinator-only
+    # image (no velox fields) contributes just its presto entries.
+    provenance_fields = {
+        "presto_branch": presto_branch,
+        "presto_sha": presto_sha,
+        "presto_repo": presto_repo,
+        "velox_branch": velox_branch,
+        "velox_sha": velox_sha,
+        "velox_repo": velox_repo,
+    }
+    provenance_fields = {k: v for k, v in provenance_fields.items() if v}
+    if provenance_fields:
+        engine_config_payload = {**engine_config_payload, **provenance_fields}
 
     payload: dict = {
         "sku_name": sku_name,
@@ -682,6 +714,44 @@ async def _post_submission(api_url: str, api_key: str, payload: dict, timeout: f
     return response.status_code, response.text
 
 
+def _resolve_storage_configuration(data_dir: str | None, benchmark_dir: Path) -> str | None:
+    """Read storage_configuration_name from metadata.json in the dataset directory.
+
+    Tries {data_dir}/metadata.json first, then falls back to {benchmark_dir}/metadata.json
+    (in case metadata was copied alongside the benchmark results).
+    """
+    candidates: list[Path] = []
+    if data_dir:
+        candidates.append(Path(data_dir) / "metadata.json")
+    candidates.append(benchmark_dir / "metadata.json")
+
+    found_any = False
+    for path in candidates:
+        if path.exists():
+            found_any = True
+            try:
+                metadata = json.loads(path.read_text())
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"  Warning: could not read {path}: {e}", file=sys.stderr)
+                continue
+            name = metadata.get("storage_configuration_name")
+            if name:
+                print(f"  Auto-detected storage configuration '{name}' from {path}", file=sys.stderr)
+                return name
+            print(
+                f"  Found {path} but it has no storage_configuration_name. "
+                "Run register_storage_config.py to register this dataset.",
+                file=sys.stderr,
+            )
+
+    if not found_any:
+        print(
+            "  No metadata.json found to auto-detect storage configuration.",
+            file=sys.stderr,
+        )
+    return None
+
+
 async def _process_benchmark_dir(
     benchmark_dir: Path,
     *,
@@ -734,6 +804,32 @@ async def _process_benchmark_dir(
         print(f"  Error loading metadata: {e}", file=sys.stderr)
         return 1
 
+    # Resolve storage configuration name: explicit arg → auto-detect from metadata.json.
+    resolved_storage_config = _resolve_storage_configuration(benchmark_metadata.data_dir, benchmark_dir)
+    if storage_configuration_name is None:
+        if resolved_storage_config is None:
+            print(
+                "  Error: --storage-configuration-name was not provided and could not be "
+                "auto-detected. Run register_storage_config.py on the dataset directory first.",
+                file=sys.stderr,
+            )
+            return 1
+        storage_configuration_name = resolved_storage_config
+    elif resolved_storage_config and resolved_storage_config != storage_configuration_name:
+        print(
+            f"  Warning: --storage-configuration-name '{storage_configuration_name}' does not "
+            f"match '{resolved_storage_config}' found in metadata.json. Proceeding with the "
+            "provided value.",
+            file=sys.stderr,
+        )
+    elif resolved_storage_config is None:
+        print(
+            f"  Warning: --storage-configuration-name '{storage_configuration_name}' could not "
+            "be validated — no registered storage_configuration_name found in metadata.json. "
+            "Run register_storage_config.py to register this dataset.",
+            file=sys.stderr,
+        )
+
     # Fall back to the container image_digest captured in the benchmark
     # results context when no explicit identifier_hash was provided on the CLI.
     if identifier_hash is None:
@@ -745,6 +841,15 @@ async def _process_benchmark_dir(
             file=sys.stderr,
         )
         return 1
+
+    # Fall back to image provenance labels captured in the benchmark context.
+    velox_branch = velox_branch or benchmark_metadata.velox_branch
+    velox_repo = velox_repo or benchmark_metadata.velox_repo
+    presto_branch = presto_branch or benchmark_metadata.presto_branch
+    presto_repo = presto_repo or benchmark_metadata.presto_repo
+    # SHAs come only from the baked image provenance (no CLI override).
+    velox_sha = benchmark_metadata.velox_sha
+    presto_sha = benchmark_metadata.presto_sha
 
     # Resolve config directory: explicit override → auto-detect from variant
     effective_config_dir = config_dir
@@ -849,8 +954,10 @@ async def _process_benchmark_dir(
                 validation_results=validation_results,
                 velox_branch=velox_branch,
                 velox_repo=velox_repo,
+                velox_sha=velox_sha,
                 presto_branch=presto_branch,
                 presto_repo=presto_repo,
+                presto_sha=presto_sha,
                 labels=labels,
                 notes=notes,
             )

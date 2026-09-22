@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
     dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
-    dnf install -y nsight-systems-cli-2025.5.1 numactl
+    dnf install -y nsight-systems-cli-2026.3.1 numactl
 
 ARG GPU=ON
 ARG BUILD_TYPE=release
@@ -112,6 +112,8 @@ RUN mkdir /usr/lib64/presto-native-libs && \
 
 COPY velox-testing/presto/docker/launch_presto_servers.sh velox-testing/presto/docker/presto_profiling_wrapper.sh /opt
 
+ENV LIBCUDF_KERNEL_CACHE_PATH=/var/lib/presto/data/libcudf-cache
+
 ARG PRESTO_SHA
 ARG PRESTO_BRANCH
 ARG PRESTO_REPOSITORY
@@ -124,5 +126,11 @@ LABEL velox-testing.presto.sha=${PRESTO_SHA} \
       velox-testing.velox.sha=${VELOX_SHA} \
       velox-testing.velox.branch=${VELOX_BRANCH} \
       velox-testing.velox.repository=${VELOX_REPOSITORY}
+# Build the JSON with python so values are properly escaped (branch/repo can
+# contain characters that would break a raw printf, e.g. a double-quote).
+RUN mkdir -p /opt/velox-testing && \
+    python3 -c 'import json, sys; keys = ["presto_sha", "presto_branch", "presto_repo", "velox_sha", "velox_branch", "velox_repo"]; json.dump(dict(zip(keys, sys.argv[1:])), open("/opt/velox-testing/provenance.json", "w"))' \
+    "${PRESTO_SHA}" "${PRESTO_BRANCH}" "${PRESTO_REPOSITORY}" \
+    "${VELOX_SHA}" "${VELOX_BRANCH}" "${VELOX_REPOSITORY}"
 
 CMD ["bash", "/opt/presto_profiling_wrapper.sh"]

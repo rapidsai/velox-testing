@@ -5,7 +5,7 @@
 # Interactive shell on a compute node with a container image.
 #
 # Cluster-specific values (partition, account, cpus-per-task, image, workers
-# per node, extra mounts) are read from ~/.cluster_config.env (or the path in
+# per node, extra mounts) are read from ~/presto_cluster_config.env (or the path in
 # $CLUSTER_CONFIG).  See cluster_config.env.example.
 #
 # By default Slurm picks any available node in the partition.  Set NODELIST
@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Default falls through CLUSTER_DEFAULT_VARIANT (set in ~/.cluster_config.env)
+# Default falls through CLUSTER_DEFAULT_VARIANT (set in ~/presto_cluster_config.env)
 # to "gpu" so existing GPU-cluster users see no change.
 VARIANT_TYPE="${VARIANT_TYPE:-${CLUSTER_DEFAULT_VARIANT:-gpu}}"
 # resolve_cluster_variant populates WORKER_IMAGE; alias it to IMAGE for this

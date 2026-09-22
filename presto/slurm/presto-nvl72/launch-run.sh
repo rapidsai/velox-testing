@@ -6,7 +6,7 @@
 # Presto TPC-H Benchmark Launcher
 # ==============================================================================
 # Submits a Presto TPC-H benchmark job to Slurm.  Cluster-specific values
-# (partition, time limits, image names, etc.) are read from ~/.cluster_config.env
+# (partition, time limits, image names, etc.) are read from ~/presto_cluster_config.env
 # (or the path in $CLUSTER_CONFIG).  See cluster_config.env.example.
 #
 # Usage:
@@ -14,7 +14,7 @@
 #                  [-i|--iterations <n>] [--cpu] [-g|--num-workers-per-node <n>]
 #                  [-w|--worker-image <name>] [-c|--coord-image <name>]
 #                  [-o|--output-path <dir>] [-q|--queries <filter>]
-#                  [--disable-gds] [-m|--metrics] [-p|--profile]
+#                  [--run-as-ctas-queries] [--disable-gds] [-m|--metrics] [-p|--profile]
 #                  [additional sbatch options]
 # ==============================================================================
 
@@ -32,6 +32,7 @@ NUM_ITERATIONS="2"
 EXTRA_ARGS=()
 NUM_GPUS_PER_NODE=""   # resolved from cluster config after arg parsing
 USE_NUMA=""            # resolved from cluster config after arg parsing
+USE_MMAP_ALLOCATOR=""  # resolved from cluster config after arg parsing
 VARIANT_TYPE=""        # set by --cpu; resolved from cluster config after arg parsing
 WORKER_IMAGE=""        # resolved from cluster config after arg parsing; override with -w
 COORD_IMAGE=""         # resolved from cluster config after arg parsing; override with -c
@@ -42,6 +43,7 @@ SCRIPT_DIR="$PWD"
 ENABLE_GDS=1
 ENABLE_METRICS=0
 ENABLE_NSYS=0
+RUN_AS_CTAS_QUERIES=0
 NSYS_WORKER_ID=0
 QUERIES=""
 
@@ -62,6 +64,7 @@ Options:
   -c, --coord-image <name>     Override coordinator image from cluster config
   -o, --output-path <dir>      Copy results into this directory after the run
   -q, --queries <list>         Comma-separated query filter (e.g. "1,6,21")
+      --run-as-ctas-queries     Run queries as distributed CTAS writes. Requires PRESTO_CTAS_SCRATCH_DIR.
       --worker-env-file <path> Override worker.env (default: ./worker.env)
       --cpu                    Use CPU partition/images (overrides cluster default)
       --gpu                    Use GPU partition/images (overrides cluster default)
@@ -74,9 +77,9 @@ Options:
 
 Any arguments after -- are passed directly to sbatch.
 
-Cluster config (~/.cluster_config.env or \$CLUSTER_CONFIG) supplies partition,
-account, time limits, image names, and per-variant defaults. See
-cluster_config.env.example.
+Cluster config (~/presto_cluster_config.env or \$CLUSTER_CONFIG) supplies partition,
+account, time limits, image names, per-variant defaults, and optional CTAS
+scratch and expected-result directories. See cluster_config.env.example.
 EOF
 }
 
@@ -96,6 +99,7 @@ while [[ $# -gt 0 ]]; do
         --gpu)         VARIANT_TYPE="gpu"; shift ;;
         --no-numa)     USE_NUMA="0"; shift ;;
         --disable-gds) ENABLE_GDS=0; shift ;;
+        --run-as-ctas-queries) RUN_AS_CTAS_QUERIES=1; shift ;;
         -m|--metrics)  ENABLE_METRICS=1; shift ;;
         -p|--profile)  ENABLE_NSYS=1; shift ;;
         -h|--help)     usage; exit 0 ;;
@@ -107,6 +111,16 @@ done
 [[ -z "${NODES_COUNT}"  ]] && { echo "Error: -n|--nodes is required (see --help)" >&2; exit 1; }
 [[ -z "${SCALE_FACTOR}" ]] && { echo "Error: -s|--scale-factor is required (see --help)" >&2; exit 1; }
 
+if [[ "${RUN_AS_CTAS_QUERIES}" == "1" ]]; then
+    [[ -n "${PRESTO_CTAS_SCRATCH_DIR:-}" ]] || { echo "Error: PRESTO_CTAS_SCRATCH_DIR is required with --run-as-ctas-queries" >&2; exit 1; }
+    mkdir -p "${PRESTO_CTAS_SCRATCH_DIR}"
+    PRESTO_CTAS_SCRATCH_DIR="$(readlink -f "${PRESTO_CTAS_SCRATCH_DIR}")"
+    [[ -d "${PRESTO_CTAS_SCRATCH_DIR}" && -w "${PRESTO_CTAS_SCRATCH_DIR}" ]] || {
+        echo "Error: PRESTO_CTAS_SCRATCH_DIR must be a writable shared directory: ${PRESTO_CTAS_SCRATCH_DIR}" >&2
+        exit 1
+    }
+fi
+
 # Clean up old output files — use rm -rf so subdirectories (e.g. query_results/)
 # are fully removed and stale benchmark_result.json cannot survive a cancelled run.
 rm -rf result_dir logs 2>/dev/null || true
@@ -117,12 +131,13 @@ echo "Submitting Presto TPC-H benchmark job..."
 echo ""
 
 # Resolve variant-specific cluster values now that VARIANT_TYPE is known.
-# Default falls through CLUSTER_DEFAULT_VARIANT (set in ~/.cluster_config.env)
+# Default falls through CLUSTER_DEFAULT_VARIANT (set in ~/presto_cluster_config.env)
 # to "gpu" so existing GPU-cluster users see no change.
 VARIANT_TYPE="${VARIANT_TYPE:-${CLUSTER_DEFAULT_VARIANT:-gpu}}"
 resolve_cluster_variant "${VARIANT_TYPE}"
 : "${NUM_GPUS_PER_NODE:=${CLUSTER_NUM_WORKERS_PER_NODE:-}}"
 : "${USE_NUMA:=${CLUSTER_USE_NUMA:-0}}"
+: "${USE_MMAP_ALLOCATOR:=${CLUSTER_USE_MMAP_ALLOCATOR:-true}}"
 
 # Validate required values before submitting
 VTYPE_UPPER="${VARIANT_TYPE^^}"
@@ -144,6 +159,12 @@ preflight_image "${COORD_IMAGE}" \
     "Pull it (see ./pull_ghcr_image.sh) or override with -c <name>"
 preflight_dir "${DATA}/tpch-rs-${SCALE_FACTOR}" "TPC-H SF${SCALE_FACTOR} data" \
     "./launch-gen-data.sh -s ${SCALE_FACTOR} -o ${DATA}/tpch-rs-${SCALE_FACTOR}"
+if [[ -n "${PRESTO_EXPECTED_RESULTS_DIR:-}" ]]; then
+    [[ "${PRESTO_EXPECTED_RESULTS_DIR}" == /* ]] || {
+        echo "Error: PRESTO_EXPECTED_RESULTS_DIR must be an absolute host path: ${PRESTO_EXPECTED_RESULTS_DIR}" >&2
+        exit 1
+    }
+fi
 preflight_metastore "${SCALE_FACTOR}" "${ANALYZE_HINT}"
 
 # Submit job (include nodes/SF/iterations in file names)
@@ -163,6 +184,13 @@ build_common_export_vars
 EXPORT_VARS+=",NUM_ITERATIONS=${NUM_ITERATIONS}"
 EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS},ENABLE_METRICS=${ENABLE_METRICS}"
 EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS},NSYS_WORKER_ID=${NSYS_WORKER_ID}"
+EXPORT_VARS+=",RUN_AS_CTAS_QUERIES=${RUN_AS_CTAS_QUERIES}"
+if [[ "${RUN_AS_CTAS_QUERIES}" == "1" ]]; then
+    EXPORT_VARS+=",PRESTO_CTAS_SCRATCH_DIR=${PRESTO_CTAS_SCRATCH_DIR}"
+fi
+if [[ -n "${PRESTO_EXPECTED_RESULTS_DIR:-}" ]]; then
+    EXPORT_VARS+=",PRESTO_EXPECTED_RESULTS_DIR=${PRESTO_EXPECTED_RESULTS_DIR}"
+fi
 # Comma-separated query list can't ride EXPORT_VARS (comma is the separator);
 # export it so sbatch picks it up via the ALL inheritance.
 [[ -n "${QUERIES}" ]] && export QUERIES
@@ -178,6 +206,12 @@ ERR_FILE="${ERR_FMT//%j/${JOB_ID}}"
 echo "Resolving first node IP..."
 for i in {1..60}; do
     STATE=$(squeue -j "$JOB_ID" -h -o "%T" 2>/dev/null || true)
+    if [[ -z "${STATE}" ]]; then
+        # Job already left the queue (e.g. failed fast during setup) — no
+        # point polling for a nodelist that will never appear.
+        echo "Job already finished before a node IP could be resolved."
+        break
+    fi
     NODELIST=$(squeue -j "$JOB_ID" -h -o "%N" 2>/dev/null || true)
     if [[ -n "${NODELIST:-}" && "${NODELIST}" != "(null)" ]]; then
         FIRST_NODE=$(scontrol show hostnames "$NODELIST" | head -n 1)
@@ -212,12 +246,13 @@ echo ""
 echo "Output files:"
 ls -lh "${OUT_FILE}" "${ERR_FILE}" 2>/dev/null || echo "No output files found"
 show_job_output "${OUT_FILE}" "${ERR_FILE}" "logs/cli.log" "benchmark results"
-[[ "${JOB_STATE}" == "COMPLETED" ]] || exit 1
 
 if [[ -n "${OUTPUT_PATH}" ]]; then
     echo ""
     echo "Copying results to ${OUTPUT_PATH}..."
     mkdir -p "${OUTPUT_PATH}"
     cp -r result_dir/. "${OUTPUT_PATH}/"
-    echo "Results copied to ${OUTPUT_PATH}"
+    echo_success "Results copied to ${OUTPUT_PATH}"
 fi
+
+[[ "${JOB_STATE}" == "COMPLETED" ]] || exit 1

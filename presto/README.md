@@ -50,6 +50,14 @@ All three repositories must be checked out as sibling directories. **Important:*
    ```bash
    export PRESTO_DATA_DIR=/path/to/your/benchmark/data
    ```
+
+   Benchmark source data is mounted read-only. To run large-result queries as
+   distributed CTAS writes, also select a separate writable scratch directory
+   before starting the cluster:
+
+   ```bash
+   export PRESTO_CTAS_SCRATCH_DIR=/path/to/writable/benchmark-results
+   ```
    > **Tip:** Add this export to your `~/.bashrc` to avoid setting it each time.
 
 3. Build dependencies (first time only):
@@ -96,10 +104,19 @@ pytest tpch_test.py
    ```
    > This step is necessary because aggregation for statistics collection is not yet supported on GPU. Collecting statistics improves performance and reduces OOM errors for GPU execution.
 
-4. Run benchmarks:
+4. Run a benchmark. Add `--run-as-ctas-queries` to keep distributed result
+   transfer out of the measured query. Workers first write beneath
+   `PRESTO_CTAS_SCRATCH_DIR`; after timing, the script combines each result into
+   the same `query_results/qN.parquet` layout used by the default mode:
+
+   ```bash
+   ./run_benchmark.sh -b tpch -s bench_sf100 --run-as-ctas-queries
+   ```
+
+5. For the standard coordinator-returned result mode, run:
    ```bash
    ./run_benchmark.sh --help
-   ./run_benchmark.sh --benchmark tpch --schema-name <your_schema>
+   ./run_benchmark.sh --benchmark-type tpch --schema-name <your_schema>
    ```
    > **Note:** The `--schema-name` flag is required to specify your target DB schema for the benchmark.
 

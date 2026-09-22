@@ -151,6 +151,10 @@ if compgen -G "${LOGS_DIR}/*.log" > /dev/null 2>&1; then
   mkdir -p "${LOGS_DIR}/archive"
   mv "${LOGS_DIR}"/*.log "${LOGS_DIR}/archive/"
 fi
+# Remove stale provenance files so a run that does not write them (e.g. a Java
+# worker, or an image without baked provenance) does not report the previous
+# run's values. run_context.py reads these fixed filenames from LOGS_DIR.
+rm -f "${LOGS_DIR}/worker_provenance.json" "${LOGS_DIR}/coordinator_provenance.json"
 export SERVER_START_TIMESTAMP="$(date +"%Y%m%dT%H%M%S")"
 export LOGS_DIR
 
@@ -202,8 +206,8 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
   validate_sibling_repos
   if [[ ${BUILD_TARGET_ARG[@]} =~ ($CPU_WORKER_SERVICE|$GPU_WORKER_SERVICE) ]] && is_image_missing ${DEPS_IMAGE}; then
     echo "ERROR: Presto dependencies/run-time image '${DEPS_IMAGE}' not found!"
-    echo "Either build a local image using build_centos9_deps_image.sh or fetch a pre-built"
-    echo "image using fetch_centos9_deps_image.sh (credentials may be required)."
+    echo "Either build a local image using build_centos_deps_image.sh or fetch a pre-built"
+    echo "image using fetch_centos_deps_image.sh (credentials may be required)."
     exit 1
   fi
 

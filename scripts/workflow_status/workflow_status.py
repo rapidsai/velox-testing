@@ -65,12 +65,14 @@ environment variables:
   GH_HTTP_TIMEOUT=N            gh HTTP timeout in seconds (default: 60)
 
   CLAUDE_BIN                   Claude CLI binary (default: claude)
-  CLAUDE_MODEL                 Claude model to use (default: opus)
-  ANTHROPIC_API_KEY            API key for Claude analysis
+  CLAUDE_MODEL                 Hub model id (default: azure/anthropic/claude-opus-5)
+  ANTHROPIC_BASE_URL           Inference Hub root (default: https://inference-api.nvidia.com)
+  ANTHROPIC_AUTH_TOKEN         Bearer token for Inference Hub (preferred)
+  NVIDIA_API_KEY / NGC_API_KEY Fallback if ANTHROPIC_AUTH_TOKEN is unset
 
 examples:
   python %(prog)s --run-id 23729840879
-  python %(prog)s --run-id 23729840879 --job-id 12345678
+  python %(prog)s --run-id 23729840879 --claude-model <hub-model-id>
   python %(prog)s --run-id 23729840879 --slack --output report.json
   python %(prog)s --run-id 23729840879 --no-cause --no-fix
 """,
@@ -83,6 +85,21 @@ examples:
     p.add_argument("--print-logs", action="store_true", default=False, help="print failed log tails for each failure")
     p.add_argument("--no-cause", action="store_true", default=False, help="disable AI cause analysis")
     p.add_argument("--no-fix", action="store_true", default=False, help="disable AI fix suggestions")
+    p.add_argument(
+        "--anthropic-base-url",
+        default="https://inference-api.nvidia.com",
+        help="Inference Hub root URL (default: https://inference-api.nvidia.com; do not include /v1)",
+    )
+    p.add_argument(
+        "--claude-model",
+        default="",
+        help="Model id passed to claude --model (overrides CLAUDE_MODEL)",
+    )
+    p.add_argument(
+        "--claude-bin",
+        default="",
+        help="Claude CLI binary (overrides CLAUDE_BIN; default: claude)",
+    )
     return p.parse_args()
 
 

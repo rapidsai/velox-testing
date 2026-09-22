@@ -9,6 +9,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+# NVIDIA Inference Hub (Claude Code / Anthropic-compatible gateway).
+# Claude Code appends /v1/messages — do not include /v1 on this URL.
+# Override with --anthropic-base-url or ANTHROPIC_BASE_URL.
+INFERENCE_HUB_BASE_URL = "https://inference-api.nvidia.com"
+
 
 @dataclass
 class Config:
@@ -33,7 +38,9 @@ class Config:
     gh_http_timeout: int = 60
 
     claude_bin: str = "claude"
-    claude_model: str = "opus"
+    claude_model: str = "azure/anthropic/claude-opus-5"
+    anthropic_base_url: str = INFERENCE_HUB_BASE_URL
+    anthropic_auth_token: str = ""
 
     slack_webhook_url: str = ""
 
@@ -62,9 +69,25 @@ def load_from_args(args) -> Config:
     cfg.gh_retry_sleep = int(os.environ.get("GH_RETRY_SLEEP_SECONDS", "2"))
     cfg.gh_http_timeout = int(os.environ.get("GH_HTTP_TIMEOUT", "60"))
 
-    cfg.claude_bin = os.environ.get("CLAUDE_BIN", "claude")
-    cfg.claude_model = os.environ.get("CLAUDE_MODEL", "opus")
+    cfg.claude_bin = getattr(args, "claude_bin", "") or os.environ.get("CLAUDE_BIN", "claude")
+    cfg.claude_model = (
+        getattr(args, "claude_model", "") or os.environ.get("CLAUDE_MODEL") or "azure/anthropic/claude-opus-5"
+    )
+    cfg.anthropic_base_url = (
+        getattr(args, "anthropic_base_url", "") or os.environ.get("ANTHROPIC_BASE_URL") or INFERENCE_HUB_BASE_URL
+    ).rstrip("/")
+    cfg.anthropic_auth_token = (
+        os.environ.get("ANTHROPIC_AUTH_TOKEN")
+        or os.environ.get("NVIDIA_API_KEY")
+        or os.environ.get("NGC_API_KEY")
+        or ""
+    )
 
     cfg.slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+
+    os.environ["ANTHROPIC_BASE_URL"] = cfg.anthropic_base_url
+    os.environ["CLAUDE_MODEL"] = cfg.claude_model
+    if cfg.anthropic_auth_token:
+        os.environ["ANTHROPIC_AUTH_TOKEN"] = cfg.anthropic_auth_token
 
     return cfg
