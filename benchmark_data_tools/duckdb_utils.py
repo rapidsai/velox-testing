@@ -5,6 +5,8 @@ import re
 
 import duckdb
 
+TPCDS_PARQUET_VERSION = 1
+
 
 def quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
@@ -53,8 +55,9 @@ def is_decimal_column(column_type):
     return bool(re.match(r"^DECIMAL\(\d+,\d+\)$", column_type))
 
 
-def copy_to_parquet(select_query, file_path, row_group_rows=None, conn=duckdb, *, parquet_version):
-    options = f"FORMAT parquet, PARQUET_VERSION 'V{parquet_version}'"
+def copy_to_parquet(select_query, file_path, row_group_rows=None, conn=duckdb):
+    # TODO: Switch to V2 after a cuDF release includes rapidsai/cudf#23314.
+    options = f"FORMAT parquet, PARQUET_VERSION 'V{TPCDS_PARQUET_VERSION}'"
     if row_group_rows is not None:
         options += f", ROW_GROUP_SIZE {row_group_rows}"
     conn.sql(f"COPY ({select_query}) TO '{file_path}' ({options})")

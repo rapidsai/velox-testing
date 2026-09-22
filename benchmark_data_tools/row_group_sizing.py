@@ -26,7 +26,6 @@ def row_group_row_count_probe(
     convert_decimals_to_floats,
     data_dir_path,
     probe_memory_limit,
-    parquet_version,
 ):
     """Yield a callable that waits for row-count estimates from a spawned process."""
     with (
@@ -42,7 +41,6 @@ def row_group_row_count_probe(
             convert_decimals_to_floats,
             probe_directory,
             probe_memory_limit,
-            parquet_version,
         )
         yield future.result
 
@@ -54,7 +52,6 @@ def get_row_group_row_counts(
     convert_decimals_to_floats,
     probe_directory,
     probe_memory_limit,
-    parquet_version,
 ):
     """Measure rows per row group for every table in a throwaway dataset."""
     scale_factor = (
@@ -73,13 +70,13 @@ def get_row_group_row_counts(
         for (table_name,) in conn.execute("SHOW TABLES").fetchall():
             select_query = get_select_query(table_name, convert_decimals_to_floats, conn)
             table_rows = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-            rows = measure_row_group_rows(conn, select_query, table_rows, target_bytes, parquet_version)
+            rows = measure_row_group_rows(conn, select_query, table_rows, target_bytes)
             if rows is not None:
                 row_counts[table_name] = rows
     return row_counts
 
 
-def measure_row_group_rows(conn, select_query, table_rows, target_bytes, parquet_version):
+def measure_row_group_rows(conn, select_query, table_rows, target_bytes):
     """Rows per row group so that a row group weighs about target_bytes."""
     if table_rows == 0:
         return None
@@ -88,25 +85,14 @@ def measure_row_group_rows(conn, select_query, table_rows, target_bytes, parquet
         probe_path = Path(tmp_dir) / "probe.parquet"
 
         # First pass: estimate bytes/row using DuckDB's default row-group size.
-        copy_to_parquet(
-            f"{select_query} LIMIT {_STAGE1_ROWS}",
-            probe_path,
-            conn=conn,
-            parquet_version=parquet_version,
-        )
+        copy_to_parquet(f"{select_query} LIMIT {_STAGE1_ROWS}", probe_path, conn=conn)
         rows = rows_for_target(bytes_per_row(probe_path), target_bytes)
         if rows is None or rows >= table_rows:
             # A second write cannot fill the estimated row group or improve the result.
             return rows
 
         # Second pass: bytes/row changes with row-group size, so remeasure near the requested size.
-        copy_to_parquet(
-            f"{select_query} LIMIT {rows}",
-            probe_path,
-            rows,
-            conn,
-            parquet_version=parquet_version,
-        )
+        copy_to_parquet(f"{select_query} LIMIT {rows}", probe_path, rows, conn)
         refined = rows_for_target(bytes_per_row(probe_path), target_bytes)
 
     return rows if refined is None else refined

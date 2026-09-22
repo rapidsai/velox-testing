@@ -16,7 +16,7 @@ from typing import NamedTuple
 
 import duckdb
 import psutil
-from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
+from duckdb_utils import TPCDS_PARQUET_VERSION, copy_to_parquet, get_select_query, init_benchmark_tables
 from register_storage_config import register_storage_config
 from row_group_sizing import row_group_row_count_probe
 
@@ -26,11 +26,7 @@ _SAMPLE_SF = 0.01
 _PROBE_MEMORY_PERCENT = 20
 _MIN_MEMORY_LIMIT = 1 * 1024**3
 _PARQUET_VERSION = 2
-
-
-def get_parquet_version(benchmark_type):
-    # TODO: Switch TPC-DS to Parquet V2 after a cuDF release includes rapidsai/cudf#23314.
-    return 1 if benchmark_type == "tpcds" else _PARQUET_VERSION
+TPCH_PARQUET_VERSION = _PARQUET_VERSION
 
 
 def generate_partition(
@@ -61,7 +57,7 @@ def generate_partition(
         "--part",
         str(partition),
         "--parquet-version",
-        str(_PARQUET_VERSION),
+        str(TPCH_PARQUET_VERSION),
         "--row-group-bytes",
         str(approx_row_group_bytes),
     ]
@@ -249,7 +245,7 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "generator_version": generator_version,
         "scale_factor": args.scale_factor,
         "convert_decimals_to_floats": args.convert_decimals_to_floats,
-        "parquet_version": get_parquet_version(args.benchmark_type),
+        "parquet_version": TPCH_PARQUET_VERSION if using_tpchgen else TPCDS_PARQUET_VERSION,
         "data_dir_path": str(Path(args.data_dir_path).resolve()),
         "max_rows_per_file": args.max_rows_per_file,
         "approx_row_group_bytes": args.approx_row_group_bytes,
@@ -264,7 +260,6 @@ def write_metadata(args, codec_defs=None, generator_version=None):
 
 def generate_data_files_with_duckdb(args):
     """Materialize the dataset into an intermediate DuckDB file, then export Parquet from it."""
-    parquet_version = get_parquet_version(args.benchmark_type)
     with tempfile.TemporaryDirectory(prefix=".duckdb-main-", dir=args.data_dir_path) as work_directory:
         database_path = Path(work_directory) / "intermediate.duckdb"
         probe_memory_limit = args.memory_limit * _PROBE_MEMORY_PERCENT // 100
@@ -274,15 +269,15 @@ def generate_data_files_with_duckdb(args):
             install_conn.sql(f"INSTALL {args.benchmark_type}")
 
         with duckdb.connect(str(database_path), config={"memory_limit": f"{main_memory_limit}B"}) as conn:
-            row_group_rows = materialize_tables(args, conn, probe_memory_limit, parquet_version)
+            row_group_rows = materialize_tables(args, conn, probe_memory_limit)
             # The probe has exited, so the main connection can use the full memory budget.
             conn.execute(f"SET memory_limit='{args.memory_limit}B'")
-            export_tables(args, row_group_rows, conn, parquet_version)
+            export_tables(args, row_group_rows, conn)
 
     write_metadata(args, generator_version=duckdb.__version__)
 
 
-def materialize_tables(args, conn, probe_memory_limit, parquet_version):
+def materialize_tables(args, conn, probe_memory_limit):
     """Generate the target dataset, returning the probed rows per row group per table."""
     if args.verbose:
         print(
@@ -297,7 +292,6 @@ def materialize_tables(args, conn, probe_memory_limit, parquet_version):
         args.convert_decimals_to_floats,
         args.data_dir_path,
         probe_memory_limit,
-        parquet_version,
     ) as probed_row_counts:
         if args.verbose:
             print(
@@ -337,7 +331,7 @@ class ExportTask(NamedTuple):
     rows_per_row_group: int
 
 
-def export_tables(args, row_group_rows, conn, parquet_version):
+def export_tables(args, row_group_rows, conn):
     """Write one table-part task per worker."""
     tasks = plan_export_tasks(args, row_group_rows, conn)
     if not tasks:
@@ -346,7 +340,7 @@ def export_tables(args, row_group_rows, conn, parquet_version):
     num_tasks = len(tasks)
     configure_duckdb_export(conn, args.num_threads)
     if num_tasks == 1:
-        write_part(tasks[0], conn, parquet_version)
+        write_part(tasks[0], conn)
         return
 
     # -j caps both DuckDB execution threads and concurrent COPY workers.
@@ -358,7 +352,7 @@ def export_tables(args, row_group_rows, conn, parquet_version):
         )
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(write_part, task, conn, parquet_version) for task in tasks]
+        futures = [executor.submit(write_part, task, conn) for task in tasks]
         try:
             for future in futures:
                 future.result()
@@ -397,19 +391,13 @@ def plan_export_tasks(args, row_group_rows, conn):
     return tasks
 
 
-def write_part(task, root_conn, parquet_version):
+def write_part(task, root_conn):
     """Write and atomically publish one Parquet file."""
     partial_path = Path(f"{task.file_path}.partial")
     try:
         conn = root_conn.cursor()
         try:
-            copy_to_parquet(
-                task.query,
-                str(partial_path),
-                task.rows_per_row_group,
-                conn,
-                parquet_version=parquet_version,
-            )
+            copy_to_parquet(task.query, str(partial_path), task.rows_per_row_group, conn)
         finally:
             conn.close()
         os.replace(partial_path, task.file_path)
