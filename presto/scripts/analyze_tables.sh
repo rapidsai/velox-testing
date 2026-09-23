@@ -111,4 +111,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANALYZE_TABLES_SCRIPT_PATH="${SCRIPT_DIR}/../testing/integration_tests/analyze_tables.py"
 REQUIREMENTS_PATH="${SCRIPT_DIR}/../testing/requirements.txt"
 
-"${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$ANALYZE_TABLES_SCRIPT_PATH" -r "$REQUIREMENTS_PATH" "${SCRIPT_ARGS[@]}"
+"${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet -p "$ANALYZE_TABLES_SCRIPT_PATH" -r "$REQUIREMENTS_PATH" "${SCRIPT_ARGS[@]}"

@@ -1,7 +1,7 @@
 # Presto TPC-H Benchmark (Slurm)
 
 Scripts for running Presto TPC-H benchmarks on any Slurm cluster. Cluster-specific
-values live outside the repo in `~/.cluster_config.env` — the repo itself is
+values live outside the repo in `~/presto_cluster_config.env` — the repo itself is
 cluster-agnostic.
 
 ## How the workflow is shaped
@@ -22,11 +22,22 @@ print the command needed to satisfy it.
 
 ## First-time setup
 
-1. **Cluster config.** Copy the template and fill in your cluster's values:
+1. **Cluster config.** If someone has already published a cluster-wide default
+   (e.g. `/scratch/nvidia/presto_cluster_config.env` on this cluster), start
+   from that instead of the blank template — it already has the right image
+   names, data/image paths, and any cluster-specific overrides (like
+   `CLUSTER_*_USE_MMAP_ALLOCATOR`) filled in:
 
    ```bash
-   cp cluster_config.env.example ~/.cluster_config.env
-   $EDITOR ~/.cluster_config.env
+   cp /scratch/nvidia/presto_cluster_config.env ~/presto_cluster_config.env
+   $EDITOR ~/presto_cluster_config.env   # adjust anything that's user-specific
+   ```
+
+   Otherwise, copy the template and fill in your cluster's values from scratch:
+
+   ```bash
+   cp cluster_config.env.example ~/presto_cluster_config.env
+   $EDITOR ~/presto_cluster_config.env
    ```
 
    To use a different path: `export CLUSTER_CONFIG=/path/to/your/config.env`.
@@ -117,7 +128,7 @@ the normal `result_dir/query_results/qN.parquet` files, alongside the benchmark
 reports.
 
 To validate benchmark output, set the host-side reference directory in
-`~/.cluster_config.env`:
+`~/presto_cluster_config.env`:
 
 ```bash
 PRESTO_EXPECTED_RESULTS_DIR=/shared/reference-results/tpch-sf3000
@@ -156,7 +167,7 @@ All launchers accept `-h/--help` for full flag listings.
 
 ## Configuration
 
-All cluster-specific values come from `~/.cluster_config.env`. See
+All cluster-specific values come from `~/presto_cluster_config.env`. See
 `cluster_config.env.example` for the full list. The most-edited variables:
 
 | Variable group | Controls |
@@ -170,6 +181,7 @@ All cluster-specific values come from `~/.cluster_config.env`. See
 | `CLUSTER_GPU_NUM_WORKERS_PER_NODE` / `CLUSTER_CPU_NUM_WORKERS_PER_NODE` | Workers per node |
 | `CLUSTER_GPU_DEFAULT_WORKER_IMAGE` / `CLUSTER_CPU_DEFAULT_WORKER_IMAGE` | Default worker image name |
 | `CLUSTER_GPU_DEFAULT_COORD_IMAGE` / `CLUSTER_CPU_DEFAULT_COORD_IMAGE` | Default coordinator image name |
+| `CLUSTER_GPU_USE_MMAP_ALLOCATOR` / `CLUSTER_CPU_USE_MMAP_ALLOCATOR` | Velox native worker allocator (default `true`); set `false` if a worker crashes at startup with `MmapAllocator requires the system page size to match ... system page size is 65536 bytes` (seen on some ARM/GB200 hosts) |
 | `DATA` | TPC-H parquet data root (parent of `tpch-rs-<SF>/`) |
 | `IMAGE_DIR` | Directory containing `.sqsh` container images |
 | `PRESTO_EXPECTED_RESULTS_DIR` | Optional host directory of expected Parquet results, mounted read-only for validation |
@@ -230,7 +242,7 @@ Otherwise it prints the coordinator address directly. Open
 
 ```
 presto-nvl72/
-├── cluster_config.env.example   # Template — copy to ~/.cluster_config.env
+├── cluster_config.env.example   # Template — copy to ~/presto_cluster_config.env
 ├── defaults.env                 # Sources cluster_config.env; computes workspace paths
 ├── worker.env                   # Worker container env (KVIKIO knobs etc.)
 │
@@ -266,5 +278,5 @@ presto-nvl72/
 ## Migration note
 
 If you were using `presto-nvl72/` with hardcoded values or a `presto-cpu1/`
-fork: copy `cluster_config.env.example` to `~/.cluster_config.env`, fill in
+fork: copy `cluster_config.env.example` to `~/presto_cluster_config.env`, fill in
 your cluster's values, and the scripts will work without further edits.

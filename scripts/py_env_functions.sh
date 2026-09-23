@@ -10,10 +10,16 @@ function install_miniforge3() {
   TEMP_DIR=$(mktemp -d)
   trap "rm -rf $TEMP_DIR" EXIT
 
-  pushd $TEMP_DIR
-  curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
-  bash Miniforge3-$(uname)-$(uname -m).sh -b -p "$MINIFORGE_HOME"
-  popd
+  local log_file="$TEMP_DIR/install.log"
+  pushd $TEMP_DIR >/dev/null
+  if ! { curl -fsSL -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" \
+      && bash "Miniforge3-$(uname)-$(uname -m).sh" -b -p "$MINIFORGE_HOME"; } >"$log_file" 2>&1; then
+    echo "Error: miniforge3 installation failed; log follows:" >&2
+    cat "$log_file" >&2
+    popd >/dev/null
+    exit 1
+  fi
+  popd >/dev/null
   echo "miniforge3 installation completed"
 }
 

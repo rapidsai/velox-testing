@@ -6,7 +6,7 @@
 # Presto TPC-H Benchmark Launcher
 # ==============================================================================
 # Submits a Presto TPC-H benchmark job to Slurm.  Cluster-specific values
-# (partition, time limits, image names, etc.) are read from ~/.cluster_config.env
+# (partition, time limits, image names, etc.) are read from ~/presto_cluster_config.env
 # (or the path in $CLUSTER_CONFIG).  See cluster_config.env.example.
 #
 # Usage:
@@ -32,6 +32,7 @@ NUM_ITERATIONS="2"
 EXTRA_ARGS=()
 NUM_GPUS_PER_NODE=""   # resolved from cluster config after arg parsing
 USE_NUMA=""            # resolved from cluster config after arg parsing
+USE_MMAP_ALLOCATOR=""  # resolved from cluster config after arg parsing
 VARIANT_TYPE=""        # set by --cpu; resolved from cluster config after arg parsing
 WORKER_IMAGE=""        # resolved from cluster config after arg parsing; override with -w
 COORD_IMAGE=""         # resolved from cluster config after arg parsing; override with -c
@@ -76,7 +77,7 @@ Options:
 
 Any arguments after -- are passed directly to sbatch.
 
-Cluster config (~/.cluster_config.env or \$CLUSTER_CONFIG) supplies partition,
+Cluster config (~/presto_cluster_config.env or \$CLUSTER_CONFIG) supplies partition,
 account, time limits, image names, per-variant defaults, and optional CTAS
 scratch and expected-result directories. See cluster_config.env.example.
 EOF
@@ -130,12 +131,13 @@ echo "Submitting Presto TPC-H benchmark job..."
 echo ""
 
 # Resolve variant-specific cluster values now that VARIANT_TYPE is known.
-# Default falls through CLUSTER_DEFAULT_VARIANT (set in ~/.cluster_config.env)
+# Default falls through CLUSTER_DEFAULT_VARIANT (set in ~/presto_cluster_config.env)
 # to "gpu" so existing GPU-cluster users see no change.
 VARIANT_TYPE="${VARIANT_TYPE:-${CLUSTER_DEFAULT_VARIANT:-gpu}}"
 resolve_cluster_variant "${VARIANT_TYPE}"
 : "${NUM_GPUS_PER_NODE:=${CLUSTER_NUM_WORKERS_PER_NODE:-}}"
 : "${USE_NUMA:=${CLUSTER_USE_NUMA:-0}}"
+: "${USE_MMAP_ALLOCATOR:=${CLUSTER_USE_MMAP_ALLOCATOR:-true}}"
 
 # Validate required values before submitting
 VTYPE_UPPER="${VARIANT_TYPE^^}"
@@ -204,6 +206,12 @@ ERR_FILE="${ERR_FMT//%j/${JOB_ID}}"
 echo "Resolving first node IP..."
 for i in {1..60}; do
     STATE=$(squeue -j "$JOB_ID" -h -o "%T" 2>/dev/null || true)
+    if [[ -z "${STATE}" ]]; then
+        # Job already left the queue (e.g. failed fast during setup) — no
+        # point polling for a nodelist that will never appear.
+        echo "Job already finished before a node IP could be resolved."
+        break
+    fi
     NODELIST=$(squeue -j "$JOB_ID" -h -o "%N" 2>/dev/null || true)
     if [[ -n "${NODELIST:-}" && "${NODELIST}" != "(null)" ]]; then
         FIRST_NODE=$(scontrol show hostnames "$NODELIST" | head -n 1)
@@ -238,12 +246,13 @@ echo ""
 echo "Output files:"
 ls -lh "${OUT_FILE}" "${ERR_FILE}" 2>/dev/null || echo "No output files found"
 show_job_output "${OUT_FILE}" "${ERR_FILE}" "logs/cli.log" "benchmark results"
-[[ "${JOB_STATE}" == "COMPLETED" ]] || exit 1
 
 if [[ -n "${OUTPUT_PATH}" ]]; then
     echo ""
     echo "Copying results to ${OUTPUT_PATH}..."
     mkdir -p "${OUTPUT_PATH}"
     cp -r result_dir/. "${OUTPUT_PATH}/"
-    echo "Results copied to ${OUTPUT_PATH}"
+    echo_success "Results copied to ${OUTPUT_PATH}"
 fi
+
+[[ "${JOB_STATE}" == "COMPLETED" ]] || exit 1

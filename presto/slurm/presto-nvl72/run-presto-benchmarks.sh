@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-set -exuo pipefail
+set -euo pipefail
 
 # ==============================================================================
 # Presto TPC-H Benchmark Execution Script
@@ -14,10 +14,12 @@ set -exuo pipefail
 source $SCRIPT_DIR/echo_helpers.sh
 source $SCRIPT_DIR/functions.sh
 
-# Ensure metadata injection runs even if the script exits early (e.g. a worker
-# fails to register).  This guarantees benchmark_result.json always has a
-# context block with image_digest before the results are copied out.
-trap 'inject_benchmark_metadata' EXIT
+collect_logs_on_exit() {
+    inject_benchmark_metadata
+    mkdir -p "${SCRIPT_DIR}/result_dir"
+    cp "${LOGS}"/*.log "${LOGS}"/*.out "${LOGS}"/*.err "${SCRIPT_DIR}/result_dir/" 2>/dev/null || true
+}
+trap 'collect_logs_on_exit' EXIT
 
 # ==============================================================================
 # Setup and Validation
@@ -49,7 +51,7 @@ collect_results
 wait_for_nsys_report_generation
 
 echo "========================================"
-echo "Benchmark complete!"
+echo_success "Benchmark complete!"
 echo "Results saved to: ${SCRIPT_DIR}/results_dir"
 echo "Logs available at: ${LOGS}"
 echo "========================================"

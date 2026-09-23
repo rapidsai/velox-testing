@@ -4,14 +4,25 @@
 
 set -euo pipefail
 
+# shellcheck disable=SC2034  # Used by workflows that source this helper.
+read -ra cuda_versions <<< "${MANIFEST_CUDA_VERSION:-12.9 13.1}"
+manifest_base_tags=()
 create_manifest_alias() {
   local tag="$1"
   local final_tag="$2"
 
+  local architectures
+  read -ra architectures <<< "${MANIFEST_ARCHITECTURE:-amd64 arm64}"
+
+  local sources=()
+  local arch
+  for arch in "${architectures[@]}"; do
+    sources+=("${REGISTRY}/${IMAGE_NAME}:${tag}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-${arch}")
+  done
+
   echo "Creating multi-arch manifest: ${final_tag}"
   docker buildx imagetools create -t "${REGISTRY}/${IMAGE_NAME}:${final_tag}" \
-    "${REGISTRY}/${IMAGE_NAME}:${tag}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-amd64" \
-    "${REGISTRY}/${IMAGE_NAME}:${tag}-${BUILD_VARIANT}-${GITHUB_RUN_ID}-arm64"
+    "${sources[@]}"
 }
 
 resolve_run_id_suffix() {
@@ -28,4 +39,13 @@ create_manifest() {
   local tag="$1"
 
   create_manifest_alias "${tag}" "${tag}$(resolve_run_id_suffix)"
+  manifest_base_tags+=("${tag}-${BUILD_VARIANT}-${GITHUB_RUN_ID}")
+}
+
+write_manifest_base_tags() {
+  {
+    echo 'base_tags<<EOF'
+    printf '%s\n' "${manifest_base_tags[@]}"
+    echo 'EOF'
+  } >> "${GITHUB_OUTPUT}"
 }
