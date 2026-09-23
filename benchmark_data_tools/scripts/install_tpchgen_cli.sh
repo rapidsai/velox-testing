@@ -72,7 +72,6 @@ docker rmi "$IMAGE_NAME"
 
 # Record which repo, branch and commit this binary was built from, so a
 # generated dataset can be traced back to its generator.
-mkdir -p "$INSTALL_DIR"
 cat >"$METADATA_FILE" <<EOF
 {
   "repo_url": "$REPO_URL",

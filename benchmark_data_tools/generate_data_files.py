@@ -16,7 +16,7 @@ from typing import NamedTuple
 
 import duckdb
 import psutil
-from duckdb_utils import TPCDS_PARQUET_VERSION, copy_to_parquet, get_select_query, init_benchmark_tables
+from duckdb_utils import PARQUET_VERSION, copy_to_parquet, get_select_query, init_benchmark_tables
 from register_storage_config import register_storage_config
 from row_group_sizing import row_group_row_count_probe
 
@@ -25,8 +25,6 @@ _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
 _PROBE_MEMORY_PERCENT = 20
 _MIN_MEMORY_LIMIT = 1 * 1024**3
-_PARQUET_VERSION = 2
-TPCH_PARQUET_VERSION = _PARQUET_VERSION
 
 
 def generate_partition(
@@ -57,7 +55,7 @@ def generate_partition(
         "--part",
         str(partition),
         "--parquet-version",
-        str(TPCH_PARQUET_VERSION),
+        str(PARQUET_VERSION),
         "--row-group-bytes",
         str(approx_row_group_bytes),
     ]
@@ -245,7 +243,7 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "generator_version": generator_version,
         "scale_factor": args.scale_factor,
         "convert_decimals_to_floats": args.convert_decimals_to_floats,
-        "parquet_version": TPCH_PARQUET_VERSION if using_tpchgen else TPCDS_PARQUET_VERSION,
+        "parquet_version": PARQUET_VERSION,
         "data_dir_path": str(Path(args.data_dir_path).resolve()),
         "max_rows_per_file": args.max_rows_per_file,
         "approx_row_group_bytes": args.approx_row_group_bytes,
@@ -446,12 +444,7 @@ def get_tpchgen_codec_args(codec_defs, table_name):
                 )
             args.append(f"--column-encoding={column['name']}={encoding}")
 
-    # --column-encoding already disables the dictionary for the columns it names,
-    # so only pass this for columns that want no dictionary without choosing an
-    # encoding, which keeps the writer default.
-    no_dict_cols = [
-        column["name"] for column in columns if column.get("dictionary") is False and not column.get("encoding")
-    ]
+    no_dict_cols = [column["name"] for column in columns if column.get("dictionary") is False]
     if no_dict_cols:
         args.append(f"--disable-dictionary-encoding={','.join(no_dict_cols)}")
 
