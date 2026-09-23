@@ -16,7 +16,7 @@ from typing import NamedTuple
 
 import duckdb
 import psutil
-from duckdb_utils import PARQUET_VERSION, copy_to_parquet, get_select_query, init_benchmark_tables
+from duckdb_utils import DUCKDB_PARQUET_VERSION, copy_to_parquet, get_select_query, init_benchmark_tables
 from register_storage_config import register_storage_config
 from row_group_sizing import row_group_row_count_probe
 
@@ -25,6 +25,7 @@ _HIGH_CARD_NDV_THRESHOLD = 0.99
 _SAMPLE_SF = 0.01
 _PROBE_MEMORY_PERCENT = 20
 _MIN_MEMORY_LIMIT = 1 * 1024**3
+_PARQUET_VERSION = 2
 
 
 def generate_partition(
@@ -55,7 +56,7 @@ def generate_partition(
         "--part",
         str(partition),
         "--parquet-version",
-        str(PARQUET_VERSION),
+        str(_PARQUET_VERSION),
         "--row-group-bytes",
         str(approx_row_group_bytes),
     ]
@@ -243,7 +244,7 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "generator_version": generator_version,
         "scale_factor": args.scale_factor,
         "convert_decimals_to_floats": args.convert_decimals_to_floats,
-        "parquet_version": PARQUET_VERSION,
+        "parquet_version": _PARQUET_VERSION if using_tpchgen else DUCKDB_PARQUET_VERSION,
         "data_dir_path": str(Path(args.data_dir_path).resolve()),
         "max_rows_per_file": args.max_rows_per_file,
         "approx_row_group_bytes": args.approx_row_group_bytes,
