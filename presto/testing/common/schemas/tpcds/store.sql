@@ -28,4 +28,4 @@ CREATE TABLE hive.{schema}.store (
     s_country VARCHAR,
     s_gmt_offset DOUBLE,
     s_tax_percentage DOUBLE
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

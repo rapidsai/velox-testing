@@ -71,7 +71,10 @@ def write_query_engine_rows(output_dir, result_file_name, rows, columns, query_e
 
 
 def create_duckdb_table(table_name, data_path):
-    create_table(table_name, get_abs_file_path(__file__, data_path))
+    # Only resolve local path
+    if "://" not in data_path:
+        data_path = get_abs_file_path(__file__, data_path)
+    create_table(table_name, data_path)
 
 
 def initialize_output_dir(config, query_engine):
