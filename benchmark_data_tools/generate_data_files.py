@@ -44,6 +44,7 @@ def generate_partition(
     Path(f"{raw_data_path}/part-{partition}").mkdir(parents=True, exist_ok=True)
     command = [
         "tpchgen-cli",
+        "parquet",
         "-T",
         table,
         "-s",
@@ -54,11 +55,9 @@ def generate_partition(
         str(num_partitions),
         "--part",
         str(partition),
-        "--format",
-        "parquet",
         "--parquet-version",
         str(_PARQUET_VERSION),
-        "--parquet-row-group-bytes",
+        "--row-group-bytes",
         str(approx_row_group_bytes),
     ]
 
@@ -71,7 +70,7 @@ def generate_partition(
         subprocess.run(command, check=True, stderr=subprocess.PIPE, text=True)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
-        if "--parquet-compression" in stderr:
+        if "--compression" in stderr:
             bad_value = next(t["compression"] for t in codec_defs["tables"] if t["name"] == table)
             raise ValueError(
                 f"Invalid 'compression' value '{bad_value}' for table '{table}' in codec definitions. "
@@ -245,7 +244,7 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "generator_version": generator_version,
         "scale_factor": args.scale_factor,
         "convert_decimals_to_floats": args.convert_decimals_to_floats,
-        "parquet_version": _PARQUET_VERSION,
+        "parquet_version": _PARQUET_VERSION if using_tpchgen else 1,
         "data_dir_path": str(Path(args.data_dir_path).resolve()),
         "max_rows_per_file": args.max_rows_per_file,
         "approx_row_group_bytes": args.approx_row_group_bytes,
@@ -426,7 +425,7 @@ def get_tpchgen_codec_args(codec_defs, table_name):
 
     table_compression = table_config.get("compression")
     if table_compression:
-        args.append(f"--parquet-compression={table_compression.upper()}")
+        args.append(f"--compression={table_compression.upper()}")
 
     columns = table_config.get("columns", [])
     if not columns:
@@ -470,6 +469,16 @@ def load_codec_definitions(path):
         for column in table.get("columns", []):
             if "name" not in column:
                 raise ValueError(f"Each column entry must have a 'name' key (table '{table['name']}'): {path}")
+            # tpchgen-cli's --column-encoding disables the dictionary for the
+            # column it names, so a column cannot have both an encoding and a
+            # dictionary. Reject it rather than silently dropping the dictionary.
+            if column.get("encoding") and column.get("dictionary") is True:
+                raise ValueError(
+                    f"Column '{column['name']}' in table '{table['name']}' sets both 'encoding' and "
+                    f"'dictionary': true, which cannot be satisfied: setting an encoding disables the "
+                    f"dictionary. Drop 'encoding' to keep the dictionary, or set 'dictionary': false. "
+                    f"({path})"
+                )
 
     return codec_defs
 
