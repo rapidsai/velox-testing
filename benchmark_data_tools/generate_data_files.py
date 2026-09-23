@@ -16,7 +16,7 @@ from typing import NamedTuple
 
 import duckdb
 import psutil
-from duckdb_utils import DUCKDB_PARQUET_VERSION, copy_to_parquet, get_select_query, init_benchmark_tables
+from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
 from register_storage_config import register_storage_config
 from row_group_sizing import row_group_row_count_probe
 
@@ -244,7 +244,7 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "generator_version": generator_version,
         "scale_factor": args.scale_factor,
         "convert_decimals_to_floats": args.convert_decimals_to_floats,
-        "parquet_version": _PARQUET_VERSION if using_tpchgen else DUCKDB_PARQUET_VERSION,
+        "parquet_version": _PARQUET_VERSION if using_tpchgen else 1,
         "data_dir_path": str(Path(args.data_dir_path).resolve()),
         "max_rows_per_file": args.max_rows_per_file,
         "approx_row_group_bytes": args.approx_row_group_bytes,

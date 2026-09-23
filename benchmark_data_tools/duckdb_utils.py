@@ -5,8 +5,6 @@ import re
 
 import duckdb
 
-DUCKDB_PARQUET_VERSION = 1
-
 
 def quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
@@ -56,7 +54,7 @@ def is_decimal_column(column_type):
 
 
 def copy_to_parquet(select_query, file_path, row_group_rows=None, conn=duckdb):
-    options = f"FORMAT parquet, PARQUET_VERSION 'V{DUCKDB_PARQUET_VERSION}'"
+    options = "FORMAT parquet, PARQUET_VERSION 'V1'"
     if row_group_rows is not None:
         options += f", ROW_GROUP_SIZE {row_group_rows}"
     conn.sql(f"COPY ({select_query}) TO '{file_path}' ({options})")
