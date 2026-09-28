@@ -16,7 +16,7 @@ def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directo
         # When external_location_base is set (e.g. s3://bucket/prefix/sf100), point the
         # table at that base. Otherwise fall back to the local bind-mounted file path.
         if external_location_base:
-            location = f"{external_location_base}/{table_name}"
+            location = f"{external_location_base.rstrip('/')}/{table_name}"
         else:
             location = f"file:/var/lib/presto/data/hive/data/{data_sub_directory}/{table_name}"
         presto_cursor.execute(schema.format(location=location, schema=schema_name))
