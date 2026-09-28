@@ -10,9 +10,9 @@ print_help() {
 
 Usage: $0 [OPTIONS]
 
-Registers benchmark external tables in a Presto Hive schema whose data lives at an
-EXTERNAL_LOCATION URI (e.g. s3://, file:). Each table's column types are derived from
-the Parquet at the location (via DuckDB).
+Registers benchmark external tables in a Presto Hive schema whose Parquet data lives in
+AWS S3. Each table's column types are derived from the Parquet at the location (via DuckDB).
+For local data, use setup_benchmark_data_and_tables.sh instead.
 
 The tables are created with EXTERNAL_LOCATION = <base>/<table_name>, where <base>
 is the --external-location-base value (which must already include the scale-factor
@@ -25,7 +25,7 @@ OPTIONS:
     -b, --benchmark-type            Benchmark type: "tpch" or "tpcds" (required).
     -s, --schema-name               Name of the Hive schema to (re)create tables in (required).
                                     The schema is dropped and recreated.
-    -l, --external-location-base    Full URI base that contains one subdirectory per table,
+    -l, --external-location-base    S3 URI base that contains one subdirectory per table,
                                     e.g. s3://my-bucket/velox/sf100 (required). "/<table_name>"
                                     will be appended per table.
     -H, --hostname                  Hostname of the Presto coordinator (default: localhost).
@@ -117,6 +117,11 @@ fi
 if [[ -z ${EXTERNAL_LOCATION_BASE} ]]; then
   echo "Error: An external location base is required. Use the -l or --external-location-base argument."
   print_help
+  exit 1
+fi
+
+if [[ ${EXTERNAL_LOCATION_BASE} != s3://* ]]; then
+  echo "Error: --external-location-base must be an s3:// URI. For local data, use setup_benchmark_data_and_tables.sh."
   exit 1
 fi
 

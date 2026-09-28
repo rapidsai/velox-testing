@@ -222,7 +222,7 @@ eval "$(aws configure export-credentials --format env)" # AWS_ACCESS_KEY_ID / SE
    ./run_integ_test.sh -b tpch -s tpch_sf100_s3
    ```
 
-The scale factor is auto-detected from a `metadata.json` at the data location, regardless of local or remote. Any URI scheme accepted by the engine works with `register_external_tables.sh` (e.g. `file:`, `s3://`).
+The scale factor is auto-detected from the `metadata.json` in the S3 data directory. `register_external_tables.sh` only accepts `s3://` locations. For local data, use `setup_benchmark_data_and_tables.sh` (see [Benchmark Data](#benchmark-data)).
 
 ## Configuration
 

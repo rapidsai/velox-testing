@@ -23,8 +23,8 @@ def get_table_external_location(schema_name, table, presto_cursor):
     location_match = re.search(r"external_location = '([^']+)'", create_table_text[0])
     assert location_match, f"Table hive.{schema_name}.{table} has no external_location"
     location = location_match.group(1)
-    # For remote path
-    if not location.startswith("file:"):
+    # For S3 path
+    if location.startswith("s3://"):
         return location
     # For local path
     test_match = re.search(r"^file:/var/lib/presto/data/hive/data/integration_test/(.*)$", location)
@@ -34,7 +34,13 @@ def get_table_external_location(schema_name, table, presto_cursor):
         )
     else:
         user_match = re.search(r"^file:/var/lib/presto/data/hive/data/user_data/(.*)$", location)
-        external_dir = f"{os.environ['PRESTO_DATA_DIR']}/{user_match.group(1)}" if user_match else ""
+        if not user_match:
+            raise Exception(
+                f"Unsupported external location '{location}' referenced by table hive.{schema_name}.{table}. "
+                "Only s3:// locations and file: locations under /var/lib/presto/data/hive/data/integration_test "
+                "or /var/lib/presto/data/hive/data/user_data are supported."
+            )
+        external_dir = f"{os.environ['PRESTO_DATA_DIR']}/{user_match.group(1)}"
     if not os.path.isdir(external_dir):
         raise Exception(
             f"External location '{external_dir}' referenced by table hive.{schema_name}.{table} does not exist"
