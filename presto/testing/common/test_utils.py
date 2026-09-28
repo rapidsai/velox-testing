@@ -18,11 +18,12 @@ sys.path.append(get_abs_file_path(__file__, "../../../benchmark_data_tools"))
 def get_table_external_location(schema_name, table, presto_cursor):
     create_table_text = presto_cursor.execute(f"SHOW CREATE TABLE hive.{schema_name}.{table}").fetchone()
     assert len(create_table_text) == 1
-    # Capture everything between two single quotes
-    location_match = re.search(r"external_location = '([^']*)'", create_table_text[0])
-    location = location_match.group(1) if location_match else ""
+    # Capture the non-empty location between two single quotes
+    location_match = re.search(r"external_location = '([^']+)'", create_table_text[0])
+    assert location_match, f"Table hive.{schema_name}.{table} has no external_location"
+    location = location_match.group(1)
     # For remote path
-    if location and not location.startswith("file:"):
+    if not location.startswith("file:"):
         return location
     # For local path
     test_match = re.search(r"^file:/var/lib/presto/data/hive/data/integration_test/(.*)$", location)
