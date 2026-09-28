@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import os
 import re
 import sys
@@ -43,9 +44,15 @@ def get_table_external_location(schema_name, table, presto_cursor):
 
 def read_scale_factor(metadata_uri):
     """Read the scale factor from a metadata.json at metadata_uri (local path or s3://)."""
-    import duckdb_utils
+    if metadata_uri.startswith("s3://"):
+        import duckdb_utils
 
-    return duckdb_utils.read_scale_factor(metadata_uri)
+        metadata = json.loads(duckdb_utils.read_text(metadata_uri))
+    else:
+        with open(metadata_uri) as file:
+            metadata = json.load(file)
+    # The scale factor is either a top-level field or nested under 'options'.
+    return metadata.get("scale_factor") or metadata.get("options", {}).get("scale_factor")
 
 
 def get_scale_factor(request, presto_cursor):
