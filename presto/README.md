@@ -162,7 +162,10 @@ benchmark_data/
    └─ supplier/
 ```
 
-Generate new data or set up tables on existing data using the provided scripts.
+Set up the tables with the scripts in `presto/scripts` (run each with `--help` for all options):
+
+- `setup_benchmark_tables.sh` sets up tables on data that already exists, either locally under `PRESTO_DATA_DIR` (`-d`) or in S3 (`-l`, see [Remote Data Sources](#remote-data-sources-aws-s3)). It starts a CPU Presto instance, creates the tables, runs ANALYZE, and stops the instance.
+- `setup_benchmark_data_and_tables.sh` first generates the data under `PRESTO_DATA_DIR`, then runs `setup_benchmark_tables.sh` on it.
 
 ## Testing Different Scale Factors
 
@@ -199,30 +202,25 @@ eval "$(aws configure export-credentials --format env)" # AWS_ACCESS_KEY_ID / SE
 
 ### Workflow
 
-1. Start Presto (GPU is shown. CPU works too):
+1. Set up the tables on the S3 data. Like for local data, this starts a CPU Presto instance, creates the tables, runs ANALYZE, and stops the instance:
    ```bash
    cd velox-testing/presto/scripts
+   ./setup_benchmark_tables.sh --help  # See all options
+   ./setup_benchmark_tables.sh -b tpch -s tpch_sf100_s3 -l s3://my-bucket/velox/sf100
+   ```
+
+2. Start Presto (GPU is shown. CPU works too):
+   ```bash
    ./start_native_gpu_presto.sh
    ```
 
-2. Register the external tables at the S3 location:
-   ```bash
-   ./register_external_tables.sh --help  # See all options
-   ./register_external_tables.sh -b tpch -s tpch_sf100_s3 -l s3://my-bucket/velox/sf100
-   ```
-
-3. Run ANALYZE on CPU Presto:
-   ```bash
-   ./analyze_tables.sh -s tpch_sf100_s3
-   ```
-
-4. Run benchmarks or integration tests against the schema:
+3. Run benchmarks or integration tests against the schema:
    ```bash
    ./run_benchmark.sh  -b tpch -s tpch_sf100_s3
    ./run_integ_test.sh -b tpch -s tpch_sf100_s3
    ```
 
-The scale factor is auto-detected from the `metadata.json` in the remote data directory. `register_external_tables.sh` currently only accepts `s3://` locations. For local data, use `setup_benchmark_data_and_tables.sh` (see [Benchmark Data](#benchmark-data)).
+The scale factor is auto-detected from the `metadata.json` in the remote data directory. Only `s3://` locations are currently supported.
 
 ## Configuration
 
