@@ -156,7 +156,6 @@ services:
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
     volumes:
-      - /opt/dlami/nvme/presto-gpu-nvme-cache:/mnt/nvme_cache
 {%- if workers %}
       # Mount all etc directories for workers {{ workers|join(', ') }}
 {%- for gpu_id in workers %}
