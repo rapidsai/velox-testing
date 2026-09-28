@@ -10,11 +10,11 @@ import duckdb
 _s3_configured = False
 
 
-def ensure_remote_access(path) -> None:
-    """Configure DuckDB to read from a remote object store if ``path`` needs it.
+def configure_data_access(path) -> None:
+    """Configure DuckDB to read data at ``path``.
 
-    The region must be provided via AWS_DEFAULT_REGION (or AWS_REGION). Do nothing for local
-    paths.
+    Local paths need no setup. For s3:// paths, the region must be provided via
+    AWS_DEFAULT_REGION (or AWS_REGION).
     """
     global _s3_configured
     if _s3_configured or not str(path).startswith("s3://"):
@@ -46,7 +46,7 @@ def read_scale_factor(metadata_uri: str):
         with open(metadata_uri) as file:
             return _extract_scale_factor(json.load(file))
     # For remote data
-    ensure_remote_access(metadata_uri)
+    configure_data_access(metadata_uri)
     raw = duckdb.sql(f"SELECT content FROM read_text('{metadata_uri}')").fetchone()[0]
     return _extract_scale_factor(json.loads(raw))
 
@@ -75,7 +75,7 @@ def drop_benchmark_tables():
 
 
 def create_table(table_name, data_path):
-    ensure_remote_access(data_path)
+    configure_data_access(data_path)
     duckdb.sql(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
     duckdb.sql(f"CREATE TABLE {quote_ident(table_name)} AS SELECT * FROM '{data_path}/*.parquet';")
 
@@ -83,7 +83,7 @@ def create_table(table_name, data_path):
 # Generates a sample table with a small limit.
 # This is mainly used to extract the schema from the parquet files.
 def create_not_null_table_from_sample(table_name, data_path):
-    ensure_remote_access(data_path)
+    configure_data_access(data_path)
     duckdb.sql(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
     duckdb.sql(f"CREATE TABLE {quote_ident(table_name)} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
     ret = duckdb.sql(f"DESCRIBE TABLE {quote_ident(table_name)}").fetchall()
@@ -92,7 +92,7 @@ def create_not_null_table_from_sample(table_name, data_path):
 
 
 def create_table_from_sample(table_name, data_path):
-    ensure_remote_access(data_path)
+    configure_data_access(data_path)
     duckdb.sql(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
     duckdb.sql(f"CREATE TABLE {quote_ident(table_name)} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
 
