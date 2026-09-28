@@ -6,17 +6,30 @@
 set -e
 
 SCRIPT_DESCRIPTION="This script sets up benchmark tables under the given schema name. The benchmark data
-is expected to already exist under the PRESTO_DATA_DIR path in a directory with name
-that matches the value set for the --data-dir-name argument."
+is expected to already exist, either under the PRESTO_DATA_DIR path in a directory with name
+that matches the value set for the --data-dir-name argument, or in remote object storage at the
+URI set for the --remote-data-dir-path argument."
 
 SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100"
-SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-H, --hostname                   Hostname of the Presto coordinator (default: localhost).
+SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-l, --remote-data-dir-path          URI of a remote directory that contains one subdirectory per table,
+                                        e.g. s3://my-bucket/velox/sf100 (currently AWS S3 only). Use instead of -d.
+    -H, --hostname                      Hostname of the Presto coordinator (default: localhost).
     -p, --port                          Port number of the Presto coordinator (default: 8080)."
 SCRIPT_EXTRA_OPTIONS_SHIFTS=0
 SCRIPT_EXTRA_OPTIONS_PARSER=parse_extra_options
 
 parse_extra_options() {
   case $1 in
+    -l|--remote-data-dir-path)
+      if [[ -n $2 ]]; then
+        REMOTE_DATA_DIR_PATH=$2
+        SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=false
+        SCRIPT_EXTRA_OPTIONS_SHIFTS=2
+      else
+        echo "Error: --remote-data-dir-path requires a value"
+        exit 1
+      fi
+      ;;
     -H|--hostname)
       if [[ -n $2 ]]; then
         HOST_NAME=$2
@@ -48,9 +61,23 @@ source "${SCRIPT_DIR}/setup_benchmark_helper_check_instance_and_parse_args.sh"
 
 set_presto_coordinator_defaults
 
-if [[ ! -d ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} ]]; then
-  echo "Error: Benchmark data must already exist inside: ${PRESTO_DATA_DIR}/${DATA_DIR_NAME}"
-  exit 1
+STATIC_SCHEMAS_DIR=$(readlink -f "${SCRIPT_DIR}/../testing/common/schemas/${BENCHMARK_TYPE}")
+mapfile -t TABLE_NAMES < <(cd "$STATIC_SCHEMAS_DIR" && ls -1 *.sql | sed 's/\.sql$//')
+
+if [[ -n ${REMOTE_DATA_DIR_PATH} ]]; then
+  if [[ ${REMOTE_DATA_DIR_PATH} != s3://* ]]; then
+    echo "Error: --remote-data-dir-path must be an s3:// URI (the only remote storage supported so far)."
+    exit 1
+  fi
+  SCHEMA_GEN_DATA_ARGS=(--remote-data-dir-path "$REMOTE_DATA_DIR_PATH")
+  CREATE_TABLES_DATA_ARGS=(--remote-data-dir-path "$REMOTE_DATA_DIR_PATH")
+else
+  if [[ ! -d ${PRESTO_DATA_DIR}/${DATA_DIR_NAME} ]]; then
+    echo "Error: Benchmark data must already exist inside: ${PRESTO_DATA_DIR}/${DATA_DIR_NAME}"
+    exit 1
+  fi
+  SCHEMA_GEN_DATA_ARGS=(--data-dir-name "${PRESTO_DATA_DIR}/${DATA_DIR_NAME}")
+  CREATE_TABLES_DATA_ARGS=(--data-dir-name "$DATA_DIR_NAME")
 fi
 
 SCHEMA_GEN_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../benchmark_data_tools/generate_table_schemas.py")
@@ -76,13 +103,15 @@ fi
 "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet -p $SCHEMA_GEN_SCRIPT_PATH \
                                --benchmark-type $BENCHMARK_TYPE \
                                --schemas-dir-path $TEMP_SCHEMA_DIR \
-                               --data-dir-name "${PRESTO_DATA_DIR}/${DATA_DIR_NAME}"
+                               "${SCHEMA_GEN_DATA_ARGS[@]}" \
+                               --table-names "${TABLE_NAMES[@]}"
 
-"${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet -p $CREATE_TABLES_SCRIPT_PATH \
+# HOSTNAME/PORT are read by create_hive_tables.py to connect to the coordinator.
+HOSTNAME="$HOST_NAME" PORT="$PORT" "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet -p $CREATE_TABLES_SCRIPT_PATH \
                                -r $CREATE_TABLES_REQUIREMENTS_PATH \
                                --schema-name $SCHEMA_NAME \
                                --schemas-dir-path $TEMP_SCHEMA_DIR \
-                               --data-dir-name $DATA_DIR_NAME
+                               "${CREATE_TABLES_DATA_ARGS[@]}"
 
 if [[ "$SKIP_ANALYZE_TABLES" == "false" ]]; then
   "${SCRIPT_DIR}/analyze_tables.sh" -s $SCHEMA_NAME -H "$HOST_NAME" -p "$PORT"

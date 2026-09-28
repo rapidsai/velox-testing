@@ -39,10 +39,13 @@ def generate_table_schemas(
         for table_name in table_names:
             _sample_table(benchmark_type, table_name, f"{base}/{table_name}")
     else:
-        for file in os.listdir(data_dir_name):
-            sub_dir = os.path.join(data_dir_name, file)
-            if os.path.isdir(sub_dir):
-                _sample_table(benchmark_type, os.path.basename(file), sub_dir)
+        if table_names is None:
+            # Without explicit table names, every subdirectory of the data directory is a table.
+            table_names = [
+                name for name in os.listdir(data_dir_name) if os.path.isdir(os.path.join(data_dir_name, name))
+            ]
+        for table_name in table_names:
+            _sample_table(benchmark_type, table_name, os.path.join(data_dir_name, table_name))
 
     Path(schemas_dir_path).mkdir(parents=True, exist_ok=True)
 
@@ -115,7 +118,8 @@ if __name__ == "__main__":
         nargs="+",
         default=None,
         help="Table names to generate schemas for. Required with --remote-data-dir-path, since the "
-        "remote data directory can also hold Parquet that is not a table (e.g. expected query results).",
+        "remote data directory can also hold Parquet that is not a table (e.g. expected query results). "
+        "Optional with --data-dir-name, where every subdirectory is treated as a table by default.",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", required=False, default=False, help="Extra verbose logging"
