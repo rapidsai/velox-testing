@@ -37,7 +37,7 @@ def setup_and_teardown(request, presto_cursor):
         location = get_table_external_location(schema_name, table, presto_cursor)
         print(f"  {schema_name}.{table}: location={location}")
         if not request.config.getoption("--reference-results-dir"):
-            test_utils.create_duckdb_table(table, location)
+            test_utils.create_duckdb_table(table, location, is_s3_location=location.startswith("s3://"))
 
     test_utils.initialize_output_dir(request.config, "presto")
 
