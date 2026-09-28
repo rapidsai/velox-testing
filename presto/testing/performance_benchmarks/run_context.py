@@ -8,6 +8,7 @@ read from worker log files (LOGS_DIR env var). Scale factor and n_workers come f
 schema and Presto /v1/node respectively.
 """
 
+import json
 import os
 import re
 from pathlib import Path
