@@ -32,8 +32,9 @@ def generate_table_schemas(
     assert len(tables) == 0
 
     if remote_data_dir_path:
-        # Derive the schema from the Parquet that actually lives in remote storage. A remote
-        # prefix cannot be listed, so the table names are supplied by the caller.
+        # Derive the schema from the Parquet that actually lives in remote storage. The table
+        # names are supplied by the caller rather than listed, because the data directory can
+        # also hold Parquet that is not a table (e.g. expected query results).
         base = remote_data_dir_path.rstrip("/")
         for table_name in table_names:
             _sample_table(benchmark_type, table_name, f"{base}/{table_name}")
@@ -113,8 +114,8 @@ if __name__ == "__main__":
         "--table-names",
         nargs="+",
         default=None,
-        help="Table names to generate schemas for. Required with --remote-data-dir-path since a "
-        "remote prefix cannot be listed.",
+        help="Table names to generate schemas for. Required with --remote-data-dir-path, since the "
+        "remote data directory can also hold Parquet that is not a table (e.g. expected query results).",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", required=False, default=False, help="Extra verbose logging"
