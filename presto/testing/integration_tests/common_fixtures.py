@@ -4,7 +4,7 @@
 import prestodb
 import pytest
 
-from ..common.test_utils import get_abs_file_path, get_table_external_location
+from ..common.test_utils import get_abs_file_path, get_table_external_location, is_remote_location
 from . import create_hive_tables, test_utils
 
 
@@ -37,7 +37,7 @@ def setup_and_teardown(request, presto_cursor):
         location = get_table_external_location(schema_name, table, presto_cursor)
         print(f"  {schema_name}.{table}: location={location}")
         if not request.config.getoption("--reference-results-dir"):
-            test_utils.create_duckdb_table(table, location, is_s3_location=location.startswith("s3://"))
+            test_utils.create_duckdb_table(table, location, is_remote_location=is_remote_location(location))
 
     test_utils.initialize_output_dir(request.config, "presto")
 

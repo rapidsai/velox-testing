@@ -11,12 +11,13 @@ print_help() {
 Usage: $0 [OPTIONS]
 
 Registers benchmark external tables in a Presto Hive schema whose Parquet data lives in
-AWS S3. Each table's column types are derived from the Parquet at the location (via DuckDB).
-For local data, use setup_benchmark_data_and_tables.sh instead.
+remote object storage (currently AWS S3 only). Each table's column types are derived from
+the Parquet at the location (via DuckDB). For local data, use
+setup_benchmark_data_and_tables.sh instead.
 
-The tables are created with EXTERNAL_LOCATION = <base>/<table_name>, where <base>
-is the --external-location-base value (which must already include the scale-factor
-directory, e.g. s3://bucket/prefix/sf100).
+The tables are created with EXTERNAL_LOCATION = <remote-data-dir-path>/<table_name>, where
+<remote-data-dir-path> must already include the scale-factor directory, e.g.
+s3://bucket/prefix/sf100.
 
 NOTE: This script assumes a Presto server is already running.
 
@@ -25,16 +26,16 @@ OPTIONS:
     -b, --benchmark-type            Benchmark type: "tpch" or "tpcds" (required).
     -s, --schema-name               Name of the Hive schema to (re)create tables in (required).
                                     The schema is dropped and recreated.
-    -l, --external-location-base    S3 URI base that contains one subdirectory per table,
-                                    e.g. s3://my-bucket/velox/sf100 (required). "/<table_name>"
-                                    will be appended per table.
+    -l, --remote-data-dir-path      URI of the remote directory that contains one subdirectory
+                                    per table, e.g. s3://my-bucket/velox/sf100 (required).
+                                    "/<table_name>" will be appended per table.
     -H, --hostname                  Hostname of the Presto coordinator (default: localhost).
     -p, --port                      Port number of the Presto coordinator (default: 8080).
 
 EXAMPLES:
     $0 -b tpch -s tpch_sf100_s3 -l s3://my-bucket/velox/sf100
     $0 --benchmark-type tpch --schema-name tpch_sf100_s3 \\
-       --external-location-base s3://my-bucket/velox/sf100 -H localhost -p 8080
+       --remote-data-dir-path s3://my-bucket/velox/sf100 -H localhost -p 8080
 
 EOF
 }
@@ -64,12 +65,12 @@ parse_args() {
           exit 1
         fi
         ;;
-      -l|--external-location-base)
+      -l|--remote-data-dir-path)
         if [[ -n $2 ]]; then
-          EXTERNAL_LOCATION_BASE=$2
+          REMOTE_DATA_DIR_PATH=$2
           shift 2
         else
-          echo "Error: --external-location-base requires a value"
+          echo "Error: --remote-data-dir-path requires a value"
           exit 1
         fi
         ;;
@@ -114,14 +115,15 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
-if [[ -z ${EXTERNAL_LOCATION_BASE} ]]; then
-  echo "Error: An external location base is required. Use the -l or --external-location-base argument."
+if [[ -z ${REMOTE_DATA_DIR_PATH} ]]; then
+  echo "Error: A remote data directory path is required. Use the -l or --remote-data-dir-path argument."
   print_help
   exit 1
 fi
 
-if [[ ${EXTERNAL_LOCATION_BASE} != s3://* ]]; then
-  echo "Error: --external-location-base must be an s3:// URI. For local data, use setup_benchmark_data_and_tables.sh."
+if [[ ${REMOTE_DATA_DIR_PATH} != s3://* ]]; then
+  echo "Error: --remote-data-dir-path must be an s3:// URI (the only remote storage supported so far)."
+  echo "For local data, use setup_benchmark_data_and_tables.sh."
   exit 1
 fi
 
@@ -148,7 +150,7 @@ function cleanup() {
 trap cleanup EXIT
 rm -rf "$TEMP_SCHEMA_DIR"
 
-echo "Registering ${BENCHMARK_TYPE} tables in schema '${SCHEMA_NAME}' at base: ${EXTERNAL_LOCATION_BASE}"
+echo "Registering ${BENCHMARK_TYPE} tables in schema '${SCHEMA_NAME}' at: ${REMOTE_DATA_DIR_PATH}"
 
 "${SCRIPT_DIR}/../../scripts/run_py_script.sh" \
   -p "$SCHEMA_GEN_SCRIPT_PATH" \
@@ -156,7 +158,7 @@ echo "Registering ${BENCHMARK_TYPE} tables in schema '${SCHEMA_NAME}' at base: $
   -- \
   --benchmark-type "$BENCHMARK_TYPE" \
   --schemas-dir-path "$TEMP_SCHEMA_DIR" \
-  --external-location-base "$EXTERNAL_LOCATION_BASE" \
+  --remote-data-dir-path "$REMOTE_DATA_DIR_PATH" \
   --table-names "${TABLE_NAMES[@]}"
 
 # HOSTNAME/PORT are read by create_hive_tables.py to connect to the coordinator.
@@ -166,6 +168,6 @@ HOSTNAME="$HOST_NAME" PORT="$PORT" "${SCRIPT_DIR}/../../scripts/run_py_script.sh
   -- \
   --schema-name "$SCHEMA_NAME" \
   --schemas-dir-path "$TEMP_SCHEMA_DIR" \
-  --external-location-base "$EXTERNAL_LOCATION_BASE"
+  --remote-data-dir-path "$REMOTE_DATA_DIR_PATH"
 
 echo "Done registering ${BENCHMARK_TYPE} external tables in hive.${SCHEMA_NAME}"

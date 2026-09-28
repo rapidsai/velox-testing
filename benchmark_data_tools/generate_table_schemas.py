@@ -25,17 +25,16 @@ def generate_table_schemas(
     schemas_dir_path,
     data_dir_name=None,
     verbose=False,
-    external_location_base=None,
+    remote_data_dir_path=None,
     table_names=None,
 ):
     tables = duckdb.sql("SHOW TABLES").fetchall()
     assert len(tables) == 0
 
-    if external_location_base:
-        # Derive the schema from the Parquet that actually lives at the external
-        # location. A remote prefix cannot be listed, so the table names are supplied
-        # by the caller.
-        base = external_location_base.rstrip("/")
+    if remote_data_dir_path:
+        # Derive the schema from the Parquet that actually lives in remote storage. A remote
+        # prefix cannot be listed, so the table names are supplied by the caller.
+        base = remote_data_dir_path.rstrip("/")
         for table_name in table_names:
             _sample_table(benchmark_type, table_name, f"{base}/{table_name}")
     else:
@@ -99,14 +98,14 @@ if __name__ == "__main__":
         required=False,
         default=None,
         help="Path to a local directory that contains the benchmark data (one subdirectory per "
-        "table). Mutually exclusive with --external-location-base.",
+        "table). Mutually exclusive with --remote-data-dir-path.",
     )
     parser.add_argument(
-        "--external-location-base",
+        "--remote-data-dir-path",
         type=str,
         required=False,
         default=None,
-        help="URI base whose per-table subdirectories hold the Parquet data (e.g. "
+        help="URI of the remote directory whose per-table subdirectories hold the Parquet data (e.g. "
         "s3://bucket/prefix/scale-1000). The schema is derived from that data instead of a local "
         "directory. Requires --table-names.",
     )
@@ -114,7 +113,7 @@ if __name__ == "__main__":
         "--table-names",
         nargs="+",
         default=None,
-        help="Table names to generate schemas for. Required with --external-location-base since a "
+        help="Table names to generate schemas for. Required with --remote-data-dir-path since a "
         "remote prefix cannot be listed.",
     )
     parser.add_argument(
@@ -122,16 +121,16 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    if bool(args.data_dir_name) == bool(args.external_location_base):
-        parser.error("Provide exactly one of --data-dir-name or --external-location-base")
-    if args.external_location_base and not args.table_names:
-        parser.error("--table-names is required when --external-location-base is set")
+    if bool(args.data_dir_name) == bool(args.remote_data_dir_path):
+        parser.error("Provide exactly one of --data-dir-name or --remote-data-dir-path")
+    if args.remote_data_dir_path and not args.table_names:
+        parser.error("--table-names is required when --remote-data-dir-path is set")
 
     generate_table_schemas(
         args.benchmark_type,
         args.schemas_dir_path,
         data_dir_name=args.data_dir_name,
         verbose=args.verbose,
-        external_location_base=args.external_location_base,
+        remote_data_dir_path=args.remote_data_dir_path,
         table_names=args.table_names,
     )

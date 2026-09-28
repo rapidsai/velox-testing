@@ -7,16 +7,16 @@ import os
 import prestodb
 
 
-def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directory, external_location_base=None):
+def create_tables(presto_cursor, schema_name, schemas_dir_path, data_sub_directory, remote_data_dir_path=None):
     drop_schema(presto_cursor, schema_name)
     presto_cursor.execute(f"CREATE SCHEMA hive.{schema_name}")
 
     schemas = get_table_schemas(schemas_dir_path)
     for table_name, schema in schemas:
-        # When external_location_base is set (e.g. s3://bucket/prefix/sf100), point the
-        # table at that base. Otherwise fall back to the local bind-mounted file path.
-        if external_location_base:
-            location = f"{external_location_base.rstrip('/')}/{table_name}"
+        # When remote_data_dir_path is set (e.g. s3://bucket/prefix/sf100), point the
+        # table at its subdirectory there. Otherwise fall back to the local bind-mounted file path.
+        if remote_data_dir_path:
+            location = f"{remote_data_dir_path.rstrip('/')}/{table_name}"
         else:
             location = f"file:/var/lib/presto/data/hive/data/{data_sub_directory}/{table_name}"
         presto_cursor.execute(schema.format(location=location, schema=schema_name))
@@ -58,15 +58,16 @@ if __name__ == "__main__":
         required=False,
         default="",
         help="The name of the directory that contains the benchmark data. Only used to build the local "
-        "file: location. Not needed when --external-location-base is set.",
+        "file: location. Not needed when --remote-data-dir-path is set.",
     )
     parser.add_argument(
-        "--external-location-base",
+        "--remote-data-dir-path",
         type=str,
         required=False,
         default=None,
-        help="Full URI base for the table EXTERNAL_LOCATION (e.g. s3://bucket/prefix/sf100). For each table "
-        "'/<table_name>' is appended. If omitted, the default local file: path is used.",
+        help="URI of the remote directory that contains one subdirectory per table (e.g. s3://bucket/prefix/sf100). "
+        "Each table's EXTERNAL_LOCATION is '<remote-data-dir-path>/<table_name>'. If omitted, the default local "
+        "file: path is used.",
     )
     args = parser.parse_args()
 
@@ -77,5 +78,5 @@ if __name__ == "__main__":
         catalog="hive",
     )
     cursor = conn.cursor()
-    data_sub_directory = "" if args.external_location_base else f"user_data/{args.data_dir_name}"
-    create_tables(cursor, args.schema_name, args.schemas_dir_path, data_sub_directory, args.external_location_base)
+    data_sub_directory = "" if args.remote_data_dir_path else f"user_data/{args.data_dir_name}"
+    create_tables(cursor, args.schema_name, args.schemas_dir_path, data_sub_directory, args.remote_data_dir_path)

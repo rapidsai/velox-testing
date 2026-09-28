@@ -9,8 +9,10 @@ import sys
 import pytest
 
 from common.testing.test_utils import (
+    SUPPORTED_REMOTE_SCHEMES,
     get_abs_file_path,
     get_queries,  # noqa: F401
+    is_remote_location,
 )
 
 sys.path.append(get_abs_file_path(__file__, "../../../benchmark_data_tools"))
@@ -23,8 +25,8 @@ def get_table_external_location(schema_name, table, presto_cursor):
     location_match = re.search(r"external_location = '([^']+)'", create_table_text[0])
     assert location_match, f"Table hive.{schema_name}.{table} has no external_location"
     location = location_match.group(1)
-    # For S3 path
-    if location.startswith("s3://"):
+    # For remote path
+    if is_remote_location(location):
         return location
     # For local path
     test_match = re.search(r"^file:/var/lib/presto/data/hive/data/integration_test/(.*)$", location)
@@ -37,8 +39,9 @@ def get_table_external_location(schema_name, table, presto_cursor):
         if not user_match:
             raise Exception(
                 f"Unsupported external location '{location}' referenced by table hive.{schema_name}.{table}. "
-                "Only s3:// locations and file: locations under /var/lib/presto/data/hive/data/integration_test "
-                "or /var/lib/presto/data/hive/data/user_data are supported."
+                f"Only {', '.join(SUPPORTED_REMOTE_SCHEMES)} locations and file: locations under "
+                "/var/lib/presto/data/hive/data/integration_test or /var/lib/presto/data/hive/data/user_data "
+                "are supported."
             )
         external_dir = f"{os.environ['PRESTO_DATA_DIR']}/{user_match.group(1)}"
     if not os.path.isdir(external_dir):
@@ -49,8 +52,8 @@ def get_table_external_location(schema_name, table, presto_cursor):
 
 
 def read_scale_factor(metadata_uri):
-    """Read the scale factor from a metadata.json at metadata_uri (local path or s3://)."""
-    if metadata_uri.startswith("s3://"):
+    """Read the scale factor from a metadata.json at metadata_uri (local or remote path)."""
+    if is_remote_location(metadata_uri):
         import duckdb_utils
 
         metadata = json.loads(duckdb_utils.read_text(metadata_uri))

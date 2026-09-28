@@ -70,9 +70,9 @@ def write_query_engine_rows(output_dir, result_file_name, rows, columns, query_e
     df.to_parquet(f"{output_dir}/{query_engine}_results/{result_file_name}")
 
 
-def create_duckdb_table(table_name, data_path, is_s3_location=False):
-    # S3 URIs are used as-is. Only local paths are resolved.
-    if not is_s3_location:
+def create_duckdb_table(table_name, data_path, is_remote_location=False):
+    # Remote URIs are used as-is. Only local paths are resolved.
+    if not is_remote_location:
         data_path = get_abs_file_path(__file__, data_path)
     create_table(table_name, data_path)
 
