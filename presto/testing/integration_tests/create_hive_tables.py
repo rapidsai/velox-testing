@@ -52,22 +52,17 @@ if __name__ == "__main__":
         required=True,
         help="The path to the directory that will contain the schema files.",
     )
-    parser.add_argument(
+
+    data_location = parser.add_mutually_exclusive_group(required=True)
+    data_location.add_argument(
         "--data-dir-name",
         type=str,
-        required=False,
-        default="",
-        help="The name of the directory that contains the benchmark data. Only used to build the local "
-        "file: location. Not needed when --remote-data-dir-path is set.",
+        help="Local benchmark data: name of the data directory under PRESTO_DATA_DIR",
     )
-    parser.add_argument(
+    data_location.add_argument(
         "--remote-data-dir-path",
         type=str,
-        required=False,
-        default=None,
-        help="URI of the remote directory that contains one subdirectory per table (e.g. s3://bucket/prefix/sf100). "
-        "Each table's EXTERNAL_LOCATION is '<remote-data-dir-path>/<table_name>'. If omitted, the default local "
-        "file: path is used.",
+        help="Remote benchmark data: URI of the data directory (e.g. s3://bucket/prefix/sf100)",
     )
     args = parser.parse_args()
 
