@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pyarrow.parquet as pq
+import pytest
 from generate_data_files import generate_data_files
 
 from .common_fixtures import get_all_parquet_relative_file_paths
@@ -19,3 +20,11 @@ def test_generated_files_use_expected_page_format(setup_and_teardown):
         assert int(float(metadata.format_version)) == expected_version, (
             f"Expected Parquet v{expected_version} format for '{file_path}', got '{metadata.format_version}'"
         )
+
+
+@pytest.mark.parametrize("setup_and_teardown", ["tpcds"], indirect=True)
+def test_tpcds_rejects_explicit_non_duckdb(setup_and_teardown):
+    _, args = setup_and_teardown
+    args.use_duckdb = False
+    with pytest.raises(ValueError, match="--no-use-duckdb is not supported for TPC-DS"):
+        generate_data_files(args)

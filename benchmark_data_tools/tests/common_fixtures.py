@@ -24,7 +24,7 @@ class DataGenArgs:
     data_dir_path: str
     scale_factor: float
     convert_decimals_to_floats: bool
-    use_duckdb: bool
+    use_duckdb: bool | None
     num_threads: int
     verbose: bool
     max_rows_per_file: int
@@ -55,7 +55,7 @@ def setup_and_teardown(request):
             # Setting convert_decimals_to_floats to True ensures that the
             # Parquet rewrite path is executed.
             convert_decimals_to_floats=True,
-            use_duckdb=False,
+            use_duckdb=None,
             num_threads=4,
             verbose=False,
             max_rows_per_file=100_000_000,

@@ -82,8 +82,17 @@ def generate_partition(
 
 
 def generate_data_files(args):
-    if not args.use_duckdb and args.benchmark_type == "tpcds":
-        args.use_duckdb = True
+    use_default_generator = args.use_duckdb is None
+    if use_default_generator:
+        args.use_duckdb = args.benchmark_type == "tpcds"
+    elif args.benchmark_type == "tpcds" and not args.use_duckdb:
+        # TODO: Add a TPC-DS tpcgen-cli generation path before allowing this override.
+        raise ValueError("--no-use-duckdb is not supported for TPC-DS generation")
+
+    if args.verbose:
+        generator = "DuckDB" if args.use_duckdb else "tpchgen-cli"
+        selection = "benchmark default" if use_default_generator else "explicit override"
+        print(f"Using {generator} for {args.benchmark_type.upper()} ({selection})", flush=True)
 
     if args.memory_limit is not None and args.benchmark_type == "tpch":
         # TODO: Extend --memory-limit to TPC-H and link the upstream issue here (rapidsai/velox-testing#414).
@@ -118,12 +127,8 @@ def generate_data_files(args):
 
     # tpchgen is much faster, but is exclusive to generating tpch data.  Use duckdb as a fallback.
     if args.benchmark_type == "tpch" and not args.use_duckdb:
-        if args.verbose:
-            print("generating with tpchgen")
         generate_data_files_with_tpchgen(args, codec_defs)
     else:
-        if args.verbose:
-            print("generating with duckdb")
         generate_data_files_with_duckdb(args)
 
     if args.register:
@@ -572,7 +577,11 @@ if __name__ == "__main__":
         help="Convert all decimal columns to float column type.",
     )
     parser.add_argument(
-        "--use-duckdb", action="store_true", required=False, default=False, help="Use duckdb instead of tpchgen"
+        "--use-duckdb",
+        action=argparse.BooleanOptionalAction,
+        required=False,
+        default=None,
+        help="Select whether to use DuckDB. Defaults to DuckDB for TPC-DS and tpchgen-cli for TPC-H.",
     )
     parser.add_argument(
         "-j",
