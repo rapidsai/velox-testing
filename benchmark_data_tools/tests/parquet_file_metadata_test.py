@@ -11,7 +11,7 @@ def test_generated_files_use_expected_page_format(setup_and_teardown):
     """Verify each benchmark uses its expected Parquet page format."""
     data_dir_path, args = setup_and_teardown
     generate_data_files(args)
-    using_tpchgen = args.benchmark_type == "tpch" and not args.use_duckdb
+    using_tpchgen = not args.use_duckdb
     expected_version = 2 if using_tpchgen else 1
 
     for file_path in get_all_parquet_relative_file_paths(data_dir_path):
