@@ -36,6 +36,9 @@ OPTIONS:
     -o, --output-dir        Directory path that will contain the output files from the benchmark run.
                             By default, output files are written to "$(pwd)/benchmark_output".
     -i, --iterations        Number of query run iterations. By default, 5 iterations are run.
+    --scale-factor          Scale factor of the data set (e.g. 1000). Passed straight to pytest so Q11's
+                            fraction is computed without looking for a metadata.json next to the data;
+                            required when the tables live on S3 (external_location s3://...).
     -t, --tag               Tag associated with the benchmark run. When a tag is specified, benchmark output will be
                             stored inside a directory under the --output-dir path with a name matching the tag name.
                             Tags must contain only alphanumeric and underscore characters.
@@ -217,6 +220,15 @@ parse_args() {
           exit 1
         fi
         ;;
+      --scale-factor)
+        if [[ -n "$2" ]]; then
+          SCALE_FACTOR="$2"
+          shift 2
+        else
+          echo "Error: --scale-factor requires a value" >&2
+          exit 1
+        fi
+        ;;
       --warmup-iterations)
         if [[ -n $2 ]]; then
           WARMUP_ITERATIONS=$2
@@ -334,6 +346,10 @@ fi
 
 if [[ -n ${OUTPUT_DIR} ]]; then
   PYTEST_ARGS+=("--output-dir ${OUTPUT_DIR}")
+fi
+
+if [[ -n "${SCALE_FACTOR:-}" ]]; then
+  PYTEST_ARGS+=("--scale-factor ${SCALE_FACTOR}")
 fi
 
 if [[ -n ${ITERATIONS} ]]; then
