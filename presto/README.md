@@ -164,7 +164,7 @@ benchmark_data/
 
 Set up the tables with the scripts in `presto/scripts` (run each with `--help` for all options):
 
-- `setup_benchmark_tables.sh` sets up tables on data that already exists, either locally under `PRESTO_DATA_DIR` (`-d`) or in S3 (`-l`, see [Remote Data Sources](#remote-data-sources-aws-s3)). It starts a CPU Presto instance, creates the tables, runs ANALYZE, and stops the instance.
+- `setup_benchmark_tables.sh` sets up tables on data that already exists, either locally under `PRESTO_DATA_DIR` (`-d`) or in S3 (`-r`, see [Remote Data Sources](#remote-data-sources-aws-s3)). It starts a CPU Presto instance, creates the tables, runs ANALYZE, and stops the instance.
 - `setup_benchmark_data_and_tables.sh` first generates the data under `PRESTO_DATA_DIR`, then runs `setup_benchmark_tables.sh` on it.
 
 ## Testing Different Scale Factors
@@ -206,7 +206,7 @@ eval "$(aws configure export-credentials --format env)" # AWS_ACCESS_KEY_ID / SE
    ```bash
    cd velox-testing/presto/scripts
    ./setup_benchmark_tables.sh --help  # See all options
-   ./setup_benchmark_tables.sh -b tpch -s tpch_sf100_s3 -l s3://my-bucket/velox/sf100
+   ./setup_benchmark_tables.sh -b tpch -s tpch_sf100_s3 -r s3://my-bucket/velox/sf100
    ```
 
 2. Start Presto (GPU is shown. CPU works too):

@@ -11,7 +11,7 @@ that matches the value set for the --data-dir-name argument, or in remote object
 URI set for the --remote-data-dir-path argument."
 
 SCRIPT_EXAMPLE_ARGS="-b tpch -s my_tpch_sf100 -d sf100"
-SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-l, --remote-data-dir-path          URI of a remote directory that contains one subdirectory per table,
+SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-r, --remote-data-dir-path          URI of a remote directory that contains one subdirectory per table,
                                         e.g. s3://my-bucket/velox/sf100 (currently AWS S3 only). Use instead of -d.
     -H, --hostname                      Hostname of the Presto coordinator (default: localhost).
     -p, --port                          Port number of the Presto coordinator (default: 8080)."
@@ -20,7 +20,7 @@ SCRIPT_EXTRA_OPTIONS_PARSER=parse_extra_options
 
 parse_extra_options() {
   case $1 in
-    -l|--remote-data-dir-path)
+    -r|--remote-data-dir-path)
       if [[ -n $2 ]]; then
         REMOTE_DATA_DIR_PATH=$2
         SCRIPT_EXTRA_OPTIONS_UNKNOWN_ARG=false
