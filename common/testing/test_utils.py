@@ -22,3 +22,11 @@ def get_scale_factor_from_file(file):
 
 def get_abs_file_path(file_path, relative_path):
     return os.path.abspath(os.path.join(os.path.dirname(file_path), relative_path))
+
+
+# URI schemes of the remote object storage supported so far.
+SUPPORTED_REMOTE_SCHEMES = ("s3://",)
+
+
+def is_remote_location(path):
+    return str(path).startswith(SUPPORTED_REMOTE_SCHEMES)

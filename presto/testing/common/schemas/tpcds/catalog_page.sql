@@ -8,4 +8,4 @@ CREATE TABLE hive.{schema}.catalog_page (
     cp_catalog_page_number INTEGER,
     cp_description VARCHAR,
     cp_type VARCHAR
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

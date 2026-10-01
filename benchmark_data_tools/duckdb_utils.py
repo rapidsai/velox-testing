@@ -1,9 +1,41 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import re
 
 import duckdb
+
+_s3_configured = False
+
+
+def configure_data_access(path) -> None:
+    """Configure DuckDB to read data at ``path``.
+
+    Local paths need no setup. For s3:// paths, the region must be provided via
+    AWS_DEFAULT_REGION (or AWS_REGION).
+    """
+    global _s3_configured
+    if _s3_configured or not str(path).startswith("s3://"):
+        return
+    region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
+    if not region:
+        raise RuntimeError(
+            "Reading s3:// data requires the AWS region: set AWS_DEFAULT_REGION "
+            "(or AWS_REGION), e.g. `export AWS_DEFAULT_REGION=us-east-2`."
+        )
+    # Enable DuckDB to access S3 storage
+    duckdb.sql("INSTALL httpfs; LOAD httpfs; INSTALL aws; LOAD aws;")
+    # Register an S3 access profile named s3_from_env that pulls credentials from the
+    # standard AWS chain and targets region <region>.
+    duckdb.sql(f"CREATE SECRET IF NOT EXISTS s3_from_env (TYPE s3, PROVIDER credential_chain, REGION '{region}')")
+    _s3_configured = True
+
+
+def read_text(uri: str) -> str:
+    """Return the contents of the text file at ``uri`` (local path or s3://)."""
+    configure_data_access(uri)
+    return duckdb.sql(f"SELECT content FROM read_text('{uri}')").fetchone()[0]
 
 
 def quote_ident(name: str) -> str:
@@ -30,6 +62,7 @@ def drop_benchmark_tables():
 
 
 def create_table(table_name, data_path):
+    configure_data_access(data_path)
     duckdb.sql(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
     duckdb.sql(f"CREATE TABLE {quote_ident(table_name)} AS SELECT * FROM '{data_path}/*.parquet';")
 
@@ -37,6 +70,7 @@ def create_table(table_name, data_path):
 # Generates a sample table with a small limit.
 # This is mainly used to extract the schema from the parquet files.
 def create_not_null_table_from_sample(table_name, data_path):
+    configure_data_access(data_path)
     duckdb.sql(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
     duckdb.sql(f"CREATE TABLE {quote_ident(table_name)} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
     ret = duckdb.sql(f"DESCRIBE TABLE {quote_ident(table_name)}").fetchall()
@@ -45,6 +79,7 @@ def create_not_null_table_from_sample(table_name, data_path):
 
 
 def create_table_from_sample(table_name, data_path):
+    configure_data_access(data_path)
     duckdb.sql(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
     duckdb.sql(f"CREATE TABLE {quote_ident(table_name)} AS SELECT * FROM '{data_path}/*.parquet' LIMIT 10;")
 

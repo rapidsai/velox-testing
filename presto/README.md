@@ -162,7 +162,10 @@ benchmark_data/
    └─ supplier/
 ```
 
-Generate new data or set up tables on existing data using the provided scripts.
+Set up the tables with the scripts in `presto/scripts` (run each with `--help` for all options):
+
+- `setup_benchmark_tables.sh` sets up tables on data that already exists, either locally under `PRESTO_DATA_DIR` (`-d`) or in S3 (`-r`, see [Remote Data Sources](#remote-data-sources-aws-s3)). It starts a CPU Presto instance, creates the tables, runs ANALYZE, and stops the instance.
+- `setup_benchmark_data_and_tables.sh` first generates the data under `PRESTO_DATA_DIR`, then runs `setup_benchmark_tables.sh` on it.
 
 ## Testing Different Scale Factors
 
@@ -183,6 +186,41 @@ There are two common approaches:
    ./run_integ_test.sh --benchmark-type tpch --schema-name tpch_sf100
    ```
    This allows you to run benchmarks and tests without regenerating data for each scale factor—simply specify the schema name.
+
+## Remote Data Sources (AWS S3)
+
+Benchmarks and integration tests can run directly against Parquet data stored in S3. Only the Hive metastore needs to stay local.
+
+### Prerequisites
+
+Set up AWS S3 credentials. The AWS region is required.
+
+```bash
+export AWS_DEFAULT_REGION=us-east-2 # region of your bucket (required)
+eval "$(aws configure export-credentials --format env)" # AWS_ACCESS_KEY_ID / SECRET / SESSION_TOKEN
+```
+
+### Workflow
+
+1. Set up the tables on the S3 data. Like for local data, this starts a CPU Presto instance, creates the tables, runs ANALYZE, and stops the instance:
+   ```bash
+   cd velox-testing/presto/scripts
+   ./setup_benchmark_tables.sh --help  # See all options
+   ./setup_benchmark_tables.sh -b tpch -s tpch_sf100_s3 -r s3://my-bucket/velox/sf100
+   ```
+
+2. Start Presto (GPU is shown. CPU works too):
+   ```bash
+   ./start_native_gpu_presto.sh
+   ```
+
+3. Run benchmarks or integration tests against the schema:
+   ```bash
+   ./run_benchmark.sh  -b tpch -s tpch_sf100_s3
+   ./run_integ_test.sh -b tpch -s tpch_sf100_s3
+   ```
+
+The scale factor is auto-detected from the `metadata.json` in the remote data directory. Only `s3://` locations are currently supported.
 
 ## Configuration
 

@@ -27,4 +27,4 @@ CREATE TABLE hive.{schema}.date_dim (
     d_current_month VARCHAR,
     d_current_quarter VARCHAR,
     d_current_year VARCHAR
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

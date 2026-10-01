@@ -13,6 +13,12 @@ services:
       service: presto-base-volumes
     build:
       context: ../../../presto/docker
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
+      - AWS_REGION=${AWS_REGION:-}
 
   presto-base-coordinator:
     extends:
@@ -25,7 +31,7 @@ services:
       - SERVER_START_TIMESTAMP=${SERVER_START_TIMESTAMP:-}
     volumes:
       - ./launch_coordinator.sh:/opt/launch_coordinator.sh:ro
-    entrypoint: ["bash", "/opt/launch_coordinator.sh"]
+    entrypoint: [ "bash", "/opt/launch_coordinator.sh" ]
     command: []
 
   presto-base-native-worker:
@@ -45,3 +51,8 @@ services:
     environment:
       - GLOG_logtostderr=1
       - SERVER_START_TIMESTAMP=${SERVER_START_TIMESTAMP:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
+      - AWS_REGION=${AWS_REGION:-}

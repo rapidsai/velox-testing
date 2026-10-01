@@ -22,8 +22,8 @@ Usage: $0 [OPTIONS]
 
 $SCRIPT_DESCRIPTION
 
-NOTE: The PRESTO_DATA_DIR environment variable must be set before running this script. This environment variable
-must also be set before starting the Presto instance/running the start_*_presto.sh script.
+NOTE: For local data, the PRESTO_DATA_DIR environment variable must be set before running this script. This environment
+variable must also be set before starting the Presto instance/running the start_*_presto.sh script.
 
 OPTIONS:
     -h, --help                          Show this help message.
@@ -41,17 +41,13 @@ EXAMPLES:
 EOF
 }
 
-if [[ -z $PRESTO_DATA_DIR ]]; then
-  echo "Error: PRESTO_DATA_DIR must be set to the directory path that contains the benchmark data directories"
-  print_help
-  exit 1
-fi
-
 # Compute the directory where this script resides (if not already set by caller)
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 DOCKER_DEPLOYMENT=true
 SKIP_ANALYZE_TABLES=false
+# Only set by scripts that accept --remote-data-dir-path as an extra option.
+REMOTE_DATA_DIR_PATH=""
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -127,8 +123,23 @@ if [[ -z ${SCHEMA_NAME} ]]; then
   exit 1
 fi
 
-if [[ -z ${DATA_DIR_NAME} ]]; then
-  echo "Error: Data directory name is required. Use the -d or --data-dir-name argument."
+if [[ -n ${DATA_DIR_NAME} && -n ${REMOTE_DATA_DIR_PATH} ]]; then
+  echo "Error: --data-dir-name and --remote-data-dir-path cannot be used together."
   print_help
   exit 1
+fi
+
+# Local data (the default) lives in a directory under PRESTO_DATA_DIR.
+if [[ -z ${REMOTE_DATA_DIR_PATH} ]]; then
+  if [[ -z ${DATA_DIR_NAME} ]]; then
+    echo "Error: Data directory name is required. Use the -d or --data-dir-name argument."
+    print_help
+    exit 1
+  fi
+
+  if [[ -z $PRESTO_DATA_DIR ]]; then
+    echo "Error: PRESTO_DATA_DIR must be set to the directory path that contains the benchmark data directories"
+    print_help
+    exit 1
+  fi
 fi

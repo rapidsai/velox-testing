@@ -17,4 +17,4 @@ CREATE TABLE hive.{schema}.customer (
     c_login VARCHAR,
     c_email_address VARCHAR,
     c_last_review_date_sk INTEGER
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

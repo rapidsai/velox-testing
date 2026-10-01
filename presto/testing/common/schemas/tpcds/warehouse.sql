@@ -13,4 +13,4 @@ CREATE TABLE hive.{schema}.warehouse (
     w_zip VARCHAR,
     w_country VARCHAR,
     w_gmt_offset DOUBLE
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

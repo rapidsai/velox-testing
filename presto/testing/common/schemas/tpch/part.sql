@@ -8,4 +8,4 @@ CREATE TABLE hive.{schema}.part (
     p_container VARCHAR NOT NULL,
     p_retailprice DECIMAL(15,2) NOT NULL,
     p_comment VARCHAR NOT NULL
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

@@ -13,4 +13,4 @@ CREATE TABLE hive.{schema}.web_page (
     wp_link_count INTEGER,
     wp_image_count INTEGER,
     wp_max_ad_count INTEGER
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

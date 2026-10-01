@@ -9,4 +9,4 @@ CREATE TABLE hive.{schema}.time_dim (
     t_shift VARCHAR,
     t_sub_shift VARCHAR,
     t_meal_time VARCHAR
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')
