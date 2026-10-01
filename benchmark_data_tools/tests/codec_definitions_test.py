@@ -11,6 +11,7 @@ from .common_fixtures import get_all_parquet_relative_file_paths
 
 TESTS_DIR = Path(__file__).resolve().parent
 TEST_CODEC_DEFINITIONS_PATH = TESTS_DIR / "test_codec_definitions.json"
+TEST_ENCODING_WITH_DICTIONARY_PATH = TESTS_DIR / "test_codec_definitions_encoding_with_dictionary.json"
 TEST_RLE_DICTIONARY_PATH = TESTS_DIR / "test_codec_definitions_rle_dictionary.json"
 TEST_NON_DEFAULT_COMPRESSION_PATH = TESTS_DIR / "test_codec_definitions_non_default_compression.json"
 TEST_INVALID_COMPRESSION_PATH = TESTS_DIR / "test_codec_definitions_invalid_compression.json"
@@ -69,9 +70,13 @@ def test_custom_codec_defs_from_file(setup_and_teardown):
 
     Uses tests/test_codec_definitions.json which specifies:
     - lineitem.l_orderkey: DELTA_BINARY_PACKED, no dictionary
-    - lineitem.l_returnflag: PLAIN, dictionary on
-    - lineitem.l_comment: PLAIN, UNCOMPRESSED, no dictionary
+    - lineitem.l_returnflag: no encoding, dictionary on
+    - lineitem.l_comment: default encoding, UNCOMPRESSED, no dictionary
     - orders.o_orderkey: DELTA_BINARY_PACKED, no dictionary
+
+    Note l_returnflag names no encoding: --column-encoding disables the
+    dictionary for the column it names, so keeping the dictionary means
+    leaving the encoding at the writer default.
     """
     data_dir_path, args = setup_and_teardown
     args.codec_definitions = str(TEST_CODEC_DEFINITIONS_PATH)
@@ -133,6 +138,13 @@ def test_rle_dictionary_encoding_rejected(setup_and_teardown):
     _, args = setup_and_teardown
     args.codec_definitions = str(TEST_RLE_DICTIONARY_PATH)
     with pytest.raises(ValueError, match="RLE_DICTIONARY cannot be used as a column encoding"):
+        generate_data_files(args)
+
+
+def test_encoding_with_dictionary_rejected(setup_and_teardown):
+    _, args = setup_and_teardown
+    args.codec_definitions = str(TEST_ENCODING_WITH_DICTIONARY_PATH)
+    with pytest.raises(ValueError, match="sets both 'encoding' and 'dictionary': true"):
         generate_data_files(args)
 
 

@@ -5,8 +5,12 @@
       "compression": "UNCOMPRESSED | SNAPPY | LZO | LZ4 | GZIP | BROTLI | ZSTD(N)",
       "columns": [
         {
-          "name": "column_name",
-          "encoding": "PLAIN | DELTA_BINARY_PACKED | RLE_DICTIONARY",
+          "name": "column_with_explicit_encoding",
+          "encoding": "PLAIN | RLE | DELTA_BINARY_PACKED | DELTA_LENGTH_BYTE_ARRAY | DELTA_BYTE_ARRAY | BYTE_STREAM_SPLIT",
+          "compressed": true
+        },
+        {
+          "name": "column_with_default_encoding",
           "compressed": true,
           "dictionary": true
         }
