@@ -123,6 +123,7 @@ pytest tpch_test.py
 ## Directory Structure
 
 - **`docker/`** - Docker Compose configurations and Dockerfiles for different Presto variants
+- **`aws/ec2/`** - Direct EC2 + SSM orchestration for distributed CPU and GPU benchmarks
 - **`pbench/`** - Performance benchmarking utilities and TPC-H query definitions
 - **`scripts/`** - Shell scripts for building, deploying, and testing Presto
 - **`testing/`** - Python-based test framework using pytest
