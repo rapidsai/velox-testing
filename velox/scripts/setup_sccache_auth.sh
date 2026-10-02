@@ -105,8 +105,8 @@ docker run --rm -it \
       --output creds-file \
       --duration '$AWS_CREDENTIALS_TIMEOUT' \
       --aud sts.amazonaws.com \
-      --idp-url https://token.gha-runners.nvidia.com \
-      --role-arn arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs \
+      --idp-url https://token.rapids.nvidia.com \
+      --role-arn arn:aws:iam::279114543810:role/rapids-token-sccache-devs \
       > /root/.aws/credentials
 
     # Copy AWS credentials to output
