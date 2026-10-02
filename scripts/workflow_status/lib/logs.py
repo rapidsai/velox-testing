@@ -30,6 +30,28 @@ def strip_log_prefixes(raw: str) -> str:
     return "\n".join(_strip_gh_log_prefix(line) for line in raw.splitlines())
 
 
+# ---- Markdown fence stripping ---------------------------------------------
+
+_CODE_FENCE_LINE = re.compile(r"^\s*(?:```|~~~)\s*\w*\s*$")
+
+
+def strip_code_fences(text: str) -> str:
+    """Remove markdown code-fence markers from *text*.
+
+    AI responses sometimes wrap an extracted stacktrace in their own ``` fence.
+    Nesting that inside the report's own fence renders as an empty code block
+    with the real stacktrace spilling out below it, so fence-only lines are
+    dropped and any leftover inline ``` is neutralised to keep the enclosing
+    fence balanced.
+    """
+    lines = []
+    for line in text.splitlines():
+        if _CODE_FENCE_LINE.match(line):
+            continue
+        lines.append(line.replace("```", ""))
+    return "\n".join(lines)
+
+
 # ---- GTest patterns -------------------------------------------------------
 
 _GTEST_RUN = re.compile(r"^\[ RUN\s+\]")
