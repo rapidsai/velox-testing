@@ -202,10 +202,20 @@ jobs:
             DATA_GEN_ARGS+=(--convert-decimals-to-floats)
           fi
           benchmark_data_tools/scripts/generate_dataset.sh "${DATA_GEN_ARGS[@]}"
+
+          SCHEMAS_DIR="${GITHUB_WORKSPACE}/presto/testing/common/schemas/${TEST_TYPE}"
+          rm -rf "${SCHEMAS_DIR}"
+          benchmark_data_tools/.venv/bin/python benchmark_data_tools/generate_table_schemas.py \
+            --benchmark-type "${TEST_TYPE}" \
+            --schemas-dir-path "${SCHEMAS_DIR}" \
+            --data-dir-name "${DATA_DIR}"
+
           echo "--- metadata ---"
           cat "${DATA_DIR}/metadata.json"
           echo "--- generated files ---"
           find "${DATA_DIR}" -type f -exec ls -lh {} + | awk '{print $5, $NF}' | sort -k2
+          echo "--- generated schemas ---"
+          cat "${SCHEMAS_DIR}"/*.sql
 
       - &login_ghcr
         name: Log in to the Container registry
