@@ -149,6 +149,20 @@ else
   echo_success "Reusing existing Presto Config files for '${VARIANT_TYPE}'"
 fi
 
+# GPU only: cudf.allow_cpu_fallback. CUDF_ALLOW_CPU_FALLBACK=false (start_native_gpu_presto.sh
+# --no-cpu-fallback) makes operators that cuDF cannot execute fail instead of running on the CPU.
+# Also written to reused configs, so an earlier --no-cpu-fallback start does not leak into later runs.
+if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
+  CUDF_ALLOW_CPU_FALLBACK=${CUDF_ALLOW_CPU_FALLBACK:-true}
+  if [[ ! "${CUDF_ALLOW_CPU_FALLBACK}" =~ ^(true|false)$ ]]; then
+    echo_error "ERROR: CUDF_ALLOW_CPU_FALLBACK must be 'true' or 'false'."
+  fi
+  worker_native_config="${CONFIG_DIR}/etc_worker/config_native.properties"
+  sed -i '/^cudf\.allow_cpu_fallback=/d' "${worker_native_config}"
+  echo "cudf.allow_cpu_fallback=${CUDF_ALLOW_CPU_FALLBACK}" >> "${worker_native_config}"
+  echo "Using cudf.allow_cpu_fallback=${CUDF_ALLOW_CPU_FALLBACK}"
+fi
+
 # We want to propagate any changes from the original worker config to the new worker configs even if
 # we did not re-generate the configs.
 if [[ -n "$NUM_WORKERS" ]]; then

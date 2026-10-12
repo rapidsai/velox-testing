@@ -1,0 +1,132 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Expected TPC-Havoc failures. run_tpc_havoc.py exits non-zero only for failures
+# that are NOT matched by an entry here (unless --fail-on-any is given).
+#
+# Entry fields:
+#   query:          query id or fnmatch glob (or a list), e.g. Q13_V4, "Q13_*", "Q*_V9"
+#   check:          execution | base | duckdb | reference | any   (default: any)
+#                     execution = query errored / timed out
+#                     base      = variant result differs from its base TPC-H query
+#                     duckdb    = result differs from DuckDB on the same data
+#                     reference = result differs from the --reference-dir run
+#   engines:        optional list of engine labels (--engine) or fnmatch globs, e.g. [gpu],
+#                   [cpu, gpu], ["gpu*"] (gpu and gpu-no-fallback) or [gpu-no-fallback]
+#                   (GPU worker started with --no-cpu-fallback only)
+#   scale_factors:  optional list of scale factors, e.g. [10, 100]
+#   match:          optional regex matched (case-insensitive) against the failure message
+#   reason:         short description (shown in reports)
+#   issue:          optional link to a tracking issue
+#   repro:          optional minimal SQL that reproduces the failure (shown in the nightly summary)
+#
+# Example:
+#   - query: Q13_V4
+#     check: execution
+#     engines: [gpu]
+#     match: "NOT_SUPPORTED"
+#     reason: "cuDF: unsupported join type"
+#     issue: https://github.com/rapidsai/velox-testing/issues/NNN
+
+known_issues:
+  # BenchBox variant defect (not an engine bug): Q16_V6 cross-joins partsupp with the
+  # set of "Complaints" suppliers and filters ps_suppkey <> excluded_suppkey, which only
+  # equals NOT IN when there is at most one such supplier (SF >= 1 has several), so
+  # supplier_cnt is inflated vs. the base query on every engine, DuckDB included.
+  # Fixed in BenchBox (variant_sets/q16.yaml); remove once the pin in requirements.txt
+  # includes the fix.
+  - query: Q16_V6
+    check: base
+    match: "mismatch"
+    reason: "BenchBox Q16_V6 variant bug (NOT IN rewritten as cross join with <>)"
+
+  # Presto SQL dialect limitations hit by BenchBox's "V7" variants (observed on the
+  # native CPU and GPU workers with presto master / velox main, SF10). These are
+  # analyzer errors raised by the coordinator before execution, so they are engine
+  # independent; they are not Velox/cuDF bugs.
+  - query: [Q3_V7, Q4_V7, Q5_V7, Q7_V7, Q9_V7, Q10_V7, Q11_V7]
+    check: execution
+    match: "SYNTAX_ERROR: .*Column '.*' cannot be resolved"
+    reason: "Presto: variant references a SELECT-list alias where Presto requires the expression"
+  - query: Q2_V7
+    check: execution
+    match: "FILTER is not yet supported for window functions"
+    reason: "Presto: aggregate FILTER clause not supported on window functions"
+  - query: Q1_V7
+    check: execution
+    match: "Function list not registered"
+    reason: "BenchBox Presto translation emits list() (DuckDB) instead of array_agg()"
+
+  # GPU (velox-cudf) failures found by the first TPC-Havoc run (presto master
+  # b11f2053bbc / velox main b2bff1217, SF10). Pass on the CPU worker and DuckDB.
+  # velox-cudf evaluates EXTRACT(YEAR ...) to a cuDF INT16 column although the Presto
+  # type is BIGINT, so CASE/IF mixing it with any other BIGINT (literal, NULL, column)
+  # fails in cudf::copy_if_else.
+  - query: [Q8_V10, Q9_V10]
+    check: execution
+    engines: ["gpu*"]
+    match: "copy\\.cu.*Both inputs must be of the same type"
+    reason: "velox-cudf: EXTRACT(YEAR) yields INT16 instead of BIGINT; CASE branches mismatch in copy_if_else"
+    repro: "SELECT CASE WHEN o_orderstatus = 'F' THEN EXTRACT(YEAR FROM o_orderdate) ELSE 0 END FROM orders"
+  # Same plan runs in ~2 s on the CPU worker; on one GPU it ran ~100 s and exceeded the
+  # 1.43 TB distributed user memory limit. Needs investigation (CASE-heavy join/filter
+  # predicates).
+  - query: Q7_V10
+    check: execution
+    engines: ["gpu*"]
+    match: "EXCEEDED_GLOBAL_MEMORY_LIMIT"
+    reason: "velox-cudf: memory blow-up on CASE-heavy Q7 variant (CPU fine)"
+
+  # GPU coverage gaps: plan operators velox-cudf cannot execute. With CPU fallback (engine
+  # gpu) these run on the CPU and pass; with cudf.allow_cpu_fallback=false (engine
+  # gpu-no-fallback, start_native_gpu_presto.sh --no-cpu-fallback) the query fails with
+  # the generic "!isPureCpuOperator Replacement with cuDF operator failed"; the runner
+  # records the reason the worker logged as worker_reason. Observed with presto master
+  # b11f2053bbc / velox main b2bff1217, SF10.
+  - query: [Q1_V10, Q3_V10, Q4_V10, Q5_V10, Q6_V10, Q7_V10, Q8_V10, Q9_V10, Q10_V10, Q11_V10,
+            Q12_V10, Q13_V10, Q14_V10]
+    check: execution
+    engines: [gpu-no-fallback]
+    match: "isPureCpuOperator"
+    reason: "velox-cudf: multi-branch CASE (switch) expression not supported"
+  - query: [Q7_V8, Q12_V8, Q13_V8]
+    check: execution
+    engines: [gpu-no-fallback]
+    match: "isPureCpuOperator"
+    reason: "velox-cudf: FilterProject with empty input type and filter/projections not supported"
+  - query: [Q1_V6, Q16_V7]
+    check: execution
+    engines: [gpu-no-fallback]
+    match: "isPureCpuOperator"
+    reason: "velox-cudf: aggregation cannot be evaluated by cuDF"
+  - query: [Q1_V8, Q17_V9]
+    check: execution
+    engines: [gpu-no-fallback]
+    match: "isPureCpuOperator"
+    reason: "velox-cudf: avg over DECIMAL(15,2) not supported"
+  - query: [Q5_V4, Q14_V4]
+    check: execution
+    engines: [gpu-no-fallback]
+    match: "isPureCpuOperator"
+    reason: "velox-cudf: decimal constant expression (0.0000) not supported"
+  - query: [Q16_V10, Q17_V10]
+    check: execution
+    engines: [gpu-no-fallback]
+    match: "isPureCpuOperator"
+    reason: "velox-cudf: element_at on a map literal not supported"
+  - query: Q18_V9
+    check: execution
+    engines: [gpu-no-fallback]
+    match: "isPureCpuOperator"
+    reason: "velox-cudf: multi-column ORDER BY requires a cuDF upgrade"
+
+  # Engine semantics, not a bug: Presto returns AVG(DECIMAL(15,2)) as DECIMAL(15,2)
+  # rounded half up (4998.77 at SF100) while DuckDB returns DOUBLE (4998.7690...). Q22
+  # filters c_acctbal > that average, so a customer with c_acctbal = 4998.77 is counted by
+  # DuckDB but not by Presto (cntrycode 29: 91124 vs 91123). Base and all variants agree
+  # with each other on Presto; only the DuckDB check differs, and only at SF100.
+  - query: "Q22*"
+    check: duckdb
+    scale_factors: [100]
+    match: "mismatch"
+    reason: "Presto rounds AVG(DECIMAL) to the input scale; DuckDB uses DOUBLE (Q22 threshold differs)"

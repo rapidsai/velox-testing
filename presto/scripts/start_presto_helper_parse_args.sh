@@ -29,6 +29,9 @@ OPTIONS:
                          "relwithdebinfo", or "debug". Values are case insensitive. The default value
                          is "release".
     --all-cuda-archs     Build for all supported CUDA architectures (GPU only) (default: false).
+    --no-cpu-fallback    Disable velox-cudf CPU fallback (cudf.allow_cpu_fallback=false), so plans with
+                         operators that cuDF cannot execute fail instead of running them on the CPU
+                         (GPU only). Applied to the worker config even when it is reused.
     -p, --profile        Launch the Presto server with profiling enabled.
     --profile-args       Arguments to pass to the profiler when it launches the Presto server.
                          This will override the default arguments.
@@ -54,6 +57,7 @@ EXAMPLES:
     $SCRIPT_NAME -w 4
     $SCRIPT_NAME -w 4 -g 4,5,6,7
     $SCRIPT_NAME --profile
+    $SCRIPT_NAME --no-cpu-fallback
     $SCRIPT_NAME --sccache -b worker
     $SCRIPT_NAME --sccache --sccache-version 0.12.0-rapids.1 -b worker
     $SCRIPT_NAME --sccache --sccache-enable-dist -b worker
@@ -171,6 +175,10 @@ parse_args() {
         ;;
       --all-cuda-archs)
         ALL_CUDA_ARCHS=true
+        shift
+        ;;
+      --no-cpu-fallback)
+        export CUDF_ALLOW_CPU_FALLBACK=false
         shift
         ;;
       --overwrite-config)

@@ -1,0 +1,16 @@
+# TPC-Havoc runner dependencies (kept separate from presto/testing/requirements.txt
+# because BenchBox requires click>=8.3.3, which conflicts with the pin there).
+#
+# BenchBox is pinned to a commit so that nightly CPU and GPU runs generate
+# byte-identical SQL. sqlglot is pinned as well since BenchBox's dialect
+# translation output depends on it. To develop against a local BenchBox
+# checkout instead, run presto/scripts/run_tpc_havoc.sh --benchbox-path ../BenchBox.
+# Source archive of the pinned commit: much faster to fetch than a git clone of the repo.
+benchbox @ https://github.com/BenchBox-dev/BenchBox/archive/172276a3216c6d76b15ec90ab7b9f2bc2d303c63.tar.gz
+sqlglot==30.21.0
+duckdb==1.3.2
+numpy>=1.24.0
+pandas==3.0.0
+presto-python-client==0.8.4
+pyarrow==23.0.0
+pyyaml>=6.0
