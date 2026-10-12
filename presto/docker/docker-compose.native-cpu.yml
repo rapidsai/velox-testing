@@ -17,6 +17,8 @@ services:
     image: presto-native-worker-cpu:${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}
     cap_add:
       - SYS_NICE
+    ulimits:
+      nofile: {soft: 500000, hard: 500000}
     build:
       args:
         - GPU=OFF

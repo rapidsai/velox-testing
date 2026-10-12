@@ -85,6 +85,11 @@ if [[ -z ${VCPU_PER_WORKER:-} ]]; then
     VCPU_PER_WORKER=${NPROC}
   fi
 fi
+# vcpu_per_worker becomes task.max-drivers-per-task, and a Velox hash join build supports at
+# most 255 drivers ("1 + otherTables_.size() <= 255"), so hosts with 256+ cores need a cap.
+if (( VCPU_PER_WORKER > 255 )); then
+  VCPU_PER_WORKER=255
+fi
 
 # move to config directory
 pushd "${SCRIPT_DIR}/../docker/config" >/dev/null
