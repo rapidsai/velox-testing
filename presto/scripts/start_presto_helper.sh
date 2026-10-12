@@ -71,6 +71,11 @@ fi
 
 validate_sccache_auth
 
+if [[ "${CUDF_ALLOW_CPU_FALLBACK:-}" == "false" && "$VARIANT_TYPE" != "gpu" ]]; then
+  echo "Error: the --no-cpu-fallback argument is only supported for Presto GPU"
+  exit 1
+fi
+
 if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   echo "Error: the --profile argument is only supported for Presto GPU"
   exit 1

@@ -116,3 +116,21 @@ jobs:
       date: ${{ needs.resolve-commits.outputs.date }}
       build_variant: ${{ inputs.build_variant }}
       run_id: ${{ github.run_id }}
+
+  presto-tpc-havoc:
+    needs: [resolve-commits, presto-build]
+    if: ${{ inputs.run_tests }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/presto-tpc-havoc.yml
+    with:
+      velox_short_sha: ${{ needs.resolve-commits.outputs.velox_short_sha }}
+      presto_short_sha: ${{ needs.resolve-commits.outputs.presto_short_sha }}
+      date: ${{ needs.resolve-commits.outputs.date }}
+      build_variant: ${{ inputs.build_variant }}
+      run_id: ${{ github.run_id }}
+      # Only the scheduled nightly (presto-nightly.yml) posts; manual dispatches don't.
+      post_to_slack: ${{ github.event_name == 'schedule' }}
+    secrets:
+      SLACK_WEBHOOK_NIGHTLY_STATUS_URL: ${{ secrets.SLACK_WEBHOOK_NIGHTLY_STATUS_URL }}
