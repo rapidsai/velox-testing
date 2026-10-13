@@ -32,6 +32,11 @@ def split_mrkdwn_sections(content: str) -> list[str]:
     return sections
 
 
+def _has_content(fragment: str) -> bool:
+    """True if *fragment* holds anything besides code-fence markers."""
+    return any(ln.strip() and not ln.strip().startswith("```") for ln in fragment.splitlines())
+
+
 def split_code_blocks(section: str) -> list[str]:
     """Split a section into alternating text and code-fenced fragments."""
     fragments: list[str] = []
@@ -58,7 +63,7 @@ def split_code_blocks(section: str) -> list[str]:
         if in_code:
             trailing += "\n```"
         fragments.append(trailing)
-    return [f for f in fragments if f]
+    return [f for f in fragments if f and _has_content(f)]
 
 
 def chunk_text(text: str, max_len: int = SLACK_BLOCK_TEXT_LIMIT) -> list[str]:

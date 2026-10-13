@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from .config import Config
+from .logs import strip_code_fences
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -221,7 +222,8 @@ def analyze_block(
         re.DOTALL | re.IGNORECASE,
     )
     if st_match:
-        st_lines = [ln for ln in st_match.group(1).strip().splitlines() if ln.strip()]
+        cleaned = strip_code_fences(st_match.group(1).strip())
+        st_lines = [ln for ln in cleaned.splitlines() if ln.strip()]
         stacktrace = "\n".join(st_lines[:5])
 
     for line in resp.splitlines():
