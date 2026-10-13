@@ -38,6 +38,8 @@ def generate_partition(
     approx_row_group_bytes,
     convert_decimals_to_floats,
     codec_defs,
+    nationkey_type="i64",
+    regionkey_type="i64",
 ):
     if verbose:
         print(f"Generating '{table}' partition: {partition}")
@@ -59,6 +61,10 @@ def generate_partition(
         str(_PARQUET_VERSION),
         "--row-group-bytes",
         str(approx_row_group_bytes),
+        "--nationkey-type",
+        nationkey_type,
+        "--regionkey-type",
+        regionkey_type,
     ]
 
     if convert_decimals_to_floats:
@@ -81,6 +87,16 @@ def generate_partition(
         raise
 
 
+def validate_key_types(args):
+    """Reject unsupported overrides before removing an existing output directory."""
+    types = (getattr(args, "nationkey_type", "i64"), getattr(args, "regionkey_type", "i64"))
+    if any(value not in ("i32", "i64") for value in types):
+        raise ValueError("nationkey and regionkey types must be i32 or i64")
+    if (args.benchmark_type != "tpch" or args.use_duckdb) and types != ("i64", "i64"):
+        raise ValueError("Key type overrides require the tpchgen TPC-H generator")
+    return types
+
+
 def generate_data_files(args):
     use_default_generator = args.use_duckdb is None
     if use_default_generator:
@@ -88,6 +104,8 @@ def generate_data_files(args):
     elif args.benchmark_type == "tpcds" and not args.use_duckdb:
         # TODO: Add a TPC-DS tpcgen-cli generation path before allowing this override.
         raise ValueError("--no-use-duckdb is not supported for TPC-DS generation")
+
+    validate_key_types(args)
 
     if args.verbose:
         generator = "DuckDB" if args.use_duckdb else "tpchgen-cli"
@@ -163,6 +181,7 @@ def _get_tpchgen_version() -> str | None:
 
 
 def generate_data_files_with_tpchgen(args, codec_defs):
+    key_types = validate_key_types(args)
     local_installs_bin = Path(__file__).resolve().parent / ".local_installs" / "bin"
     if local_installs_bin.exists():
         os.environ["PATH"] = os.pathsep.join([str(local_installs_bin), os.environ["PATH"]])
@@ -191,6 +210,7 @@ def generate_data_files_with_tpchgen(args, codec_defs):
                         args.approx_row_group_bytes,
                         args.convert_decimals_to_floats,
                         codec_defs,
+                        *key_types,
                     )
                 )
             max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
@@ -257,6 +277,8 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "max_rows_per_file": args.max_rows_per_file,
         "approx_row_group_bytes": args.approx_row_group_bytes,
     }
+    if using_tpchgen:
+        metadata["nationkey_type"], metadata["regionkey_type"] = validate_key_types(args)
     if codec_defs is not None:
         metadata["codec_definitions"] = codec_defs
 
@@ -622,6 +644,18 @@ if __name__ == "__main__":
         required=False,
         default=None,
         help="Path to a JSON file specifying per-table/per-column encoding, compression, and dictionary settings.",
+    )
+    parser.add_argument(
+        "--nationkey-type",
+        choices=["i32", "i64"],
+        default="i64",
+        help="TPC-H tpchgen type for c_nationkey, s_nationkey, and n_nationkey (default: i64).",
+    )
+    parser.add_argument(
+        "--regionkey-type",
+        choices=["i32", "i64"],
+        default="i64",
+        help="TPC-H tpchgen type for n_regionkey and r_regionkey (default: i64).",
     )
 
     reg = parser.add_argument_group(
