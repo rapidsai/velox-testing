@@ -30,8 +30,8 @@ class DataGenArgs:
     max_rows_per_file: int
     keep_original_dataset: bool
     approx_row_group_bytes: int
-    nationkey_type: str = "i64"
-    regionkey_type: str = "i64"
+    nationkey_type: str | None = None
+    regionkey_type: str | None = None
     memory_limit: int | None = None
     codec_definitions: str = None
     register: bool = False

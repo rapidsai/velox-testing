@@ -167,9 +167,9 @@ Set up the tables with the scripts in `presto/scripts` (run each with `--help` f
 - `setup_benchmark_tables.sh` sets up tables on data that already exists, either locally under `PRESTO_DATA_DIR` (`-d`) or in S3 (`-r`, see [Remote Data Sources](#remote-data-sources-aws-s3)). It starts a CPU Presto instance, creates the tables, runs ANALYZE, and stops the instance.
 - `setup_benchmark_data_and_tables.sh` first generates the data under `PRESTO_DATA_DIR`, then runs `setup_benchmark_tables.sh` on it.
 
-For TPC-H, both `setup_benchmark_data_and_tables.sh` and `benchmark_data_tools/generate_data_files.py`
-accept `--nationkey-type i32` and `--regionkey-type i32` to generate narrower keys with tpchgen.
-Both options default to `i64` and can be selected independently. The nation option applies to
+For TPC-H with tpchgen, both `setup_benchmark_data_and_tables.sh` and `benchmark_data_tools/generate_data_files.py`
+generate nation and region keys as `i32` by default. Use `--nationkey-type i64` and/or `--regionkey-type i64`
+to select wider keys independently. The nation option applies to
 `c_nationkey`, `s_nationkey`, and `n_nationkey`; the region option applies to `n_regionkey` and
 `r_regionkey`. Nation and region IDs stay within 0–24 and 0–4, respectively, at every scale factor.
 Generated table schemas infer `INTEGER` for `i32` keys and `BIGINT` for `i64` keys from the Parquet files.

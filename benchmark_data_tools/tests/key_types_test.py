@@ -19,6 +19,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from .common_fixtures import DataGenArgs
+
 ROOT = Path(__file__).resolve().parents[2]
 KEY_TYPES = list(itertools.product(["i32", "i64"], repeat=2))
 
@@ -28,7 +30,7 @@ def install_tpchgen_cli():
     """These tests mock tpchgen and do not need the Docker-based installer."""
 
 
-@pytest.mark.parametrize("nation,region", [(None, None), *KEY_TYPES])
+@pytest.mark.parametrize("nation,region", [(None, None), ("i64", None), (None, "i64"), *KEY_TYPES])
 def test_partition_arguments_and_metadata_use_selected_widths(tmp_path, nation, region):
     args = SimpleNamespace(
         benchmark_type="tpch",
@@ -40,10 +42,10 @@ def test_partition_arguments_and_metadata_use_selected_widths(tmp_path, nation, 
         approx_row_group_bytes=1024,
         num_threads=1,
         verbose=False,
+        nationkey_type=nation,
+        regionkey_type=region,
     )
-    if nation is not None:
-        args.nationkey_type, args.regionkey_type = nation, region
-    expected_types = (nation or "i64", region or "i64")
+    expected_types = (nation or "i32", region or "i32")
     partitions = {"customer": 2, "supplier": 1, "nation": 1, "region": 1}
     with (
         patch.object(generator, "get_table_sf_ratios", return_value=partitions),
@@ -98,7 +100,7 @@ def test_inferred_ddl_matches_key_widths_and_readback(tmp_path, nation, region):
 
 
 @pytest.mark.parametrize("benchmark,use_duckdb", [("tpch", True), ("tpcds", None), ("tpcds", True)])
-@pytest.mark.parametrize("nation,region", [("i32", "i64"), ("i64", "i32")])
+@pytest.mark.parametrize("nation,region", [("i32", None), (None, "i32"), ("i64", None), (None, "i64")])
 def test_unsupported_override_preserves_existing_output(tmp_path, benchmark, use_duckdb, nation, region):
     existing = tmp_path / "keep.parquet"
     existing.write_text("existing dataset")
@@ -112,6 +114,25 @@ def test_unsupported_override_preserves_existing_output(tmp_path, benchmark, use
     with pytest.raises(ValueError, match="require the tpchgen"):
         generator.generate_data_files(args)
     assert existing.read_text() == "existing dataset"
+
+
+@pytest.mark.parametrize("benchmark,use_duckdb", [("tpch", True), ("tpcds", None), ("tpcds", True)])
+def test_duckdb_generation_without_key_options_still_works(tmp_path, benchmark, use_duckdb):
+    args = DataGenArgs(
+        benchmark_type=benchmark,
+        data_dir_path=str(tmp_path / "dataset"),
+        scale_factor=0.01,
+        convert_decimals_to_floats=False,
+        use_duckdb=use_duckdb,
+        num_threads=1,
+        verbose=False,
+        max_rows_per_file=100,
+        keep_original_dataset=False,
+        approx_row_group_bytes=1024,
+    )
+    with patch.object(generator, "generate_data_files_with_duckdb") as generate:
+        generator.generate_data_files(args)
+    generate.assert_called_once_with(args)
 
 
 @pytest.fixture

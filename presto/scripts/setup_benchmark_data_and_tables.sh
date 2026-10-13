@@ -15,8 +15,8 @@ SCRIPT_EXTRA_OPTIONS_DESCRIPTION="-f, --scale-factor                  The scale 
     -c, --convert-decimals-to-floats    Convert all decimal columns to float column type.
     -j, --num-threads                   Number of threads to use for data generation. Default is $((`nproc` / 4)).
     --approx-row-group-bytes            Approximate row group size in bytes.
-    --nationkey-type                   TPC-H nation key type: i32 or i64. Default is i64.
-    --regionkey-type                   TPC-H region key type: i32 or i64. Default is i64."
+    --nationkey-type                   TPC-H nation key type: i32 or i64. Default is i32.
+    --regionkey-type                   TPC-H region key type: i32 or i64. Default is i32."
 
 KEY_TYPE_ARGS=()
 NUM_THREADS=$(($(nproc) / 4))

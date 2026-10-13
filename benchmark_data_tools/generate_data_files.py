@@ -38,8 +38,8 @@ def generate_partition(
     approx_row_group_bytes,
     convert_decimals_to_floats,
     codec_defs,
-    nationkey_type="i64",
-    regionkey_type="i64",
+    nationkey_type="i32",
+    regionkey_type="i32",
 ):
     if verbose:
         print(f"Generating '{table}' partition: {partition}")
@@ -89,12 +89,13 @@ def generate_partition(
 
 def validate_key_types(args):
     """Reject unsupported overrides before removing an existing output directory."""
-    types = (getattr(args, "nationkey_type", "i64"), getattr(args, "regionkey_type", "i64"))
-    if any(value not in ("i32", "i64") for value in types):
+    # None distinguishes omitted options from explicit overrides on unsupported generators.
+    types = (getattr(args, "nationkey_type", None), getattr(args, "regionkey_type", None))
+    if any(value not in (None, "i32", "i64") for value in types):
         raise ValueError("nationkey and regionkey types must be i32 or i64")
-    if (args.benchmark_type != "tpch" or args.use_duckdb) and types != ("i64", "i64"):
+    if (args.benchmark_type != "tpch" or args.use_duckdb) and any(value is not None for value in types):
         raise ValueError("Key type overrides require the tpchgen TPC-H generator")
-    return types
+    return tuple(value if value is not None else "i32" for value in types)
 
 
 def generate_data_files(args):
@@ -648,14 +649,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--nationkey-type",
         choices=["i32", "i64"],
-        default="i64",
-        help="TPC-H tpchgen type for c_nationkey, s_nationkey, and n_nationkey (default: i64).",
+        default=None,
+        help="TPC-H tpchgen type for c_nationkey, s_nationkey, and n_nationkey (default: i32).",
     )
     parser.add_argument(
         "--regionkey-type",
         choices=["i32", "i64"],
-        default="i64",
-        help="TPC-H tpchgen type for n_regionkey and r_regionkey (default: i64).",
+        default=None,
+        help="TPC-H tpchgen type for n_regionkey and r_regionkey (default: i32).",
     )
 
     reg = parser.add_argument_group(
