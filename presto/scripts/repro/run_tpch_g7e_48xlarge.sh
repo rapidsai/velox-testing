@@ -245,6 +245,7 @@ for i in 0 1 2 3 4 5 6 7; do
   setprop $W/config_native.properties query.max-memory-per-node 153GB
   setprop $W/config_native.properties cudf.partitioned_output_batch_rows 10000000
   setprop $W/config_native.properties cudf.batch_size_min_threshold 40000000
+  setprop $W/config_native.properties cudf.kvikio_cache_threads 16
   setprop $W/config_native.properties driver.max-split-preload 2
   setprop $W/config_native.properties exchange.max-buffer-size 512MB
   setprop $W/config_native.properties exchange.max-response-size 64MB
