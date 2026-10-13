@@ -4,25 +4,9 @@
 
 import argparse
 import os
-import re
 import sys
 
-
-def detect_numa_nodes():
-    """Return list of NUMA node IDs visible on this host.
-
-    Reads /sys/devices/system/node/node<N> entries. Falls back to [0] when
-    the sysfs layout is unavailable (non-Linux, minimal container, etc.).
-    """
-    node_dir = "/sys/devices/system/node"
-    if not os.path.isdir(node_dir):
-        return [0]
-    nodes = []
-    for entry in sorted(os.listdir(node_dir)):
-        m = re.match(r"^node(\d+)$", entry)
-        if m:
-            nodes.append(int(m.group(1)))
-    return nodes or [0]
+from cpu_topology import detect_numa_nodes
 
 
 def parse_args():
@@ -125,8 +109,7 @@ def main() -> int:
     else:
         numa_nodes = detect_numa_nodes()
         workers = [
-            {"id": i, "numa_node": numa_nodes[i % len(numa_nodes)]}
-            for i in range(max(0, parsed_args.num_workers))
+            {"id": i, "numa_node": numa_nodes[i % len(numa_nodes)]} for i in range(max(0, parsed_args.num_workers))
         ]
 
     rendered = template.render(

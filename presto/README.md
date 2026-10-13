@@ -145,6 +145,57 @@ pytest tpch_test.py
    ./start_native_gpu_presto.sh
    ```
 
+### CPU workers and tuning
+
+From `presto/scripts`, use `./start_native_cpu_presto.sh -w 2 --wait` to start
+two CPU workers and wait until their HTTP endpoints and the coordinator agree
+that both are active on two consecutive polls. `--wait-timeout 180` changes the
+120-second deadline. Worker exits fail the wait immediately. The CPU layout also
+supports `--sccache -b worker`; all workers share the image built through worker 0.
+
+A single Docker CPU worker interleaves memory across NUMA nodes. Multiple CPU
+workers bind round-robin to CPU-bearing NUMA nodes available to the launching
+process. Automatic memory and driver budgets account for workers sharing each
+node. Drivers default to available hardware threads per worker, capped at 255;
+query memory uses 70% of the worker's system-memory budget and the async data
+cache is enabled. Multi-worker memory reserves up to 35GB per worker, capped at
+25% of its memory budget so small hosts remain usable.
+
+The same generator supports Slurm: `-g` / `--num-workers-per-node` determines
+the local resource split, independently of the total workers across the cluster.
+Slurm memory allocations constrain the available RAM. NUMA binding follows
+`CLUSTER_CPU_USE_NUMA`; with binding disabled, workers share the host allocation.
+As with the existing shared configuration generator, worker hosts should have
+matching CPU and memory layouts.
+
+Export these settings before either the Docker launcher or the Slurm launcher
+to override CPU tuning. They are reapplied when existing configs are reused:
+
+| Variable | Controls |
+| --- | --- |
+| `CPU_SYSTEM_MEM_GB` | Worker system-memory budget, within the available per-worker RAM |
+| `CPU_QUERY_MEM_GB` | Query-memory budget, at most the system-memory budget |
+| `CPU_DRIVERS` | Driver count, 1–255; takes precedence over `--num-drivers` |
+| `CPU_ASYNC_DATA_CACHE` | `true` or `false` |
+| `CPU_EXCHANGE_BUFFER` | Exchange buffer size, e.g. `512MB` |
+| `CPU_SINK_BUFFER` | Sink buffer size, e.g. `512MB` |
+
+For example, tune the exchange buffers with:
+
+```bash
+CPU_EXCHANGE_BUFFER=512MB CPU_SINK_BUFFER=512MB \
+  ./start_native_cpu_presto.sh -w 2 --wait
+```
+
+Without an
+explicit buffer override, generated CPU workers retain the template defaults
+(currently 1GB) and reused configs retain their existing values. Use
+`--overwrite-config` to restore template defaults. Switching worker counts
+reconciles single-node execution automatically; it does not require regeneration.
+
+`./stop_presto.sh` stops the detected variant using its existing Compose project
+and removes leftover containers with the known coordinator and worker names.
+
 ## Benchmark Data
 
 The infrastructure uses Hive-style directory layouts with Parquet files. For TPC-H, the expected structure is:

@@ -245,6 +245,13 @@ function run_worker {
     # CLUSTER_NUMA_GPUS_PER_NODE controls how many GPUs share each NUMA domain
     # (e.g., 2 means GPUs 0-1 on NUMA 0, GPUs 2-3 on NUMA 1).
     local numa_node=$((gpu_id / ${CLUSTER_NUMA_GPUS_PER_NODE:-1}))
+    if [[ "$VARIANT_TYPE" == cpu && "$USE_NUMA" == 1 ]]; then
+        local cpu_numa_nodes
+        cpu_numa_nodes=$(python3 "${VT_ROOT}/template_rendering/cpu_topology.py" --node-ids) || return 1
+        local -a cpu_nodes
+        read -ra cpu_nodes <<< "$cpu_numa_nodes"
+        numa_node=${cpu_nodes[$((gpu_id % ${#cpu_nodes[@]}))]}
+    fi
     echo "running worker ${worker_id} with image ${image} on node ${node} with gpu_id ${gpu_id} numa_node ${numa_node}"
 
     local worker_image

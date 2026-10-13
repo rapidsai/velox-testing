@@ -2,7 +2,7 @@ x-presto-native-worker-cpu: &cpu_worker_base
   extends:
     file: ../../docker-compose.common.yml
     service: presto-base-native-worker
-  image: presto-native-worker-cpu:${PRESTO_IMAGE_TAG}
+  image: presto-native-worker-cpu:${PRESTO_IMAGE_TAG:?PRESTO_IMAGE_TAG must be set}
   ulimits: {nofile: {soft: 500000, hard: 500000}}
   # SYS_NICE is required so that numactl --cpunodebind / --membind work inside
   # the container (needed for NUMA pinning of multi-worker CPU setups).
@@ -11,6 +11,12 @@ x-presto-native-worker-cpu: &cpu_worker_base
   build:
     args:
       - GPU=OFF
+{% if sccache %}
+    ulimits: {nofile: {soft: 500000, hard: 500000}}
+    secrets:
+      - github_token
+      - aws_credentials
+{% endif %}
   entrypoint: ["bash", "/opt/launch_presto_servers.sh"]
   command: []
   depends_on:
@@ -40,6 +46,7 @@ services:
     <<: *cpu_worker_base
     container_name: presto-native-worker-cpu-{{ worker.id }}
     environment:
+      PRESTO_WORKER_VARIANT: cpu
       WORKER_ID: {{ worker.id }}
       NUMA_NODE: {{ worker.numa_node }}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
@@ -55,6 +62,7 @@ services:
     <<: *cpu_worker_base
     container_name: presto-native-worker-cpu
     environment:
+      PRESTO_WORKER_VARIANT: cpu
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
     volumes:
       - ../../config/generated/cpu/etc_common:/opt/presto-server/etc
@@ -62,3 +70,11 @@ services:
       - ../../config/generated/cpu/etc_worker/config_native.properties:/opt/presto-server/etc/config.properties
       - ../../config/generated/cpu/etc_worker/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties
   {% endif %}
+{% if sccache %}
+
+secrets:
+  github_token:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/github_token"
+  aws_credentials:
+    file: "${SCCACHE_AUTH_DIR:-${HOME}/.sccache-auth}/aws_credentials"
+{% endif %}

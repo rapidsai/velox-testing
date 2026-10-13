@@ -122,16 +122,11 @@ if [[ "$VARIANT_TYPE" == "java" ]]; then
   DOCKER_COMPOSE_FILE="java"
   conditionally_add_build_target $JAVA_WORKER_IMAGE $JAVA_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
-  if [[ "$ENABLE_SCCACHE" == true ]]; then
-    DOCKER_COMPOSE_FILE="native-cpu.sccache"
-  else
-    DOCKER_COMPOSE_FILE="native-cpu"
-  fi
+  DOCKER_COMPOSE_FILE="native-cpu"
   # When the multi-worker CPU jinja template is in use (NUM_WORKERS>1,
   # not single-container), the rendered file names per-worker services
   # presto-native-worker-cpu-{0..N-1}. All workers share the same image,
-  # so picking worker 0 as the build target is sufficient. sccache uses a
-  # static file with only one CPU service, so skip the rename in that case.
+  # so picking worker 0 as the build target is sufficient.
   CPU_TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
   if [[ -f "$CPU_TEMPLATE_PATH" && -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 && "$SINGLE_CONTAINER" == "false" ]]; then
     CPU_WORKER_SERVICE="presto-native-worker-cpu-0"
@@ -170,6 +165,11 @@ export LOGS_DIR
 "${SCRIPT_DIR}/stop_presto.sh"
 
 if [[ "${SKIP_GENERATE_CONFIG:-false}" != "true" ]]; then
+  if [[ "$VARIANT_TYPE" == cpu ]]; then
+    export CPU_WORKERS_PER_NODE="$NUM_WORKERS"
+    export CPU_BIND_NUMA=false
+    [[ "$NUM_WORKERS" -gt 1 ]] && export CPU_BIND_NUMA=true
+  fi
   "${SCRIPT_DIR}/generate_presto_config.sh"
 fi
 
@@ -179,10 +179,7 @@ if [[ "$ALL_CUDA_ARCHS" == "true" && "$VARIANT_TYPE" != "gpu" ]]; then
 fi
 
 DOCKER_COMPOSE_FILE_PATH="${SCRIPT_DIR}/../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml"
-# GPU always renders from a Jinja template (per-GPU config mounts are parameterised).
-# CPU renders from a Jinja template only when one exists for the current compose
-# file name — the default "native-cpu" has a template to support per-NUMA
-# multi-worker layouts, but "native-cpu.sccache" keeps using its static file.
+# Both native variants render their worker layout and optional build secrets.
 TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
 if [[ "$VARIANT_TYPE" == "gpu" || ( "$VARIANT_TYPE" == "cpu" && -f "$TEMPLATE_PATH" ) ]]; then
   RENDERED_DIR="${SCRIPT_DIR}/../docker/docker-compose/generated"
@@ -288,31 +285,14 @@ fi
 # Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
 
-# Optional: block until ${NUM_WORKERS} workers have registered with the
-# coordinator. Useful when a subsequent step (benchmark run, post-start
-# setup) needs the cluster to be fully up. Times out after
-# WAIT_FOR_WORKERS_TIMEOUT seconds (default 120) so a stuck worker
-# doesn't hang the shell indefinitely.
+# Discovery can retain stale registrations. Require the expected worker
+# addresses, healthy HTTP endpoints, and coordinator-active count to agree.
 if [[ "$WAIT_FOR_WORKERS" == "true" ]]; then
-  echo "Waiting for ${NUM_WORKERS} worker(s) to register with coordinator (timeout: ${WAIT_FOR_WORKERS_TIMEOUT}s)..."
-  deadline=$(( $(date +%s) + WAIT_FOR_WORKERS_TIMEOUT ))
-  workers=0
-  while [[ $(date +%s) -lt $deadline ]]; do
-    workers=$(python3 - <<'PY'
-import json, urllib.request
-try:
-    with urllib.request.urlopen("http://localhost:8080/v1/node", timeout=1) as r:
-        print(len(json.load(r)))
-except Exception:
-    print(0)
-PY
-    )
-    echo "  ${workers}/${NUM_WORKERS} worker(s) registered"
-    [[ "$workers" -ge "$NUM_WORKERS" ]] && break
-    sleep 5
-  done
-  if [[ "$workers" -lt "$NUM_WORKERS" ]]; then
-    echo "ERROR: only ${workers}/${NUM_WORKERS} workers registered after ${WAIT_FOR_WORKERS_TIMEOUT}s" >&2
-    exit 1
+  WAIT_ARGS=(--variant "$VARIANT_TYPE" --num-workers "$NUM_WORKERS"
+    --config-dir "${SCRIPT_DIR}/../docker/config/generated/${VARIANT_TYPE}"
+    --single-container "$SINGLE_CONTAINER" --timeout "$WAIT_FOR_WORKERS_TIMEOUT")
+  if [[ "$VARIANT_TYPE" == gpu && -n "${GPU_IDS:-}" ]]; then
+    WAIT_ARGS+=(--gpu-ids "$GPU_IDS")
   fi
+  python3 "${SCRIPT_DIR}/wait_for_presto_workers.py" "${WAIT_ARGS[@]}"
 fi

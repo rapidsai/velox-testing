@@ -10,7 +10,7 @@ print_help() {
 
 Usage: $SCRIPT_NAME [OPTIONS]
 
-This script deploys a Presto server cluster (one coordinator node and one $VARIANT_TYPE worker node).
+This script deploys a Presto server cluster with a coordinator and $VARIANT_TYPE workers.
 
 OPTIONS:
     -h, --help           Show this help message.
@@ -20,7 +20,8 @@ OPTIONS:
                          By default, services will be lazily built i.e. a build
                          will only occur if there is no local image for the service.
     -j, --num-threads    Number of threads to use when building the image (default is `nproc` / 2).
-    -w, --num-workers    Number of GPU workers to start (GPU variant only).
+    -w, --num-workers    Number of native CPU or GPU workers to start (default: 1).
+    --num-drivers       Driver count per worker (CPU_DRIVERS takes precedence for CPU).
     -g, --gpu-ids        Comma-delimited list of GPU device IDs to use (e.g., "0,1,3,5").
                          Must be used with --num-workers. If not specified, defaults to "0,1,...,N-1"
                          where N is the value from --num-workers (GPU variant only).
@@ -35,6 +36,8 @@ OPTIONS:
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
     --logs-dir           Directory for server log files (default: <script_dir>/presto_logs).
                          Old log files are archived to an archive/ subdirectory on each startup.
+    --wait              Wait for healthy workers and coordinator readiness on two consecutive polls.
+    --wait-timeout      Maximum readiness wait in seconds (default: 120).
     --sccache            Enable sccache distributed compilation caching (requires auth files
                          in ~/.sccache-auth/). Run scripts/sccache/setup_sccache_auth.sh first.
     --sccache-version    Install a specific version of rapidsai/sccache, e.g. "0.12.0-rapids.1"
@@ -44,6 +47,10 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
     SCCACHE_AUTH_DIR     Directory containing sccache auth files (default: ~/.sccache-auth/).
+    CPU_SYSTEM_MEM_GB, CPU_QUERY_MEM_GB, CPU_DRIVERS, CPU_ASYNC_DATA_CACHE
+                         Override automatic CPU memory, driver, and cache settings.
+    CPU_EXCHANGE_BUFFER, CPU_SINK_BUFFER
+                         Override CPU exchange buffers (e.g. 512MB); otherwise retain configured values.
     PRESTO_CTAS_SCRATCH_DIR    Optional writable host scratch directory mounted for temporary CTAS benchmark results.
 
 EXAMPLES:
@@ -63,6 +70,7 @@ EOF
 }
 
 NUM_THREADS=$(($(nproc) / 2))
+[[ "$NUM_THREADS" -gt 0 ]] || NUM_THREADS=1
 BUILD_TYPE=release
 ALL_CUDA_ARCHS=false
 export SINGLE_CONTAINER=false
@@ -232,6 +240,25 @@ parse_args() {
 }
 
 parse_args "$@"
+
+for setting in NUM_WORKERS NUM_THREADS WAIT_FOR_WORKERS_TIMEOUT; do
+  if [[ ! "${!setting}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: ${setting} must be a positive integer." >&2
+    exit 1
+  fi
+done
+if [[ -n "$VCPU_PER_WORKER" && ! "$VCPU_PER_WORKER" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: --num-drivers must be a positive integer." >&2
+  exit 1
+fi
+if [[ "$VARIANT_TYPE" != gpu && ( "$SINGLE_CONTAINER" == true || -n "${GPU_IDS:-}" ) ]]; then
+  echo "Error: --single-container and --gpu-ids require the GPU variant." >&2
+  exit 1
+fi
+if [[ "$VARIANT_TYPE" == java && "$NUM_WORKERS" != 1 ]]; then
+  echo "Error: multiple workers are supported only for native CPU and GPU variants." >&2
+  exit 1
+fi
 
 if [[ -n "${PRESTO_CTAS_SCRATCH_DIR:-}" ]]; then
   mkdir -p "${PRESTO_CTAS_SCRATCH_DIR}"

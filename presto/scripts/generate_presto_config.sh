@@ -34,6 +34,10 @@ fi
 # It also adds certain config options to the workers if those options apply only to multi-worker environments.
 function duplicate_worker_configs() {
   local worker_id=$1
+  if [[ ! "$worker_id" =~ ^[0-9]+$ ]]; then
+    echo_error "ERROR: worker IDs must be non-negative integers."
+  fi
+  worker_id=$((10#$worker_id))
   echo "Duplicating worker configs for worker ID $worker_id"
   local worker_config="${CONFIG_DIR}/etc_worker_${worker_id}"
   local coord_config="${CONFIG_DIR}/etc_coordinator"
@@ -41,8 +45,11 @@ function duplicate_worker_configs() {
   local coord_native_config="${coord_config}/config_native.properties"
   # Need to stagger the port numbers because ucx exchange currently expects to be exactly
   # 3 higher than the http port.
-  local http_port="10$(printf "%02d\n" "$worker_id")0"
-  local exch_port="10$(printf "%02d\n" "$worker_id")3"
+  local http_port=$((10000 + 10 * worker_id))
+  local exch_port=$((http_port + 3))
+  if [[ "$exch_port" -gt 65535 ]]; then
+    echo_error "ERROR: worker ID ${worker_id} exceeds the available HTTP/exchange port range."
+  fi
   rm -rf ${worker_config}
   cp -r ${CONFIG_DIR}/etc_worker ${worker_config}
 
@@ -72,9 +79,9 @@ RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024
 # `lscpu -p` emits one machine-parseable row per logical CPU; each row has
 # fields `CPU,Core,Socket,Node,...`. Counting unique (Socket,Core) pairs gives
 # the physical-core count regardless of SMT state or lscpu locale strings.
-NUMA_NODES=$(ls -d /sys/devices/system/node/node* 2>/dev/null | wc -l)
+NUMA_NODES=$({ ls -d /sys/devices/system/node/node* 2>/dev/null || true; } | wc -l)
 [[ ${NUMA_NODES} -lt 1 ]] && NUMA_NODES=1
-PHYSICAL_CORES=$(lscpu -p 2>/dev/null | grep -v '^#' | awk -F, '{print $3","$2}' | sort -u | wc -l)
+PHYSICAL_CORES=$({ lscpu -p 2>/dev/null || true; } | awk -F, '!/^#/ && NF >= 3 {print $3","$2}' | sort -u | wc -l)
 [[ -z "${PHYSICAL_CORES}" || "${PHYSICAL_CORES}" -lt 1 ]] && PHYSICAL_CORES=${NPROC}
 SMT_RATIO=$(( NPROC / PHYSICAL_CORES ))
 [[ ${SMT_RATIO} -lt 1 ]] && SMT_RATIO=1
@@ -84,6 +91,7 @@ SMT_RATIO=$(( NPROC / PHYSICAL_CORES ))
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo_error "ERROR: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
 fi
+REQUESTED_VCPU_PER_WORKER="${VCPU_PER_WORKER:-}"
 if [[ -z ${VCPU_PER_WORKER:-} ]]; then
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
     VCPU_PER_WORKER=2
@@ -122,9 +130,13 @@ if [[ ! -d ${CONFIG_DIR} || "${OVERWRITE_CONFIG}" == "true" ]]; then
 }
 EOF
 
-  # run pbench to generate the config files
-  # hide default pbench logging which goes to stderr so we only see any errors
-  if "${SCRIPT_DIR}/../pbench/pbench" genconfig -p params.json -t template ${CONFIG_DIR} 2>&1 | grep '\{\"level":"error"'; then
+  # Keep the pbench exit status as well as its JSON error diagnostics. A
+  # pipeline inside `if` can otherwise hide a failed generator behind grep.
+  if ! PBENCH_OUTPUT=$("${SCRIPT_DIR}/../pbench/pbench" genconfig -p params.json -t template "${CONFIG_DIR}" 2>&1); then
+    printf '%s\n' "$PBENCH_OUTPUT" >&2
+    echo_error "ERROR: pbench genconfig failed. Configs were not generated successfully."
+  fi
+  if printf '%s\n' "$PBENCH_OUTPUT" | grep -F -- '{"level":"error"'; then
     echo_error "ERROR: Errors reported by pbench genconfig. Configs were not generated successfully."
   fi
 
@@ -210,50 +222,75 @@ if [[ -n "$NUM_WORKERS" && ( "$VARIANT_TYPE" == "gpu" || "$VARIANT_TYPE" == "cpu
   done
 fi
 
-# CPU auto-tuning keyed on NUM_WORKERS + detected host topology.
-# Runs idempotently on every start so manual sed-per-run isn't required, and
-# switching between `-w 1` and `-w 2` just needs `stop_presto.sh && start_native_cpu_presto.sh -w N`.
-# Any value can be overridden via env var.
-#
-# Logic:
-#   -w 1 -> container spans all NUMA nodes (launcher uses --interleave=all).
-#           Give it the full host memory; drivers = min(NPROC, 255) to max SMT
-#           up to Velox's uint8_t cap on parallel hash-build tables.
-#   -w N -> each container pins to one NUMA node via NUMA_NODE env var.
-#           Memory budget = per-node RAM; drivers = min(threads-per-node, 255)
-#           so each worker has 1 driver per hw thread on its socket, no cross-
-#           container oversubscription of the NUMA's cores.
-# Cache headroom (system-memory-gb - query-memory-gb) defaults to ~30% of the
-# worker's memory envelope, enough for the async data cache to hold a
-# meaningful chunk of SF1000 TPC-H.
+# CPU tuning uses workers on this host, while NUM_WORKERS remains the
+# cluster-wide count for worker identities and single-node execution. Slurm
+# exports CPU_WORKERS_PER_NODE and CPU_BIND_NUMA from its resolved layout.
+# Explicit CPU_* settings apply on every generation/reuse of the configs.
 if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
-  : "${CPU_ASYNC_DATA_CACHE:=true}"
-  if [[ "${NUM_WORKERS:-1}" -gt 1 ]]; then
-    THREADS_PER_WORKER=$(( NPROC / NUM_WORKERS ))
-    RAM_PER_WORKER_GB=$(( RAM_GB / NUM_WORKERS ))
-    : "${CPU_SYSTEM_MEM_GB:=$(( RAM_PER_WORKER_GB - 35 ))}"
-    : "${CPU_DRIVERS:=$(( THREADS_PER_WORKER < 255 ? THREADS_PER_WORKER : 255 ))}"
-    # Multi-worker bottlenecks on HTTP exchange backpressure for shuffle-heavy
-    # queries (Q9/Q18 time out at 30m with the 32MB defaults). 16x larger
-    # buffers unlock those queries on SF1000.
-    : "${CPU_EXCHANGE_BUFFER:=512MB}"
-    : "${CPU_SINK_BUFFER:=512MB}"
-  else
-    : "${CPU_SYSTEM_MEM_GB:=${RAM_GB}}"
-    : "${CPU_DRIVERS:=$(( NPROC < 255 ? NPROC : 255 ))}"
-    # Single-worker has no inter-worker shuffle, so the exchange buffers
-    # only matter for in-process exchange. Use Velox's defaults (32MB) —
-    # bigger buffers add latency on small shuffles for no benefit here.
-    : "${CPU_EXCHANGE_BUFFER:=32MB}"
-    : "${CPU_SINK_BUFFER:=32MB}"
+  : "${CPU_WORKERS_PER_NODE:=${NUM_WORKERS:-1}}"
+  if [[ ! "$CPU_WORKERS_PER_NODE" =~ ^[1-9][0-9]*$ ]]; then
+    echo_error "ERROR: CPU_WORKERS_PER_NODE must be a positive integer."
   fi
-  # ~30% of the worker's memory envelope reserved for the Velox async data cache
-  : "${CPU_QUERY_MEM_GB:=$(( CPU_SYSTEM_MEM_GB * 70 / 100 ))}"
-  CPU_SYSTEM_MEM_LIMIT_GB=$(( CPU_SYSTEM_MEM_GB + 30 ))
+  if [[ -z "${CPU_BIND_NUMA:-}" ]]; then
+    CPU_BIND_NUMA=false
+    [[ "$CPU_WORKERS_PER_NODE" -gt 1 ]] && CPU_BIND_NUMA=true
+  fi
 
-  echo "CPU auto-tune: NUM_WORKERS=${NUM_WORKERS:-1} NPROC=${NPROC} NUMA_NODES=${NUMA_NODES} PHYSICAL_CORES=${PHYSICAL_CORES} SMT_RATIO=${SMT_RATIO}"
-  echo "               system-memory-gb=${CPU_SYSTEM_MEM_GB} query-memory-gb=${CPU_QUERY_MEM_GB} task.max-drivers-per-task=${CPU_DRIVERS} async-data-cache-enabled=${CPU_ASYNC_DATA_CACHE}"
-  echo "               exchange.max-buffer-size=${CPU_EXCHANGE_BUFFER} sink.max-buffer-size=${CPU_SINK_BUFFER}"
+  # nproc respects process affinity. Cap host RAM by the Slurm allocation
+  # when one is specified (Slurm reports these memory values in MB).
+  CPU_RAM_GB=$RAM_GB
+  if [[ "${SLURM_MEM_PER_NODE:-0}" =~ ^[0-9]+$ && "${SLURM_MEM_PER_NODE:-0}" -gt 0 ]]; then
+    CPU_RAM_GB=$(( SLURM_MEM_PER_NODE / 1024 ))
+  elif [[ "${SLURM_MEM_PER_CPU:-0}" =~ ^[0-9]+$ && "${SLURM_MEM_PER_CPU:-0}" -gt 0 ]]; then
+    CPU_RAM_GB=$(( SLURM_MEM_PER_CPU * NPROC / 1024 ))
+  fi
+  [[ "$CPU_RAM_GB" -gt "$RAM_GB" ]] && CPU_RAM_GB=$RAM_GB
+  CPU_RESOURCES=$(python3 "${SCRIPT_DIR}/../../template_rendering/cpu_topology.py" \
+    --workers "$CPU_WORKERS_PER_NODE" --threads "$NPROC" \
+    --memory-gb "$CPU_RAM_GB" --bind-numa "$CPU_BIND_NUMA")
+  read -r THREADS_PER_WORKER RAM_PER_WORKER_GB <<< "$CPU_RESOURCES"
+
+  : "${CPU_ASYNC_DATA_CACHE:=true}"
+  # Preserve the original 35GB reserve on large multi-worker hosts, but scale
+  # it down on smaller nodes instead of producing zero/negative budgets.
+  CPU_RESERVED_MEM_GB=0
+  if [[ "$CPU_WORKERS_PER_NODE" -gt 1 ]]; then
+    CPU_RESERVED_MEM_GB=$(( RAM_PER_WORKER_GB / 4 ))
+    [[ "$CPU_RESERVED_MEM_GB" -gt 35 ]] && CPU_RESERVED_MEM_GB=35
+  fi
+  : "${CPU_SYSTEM_MEM_GB:=$(( RAM_PER_WORKER_GB - CPU_RESERVED_MEM_GB ))}"
+  : "${CPU_DRIVERS:=${REQUESTED_VCPU_PER_WORKER:-$(( THREADS_PER_WORKER < 255 ? THREADS_PER_WORKER : 255 ))}}"
+  for setting in CPU_SYSTEM_MEM_GB CPU_DRIVERS; do
+    if [[ ! "${!setting}" =~ ^[1-9][0-9]*$ ]]; then
+      echo_error "ERROR: ${setting} must be a positive integer."
+    fi
+  done
+  if [[ "$CPU_SYSTEM_MEM_GB" -gt "$RAM_PER_WORKER_GB" || "$CPU_DRIVERS" -gt 255 ]]; then
+    echo_error "ERROR: CPU_SYSTEM_MEM_GB must fit the ${RAM_PER_WORKER_GB}GB worker budget; CPU_DRIVERS must be at most 255."
+  fi
+  : "${CPU_QUERY_MEM_GB:=$(( CPU_SYSTEM_MEM_GB * 70 / 100 > 0 ? CPU_SYSTEM_MEM_GB * 70 / 100 : 1 ))}"
+  if [[ ! "$CPU_QUERY_MEM_GB" =~ ^[1-9][0-9]*$ || "$CPU_QUERY_MEM_GB" -gt "$CPU_SYSTEM_MEM_GB" ]]; then
+    echo_error "ERROR: CPU_QUERY_MEM_GB must be positive and no larger than CPU_SYSTEM_MEM_GB."
+  fi
+  if [[ "$CPU_ASYNC_DATA_CACHE" != true && "$CPU_ASYNC_DATA_CACHE" != false ]]; then
+    echo_error "ERROR: CPU_ASYNC_DATA_CACHE must be true or false."
+  fi
+  CPU_SYSTEM_MEM_LIMIT_GB=$(( CPU_SYSTEM_MEM_GB + 30 ))
+  [[ "$CPU_SYSTEM_MEM_LIMIT_GB" -gt "$RAM_PER_WORKER_GB" ]] && CPU_SYSTEM_MEM_LIMIT_GB=$RAM_PER_WORKER_GB
+  CPU_SYSTEM_MEM_SHRINK_GB=$(( CPU_SYSTEM_MEM_LIMIT_GB / 10 > 0 ? CPU_SYSTEM_MEM_LIMIT_GB / 10 : 1 ))
+  [[ "$CPU_SYSTEM_MEM_SHRINK_GB" -gt 20 ]] && CPU_SYSTEM_MEM_SHRINK_GB=20
+
+  # Main's override files own the default (currently 1GB). Change the buffers
+  # only when explicitly requested, preserving both defaults and local edits.
+  for setting in CPU_EXCHANGE_BUFFER CPU_SINK_BUFFER; do
+    if [[ -n "${!setting:-}" && ! "${!setting}" =~ ^[1-9][0-9]*(B|kB|KB|MB|GB|TB)$ ]]; then
+      echo_error "ERROR: ${setting} must be a positive data size such as 512MB or 1GB."
+    fi
+  done
+
+  echo "CPU auto-tune: NUM_WORKERS=${NUM_WORKERS} CPU_WORKERS_PER_NODE=${CPU_WORKERS_PER_NODE} NPROC=${NPROC} NUMA_NODES=${NUMA_NODES} SMT_RATIO=${SMT_RATIO}"
+  echo "               worker-budget=${RAM_PER_WORKER_GB}GB system-memory-gb=${CPU_SYSTEM_MEM_GB} query-memory-gb=${CPU_QUERY_MEM_GB} task.max-drivers-per-task=${CPU_DRIVERS} async-data-cache-enabled=${CPU_ASYNC_DATA_CACHE}"
+  echo "               exchange.max-buffer-size=${CPU_EXCHANGE_BUFFER:-configured default} sink.max-buffer-size=${CPU_SINK_BUFFER:-configured default}"
 
   # set_or_append <key> <value> <file>: idempotent — replaces existing
   # `key=...` line if present, otherwise appends. Used here because the
@@ -262,12 +299,19 @@ if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
   # applies we replace.
   set_or_append() {
     local key=$1 value=$2 cfg=$3
-    if grep -q "^${key}=" "$cfg"; then
-      sed -i "s|^${key}=.*|${key}=${value}|" "$cfg"
+    local pattern=${key//./\\.}
+    if grep -q "^${pattern}=" "$cfg"; then
+      sed -i "s|^${pattern}=.*|${key}=${value}|" "$cfg"
     else
       echo "${key}=${value}" >> "$cfg"
     fi
   }
+
+  # The coordinator also receives result pages. Apply explicit buffer tuning
+  # there as well, as in the later CPU benchmark fixes.
+  cfg="${CONFIG_DIR}/etc_coordinator/config_native.properties"
+  [[ -z "${CPU_EXCHANGE_BUFFER:-}" ]] || set_or_append "exchange.max-buffer-size" "$CPU_EXCHANGE_BUFFER" "$cfg"
+  [[ -z "${CPU_SINK_BUFFER:-}" ]] || set_or_append "sink.max-buffer-size" "$CPU_SINK_BUFFER" "$cfg"
 
   # Apply to every CPU worker config dir: etc_worker (single-worker + template
   # for duplicate_worker_configs) plus etc_worker_<N> (multi-worker instances).
@@ -276,12 +320,13 @@ if [[ "${VARIANT_TYPE}" == "cpu" ]]; then
     [[ -f "$cfg" ]] || continue
     sed -i "s/^system-memory-gb=.*/system-memory-gb=${CPU_SYSTEM_MEM_GB}/" "$cfg"
     sed -i "s/^system-mem-limit-gb=.*/system-mem-limit-gb=${CPU_SYSTEM_MEM_LIMIT_GB}/" "$cfg"
+    sed -i "s/^system-mem-shrink-gb=.*/system-mem-shrink-gb=${CPU_SYSTEM_MEM_SHRINK_GB}/" "$cfg"
     sed -i "s/^query-memory-gb=.*/query-memory-gb=${CPU_QUERY_MEM_GB}/" "$cfg"
     sed -i "s|^query.max-memory-per-node=.*|query.max-memory-per-node=${CPU_QUERY_MEM_GB}GB|" "$cfg"
     sed -i "s/^task.max-drivers-per-task=.*/task.max-drivers-per-task=${CPU_DRIVERS}/" "$cfg"
     sed -i "s/^async-data-cache-enabled=.*/async-data-cache-enabled=${CPU_ASYNC_DATA_CACHE}/" "$cfg"
-    set_or_append "exchange.max-buffer-size" "${CPU_EXCHANGE_BUFFER}" "$cfg"
-    set_or_append "sink.max-buffer-size" "${CPU_SINK_BUFFER}" "$cfg"
+    [[ -z "${CPU_EXCHANGE_BUFFER:-}" ]] || set_or_append "exchange.max-buffer-size" "$CPU_EXCHANGE_BUFFER" "$cfg"
+    [[ -z "${CPU_SINK_BUFFER:-}" ]] || set_or_append "sink.max-buffer-size" "$CPU_SINK_BUFFER" "$cfg"
   done
 
   # hive.file-splittable flip for CPU. Put outside the regen gate so restarts
