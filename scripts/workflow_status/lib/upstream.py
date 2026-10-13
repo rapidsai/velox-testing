@@ -214,7 +214,7 @@ def find_related_github_items(
     stacktrace: str,
     since_date: str,
     config: Config,
-    prefix: str = "    - ",
+    prefix: str = "- ",
 ) -> str:
     """Search for related issues / PRs based on a stacktrace.
 
