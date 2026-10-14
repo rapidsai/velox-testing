@@ -16,6 +16,7 @@ from typing import NamedTuple
 
 import duckdb
 import psutil
+import pyarrow.parquet as pq
 from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
 from register_storage_config import register_storage_config
 from row_group_sizing import row_group_row_count_probe
@@ -38,8 +39,6 @@ def generate_partition(
     approx_row_group_bytes,
     convert_decimals_to_floats,
     codec_defs,
-    nationkey_type="i32",
-    regionkey_type="i32",
 ):
     if verbose:
         print(f"Generating '{table}' partition: {partition}")
@@ -61,10 +60,11 @@ def generate_partition(
         str(_PARQUET_VERSION),
         "--row-group-bytes",
         str(approx_row_group_bytes),
+        # Nation and region IDs are bounded by 24 and 4 at every scale factor.
         "--nationkey-type",
-        nationkey_type,
+        "i32",
         "--regionkey-type",
-        regionkey_type,
+        "i32",
     ]
 
     if convert_decimals_to_floats:
@@ -87,17 +87,6 @@ def generate_partition(
         raise
 
 
-def validate_key_types(args):
-    """Reject unsupported overrides before removing an existing output directory."""
-    # None distinguishes omitted options from explicit overrides on unsupported generators.
-    types = (getattr(args, "nationkey_type", None), getattr(args, "regionkey_type", None))
-    if any(value not in (None, "i32", "i64") for value in types):
-        raise ValueError("nationkey and regionkey types must be i32 or i64")
-    if (args.benchmark_type != "tpch" or args.use_duckdb) and any(value is not None for value in types):
-        raise ValueError("Key type overrides require the tpchgen TPC-H generator")
-    return tuple(value if value is not None else "i32" for value in types)
-
-
 def generate_data_files(args):
     use_default_generator = args.use_duckdb is None
     if use_default_generator:
@@ -105,8 +94,6 @@ def generate_data_files(args):
     elif args.benchmark_type == "tpcds" and not args.use_duckdb:
         # TODO: Add a TPC-DS tpcgen-cli generation path before allowing this override.
         raise ValueError("--no-use-duckdb is not supported for TPC-DS generation")
-
-    validate_key_types(args)
 
     if args.verbose:
         generator = "DuckDB" if args.use_duckdb else "tpchgen-cli"
@@ -182,7 +169,6 @@ def _get_tpchgen_version() -> str | None:
 
 
 def generate_data_files_with_tpchgen(args, codec_defs):
-    key_types = validate_key_types(args)
     local_installs_bin = Path(__file__).resolve().parent / ".local_installs" / "bin"
     if local_installs_bin.exists():
         os.environ["PATH"] = os.pathsep.join([str(local_installs_bin), os.environ["PATH"]])
@@ -211,7 +197,6 @@ def generate_data_files_with_tpchgen(args, codec_defs):
                         args.approx_row_group_bytes,
                         args.convert_decimals_to_floats,
                         codec_defs,
-                        *key_types,
                     )
                 )
             max_partitions = num_partitions if num_partitions > max_partitions else max_partitions
@@ -263,6 +248,21 @@ def rearrange_directory(raw_data_path, num_partitions):
         os.rmdir(part_dir_path)
 
 
+def read_table_metadata(data_dir_path):
+    """Read Arrow column types from each generated table's Parquet schema."""
+    tables = {}
+    for table_dir in sorted(Path(data_dir_path).iterdir()):
+        if not table_dir.is_dir():
+            continue
+        # Generated partitions share a schema, so only one footer per table is needed.
+        parquet_file = next(table_dir.glob("*.parquet"), None)
+        if parquet_file is None:
+            continue
+        schema = pq.read_schema(parquet_file)
+        tables[table_dir.name] = {"columns": [{"name": field.name, "type": str(field.type)} for field in schema]}
+    return tables
+
+
 def write_metadata(args, codec_defs=None, generator_version=None):
     using_tpchgen = args.benchmark_type == "tpch" and not args.use_duckdb
     metadata = {
@@ -279,7 +279,7 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "approx_row_group_bytes": args.approx_row_group_bytes,
     }
     if using_tpchgen:
-        metadata["nationkey_type"], metadata["regionkey_type"] = validate_key_types(args)
+        metadata["tables"] = read_table_metadata(args.data_dir_path)
     if codec_defs is not None:
         metadata["codec_definitions"] = codec_defs
 
@@ -570,7 +570,9 @@ def build_default_codec_defs():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate benchmark parquet data files for a given scale factor. "
-        "Only the TPC-H and TPC-DS benchmarks are currently supported."
+        "Only the TPC-H and TPC-DS benchmarks are currently supported.",
+        epilog="For TPC-H, this script overrides tpchgen's default i64 nation and region key types "
+        "with i32 (SQL INTEGER).",
     )
     parser.add_argument(
         "-b",
@@ -645,18 +647,6 @@ if __name__ == "__main__":
         required=False,
         default=None,
         help="Path to a JSON file specifying per-table/per-column encoding, compression, and dictionary settings.",
-    )
-    parser.add_argument(
-        "--nationkey-type",
-        choices=["i32", "i64"],
-        default=None,
-        help="TPC-H tpchgen type for c_nationkey, s_nationkey, and n_nationkey (default: i32).",
-    )
-    parser.add_argument(
-        "--regionkey-type",
-        choices=["i32", "i64"],
-        default=None,
-        help="TPC-H tpchgen type for n_regionkey and r_regionkey (default: i32).",
     )
 
     reg = parser.add_argument_group(
