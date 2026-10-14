@@ -1,8 +1,8 @@
 CREATE TABLE hive.{schema}.warehouse (
-    w_warehouse_sk INTEGER,
+    w_warehouse_sk BIGINT,
     w_warehouse_id VARCHAR,
     w_warehouse_name VARCHAR,
-    w_warehouse_sq_ft INTEGER,
+    w_warehouse_sq_ft BIGINT,
     w_street_number VARCHAR,
     w_street_name VARCHAR,
     w_street_type VARCHAR,

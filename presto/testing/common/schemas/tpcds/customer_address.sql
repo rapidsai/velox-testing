@@ -1,5 +1,5 @@
 CREATE TABLE hive.{schema}.customer_address (
-    ca_address_sk INTEGER,
+    ca_address_sk BIGINT,
     ca_address_id VARCHAR,
     ca_street_number VARCHAR,
     ca_street_name VARCHAR,
