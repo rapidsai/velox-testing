@@ -117,10 +117,14 @@ if [[ "$VARIANT_TYPE" == "java" ]]; then
   DOCKER_COMPOSE_FILE="java"
   conditionally_add_build_target $JAVA_WORKER_IMAGE $JAVA_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "cpu" ]]; then
-  if [[ "$ENABLE_SCCACHE" == true ]]; then
-    DOCKER_COMPOSE_FILE="native-cpu.sccache"
-  else
-    DOCKER_COMPOSE_FILE="native-cpu"
+  DOCKER_COMPOSE_FILE="native-cpu"
+  # When the multi-worker CPU jinja template is in use (NUM_WORKERS>1,
+  # not single-container), the rendered file names per-worker services
+  # presto-native-worker-cpu-{0..N-1}. All workers share the same image,
+  # so picking worker 0 as the build target is sufficient.
+  CPU_TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
+  if [[ -f "$CPU_TEMPLATE_PATH" && -n "$NUM_WORKERS" && "$NUM_WORKERS" -gt 1 && "$SINGLE_CONTAINER" == "false" ]]; then
+    CPU_WORKER_SERVICE="presto-native-worker-cpu-0"
   fi
   conditionally_add_build_target $CPU_WORKER_IMAGE $CPU_WORKER_SERVICE "worker|w"
 elif [[ "$VARIANT_TYPE" == "gpu" ]]; then
@@ -156,6 +160,11 @@ export LOGS_DIR
 "${SCRIPT_DIR}/stop_presto.sh"
 
 if [[ "${SKIP_GENERATE_CONFIG:-false}" != "true" ]]; then
+  if [[ "$VARIANT_TYPE" == cpu ]]; then
+    export CPU_WORKERS_PER_NODE="$NUM_WORKERS"
+    export CPU_BIND_NUMA=false
+    [[ "$NUM_WORKERS" -gt 1 ]] && export CPU_BIND_NUMA=true
+  fi
   "${SCRIPT_DIR}/generate_presto_config.sh"
 fi
 
@@ -165,9 +174,9 @@ if [[ "$ALL_CUDA_ARCHS" == "true" && "$VARIANT_TYPE" != "gpu" ]]; then
 fi
 
 DOCKER_COMPOSE_FILE_PATH="${SCRIPT_DIR}/../docker/docker-compose.$DOCKER_COMPOSE_FILE.yml"
-# For GPU, the docker-compose file is a Jinja template. Render it before any docker compose operations.
-if [[ "$VARIANT_TYPE" == "gpu" ]]; then
-  TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
+# Both native variants render their worker layout and optional build secrets.
+TEMPLATE_PATH="${SCRIPT_DIR}/../docker/docker-compose/template/docker-compose.$DOCKER_COMPOSE_FILE.yml.jinja"
+if [[ "$VARIANT_TYPE" == "gpu" || ( "$VARIANT_TYPE" == "cpu" && -f "$TEMPLATE_PATH" ) ]]; then
   RENDERED_DIR="${SCRIPT_DIR}/../docker/docker-compose/generated"
   mkdir -p "$RENDERED_DIR"
   RENDERED_PATH="$RENDERED_DIR/docker-compose.$DOCKER_COMPOSE_FILE.rendered.yml"
@@ -175,8 +184,8 @@ if [[ "$VARIANT_TYPE" == "gpu" ]]; then
   LOCAL_NUM_WORKERS="${NUM_WORKERS:-0}"
 
   RENDER_SCRIPT_PATH=$(readlink -f "${SCRIPT_DIR}/../../template_rendering/render_docker_compose_template.py")
-  RENDER_ARGS="--template-path $TEMPLATE_PATH --output-path $RENDERED_PATH --num-workers $NUM_WORKERS --single-container $SINGLE_CONTAINER --kvikio-threads $KVIKIO_THREADS --sccache $ENABLE_SCCACHE"
-  if [[ -n $GPU_IDS ]]; then
+  RENDER_ARGS="--template-path $TEMPLATE_PATH --output-path $RENDERED_PATH --num-workers $NUM_WORKERS --single-container $SINGLE_CONTAINER --kvikio-threads $KVIKIO_THREADS --sccache $ENABLE_SCCACHE --variant $VARIANT_TYPE"
+  if [[ "$VARIANT_TYPE" == "gpu" && -n $GPU_IDS ]]; then
     RENDER_ARGS="$RENDER_ARGS --gpu-ids $GPU_IDS"
   fi
   "${SCRIPT_DIR}/../../scripts/run_py_script.sh" -p "$RENDER_SCRIPT_PATH" $RENDER_ARGS
@@ -270,3 +279,15 @@ fi
 
 # Start all services defined in the rendered docker-compose file.
 docker compose -f $DOCKER_COMPOSE_FILE_PATH up -d
+
+# Discovery can retain stale registrations. Require the expected worker
+# addresses, healthy HTTP endpoints, and coordinator-active count to agree.
+if [[ "$WAIT_FOR_WORKERS" == "true" ]]; then
+  WAIT_ARGS=(--variant "$VARIANT_TYPE" --num-workers "$NUM_WORKERS"
+    --config-dir "${SCRIPT_DIR}/../docker/config/generated/${VARIANT_TYPE}"
+    --single-container "$SINGLE_CONTAINER" --timeout "$WAIT_FOR_WORKERS_TIMEOUT")
+  if [[ "$VARIANT_TYPE" == gpu && -n "${GPU_IDS:-}" ]]; then
+    WAIT_ARGS+=(--gpu-ids "$GPU_IDS")
+  fi
+  python3 "${SCRIPT_DIR}/wait_for_presto_workers.py" "${WAIT_ARGS[@]}"
+fi

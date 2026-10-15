@@ -36,6 +36,11 @@ export NUM_NODES="${SLURM_JOB_NUM_NODES}"
 COORD="$(scontrol show hostnames "${SLURM_JOB_NODELIST}" | head -n 1)"
 export COORD
 export NUM_WORKERS=$((NUM_NODES * NUM_GPUS_PER_NODE))
+if [[ "$VARIANT_TYPE" == cpu ]]; then
+    export CPU_WORKERS_PER_NODE="$NUM_GPUS_PER_NODE"
+    export CPU_BIND_NUMA=false
+    [[ "$USE_NUMA" == 1 ]] && export CPU_BIND_NUMA=true
+fi
 
 # Presto configuration
 export PORT="${PORT:-${CLUSTER_DEFAULT_PORT:?CLUSTER_DEFAULT_PORT not set — check cluster_config.env}}"
