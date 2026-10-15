@@ -118,7 +118,13 @@ def fetch_jobs(run_id: int, config: Config) -> list[dict]:
 
 
 def fetch_log(run_id: int, config: Config, failed_only: bool = True) -> str | None:
-    """Fetch the log for a run (``--log-failed`` or ``--log``)."""
+    """Fetch the log for a whole run (``--log-failed`` or ``--log``).
+
+    NOTE: ``gh run view --log[-failed]`` is rejected by the CLI when the run has
+    too many jobs (``too many API requests needed to fetch logs; try narrowing
+    down to a specific job with the --job option``). For analysis use
+    :func:`fetch_job_log` instead, which fetches per-job and avoids the throttle.
+    """
     flag = "--log-failed" if failed_only else "--log"
     out = run_gh_safe(
         "run",
@@ -140,6 +146,43 @@ def fetch_log(run_id: int, config: Config, failed_only: bool = True) -> str | No
             config=config,
         )
     return out
+
+
+def fetch_job_log(job_id: int, config: Config) -> str | None:
+    """Fetch the log for a single job by ID.
+
+    Tries ``gh run view --job <id> --log`` first, which returns the log with
+    the standard ``<job_name>\\t<step>\\t<timestamp>\\t<line>`` prefixes used
+    elsewhere in the analyser. Falls back to the raw REST endpoint
+    ``/repos/{owner}/{repo}/actions/jobs/{job_id}/logs`` if the gh wrapper
+    returns nothing.
+
+    Per-job fetching is the only reliable path for runs with many jobs (large
+    matrix builds): the run-level log endpoints are rejected by the gh CLI
+    with ``too many API requests needed to fetch logs; try narrowing down to a
+    specific job with the --job option``.
+    """
+    out = run_gh_safe(
+        "run",
+        "view",
+        "-R",
+        config.repo,
+        "--job",
+        str(job_id),
+        "--log",
+        config=config,
+    )
+    if out:
+        return out
+
+    raw = run_gh_safe(
+        "api",
+        "-H",
+        "Accept: application/vnd.github.v3.raw",
+        f"/repos/{config.repo}/actions/jobs/{job_id}/logs",
+        config=config,
+    )
+    return raw
 
 
 def detect_repo(config: Config) -> str:
