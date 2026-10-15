@@ -29,7 +29,7 @@ if [[ ${#MISSING_REPOS[@]} -gt 0 ]]; then
     echo "Expected directory layout:"
     echo "  ~/code/"
     echo "  ├── velox-testing/   (this repo)"
-    echo "  ├── cudf/            (rapidsai/cudf)"
+    echo "  ├── cudf/            (NVIDIA/cudf)"
     echo "  ├── kvikio/          (rapidsai/kvikio)"
     echo "  ├── presto/          (prestodb/presto)"
     echo "  ├── rapidsmpf/       (rapidsai/rapidsmpf)"

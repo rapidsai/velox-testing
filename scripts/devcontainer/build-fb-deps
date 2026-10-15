@@ -135,6 +135,10 @@ build_pkg() {
         srcdir="${srcdir}/${srcsubdir}"
     fi
 
+    if [[ "${name}" == "folly" || "${name}" == "proxygen" ]]; then
+        git -C "${srcdir}" apply "$(dirname "$(readlink -f "$0")")/${name}-shared.patch"
+    fi
+
     echo "  Configuring..."
     cmake -Wno-dev -B "${pkg_dir}/build" -S "${srcdir}" \
         "${CMAKE_COMMON[@]}" "$@"

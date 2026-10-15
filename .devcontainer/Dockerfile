@@ -61,7 +61,7 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 \
     update-alternatives --set gcc /usr/bin/gcc-14
 
 # Install velox helper scripts
-COPY velox-testing/scripts/devcontainer/* /usr/local/bin/
+COPY scripts/devcontainer/* /usr/local/bin/
 RUN chmod 755 /usr/local/bin/build-* /usr/local/bin/configure-* \
     /usr/local/bin/test-* /usr/local/bin/clean-* \
     /usr/local/bin/_devcontainer_common_utils.sh
