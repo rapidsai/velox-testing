@@ -80,6 +80,7 @@ jobs:
           filters: |
             benchmark_data_tools:
               - "benchmark_data_tools/**"
+              - "presto/testing/common/schemas/**"
             benchmark_harness:
               - "common/testing/**"
               - "presto/testing/**"
