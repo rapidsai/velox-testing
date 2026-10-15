@@ -1,3 +1,4 @@
 {
-  "scale_factor": 0.01
+  "scale_factor": 0.01,
+  "approx_row_group_bytes": 134217728
 }
