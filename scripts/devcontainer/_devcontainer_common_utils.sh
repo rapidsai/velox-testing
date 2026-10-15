@@ -8,6 +8,15 @@
 # RAPIDS-supported CUDA architectures for CUDA 13.x (from rapids-cmake)
 RAPIDS_CUDA_ARCHITECTURES="75-real;80-real;86-real;90a-real;100f-real;120a-real;120"
 
+# RAPIDS components built by build-all/build-all-cpp, in dependency order. These
+# are built explicitly because the RAPIDS build-all scripts build every component
+# in the manifest, including ones Velox and Presto don't use (e.g. cudf_streaming,
+# which requires rapidsmpf).
+RAPIDS_CPP_LIBS=(rmm ucxx kvikio cudf)
+# Additional C++ libraries needed only by the Python packages.
+RAPIDS_PYTHON_CPP_LIBS=(ucxx-python)
+RAPIDS_PYTHON_LIBS=(librmm rmm libucxx ucxx libkvikio kvikio libcudf pylibcudf cudf)
+
 # Resolve CUDAARCHS: expand "RAPIDS" or empty to the concrete arch list.
 resolve_cudaarchs() {
     if [[ "${CUDAARCHS:-}" == "RAPIDS" || -z "${CUDAARCHS:-}" ]]; then
@@ -15,7 +24,7 @@ resolve_cudaarchs() {
     fi
 }
 
-# Look up the cmake build directory for a RAPIDS library (rmm, ucxx, kvikio, rapidsmpf, cudf).
+# Look up the cmake build directory for a RAPIDS library (rmm, ucxx, kvikio, cudf).
 # Prints the path if found; prints nothing otherwise.
 get_rapids_cmake_dir() {
     local lib_name="$1"
@@ -30,16 +39,15 @@ get_rapids_cmake_dir() {
     fi
 }
 
-# Append -D flags for pre-built rmm, ucxx, kvikio, rapidsmpf, cudf to the variable whose
+# Append -D flags for pre-built rmm, ucxx, kvikio, cudf to the variable whose
 # name is passed as $1 (must already exist in the caller's scope).
 append_rapids_cmake_flags() {
     local __var="$1"
 
-    local rmm_dir ucxx_dir kvikio_dir rapidsmpf_dir cudf_dir
+    local rmm_dir ucxx_dir kvikio_dir cudf_dir
     rmm_dir=$(get_rapids_cmake_dir "rmm")
     ucxx_dir=$(get_rapids_cmake_dir "ucxx")
     kvikio_dir=$(get_rapids_cmake_dir "kvikio")
-    rapidsmpf_dir=$(get_rapids_cmake_dir "rapidsmpf")
     cudf_dir=$(get_rapids_cmake_dir "cudf")
 
     if [[ -n "${rmm_dir}" ]]; then
@@ -53,10 +61,6 @@ append_rapids_cmake_flags() {
     if [[ -n "${kvikio_dir}" ]]; then
         echo "Found kvikio build at: ${kvikio_dir}"
         printf -v "$__var" '%s %s' "${!__var}" "-Dkvikio_ROOT=${kvikio_dir}"
-    fi
-    if [[ -n "${rapidsmpf_dir}" ]]; then
-        echo "Found rapidsmpf build at: ${rapidsmpf_dir}"
-        printf -v "$__var" '%s %s' "${!__var}" "-Drapidsmpf_ROOT=${rapidsmpf_dir}"
     fi
     if [[ -n "${cudf_dir}" ]]; then
         echo "Found cudf build at: ${cudf_dir}"

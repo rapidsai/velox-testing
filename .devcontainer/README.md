@@ -10,10 +10,9 @@ Builds use the distributed build cluster via `sccache-dist`; use `-j0`.
 # 1. Clone sibling repos under the same parent directory
 mkdir ~/code && cd ~/code
 git clone https://github.com/rapidsai/velox-testing.git
-git clone https://github.com/rapidsai/cudf.git
+git clone https://github.com/NVIDIA/cudf.git
 git clone https://github.com/rapidsai/kvikio.git
 git clone https://github.com/prestodb/presto.git
-git clone https://github.com/rapidsai/rapidsmpf.git
 git clone https://github.com/rapidsai/rmm.git
 git clone https://github.com/rapidsai/ucxx.git
 git clone https://github.com/facebookincubator/velox.git
@@ -39,10 +38,9 @@ The devcontainer expects this layout on the host:
 
 ```
 ~/code/
-├── cudf/              # rapidsai/cudf
+├── cudf/              # NVIDIA/cudf
 ├── kvikio/            # rapidsai/kvikio
 ├── presto/            # prestodb/presto
-├── rapidsmpf/         # rapidsai/rapidsmpf
 ├── rmm/               # rapidsai/rmm
 ├── ucxx/              # rapidsai/ucxx
 ├── velox/             # facebookincubator/velox

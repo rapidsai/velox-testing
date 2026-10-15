@@ -59,11 +59,36 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
+      - name: Checkout Velox
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: facebookincubator/velox
+          ref: main
+          path: velox
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Read RAPIDS pins from Velox
+        id: rapids-pins
+        shell: bash
+        run: |
+          cmake_file=velox/CMake/resolve_dependency_modules/cudf.cmake
+          for name in cudf kvikio rmm ucxx; do
+            sha="$(sed -nE "s/^[[:space:]]*set\(VELOX_${name}_COMMIT ([0-9a-f]{40})\)/\1/p" "${cmake_file}")"
+            if [[ ! "${sha}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error file=${cmake_file}::Could not find a unique VELOX_${name}_COMMIT pin"
+              exit 1
+            fi
+            echo "${name}: ${sha}"
+            echo "${name}=${sha}" >> "${GITHUB_OUTPUT}"
+          done
+
       - name: Checkout cuDF
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          repository: rapidsai/cudf
-          ref: main
+          repository: NVIDIA/cudf
+          ref: ${{ steps.rapids-pins.outputs.cudf }}
           path: cudf
           fetch-depth: 0
           filter: blob:none
@@ -73,7 +98,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: rapidsai/kvikio
-          ref: main
+          ref: ${{ steps.rapids-pins.outputs.kvikio }}
           path: kvikio
           fetch-depth: 0
           filter: blob:none
@@ -89,21 +114,11 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
-      - name: Checkout rapidsmpf
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          repository: rapidsai/rapidsmpf
-          ref: main
-          path: rapidsmpf
-          fetch-depth: 0
-          filter: blob:none
-          persist-credentials: false
-
       - name: Checkout RMM
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: rapidsai/rmm
-          ref: main
+          ref: ${{ steps.rapids-pins.outputs.rmm }}
           path: rmm
           fetch-depth: 0
           filter: blob:none
@@ -113,18 +128,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: rapidsai/ucxx
-          ref: main
+          ref: ${{ steps.rapids-pins.outputs.ucxx }}
           path: ucxx
-          fetch-depth: 0
-          filter: blob:none
-          persist-credentials: false
-
-      - name: Checkout Velox
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          repository: facebookincubator/velox
-          ref: main
-          path: velox
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
