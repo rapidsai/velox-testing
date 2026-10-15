@@ -1,16 +1,13 @@
 #!/bin/bash
 # Build everything: RAPIDS libraries, then velox and presto.
-# Only the RAPIDS libraries listed in _devcontainer_common_utils.sh are built.
+# Wraps the RAPIDS build-all and adds build-velox + build-presto.
 #
 # -j/-jN/--jobs/--parallel are forwarded to all three build stages.
 # -D CMAKE_BUILD_TYPE is extracted to derive --release/--debug for velox/presto;
-# all -D flags (including CMAKE_BUILD_TYPE) are also forwarded to the RAPIDS build scripts.
-# Any unrecognised arguments are passed through to the RAPIDS build scripts.
+# all -D flags (including CMAKE_BUILD_TYPE) are also forwarded to RAPIDS build-all.
+# Any unrecognised arguments are passed through to the RAPIDS build-all.
 
 set -euo pipefail
-
-# shellcheck source=_devcontainer_common_utils.sh
-source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 
 usage() {
     cat <<EOF
@@ -20,11 +17,11 @@ Build RAPIDS libraries, velox, and presto-native-execution.
 
 Options:
   -j[N], --jobs N, --parallel N Number of parallel jobs (forwarded to all stages)
-  -D <var>[:<type>]=<value>     CMake cache entry (forwarded to the RAPIDS build scripts)
+  -D <var>[:<type>]=<value>     CMake cache entry (forwarded to RAPIDS build-all)
                                 CMAKE_BUILD_TYPE is also used to set velox/presto build type
   -h, --help                    Show this help message
 
-All other options are forwarded to the RAPIDS build scripts.
+All other options are forwarded to the RAPIDS build-all.
 EOF
 }
 
@@ -70,12 +67,9 @@ if [[ -n "${BUILD_TYPE}" ]]; then
     VELOX_PRESTO_ARGS+=("--${BUILD_TYPE}")
 fi
 
-for lib in "${RAPIDS_CPP_LIBS[@]}" "${RAPIDS_PYTHON_CPP_LIBS[@]}"; do
-    build-"${lib}"-cpp "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
-done
-for lib in "${RAPIDS_PYTHON_LIBS[@]}"; do
-    build-"${lib}"-python "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
-done
+if [[ -x /usr/bin/build-all ]]; then
+    /usr/bin/build-all "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
+fi
 
 build-velox "${VELOX_PRESTO_ARGS[@]+"${VELOX_PRESTO_ARGS[@]}"}"
 build-presto "${VELOX_PRESTO_ARGS[@]+"${VELOX_PRESTO_ARGS[@]}"}"

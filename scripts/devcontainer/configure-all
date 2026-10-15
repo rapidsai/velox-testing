@@ -1,17 +1,14 @@
 #!/bin/bash
 # Configure everything: RAPIDS libraries and velox.
-# Only the RAPIDS libraries listed in _devcontainer_common_utils.sh are configured.
+# Wraps the RAPIDS configure-all and adds configure-velox.
 #
 # Common arguments are forwarded to all configure stages:
 #   -D CMAKE_BUILD_TYPE=<Release|Debug>  — build type
 #   -D <var>=<value>                     — other CMake cache entries (RAPIDS only)
 #
-# Any unrecognised arguments are passed through to the RAPIDS configure scripts.
+# Any unrecognised arguments are passed through to the RAPIDS configure-all.
 
 set -euo pipefail
-
-# shellcheck source=_devcontainer_common_utils.sh
-source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 
 usage() {
     cat <<EOF
@@ -22,11 +19,11 @@ Configure RAPIDS libraries and velox.
 Options:
   --release                     Configure for release build (velox)
   --debug                       Configure for debug build (velox)
-  -D <var>[:<type>]=<value>     CMake cache entry (forwarded to RAPIDS configure scripts)
+  -D <var>[:<type>]=<value>     CMake cache entry (forwarded to RAPIDS configure-all)
                                 CMAKE_BUILD_TYPE is also used to set velox build type
   -h, --help                    Show this help message
 
-All other options are forwarded to the RAPIDS configure scripts.
+All other options are forwarded to the RAPIDS configure-all.
 EOF
 }
 
@@ -70,8 +67,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-for lib in "${RAPIDS_CPP_LIBS[@]}" "${RAPIDS_PYTHON_CPP_LIBS[@]}"; do
-    configure-"${lib}"-cpp "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
-done
+if [[ -x /usr/bin/configure-all ]]; then
+    /usr/bin/configure-all "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
+fi
 
 configure-velox "${VELOX_ARGS[@]+"${VELOX_ARGS[@]}"}"
