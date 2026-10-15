@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+SPDX-License-Identifier: Apache-2.0
+-->
+<settings>
+  <profiles>
+    <profile>
+      <id>gcs-maven-central-mirror</id>
+      <repositories>
+        <!-- Prefer Google Cloud mirror, which has higher rate limits; Maven Central remains the fallback -->
+        <repository>
+          <id>gcs-maven-central-mirror</id>
+          <name>GCS Maven Central mirror</name>
+          <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+          <releases>
+            <enabled>true</enabled>
+          </releases>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>gcs-maven-central-mirror</id>
+          <name>GCS Maven Central mirror</name>
+          <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+          <releases>
+            <enabled>true</enabled>
+          </releases>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>gcs-maven-central-mirror</activeProfile>
+  </activeProfiles>
+</settings>

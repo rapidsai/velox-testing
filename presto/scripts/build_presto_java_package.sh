@@ -19,6 +19,7 @@ echo "Building Presto Java from source with PRESTO_VERSION: $PRESTO_VERSION..."
 docker run --rm \
     -v "${REPO_ROOT}/../presto:/presto" \
     -v "${SCRIPT_DIR}/.mvn_cache:/root/.m2" \
+    -v "${SCRIPT_DIR}/maven_settings.xml:/root/maven_settings.xml:ro" \
     -e PRESTO_VERSION=$PRESTO_VERSION \
     -w /presto \
     eclipse-temurin:17-jdk-jammy \
@@ -28,7 +29,7 @@ docker run --rm \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - &&
     apt-get install -y nodejs &&
     npm install -g yarn@1.22.22 &&
-    ./mvnw clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true -Daether.connector.http.retryHandler.serviceUnavailable=429,500,502,503,504 &&
+    ./mvnw -s /root/maven_settings.xml clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true -Daether.connector.http.retryHandler.serviceUnavailable=429,500,502,503,504 -Daether.connector.http.retryHandler.count.gcs-maven-central-mirror=0 &&
     echo 'Copying artifacts with version $PRESTO_VERSION...' &&
     cp presto-server/target/presto-server-*.tar.gz docker/presto-server-$PRESTO_VERSION.tar.gz &&
     cp presto-function-server/target/presto-function-server-*executable.jar docker/presto-function-server-executable.jar &&
