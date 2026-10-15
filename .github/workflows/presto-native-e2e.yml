@@ -1,0 +1,197 @@
+name: presto-native-e2e
+
+# Presto GPU conformance from upstream Prestissimo e2e suites, in three arms
+# (control / gpu / gpu-strict), published as a static site on GitHub Pages.
+#
+#   run      GPU runner: pull the given worker image (nightly, staging or
+#            manual build), check out the presto commit it was built from, run
+#            presto/scripts/run_native_e2e_3arm.sh, upload the run directory
+#            (Surefire XML verbatim, Maven + worker logs, COMPARE.txt) as an
+#            artifact. Retention is the history window: nightlies expire,
+#            weeklies are kept as long as GitHub allows.
+#   publish  Gather every still-live native-e2e-* artifact, build the site
+#            (presto/testing/native_e2e/build_site.py) and deploy it to Pages.
+#            No results branch: history lives in artifacts, the site is a
+#            deployment, and clones of this repo never carry the data.
+
+on:
+  workflow_call:
+    inputs:
+      worker_image:
+        description: 'Full reference of the GPU worker image to test (ghcr.io/...:tag)'
+        type: string
+        required: true
+      cadence:
+        description: 'nightly or weekly (sets the artifact retention and run id)'
+        type: string
+        required: false
+        default: nightly
+  workflow_dispatch:
+    inputs:
+      worker_image:
+        description: 'Full reference of the GPU worker image to test (ghcr.io/...:tag)'
+        type: string
+        required: true
+      cadence:
+        description: 'nightly or weekly'
+        type: choice
+        options: [nightly, weekly]
+        default: nightly
+
+permissions: {}
+
+concurrency:
+  group: presto-native-e2e
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: 3-arm run (${{ inputs.cadence }})
+    runs-on: linux-amd64-gpu-l4-latest-1
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      run_id: ${{ steps.ids.outputs.run_id }}
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+          path: velox-testing
+
+      - name: Log in to the Container registry
+        uses: ./velox-testing/.github/actions/container-registry-login
+
+      - name: Pull the GPU worker image
+        env:
+          IMAGE: ${{ inputs.worker_image }}
+        run: |
+          source velox-testing/scripts/common.sh
+          docker_pull_with_retry "${IMAGE}"
+          docker tag "${IMAGE}" presto-native-worker-gpu:ci
+
+      # The suites are Java tests in the presto repo, run against the pulled
+      # worker. The image's provenance labels say which presto repository and
+      # commit it was built from (upstream, a staging branch or a fork alike).
+      - name: Resolve run id and presto source
+        id: ids
+        env:
+          CADENCE: ${{ inputs.cadence }}
+        run: |
+          label() { docker inspect presto-native-worker-gpu:ci --format "{{ index .Config.Labels \"$1\" }}"; }
+          repo="$(label velox-testing.presto.repository)"
+          repo="${repo#git@github.com:}"; repo="${repo#https://github.com/}"; repo="${repo%.git}"
+          echo "run_id=$(date -u +%Y-%m-%d)-${CADENCE}" >> "$GITHUB_OUTPUT"
+          echo "presto_repository=${repo:-prestodb/presto}" >> "$GITHUB_OUTPUT"
+          echo "presto_sha=$(label velox-testing.presto.sha)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout presto
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ steps.ids.outputs.presto_repository }}
+          ref: ${{ steps.ids.outputs.presto_sha }}
+          persist-credentials: false
+          path: presto
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00  # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build presto-native-execution test dependencies
+        working-directory: presto
+        run: ./mvnw -B -q install -DskipTests -pl presto-native-execution -am
+
+      - name: Run the three arms
+        env:
+          PRESTO_DIR: ${{ github.workspace }}/presto
+          WORKER_IMAGE: presto-native-worker-gpu:ci
+          OUT_DIR: ${{ github.workspace }}/results/${{ steps.ids.outputs.run_id }}
+        run: velox-testing/presto/scripts/run_native_e2e_3arm.sh
+
+      - name: Summarize
+        if: always()
+        env:
+          OUT_DIR: ${{ github.workspace }}/results/${{ steps.ids.outputs.run_id }}
+        run: |
+          python3 velox-testing/presto/testing/native_e2e/compare_arms.py --root "$OUT_DIR" --json "$OUT_DIR/summary.json" | tee "$OUT_DIR/COMPARE.txt"
+          { echo '```'; cat "$OUT_DIR/COMPARE.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload run (nightly)
+        if: always() && inputs.cadence == 'nightly'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: native-e2e-${{ steps.ids.outputs.run_id }}
+          path: results/${{ steps.ids.outputs.run_id }}
+          retention-days: 60
+
+      - name: Upload run (weekly)
+        if: always() && inputs.cadence == 'weekly'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: native-e2e-${{ steps.ids.outputs.run_id }}
+          path: results/${{ steps.ids.outputs.run_id }}
+          retention-days: 400
+
+  publish:
+    name: Publish site
+    needs: run
+    if: always() && needs.run.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read      # list and download artifacts from earlier runs
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      # Every live native-e2e-* artifact across all workflow runs is a run in the
+      # history. Expired artifacts drop out, which is the retention policy.
+      - name: Gather run artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false and (.name | startswith("native-e2e-"))) | "\(.id) \(.name)"' |
+          sort -k2 -u | while read -r id name; do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "artifacts/${name}.zip"
+            mkdir -p "artifacts/${name#native-e2e-}"
+            unzip -q -o "artifacts/${name}.zip" -d "artifacts/${name#native-e2e-}"
+            rm "artifacts/${name}.zip"
+          done
+          ls artifacts
+
+      - name: Build site
+        run: python3 presto/testing/native_e2e/build_site.py --runs-dir artifacts --site site
+
+      # The built site is also kept as a plain artifact, so results are usable
+      # (download, open index.html, drop the runs/ folders on it) even where
+      # Pages is not enabled for the repository.
+      - name: Upload site artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: native-e2e-site
+          path: site
+          retention-days: 30
+
+      - name: Upload Pages artifact
+        continue-on-error: true
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3.0.1
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        continue-on-error: true   # needs Pages enabled (Settings > Pages > Source: GitHub Actions)
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e  # v4.0.5
