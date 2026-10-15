@@ -73,12 +73,14 @@ services:
 {% if host_network %}
     # WXD-like: host networking (per-NIC S3 binding, EFA exchange) plus EFA verbs devices.
     network_mode: host
+{%- if efa_devices %}
     devices:
       - /dev/infiniband/rdma_cm
       - /dev/infiniband/uverbs0
       - /dev/infiniband/uverbs1
       - /dev/infiniband/uverbs2
       - /dev/infiniband/uverbs3
+{%- endif %}
 {% endif %}
     environment:
       WORKER_ID: {{ gpu_id }}
@@ -111,7 +113,6 @@ services:
       KVIKIO_REMOTE_IO_REACTOR_DISPATCH: ${KVIKIO_REMOTE_IO_REACTOR_DISPATCH:-SHARED_QUEUE}
       KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS: ${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS:-256}
       KVIKIO_LOG_LEVEL: ${KVIKIO_LOG_LEVEL:-OFF}
-      # KvikIO main (PR 1052): per-worker NIC binding and the non-temporal copy switch.
       KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE_GPU_{{ gpu_id }}:-}
       KVIKIO_REMOTE_IO_NONTEMPORAL_COPY: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY:-true}
       KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD:-1048576}
@@ -129,6 +130,9 @@ services:
   presto-native-worker-gpu:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu
+{%- if host_network %}
+    network_mode: host
+{%- endif %}
 {%- if workers %}
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
@@ -152,6 +156,10 @@ services:
       KVIKIO_REMOTE_IO_REACTOR_DISPATCH: ${KVIKIO_REMOTE_IO_REACTOR_DISPATCH:-SHARED_QUEUE}
       KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS: ${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS:-256}
       KVIKIO_LOG_LEVEL: ${KVIKIO_LOG_LEVEL:-OFF}
+      KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE:-}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY:-true}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD:-1048576}
+      KVIKIO_REMOTE_DIRECT_RECEIVE: ${KVIKIO_REMOTE_DIRECT_RECEIVE:-OFF}
       LIBCUDF_NUM_HOST_WORKERS: ${LIBCUDF_NUM_HOST_WORKERS:-32}
       CUDA_VISIBLE_DEVICES: "{% for id in workers %}{{ id }}{% if not loop.last %},{% endif %}{% endfor %}"
 {% else %}
@@ -176,6 +184,10 @@ services:
       KVIKIO_REMOTE_IO_REACTOR_DISPATCH: ${KVIKIO_REMOTE_IO_REACTOR_DISPATCH:-SHARED_QUEUE}
       KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS: ${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS:-256}
       KVIKIO_LOG_LEVEL: ${KVIKIO_LOG_LEVEL:-OFF}
+      KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE:-}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY:-true}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD:-1048576}
+      KVIKIO_REMOTE_DIRECT_RECEIVE: ${KVIKIO_REMOTE_DIRECT_RECEIVE:-OFF}
       LIBCUDF_NUM_HOST_WORKERS: ${LIBCUDF_NUM_HOST_WORKERS:-32}
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}

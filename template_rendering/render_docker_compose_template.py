@@ -88,14 +88,15 @@ def main() -> int:
     else:
         workers = list(range(max(0, parsed_args.num_workers)))
 
+    host_network = os.environ.get("PRESTO_GPU_HOST_NETWORK", "false").lower() == "true"
     rendered = template.render(
         num_workers=parsed_args.num_workers,
         workers=workers,
         single_container=parsed_args.single_container,
         kvikio_threads=parsed_args.kvikio_threads,
         sccache=parsed_args.sccache,
-        # WXD-like workers: host networking (per-NIC S3 binding) and EFA devices.
-        host_network=os.environ.get("PRESTO_GPU_HOST_NETWORK", "false").lower() == "true",
+        host_network=host_network,
+        efa_devices=host_network and os.environ.get("PRESTO_GPU_EFA_DEVICES", "true").lower() == "true",
     )
 
     os.makedirs(os.path.dirname(parsed_args.output_path), exist_ok=True)
