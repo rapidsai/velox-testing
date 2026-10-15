@@ -89,7 +89,8 @@ if [ "$ENABLE_SCCACHE" = "ON" ]; then
   if [ -n "${SCCACHE_NO_DIST_COMPILE:-}" ]; then
     export SCCACHE_NO_DIST_COMPILE=1;
   fi
-  bash /sccache_setup.sh;
+  # Source the setup so its automatic local-fallback export reaches the build.
+  source /sccache_setup.sh;
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
 fi
