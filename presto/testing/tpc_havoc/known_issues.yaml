@@ -125,8 +125,12 @@ known_issues:
   # filters c_acctbal > that average, so a customer with c_acctbal = 4998.77 is counted by
   # DuckDB but not by Presto (cntrycode 29: 91124 vs 91123). Base and all variants agree
   # with each other on Presto; only the DuckDB check differs, and only at SF100.
+  # Alternative (not applied, so the difference stays documented here): make the DuckDB reference
+  # round like Presto, i.e. CAST(AVG(c_acctbal) AS DECIMAL(15, 2)) in the DuckDB SQL; with that cast
+  # DuckDB also returns 91123 and all 11 Q22 statements pass at SF100.
   - query: "Q22*"
     check: duckdb
     scale_factors: [100]
-    match: "mismatch"
+    # Only a single count off by exactly one; any other Q22 difference is still reported as new.
+    match: "Found 1 mismatch\\(es\\):\\s+Row \\d+, col 1: \\S+ vs \\S+ \\(diff=1\\.00e\\+00,"
     reason: "Presto rounds AVG(DECIMAL) to the input scale; DuckDB uses DOUBLE (Q22 threshold differs)"
