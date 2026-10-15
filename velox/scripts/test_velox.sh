@@ -98,9 +98,7 @@ TEST_PREAMBLE='if [ -f "/opt/miniforge/etc/profile.d/conda.sh" ]; then
   export CLASSPATH=$(/usr/local/hadoop/bin/hdfs classpath --glob)'
 
 if [[ "$DEVICE_TYPE" == "cpu" ]]; then
-  # disable velox_table_evolution_fuzzer_test pending resolution of too-many-open-files problem
-  # seves 1/9/26
-  SKIP_TESTS="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test|velox_table_evolution_fuzzer_test"
+  SKIP_TESTS="velox_exec_test|velox_hdfs_file_test|velox_hdfs_insert_test"
   TEST_CMD="ctest -j ${NUM_THREADS} --label-exclude cuda_driver --output-on-failure --no-tests=error -E \"${SKIP_TESTS}\""
 else
   if [[ "$NUM_THREADS" -gt 2 ]]; then
