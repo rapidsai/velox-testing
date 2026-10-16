@@ -12,8 +12,17 @@ mkdir -p "${LOGS_DIR}"
 
 # Surface baked-in image provenance in the shared logs dir so the host-side
 # pytest (Docker) or in-container pytest (SLURM) can read it via LOGS_DIR.
+# One container per GPU means several workers write this file at once. A plain
+# cp then fails with "File exists" when another worker creates the file between
+# cp's existence check and its O_EXCL create, and set -e kills the worker. Copy
+# to a private file and rename it into place instead; rename(2) replaces the
+# target atomically. mktemp creates 0600, so restore cp's usual 0644 for the
+# host-side reader.
 if [ -f /opt/velox-testing/provenance.json ]; then
-  cp /opt/velox-testing/provenance.json "${LOGS_DIR}/worker_provenance.json"
+  provenance_tmp=$(mktemp "${LOGS_DIR}/.worker_provenance.json.XXXXXX")
+  cp /opt/velox-testing/provenance.json "${provenance_tmp}"
+  chmod 0644 "${provenance_tmp}"
+  mv -f "${provenance_tmp}" "${LOGS_DIR}/worker_provenance.json"
 fi
 
 ETC_BASE="/opt/presto-server/etc"

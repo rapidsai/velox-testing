@@ -42,6 +42,17 @@ def _record_reset_layers(request, layers):
     setattr(request.session, CACHE_RESET_LAYERS, getattr(request.session, CACHE_RESET_LAYERS, set()) | layers)
 
 
+def session_properties_from_config(config):
+    """Parse the repeated --session-property key=value options into a dict."""
+    properties = {}
+    for item in config.getoption("--session-property") or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip():
+            pytest.exit(f"--session-property must be key=value, got {item!r}", returncode=1)
+        properties[key.strip()] = value.strip()
+    return properties
+
+
 def write_query_result(cursor, output_dir, query_id):
     rows = cursor.fetchall()
     columns = [description[0] for description in cursor.description]
@@ -154,7 +165,14 @@ def presto_cursor(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema = request.config.getoption("--schema-name")
-    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
+    conn = prestodb.dbapi.connect(
+        host=hostname,
+        port=port,
+        user=user,
+        catalog="hive",
+        schema=schema,
+        session_properties=session_properties_from_config(request.config),
+    )
     return conn.cursor()
 
 

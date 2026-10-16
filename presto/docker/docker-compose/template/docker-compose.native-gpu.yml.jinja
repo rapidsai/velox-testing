@@ -70,6 +70,18 @@ services:
   presto-native-worker-gpu-{{ gpu_id }}:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu-{{ gpu_id }}
+{% if host_network %}
+    # WXD-like: host networking (per-NIC S3 binding, EFA exchange) plus EFA verbs devices.
+    network_mode: host
+{%- if efa_devices %}
+    devices:
+      - /dev/infiniband/rdma_cm
+      - /dev/infiniband/uverbs0
+      - /dev/infiniband/uverbs1
+      - /dev/infiniband/uverbs2
+      - /dev/infiniband/uverbs3
+{%- endif %}
+{% endif %}
     environment:
       WORKER_ID: {{ gpu_id }}
       NVIDIA_VISIBLE_DEVICES: all
@@ -77,8 +89,17 @@ services:
       PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
-      UCX_RNDV_PIPELINE_ERROR_HANDLING: y
-      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_RNDV_PIPELINE_ERROR_HANDLING: ${PRESTO_GPU_UCX_RNDV_PIPELINE_ERROR_HANDLING:-y}
+      UCX_TLS: ${PRESTO_GPU_UCX_TLS:-tcp,cuda_copy,cuda_ipc}
+      UCX_NET_DEVICES: ${UCX_NET_DEVICES_GPU_{{ gpu_id }}:-all}
+      # Passed through only when set in the launching shell.
+      UCX_MAX_RNDV_RAILS:
+      UCX_RNDV_FRAG_SIZE:
+      UCX_RNDV_FRAG_MEM_TYPES:
+      UCX_SOCKADDR_TLS_PRIORITY:
+      UCX_RNDV_FRAG_ALLOC_COUNT:
+      UCX_CUDA_IPC_CACHE_MAX_REGIONS:
+      UCX_CUDA_IPC_CACHE_MAX_SIZE:
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
       # don't know, leave it for now
@@ -92,6 +113,10 @@ services:
       KVIKIO_REMOTE_IO_REACTOR_DISPATCH: ${KVIKIO_REMOTE_IO_REACTOR_DISPATCH:-SHARED_QUEUE}
       KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS: ${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS:-256}
       KVIKIO_LOG_LEVEL: ${KVIKIO_LOG_LEVEL:-OFF}
+      KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE_GPU_{{ gpu_id }}:-}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY:-true}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD:-1048576}
+      KVIKIO_REMOTE_DIRECT_RECEIVE: ${KVIKIO_REMOTE_DIRECT_RECEIVE:-OFF}
       LIBCUDF_NUM_HOST_WORKERS: ${LIBCUDF_NUM_HOST_WORKERS:-32}
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
     volumes:
@@ -105,6 +130,9 @@ services:
   presto-native-worker-gpu:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu
+{%- if host_network %}
+    network_mode: host
+{%- endif %}
 {%- if workers %}
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
@@ -128,6 +156,10 @@ services:
       KVIKIO_REMOTE_IO_REACTOR_DISPATCH: ${KVIKIO_REMOTE_IO_REACTOR_DISPATCH:-SHARED_QUEUE}
       KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS: ${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS:-256}
       KVIKIO_LOG_LEVEL: ${KVIKIO_LOG_LEVEL:-OFF}
+      KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE:-}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY:-true}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD:-1048576}
+      KVIKIO_REMOTE_DIRECT_RECEIVE: ${KVIKIO_REMOTE_DIRECT_RECEIVE:-OFF}
       LIBCUDF_NUM_HOST_WORKERS: ${LIBCUDF_NUM_HOST_WORKERS:-32}
       CUDA_VISIBLE_DEVICES: "{% for id in workers %}{{ id }}{% if not loop.last %},{% endif %}{% endfor %}"
 {% else %}
@@ -152,6 +184,10 @@ services:
       KVIKIO_REMOTE_IO_REACTOR_DISPATCH: ${KVIKIO_REMOTE_IO_REACTOR_DISPATCH:-SHARED_QUEUE}
       KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS: ${KVIKIO_REMOTE_IO_MAX_CONCURRENT_REQUESTS:-256}
       KVIKIO_LOG_LEVEL: ${KVIKIO_LOG_LEVEL:-OFF}
+      KVIKIO_REMOTE_IO_INTERFACE: ${KVIKIO_REMOTE_IO_INTERFACE:-}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY:-true}
+      KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD: ${KVIKIO_REMOTE_IO_NONTEMPORAL_COPY_THRESHOLD:-1048576}
+      KVIKIO_REMOTE_DIRECT_RECEIVE: ${KVIKIO_REMOTE_DIRECT_RECEIVE:-OFF}
       LIBCUDF_NUM_HOST_WORKERS: ${LIBCUDF_NUM_HOST_WORKERS:-32}
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
