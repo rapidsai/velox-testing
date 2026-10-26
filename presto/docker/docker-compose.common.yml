@@ -37,6 +37,8 @@ services:
   presto-base-native-worker:
     extends:
       service: presto-base-volumes
+    volumes:
+      - ./presto_profiling_wrapper.sh:/opt/presto_profiling_wrapper.sh:ro
     build:
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_build.dockerfile

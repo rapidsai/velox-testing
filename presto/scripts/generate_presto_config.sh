@@ -125,6 +125,11 @@ EOF
   # etc_worker/config_native.properties). Set by the slurm launchers from
   # CLUSTER_{GPU,CPU}_USE_MMAP_ALLOCATOR; defaults to the template's "true"
   # (Presto C++ default) when unset, e.g. for non-slurm/Docker workflows.
+  # Velox's MmapAllocator only supports 4KB pages (fails on e.g. 64KB-page aarch64 kernels).
+  if [[ -z "${USE_MMAP_ALLOCATOR:-}" && "$(getconf PAGESIZE)" != "4096" ]]; then
+    echo_warning "System page size is $(getconf PAGESIZE) bytes; disabling use-mmap-allocator"
+    USE_MMAP_ALLOCATOR=false
+  fi
   if [ -n "${USE_MMAP_ALLOCATOR:-}" ]; then
     sed -i "s+^use-mmap-allocator=.*+use-mmap-allocator=${USE_MMAP_ALLOCATOR}+g" "${CONFIG_DIR}/etc_worker/config_native.properties"
   fi

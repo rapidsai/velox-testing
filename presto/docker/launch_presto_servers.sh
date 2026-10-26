@@ -39,7 +39,9 @@ launch_worker() {
     cpu_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest CPU/{ gsub(/ /,"",$2); print $2 }')
     mem_numa=$(echo "$topo" | awk -F: '/NUMA IDs of closest memory/{ gsub(/ /,"",$2); print $2 }')
 
-    if [[ $cpu_numa =~ ^[0-9]+$ ]]; then
+    if ! command -v numactl &> /dev/null; then
+      echo "numactl not found in image; launching worker $worker_id without NUMA pinning"
+    elif [[ $cpu_numa =~ ^[0-9]+$ ]]; then
       launcher=(numactl --cpunodebind="$cpu_numa")
       if [[ $mem_numa =~ ^[0-9]+$ ]]; then
         launcher+=(--membind="$mem_numa")
