@@ -93,6 +93,10 @@ if [ "$ENABLE_SCCACHE" = "ON" ]; then
   bash /sccache_setup.sh;
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache";
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
+else
+  # Clear launchers retained by CMake and prevent Velox from selecting ccache.
+  echo "Compiler caching disabled; compiling locally with direct compiler commands";
+  EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_C_COMPILER_LAUNCHER= -DCMAKE_CXX_COMPILER_LAUNCHER= -DCMAKE_CUDA_COMPILER_LAUNCHER= -DVELOX_ENABLE_CCACHE=OFF";
 fi
 
 if [ "$GPU" = "ON" ]; then

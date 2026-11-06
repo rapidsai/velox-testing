@@ -321,9 +321,11 @@ jobs:
           allow: network.host
           build-contexts: |
             presto/prestissimo-dependency:centos9=docker-image://${{ steps.deps.outputs.image }}
+          # Temporary bypass: amd64 GPU source hashes match the cuDF pin and
+          # direct GCC retries pass, while sccache-assisted compilation fails.
           build-args: |
             CUDA_ARCHITECTURES=${{ startsWith(matrix.build, '13.') && '75;80;86;90;100;120' || startsWith(matrix.build, '12.') && '70;75;80;86;90;100;120' || '70' }}
-            ENABLE_SCCACHE=ON
+            ENABLE_SCCACHE=${{ matrix.arch == 'amd64' && matrix.build != 'cpu' && 'OFF' || 'ON' }}
             GPU=${{ matrix.build == 'cpu' && 'OFF' || 'ON' }}
             NUM_THREADS=31
             PRESTO_SHA=${{ inputs.presto_sha }}
