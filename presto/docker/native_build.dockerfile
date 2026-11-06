@@ -69,6 +69,7 @@ RUN \
     --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \
     --mount=type=secret,id=aws_credentials,target=/root/.aws/credentials \
     --mount=type=bind,source=velox-testing/scripts/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
+    --mount=type=bind,source=velox-testing/scripts/sccache/diagnose_cudf_compile.py,target=/diagnose_cudf_compile.py,ro \
 <<EOF
 set -euxo pipefail;
 
@@ -94,11 +95,27 @@ if [ "$ENABLE_SCCACHE" = "ON" ]; then
   export NVCC_APPEND_FLAGS="${NVCC_APPEND_FLAGS:+$NVCC_APPEND_FLAGS }-t=100";
 fi
 
-make --directory="/presto_native_staging/presto" cmake-and-build BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR};
+if [ "$GPU" = "ON" ]; then
+  EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON";
+fi
+
+build_status=0;
+make --directory="/presto_native_staging/presto" cmake-and-build BUILD_TYPE=${BUILD_TYPE} BUILD_DIR="" BUILD_BASE_DIR=${BUILD_BASE_DIR} || build_status=$?;
 
 if [ "$ENABLE_SCCACHE" = "ON" ]; then
   echo "Post-build sccache statistics:";
-  sccache --show-adv-stats;
+  sccache --show-adv-stats || echo "Unable to read sccache statistics";
+fi
+
+if [ "$build_status" -ne 0 ]; then
+  if [ "$GPU" = "ON" ]; then
+    python3 /diagnose_cudf_compile.py \
+      --build-dir "$BUILD_BASE_DIR" \
+      --velox-dir /presto_native_staging/presto/velox \
+      || echo "cuDF diagnostic checks did not all succeed; see output above";
+  fi
+  # A successful diagnostic compile must never turn a failed build into an image.
+  exit "$build_status";
 fi
 
 !(LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib ldd ${BUILD_BASE_DIR}/presto_cpp/main/presto_server | grep "not found" | grep -v -E "libcuda\.so|libnvidia");
