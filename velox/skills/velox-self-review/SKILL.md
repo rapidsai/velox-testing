@@ -31,9 +31,10 @@ have staged", "deep review velox/exec/HashBuild.cpp".
 - **The review is read-only.** Do not edit files, and do not run any git
   command that writes: no `fetch`, `checkout`, `switch`, `stash`, `reset`,
   `commit`, `add`, `rebase`. The author's working tree is their work in progress.
-- **Never commit or push**, even after fixes are applied.
+  When something needs a git write (a stale base ref, say), tell the author the
+  command instead of running it.
 - Fixes happen only after the review, only for the findings the author picks,
-  and only when asked (see [After the Review](#after-the-review)).
+  and only when asked. **Never commit or push**, even after fixes are applied.
 
 ---
 
@@ -96,8 +97,7 @@ done
 MERGE_BASE=$(git merge-base HEAD "$BASE_REF")
 ```
 
-Do **not** `git fetch` to refresh the base — that writes to the repository. A
-stale remote-tracking ref is fine as long as it is an ancestor of the branch;
+A stale remote-tracking ref is fine as long as it is an ancestor of the branch;
 2d checks for the case where it is not.
 
 ### 2c. Collect the change set
@@ -147,47 +147,51 @@ If this lists commits by authors other than the person running the review, the
 base ref is probably stale: the branch contains upstream commits the local
 `$BASE_REF` does not know about, and they would be reviewed as if they were the
 author's. Stop and tell the author to run `git fetch <remote>`, or to pass
-`--base`. Do not run the fetch yourself.
+`--base`.
 
 The commit subjects here are also the closest thing to a PR title and
 description — use them in Step 3.
 
-### 2e. Build the changed-files manifest
+### 2e. Build a changed-files manifest
 
-| Category           | Action                                                                          |
-| ------------------ | ------------------------------------------------------------------------------- |
-| **New files**      | Read the full file (mandatory) — includes untracked files                       |
-| **Deleted files**  | Search for remaining references to the symbols the file defined                 |
-| **Modified files** | Read the full file, not just changed hunks. Step 5a defines read depth          |
+Produce a manifest of changed files before starting the review:
 
-For deleted headers, verify cleanup is complete:
+| Category | Action |
+|----------|--------|
+| **New files** | Read the full file (mandatory) — includes untracked new files from 2c |
+| **Deleted files** | Grep codebase for remaining references to symbols defined in deleted files |
+| **Modified files** | Read the full file, not just changed hunks. Step 5a defines read depth and the large-file exception — follow it, do not apply a separate threshold here |
+
+For deleted files, verify cleanup is complete:
 
 ```bash
-rg 'DeletedFileName' --type cpp
+# For each deleted header, check for stale includes or symbol references.
+rg 'DeletedFileName' --type cpp --type-add 'cpp:*.h'
 ```
 
 Note the size. If the change is well past ~400 changed lines, say so in the
 summary — reviewers will likely ask for it to be split. [Source: `CONTRIBUTING.md`]
 
-## Step 3: Classify the Change
+## Step 3: Classify Change Type
 
-Determine the change type from the commit subjects and the diff, and apply the
-matching checklist from the KB (Section 7):
+Determine the change type from the commit subjects (Step 2d) and the diff, and
+apply the matching checklist from the KB (Section 7). Every change type has its
+own checklist:
 
-| Change Type  | Key Checks                                                                                        |
-| ------------ | ------------------------------------------------------------------------------------------------- |
-| Bug fix      | Failing-first test? Root cause? Edge cases? Correct CHECK family? Causation verified empirically? |
-| Performance  | Benchmark data? Before/after? Data-driven? Proportionate complexity?                              |
-| New API      | Minimal surface? Header docs? Impls in `.cpp`? No friend? No default args? No leaked internals?    |
-| Refactor     | Separate from logic? Existing tests unchanged? No format churn mixed in?                          |
-| New function | Upstream semantics? Fuzzer? `.rst` docs? Edge cases (null, max, type boundaries)?                 |
-| Tests-only   | Correct semantics? gtest matchers? Grouped by topic? Error paths?                                 |
-| Docs-only    | Accurate? Code examples tested? Performance claims backed?                                        |
+| Change Type | Key Checks |
+|---------|------------|
+| Bug fix | Failing-first test? Root cause? Edge cases? Correct CHECK family? Causation verified empirically? |
+| Performance | Benchmark data? Before/after? Data-driven? Proportionate complexity? |
+| New API | Minimal surface? Header docs? Impls in `.cpp`? No friend? No default args? No leaked internals? |
+| Refactor | Separate from logic? Existing tests unchanged? No format churn mixed in? |
+| New function | Upstream semantics? Fuzzer? `.rst` docs? Edge cases (null, max, type boundaries)? |
+| Tests-only | Correct semantics? gtest matchers? Grouped by topic? Error paths? |
+| Docs-only | Accurate? Code examples tested? Performance claims backed? |
 
 If the change mixes types — a feature plus an unrelated fix — that is itself a
 finding: reviewers will ask for separate PRs.
 
-## Step 4: Two-Pass Review
+## Step 4: Two-Pass Deep Review
 
 **Pass 1 — Severity (catch the dangerous):**
 
@@ -203,152 +207,172 @@ finding: reviewers will ask for separate PRs.
 5. **Performance** — unnecessary copies, hot-path allocations, missing move
    semantics, cache-unfriendly access
 
-**Pass 2 — Common feedback (what reviewers raise most, in order):**
+**Pass 2 — Common feedback (what Velox reviewers raise most, in order):**
 
 6. **Readability** — simplify logic, suggest clearer alternatives
-7. **Testing quality** — missing tests, edge cases, test readability, gtest
-   matchers, `/*argName=*/value` format, no `TestValue`
-8. **Code organization** — separate PRs, move logic to `.cpp`, extract shared
-   code, reduce duplication
+7. **Testing quality** — missing tests, edge cases, test readability,
+   gtest matchers, `/*argName=*/value` format, no `TestValue`
+8. **Code organization** — separate PRs, move logic to `.cpp`, extract
+   shared code, reduce duplication
 9. **Naming & style** — full descriptive names (not `val`/`idx`/`agg`),
    `numXxx` not `xxxCount`, no `*Utils`/`*Helpers`/`*Common`, remove unused
    headers/code
-10. **Documentation** — `///` public API only, `//` everything else, active
-    verbs, full sentences, no restating the variable name
+10. **Documentation** — `///` public API only, `//` everything else,
+    active verbs, full sentences, no restating variable name
 
 ## Step 5: Read Surrounding Code
 
-This is where reviews fail most often: the diff alone hides the context that
-makes a change wrong. The full checkout is right here, with full history — use
-it.
+This is where agents fail most often. The diff alone hides critical context.
+The full checkout is right here, so you MUST read surrounding code — not just
+the changed hunks.
 
 ### 5a. Read full files, not just diffs
 
-This step is the single source of truth for read depth.
+This step is the single source of truth for read depth. The Step 2e manifest
+table defers to it — do not restate a threshold anywhere else.
 
-Read the **entire file** for every new file and every modified file. Full reads
-surface shadowed members, lifetime bugs, and inconsistent patterns, so this is
-the default, not an aspiration.
+Read the **entire file** for every new file and for every modified file. Full
+reads are what surface shadowed members, lifetime bugs, and inconsistent
+operator patterns, so this is the default rather than an aspiration.
 
 Only when a file exceeds **1500 lines** may the read be reduced, and it must
-still cover:
+then still cover:
 - The class/struct declaration (all members, inheritance)
 - The constructor and destructor
 - Every method that appears in the diff
-- 20-30 lines of context above and below each changed hunk
+- 20-30 lines of context above/below each changed hunk
 
-**Track coverage per region, never per file.** After a reduced read, record what
-was covered — `full file`, or `lines 1-140 plus addInput(), getOutput()` — and
-treat everything outside it as unread. **Re-read when in doubt**, and always
-re-read the exact region before citing a line number.
+**Track coverage per region, never per file.** A reduced read leaves gaps, so
+recording "read" against a filename is wrong and actively dangerous. Record what
+was actually covered — `full file`, or `lines 1-140 plus addInput(), getOutput()`
+— and treat everything outside that as unread.
 
-**Batch the manifest reads.** The 2e manifest is known before this step starts,
-so issue those reads in one parallel batch. The reads in 5b and 5c are
-*discovered* from what 5a reveals, so they are later, dependent waves — do not
-fold them into the first batch.
+**Re-read when in doubt.** Skip a read only when the exact region needed is
+already recorded as covered. A duplicate read costs tokens; an unread base class
+member or lifetime path costs a wrong review, and that failure is invisible in
+the output. When the record is ambiguous, read again. A targeted re-read of a
+specific region is likewise always correct, and expected, when confirming an
+exact line number before citing it in a finding.
 
-History is available, so `git log -p` and `git blame` on a changed region are
-worth using to recover why a line looked the way it did before the change.
+**Batch the manifest reads.** The Step 2e manifest is fully known before this
+step begins, so issue all of its reads in one parallel batch rather than one
+file at a time.
+
+Batch only within this wave. The reads in 5b and 5c are *discovered* from what
+5a reveals — which base class a new subclass extends, which sibling is worth
+comparing against — so they form later, dependent waves. Collapsing them into a
+single upfront batch would trade the read-then-reason loop that surfaces
+shadowed members and inconsistent operator patterns for one undifferentiated
+context dump.
+
+**History is available.** The checkout has full history, so `git log`,
+`git blame`, and merge-base comparisons work and are worth using to date a
+regression or recover the intent behind a line.
 
 ### 5b. Base class verification (mandatory for new classes)
 
-For each new class, read its base class header **in full** — exempt from the
-1500-line threshold and from any coverage-based skipping. This is the step that
-catches member shadowing and virtual-override mismatches.
+For each new class introduced, read its base class header **in full**. This step
+is exempt from any coverage-based skipping: read the whole header even if 5a
+already touched that file, and even if it exceeds the 1500-line threshold. This
+is the step that catches member shadowing and virtual-override mismatches, and a
+partial read is exactly how those are missed.
 
+```
 1. List all virtual methods — verify the subclass overrides the right ones.
-2. List all member variables — check whether a new member shadows a base class
-   member (which hides cleanup in `close()` or the destructor).
-3. Check `close()`/destructor patterns — does the base class expect subclasses
+2. List all member variables — check if any newly added member shadows a
+   base class member (hides cleanup in close()/destructor).
+3. Check close()/destructor patterns — does the base class expect subclasses
    to release resources in a specific order?
+```
 
 ### 5c. Sibling pattern comparison
 
-Read at least one similar component in the same directory and check
+Read at least one similar component in the same directory to check
 consistency. For operators: how do siblings handle `getOutput()` return
-semantics, the `isFinished()` state machine, stream synchronization? For
+semantics, `isFinished()` state machine, stream synchronization? For
 functions: how do nearby functions handle error paths, naming, signatures?
 
 ### 5d. Call-site signature verification
 
-For every non-trivial function **called** in the change (especially GPU code),
-verify the call matches the declaration. Locate identifiers in one pass rather
-than one search per function, capping each pass at about 20-30 identifiers:
+For every non-trivial function **called** in the diff (especially GPU code),
+verify the call matches the declaration.
+
+Collect the identifiers first and locate them in one pass rather than one `rg`
+per function. Cap each pass at roughly 20-30 identifiers so the output stays
+attributable:
 
 ```bash
 rg -n --type cpp -e 'functionOne\(' -e 'functionTwo\(' -e 'functionThree\('
 ```
 
-**Batch to discover, confirm to cite.** A hit is a lead, not a verified
-signature: it matches definitions, declarations, and call sites alike. Read the
-specific declaration and confirm its argument list before writing any finding
-that cites it.
+**Batch to discover, confirm to cite.** A batched pattern matches definitions,
+declarations, and call sites indiscriminately, so a hit is a lead rather than a
+verified signature. Before writing any finding that cites a signature, read that
+specific declaration and confirm its argument list. Mis-attributing a hit to the
+wrong overload produces a wrong finding, which costs far more than the greps it
+saved.
 
 Pay special attention to `mr` (memory resource) and `stream` arguments in
-GPU/cuDF code — omitting them is a common and dangerous mistake.
+GPU/cudf code — missing these is a common and dangerous mistake.
 
 ### 5e. Test utility verification
 
-Check that Velox-specific test helpers are used where they apply:
+Check if Velox-specific test macros exist for patterns used in test files:
 - `VELOX_ASSERT_THROW` instead of raw `EXPECT_THROW`
 - `VELOX_CHECK_EQ` family instead of `VELOX_CHECK(a == b)`
 - gtest matchers (`ElementsAre`, `UnorderedElementsAre`, `IsEmpty`, `SizeIs`)
 
-## Step 6: Cross-Check Red Flags and Evidence
+## Step 6: Cross-Check Against KB Red Flags
 
-After both passes, check every item in the checklist's Blocking Red Flags table
-explicitly. The ones most often missed:
+After both passes, explicitly verify against the Blocking Red Flags table from
+the checklist. Every item must be checked. Key ones agents miss:
 
 - Missing `mr` / `stream` arguments in GPU code
-- Scope/lifetime issues with temporaries, especially before stream sync
-- A member variable shadowing a base class member (hides cleanup in `close()`)
+- Scope/lifetime issues with temporaries (especially before stream sync)
+- Member variable shadowing base class members (hides cleanup in `close()`)
 - Missing Velox test macros (`VELOX_ASSERT_THROW`, `VELOX_CHECK_EQ`)
-- Inheritance pattern inconsistent with sibling operators
-- `getOutput()` returning a member without `std::move()` (breaks `isFinished()`)
+- Inheritance pattern inconsistencies across similar operators
+- `getOutput()` returning member without `std::move()` (breaks `isFinished()`)
 - `#define` macros where inline functions or templates work
+- Working around an infrastructure bug silently
 
-Then check the KB's Evidence Expectations (Section 8): does the change have the
-evidence its type requires — a failing-first test for a bug fix, benchmark data
-for a performance claim? Missing evidence is a finding, because the PR will be
-asked for it.
+Also check the Evidence Expectations table from KB Section 8 — does this change
+provide the evidence its change type requires?
 
----
+## Output Format
 
-## Output
-
-Assign every finding a stable ID (`F1`, `F2`, …), sequential across severities.
-Write findings for the author — direct, specific, fixable.
+Output findings in this format. Assign each finding a stable ID (`F1`, `F2`,
+...) sequentially. These IDs are how the author picks fixes afterwards.
 
 ```text
 ### Summary
-<1-2 sentences: what the change does, and whether it is ready to push.>
-<Note if the change is large, mixes unrelated concerns, or lacks required evidence.>
+<1-2 sentences. Verdict: ready to push / fix before pushing.>
 
 ### Critical Issues (🔴)
-- **F1** [file:line] Issue. Risk: why it matters. Fix: concrete change.
+- **F1** [file:line] <Issue description>. Rule: <KB source>. Fix: <concrete suggestion>.
 
 ### Suggestions (🟡)
-- **F2** [file:line] Issue. Why it matters. Concrete alternative.
+- **F2** [file:line] <Issue description>. <Why it matters>. <Concrete alternative>.
 
 ### Nitpicks (🟢)
-- **F3** [file:line] Issue.
+- **F3** [file:line] <Issue description>.
 
-### What's Good
-<1-2 sentences on a specific pattern worth keeping. Skip if nothing stands out.>
+### Positive Observations
+<1-2 sentences on notable good patterns. Skip if nothing stands out.>
 ```
 
-**Rules:**
-- Cite exact `file:line` — never "somewhere in the code"
-- Be actionable: a specific fix, with a code snippet where it helps
-- Skip what CI catches: formatting, include order, type errors
-- Each issue once
-- Assume competence; explain only Velox-specific context
-- When the docs are silent, frame it as a question, not a mandate
-- Proportionate: 3 critical issues beat 20 nitpicks
-- No filler ("it's worth noting", "presumably") — state the fact or ask
-
-If there are no findings, say so plainly. Do not invent nitpicks to fill the
-template.
+**Rules (from KB Section 9):**
+- Cite exact file:line — never "somewhere in the code"
+- Be actionable — suggest a specific fix, not a vague concern
+- Skip what CI catches — formatting, include order, type errors
+- No redundancy — each issue once
+- Assume competence — explain Velox-specific context only
+- Don't invent rules — when docs are silent, frame as question
+- Proportionate — 3 critical issues > 20 nitpicks
+- When an area falls under KB Section 10 (Unknowns), frame as question
+- Finding IDs are sequential across severity levels (F1, F2, ... Fn)
+- Keep findings short; skip filler ("it's worth noting", "presumably")
+- No findings? Say so plainly. Do not invent nitpicks to fill the template
 
 ## After the Review
 
@@ -356,109 +380,130 @@ End by offering to apply fixes, e.g. *"Want me to fix F1 and F3?"* Then:
 
 - Apply only the findings the author chooses.
 - Re-read each region before editing it; the author may have changed it since.
-- After applying, summarize what changed per finding ID.
-- **Never commit or push.** The author reviews the edits and commits them.
+- After applying, summarize what changed per finding ID. The author commits.
 
 ---
 
-# Deep Review (Second Opinion)
+# Second Opinion Review Mode
 
-Opt-in. Triggered by `--deep`, "deep review", "second opinion", or "review for
-bugs/logic/architecture". Runs **after** the standard review, as a second pass
-focused only on what that review is likely to have missed.
+Opt-in. Triggered by `--deep`, or when the user asks for `another review`,
+`second opinion`, `deep review`, or `bugs/logic/architecture review`.
 
-## Focus
+This launches a **separate subagent** focused on higher-risk findings that
+the standard review might miss.
+
+## Focus Areas
 
 - Logic bugs, hidden edge cases, and invariant violations
 - Memory safety, ownership, lifecycle, and state-machine issues
 - Concurrency hazards, shared-state assumptions, and exception safety
-- Architecture: layering, cohesion, API boundaries, hidden coupling
-- Missing tests only where they hide bug risk
+- Code architecture: layering, cohesion, API boundaries, hidden coupling
+- Missing tests only when they hide bug risk or architectural blind spots
 
-**Skip:** naming, comment wording, formatting, and minor style — unless they
-hide a correctness or architecture problem.
+**Deprioritize:** naming nits, comment wording, formatting, and minor style
+feedback unless they hide a correctness or architecture problem.
 
-## How to Run It
+## Subagent Rules
 
-**If your environment can launch a subagent** (Claude Code's Agent/Task tool,
-Cursor's background or sub-agents), launch a **read-only** one with the current
-model, and give it:
+- Launch a **readonly** subagent for the second opinion review (Claude Code's
+  Agent/Task tool, Cursor's subagents). If the environment cannot launch one,
+  run the second pass yourself after the standard review, with only the focus
+  areas above in mind.
+- Use the current chat model for the subagent. The user is expected to have
+  already switched to their preferred model (e.g., `gpt-5.4-xhigh`) before
+  triggering this mode. Do NOT check or gate on model availability — just
+  launch the subagent with whatever model is active.
 
-1. The change set and manifest from Step 2
-2. Both reference files
-3. The standard review's findings, so it can skip what is already covered
+## Prompt Shape
+
+Provide the subagent with:
+1. The change set and manifest (Step 2)
+2. The bundled KB and checklist content
+3. The standard review findings (so it can avoid duplicates)
 
 ```text
-Second-opinion review of these local Velox changes. The standard review's
-findings are below. Find what they MISSED:
+Review these local Velox changes as a second-opinion reviewer.
+
+You have the standard review findings below. Focus on what they MISSED:
 1. correctness and hidden logic bugs
 2. lifetime, ownership, and state-machine invariants
 3. concurrency, exception safety, and regression risk
-4. architecture, boundaries, and hidden coupling
+4. code architecture, boundaries, and hidden coupling
 
+Avoid style and naming nits unless they hide a bug or architectural problem.
 Read surrounding code, not just the diff. Do not edit any file.
-Skip style and naming unless they hide a bug.
-Return only NEW findings. Use 🔴/🟡; omit 🟢 unless it affects correctness.
+Return only NEW findings not already in the standard review.
 
---- Standard review findings ---
-<findings>
+Use 🔴/🟡 severity. Omit 🟢 unless the point affects correctness.
+
+--- Standard Review Findings ---
+<paste the standard review findings here>
 ```
-
-**If it cannot**, run the second pass yourself after the standard review:
-re-read the riskiest regions with only the focus above in mind, and report only
-new findings.
 
 ## Merging
 
-- Deduplicate identical issues; keep the higher severity
-- Continue the ID sequence (`F7`, `F8`, …) — never renumber existing findings
-- Mark second-pass findings with `(deep)` so the author can see their source
+After the second opinion subagent returns, merge its findings with the standard review:
+- Deduplicate identical issues
+- Keep higher severity if both flagged the same thing
+- Preserve file:line citations from both sources
+- Continue the ID sequence; never renumber existing findings
+- Mark second-opinion findings `(deep)` so the author can see their source
+
+Then present the merged findings in the Output Format.
 
 ---
+
 
 # Common Agent Failures
 
-Check yourself against each:
+These are specific failures observed when agents review Velox changes without
+this skill. Check yourself against each one:
 
-| Failure                                                       | Do instead                                                                       |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Reviewing only `git diff`, missing untracked new files        | Add `new_source_files` (Step 2c)                                                 |
-| Reviewing every untracked file                                | Filter to source files — `.cache/` alone can hold thousands (Step 2c)            |
-| Reviewing upstream commits as if they were the author's       | Check commit authors against the merge base; a stale base ref causes this (2d)   |
-| Finding the base by remote name (`upstream`, `origin`)        | Match the `facebookincubator/velox` URL (Step 2b)                                |
-| Running `git fetch` or any other git write                    | The review is read-only; tell the author what to run (Ground Rules)              |
-| Editing files during the review                               | Review first; fix only what the author picks, when asked (After the Review)      |
-| Committing or pushing after applying fixes                    | Never — the author commits                                                       |
-| Reading only diff hunks, not full files                       | Read the complete file for every new and modified file (5a)                      |
-| Reading manifest files one at a time                          | Batch all 2e manifest reads in parallel (5a)                                     |
-| Folding 5b/5c reads into the 5a batch                         | They are discovered from 5a — later, dependent waves                             |
-| Marking a file "read" after a reduced read                    | Coverage is per region; record the ranges actually read (5a)                     |
-| Skipping a base class header because 5a touched the file      | 5b always reads the base class header in full                                    |
-| Citing a signature straight from a search hit                 | Read the declaration and confirm the argument list first (5d)                    |
-| Missing `mr` / `stream` arguments in GPU code                 | Compare every call against its declaration (5d)                                  |
-| Missing lifetime issues with temporaries                      | Trace each temporary's lifetime through async operations                         |
-| Missing member shadowing that hides base class cleanup        | Compare member names against the base class (5b)                                 |
-| Preferring the bundled KB over the checkout's own docs        | The checkout's `CODING_STYLE.md` and `.claude/CLAUDE.md` win (Step 1)            |
-| Treating the deep review as another general review            | Narrow to bugs, logic, lifecycle, and architecture                               |
-| Padding the output with nitpicks or praise                    | Proportionate findings; at most 1-2 sentences of "What's Good"                   |
+| Failure | What to do instead |
+|---------|--------------------|
+| Reviewing only `git diff`, missing untracked new files | Include `new_source_files` (Step 2c) |
+| Reviewing every untracked file | Filter to source files — `.cache/` alone can hold thousands (Step 2c) |
+| Reviewing upstream commits as if they were the author's | Check commit authors since the merge base; a stale base ref causes this (Step 2d) |
+| Finding the base by remote name (`upstream`, `origin`) | Match the `facebookincubator/velox` URL (Step 2b) |
+| Running `git fetch` or editing files during the review | The review is read-only; fixes come after, when asked (Ground Rules) |
+| Preferring the bundled KB over the checkout's own docs | The checkout's `CODING_STYLE.md` and `.claude/CLAUDE.md` win (Step 1) |
+| Reading only diff hunks, not full files | Read the complete file for every new/modified file (Step 5a) |
+| Reading manifest files one at a time | Issue all Step 2e manifest reads in one parallel batch (Step 5a) |
+| Batching 5b/5c reads together with the 5a manifest | They are discovered from 5a — keep them as later, dependent waves (Step 5a) |
+| Marking a file "read" after a reduced read | Coverage is per-region, not per-file; record the ranges actually read (Step 5a) |
+| Skipping a base class header because 5a touched the file | 5b always reads the base class header in full, no exceptions (Step 5b) |
+| Applying a read-depth threshold outside Step 5a | 5a is the single source of truth; 2e and 5b defer to it |
+| Citing a signature straight from a batched grep hit | A hit is a lead; read the declaration and confirm the argument list first (Step 5d) |
+| Not reading base class when reviewing a new subclass | Read the base class header: check virtuals, members, cleanup (Step 5b) |
+| Not checking for stale references after file deletion | Grep for symbols from deleted files to verify cleanup (Step 2e) |
+| Missing function arguments (`mr`, `stream` in GPU code) | Read every function call signature, compare against declaration (Step 5d) |
+| Missing scope/lifetime issues with temporaries | Trace every temporary's lifetime through async operations |
+| Missing member shadowing that hides base class cleanup | Check if any member variable name matches a base class member |
+| Not using Velox-specific macros (`VELOX_ASSERT_THROW`, `VELOX_CHECK_EQ`) | Reference the KB Section 4.1 for CHECK patterns |
+| Not asking architecture/design questions | Compare operator patterns across similar components (Step 5c) |
+| Gating on model availability before second opinion | User already switched models; just launch the subagent |
+| Treating second opinion as another general review | Narrow to bugs, logic, lifecycle, and architecture only |
+| Too verbose — paragraphs of explanation | Be terse. Questions. Code suggestions. Done. |
+| 5+ positive observations diluting signal | Max 1-2 sentences of praise |
+| AI filler words ("presumably", "it's worth noting") | Delete them. State facts or ask questions. |
 
----
 
-# Quick Reference: Red Flags
 
-Always 🔴:
+# Quick Reference: Velox Red Flags
 
-- Bug fix without a failing-first test
-- `VELOX_CHECK_*` for user errors (or `VELOX_USER_CHECK_*` for internal ones)
-- Generic `VELOX_CHECK(expr)` instead of a comparison macro
-- `goto` / `friend` / `FRIEND_TEST`
-- Non-trivial logic in a `.h`
-- `using namespace` in a header
-- `*Utils` / `*Helpers` / `*Common` names
-- `#define` macro where an inline function or template works
-- Unrelated changes mixed into one change
-- Performance claim without benchmarks
-- Lifetime or ownership unclear
-- `getOutput()` returning a member without `std::move()`
-- A workaround that hides an infrastructure bug
-- Test expectations updated to match buggy output
+From the checklist (always enforce):
+
+- Bug fix without failing-first test → 🔴
+- `VELOX_CHECK_*` for user errors → 🔴
+- Generic `VELOX_CHECK(expr)` instead of comparison macro → 🔴
+- `goto` / `friend` / `FRIEND_TEST` → 🔴
+- Non-trivial logic in `.h` → 🔴
+- `using namespace` in header → 🔴
+- `*Utils` / `*Helpers` / `*Common` names → 🔴
+- `#define` macro where inline function or template works → 🔴
+- Unrelated changes mixed into one change → 🔴
+- Performance claim without benchmarks → 🔴
+- Lifetime/ownership unclear → 🔴
+- `getOutput()` returning member without `std::move()` → 🔴
+- Workaround that hides an infrastructure bug → 🔴
+- Test expectations updated to match buggy output → 🔴

@@ -116,7 +116,7 @@
 ### Nitpicks (🟢)
 - **F3** [file:line] Issue.
 
-### What's Good
+### Positive Observations
 <1-2 sentences on a specific pattern worth keeping. Skip if nothing stands out.>
 ```
 
