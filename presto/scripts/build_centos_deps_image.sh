@@ -115,33 +115,30 @@ CUDA_VERSION_ARG=""
 if [[ -n "${CUDA_VERSION}" ]]; then
   CUDA_VERSION_ARG="--build-arg CUDA_VERSION=${CUDA_VERSION}"
 fi
-docker compose --progress plain build ${NO_CACHE_ARG} ${CUDA_VERSION_ARG} centos-native-dependency
-
-# tag with the user-specific name to avoid conflicts between multiple users on the same host
-COMPOSE_IMAGE_NAME='presto/prestissimo-dependency:centos9'
+# Build straight to a private name rather than through Presto's docker-compose.yml, whose
+# service is tagged with the shared presto/prestissimo-dependency:centos9 name. On a shared host
+# that would overwrite other users' image of that name.
+PRELABEL_IMAGE_NAME="${IMAGE_NAME}-prelabel"
+docker build --progress plain ${NO_CACHE_ARG} ${CUDA_VERSION_ARG} \
+  --build-arg ARM_BUILD_TARGET="${ARM_BUILD_TARGET:-}" \
+  -f scripts/dockerfiles/centos-dependency.dockerfile -t "${PRELABEL_IMAGE_NAME}" .
 
 # centos-dependency.dockerfile lives in the upstream presto repo and cannot be modified,
 # so provenance labels are applied via a wrapper Dockerfile instead of ARG+LABEL.
 # Capture the pre-label image ID so the now-untagged original can be cleaned up afterward.
-PRELABEL_IMAGE_ID=$(docker inspect --format='{{.Id}}' "${COMPOSE_IMAGE_NAME}")
 echo "Applying provenance labels..."
 docker build --no-cache \
   -f "${REPO_ROOT}/presto/docker/provenance_labels.dockerfile" \
-  --build-arg BASE_IMAGE="${COMPOSE_IMAGE_NAME}" \
+  --build-arg BASE_IMAGE="${PRELABEL_IMAGE_NAME}" \
   --build-arg PRESTO_SHA="${PRESTO_SHA}" \
   --build-arg PRESTO_BRANCH="${PRESTO_BRANCH}" \
   --build-arg PRESTO_REPOSITORY="${PRESTO_REPO}" \
   --build-arg VELOX_SHA="${VELOX_SHA}" \
   --build-arg VELOX_BRANCH="${VELOX_BRANCH}" \
   --build-arg VELOX_REPOSITORY="${VELOX_REPO}" \
-  -t "${COMPOSE_IMAGE_NAME}" \
+  -t "${IMAGE_NAME}" \
   "${REPO_ROOT}/presto/docker"
-docker rmi "${PRELABEL_IMAGE_ID}" 2>/dev/null || true
-
-if [[ "${IMAGE_NAME}" != "${COMPOSE_IMAGE_NAME}" ]]; then
-  echo "Tagging image as ${IMAGE_NAME}..."
-  docker tag ${COMPOSE_IMAGE_NAME} ${IMAGE_NAME}
-fi
+docker rmi "${PRELABEL_IMAGE_NAME}" 2>/dev/null || true
 
 # done (will cleanup on exit)
 echo "Presto dependencies/run-time container image built!"

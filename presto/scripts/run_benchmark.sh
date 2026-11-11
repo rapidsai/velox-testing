@@ -5,6 +5,8 @@
 
 set -e
 
+SESSION_PROPERTIES=()
+
 # Compute the directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -57,6 +59,7 @@ OPTIONS:
     --connector-id          Connector ID to target for worker cache-clear operations. Must match the
                             catalog name (default: "hive").
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
+    --session-property      Presto session property as key=value, set on every benchmark query. May be repeated.
     --run-as-ctas-queries   Run queries as distributed Hive CTAS operations instead of returning results
                             through the coordinator. PRESTO_CTAS_SCRATCH_DIR must be set and mounted when the cluster starts.
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
@@ -239,6 +242,15 @@ parse_args() {
         SKIP_ANALYZE_CHECK=true
         shift
         ;;
+      --session-property)
+        if [[ $2 == *=* ]]; then
+          SESSION_PROPERTIES+=("$2")
+          shift 2
+        else
+          echo "Error: --session-property requires key=value"
+          exit 1
+        fi
+        ;;
       --run-as-ctas-queries)
         RUN_AS_CTAS_QUERIES=true
         shift
@@ -379,6 +391,10 @@ fi
 if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-analyze-check")
 fi
+
+for SESSION_PROPERTY in "${SESSION_PROPERTIES[@]}"; do
+  PYTEST_ARGS+=("--session-property ${SESSION_PROPERTY}")
+done
 
 if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
   PYTEST_ARGS+=("--run-as-ctas-queries")

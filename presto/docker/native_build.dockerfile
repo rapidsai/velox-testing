@@ -15,6 +15,7 @@ ARG EXTRA_CMAKE_FLAGS="\
     -DPRESTO_ENABLE_PARQUET=ON \
     -DPRESTO_ENABLE_S3=ON \
     -DPRESTO_ENABLE_CUDF=${GPU} \
+    -DVELOX_ENABLE_UCX_EXCHANGE=ON \
     -DVELOX_BUILD_TESTING=OFF \
     -DPRESTO_STATS_REPORTER_TYPE=PROMETHEUS"
 ARG CUDA_ARCHITECTURES="75;80;86;90;100;120"
@@ -66,7 +67,7 @@ RUN \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
     --mount=type=cache,target=/root/.cache/sccache/preprocessor \
     --mount=type=cache,target=/root/.cache/sccache-dist-client \
-    --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \
+    --mount=type=secret,id=github_token,target=/run/secrets/github_token \
     --mount=type=secret,id=aws_credentials,target=/root/.aws/credentials \
     --mount=type=bind,source=velox-testing/scripts/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
 <<EOF
