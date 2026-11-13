@@ -17,13 +17,13 @@ CREATE TABLE hive.{schema}.catalog_returns (
     cr_reason_sk BIGINT,
     cr_order_number BIGINT,
     cr_return_quantity BIGINT,
-    cr_return_amount DOUBLE,
-    cr_return_tax DOUBLE,
-    cr_return_amt_inc_tax DOUBLE,
-    cr_fee DOUBLE,
-    cr_return_ship_cost DOUBLE,
-    cr_refunded_cash DOUBLE,
-    cr_reversed_charge DOUBLE,
-    cr_store_credit DOUBLE,
-    cr_net_loss DOUBLE
+    cr_return_amount DECIMAL(7,2),
+    cr_return_tax DECIMAL(7,2),
+    cr_return_amt_inc_tax DECIMAL(7,2),
+    cr_fee DECIMAL(7,2),
+    cr_return_ship_cost DECIMAL(7,2),
+    cr_refunded_cash DECIMAL(7,2),
+    cr_reversed_charge DECIMAL(7,2),
+    cr_store_credit DECIMAL(7,2),
+    cr_net_loss DECIMAL(7,2)
 ) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

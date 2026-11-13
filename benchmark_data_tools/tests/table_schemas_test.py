@@ -14,7 +14,7 @@ def test_generated_schemas_match_checked_in_schemas(setup_and_teardown, tmp_path
     """Verify generated data matches the table schemas checked in for Presto integration tests."""
     data_dir_path, args = setup_and_teardown
     # Matches the data generation arguments used by the Presto integration test CI.
-    args.convert_decimals_to_floats = args.benchmark_type == "tpcds"
+    args.convert_decimals_to_floats = False
     generate_data_files(args)
     drop_benchmark_tables()
     generate_table_schemas(args.benchmark_type, tmp_path, data_dir_name=data_dir_path)

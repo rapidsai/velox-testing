@@ -26,6 +26,6 @@ CREATE TABLE hive.{schema}.store (
     s_state VARCHAR,
     s_zip VARCHAR,
     s_country VARCHAR,
-    s_gmt_offset DOUBLE,
-    s_tax_percentage DOUBLE
+    s_gmt_offset DECIMAL(5,2),
+    s_tax_percentage DECIMAL(5,2)
 ) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

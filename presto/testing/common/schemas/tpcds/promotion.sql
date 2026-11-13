@@ -4,7 +4,7 @@ CREATE TABLE hive.{schema}.promotion (
     p_start_date_sk BIGINT,
     p_end_date_sk BIGINT,
     p_item_sk BIGINT,
-    p_cost DOUBLE,
+    p_cost DECIMAL(15,2),
     p_response_target BIGINT,
     p_promo_name VARCHAR,
     p_channel_dmail VARCHAR,

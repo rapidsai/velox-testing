@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -33,6 +34,14 @@ def execute_query_and_compare_results(request_config, presto_cursor, queries, qu
             df = pd.DataFrame(presto_rows, columns=presto_columns)
             df.to_csv(plan_path, index=False)
         return
+
+    # The Presto client returns DECIMAL values as strings. Convert them so that stored results keep
+    # a numeric type and ORDER BY validation compares numbers rather than strings.
+    decimal_columns = {i for i, column_type in enumerate(presto_column_types) if column_type.startswith("decimal")}
+    presto_rows = [
+        [Decimal(value) if i in decimal_columns and value is not None else value for i, value in enumerate(row)]
+        for row in presto_rows
+    ]
 
     base_execute_query_and_compare_results(
         request_config, queries, query_id, "presto", presto_rows, presto_columns, presto_column_types
