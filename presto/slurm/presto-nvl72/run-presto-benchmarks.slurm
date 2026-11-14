@@ -22,7 +22,8 @@ export NUM_ITERATIONS
 
 source "${SCRIPT_DIR}/slurm_common.sh"
 
-# Single-node execution mode (workers and coordinator share the same node)
+# Single-worker execution mode (the worker may be on a separate host from the
+# coordinator when --dedicated-coordinator is enabled)
 if [ "${NUM_WORKERS}" -eq "1" ]; then
     export SINGLE_NODE_EXECUTION=true
 else

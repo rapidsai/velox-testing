@@ -15,6 +15,7 @@
 #                  [-w|--worker-image <name>] [-c|--coord-image <name>]
 #                  [-o|--output-path <dir>] [-q|--queries <filter>]
 #                  [--run-as-ctas-queries] [--disable-gds] [-m|--metrics] [-p|--profile]
+#                  [--dedicated-coordinator]
 #                  [additional sbatch options]
 # ==============================================================================
 
@@ -44,6 +45,7 @@ ENABLE_GDS=1
 ENABLE_METRICS=0
 ENABLE_NSYS=0
 RUN_AS_CTAS_QUERIES=0
+DEDICATED_COORDINATOR=0
 NSYS_WORKER_ID=0
 QUERIES=""
 
@@ -54,7 +56,7 @@ Usage: $0 -n <nodes> -s <sf> [OPTIONS] [-- <additional sbatch options>]
 Submits a Presto TPC-H benchmark job to Slurm.
 
 Required:
-  -n, --nodes <count>          Number of nodes for the benchmark job
+  -n, --nodes <count>          Number of worker nodes for the benchmark job
   -s, --scale-factor <sf>      TPC-H scale factor (e.g. 100, 1000, 3000)
 
 Options:
@@ -70,6 +72,8 @@ Options:
       --gpu                    Use GPU partition/images (overrides cluster default)
       --no-numa                Disable NUMA pinning for workers
       --disable-gds            Disable GPU Direct Storage
+      --dedicated-coordinator  Run the coordinator on one extra node that hosts no workers
+                               (allocates <nodes> + 1 nodes)
   -m, --metrics                Enable metrics collection
   -p, --profile                Enable nsys profiling
       --nsys-worker-id <n>     Worker ID to profile (default: ${NSYS_WORKER_ID})
@@ -99,6 +103,7 @@ while [[ $# -gt 0 ]]; do
         --gpu)         VARIANT_TYPE="gpu"; shift ;;
         --no-numa)     USE_NUMA="0"; shift ;;
         --disable-gds) ENABLE_GDS=0; shift ;;
+        --dedicated-coordinator) DEDICATED_COORDINATOR=1; shift ;;
         --run-as-ctas-queries) RUN_AS_CTAS_QUERIES=1; shift ;;
         -m|--metrics)  ENABLE_METRICS=1; shift ;;
         -p|--profile)  ENABLE_NSYS=1; shift ;;
@@ -183,6 +188,7 @@ GRES_OPT=$([[ "$VARIANT_TYPE" == "gpu" ]] && echo "--gres=gpu:${NUM_GPUS_PER_NOD
 build_common_export_vars
 EXPORT_VARS+=",NUM_ITERATIONS=${NUM_ITERATIONS}"
 EXPORT_VARS+=",ENABLE_GDS=${ENABLE_GDS},ENABLE_METRICS=${ENABLE_METRICS}"
+EXPORT_VARS+=",DEDICATED_COORDINATOR=${DEDICATED_COORDINATOR}"
 EXPORT_VARS+=",ENABLE_NSYS=${ENABLE_NSYS},NSYS_WORKER_ID=${NSYS_WORKER_ID}"
 EXPORT_VARS+=",RUN_AS_CTAS_QUERIES=${RUN_AS_CTAS_QUERIES}"
 if [[ "${RUN_AS_CTAS_QUERIES}" == "1" ]]; then
@@ -194,7 +200,11 @@ fi
 # Comma-separated query list can't ride EXPORT_VARS (comma is the separator);
 # export it so sbatch picks it up via the ALL inheritance.
 [[ -n "${QUERIES}" ]] && export QUERIES
-JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${NODES_COUNT}" "${NODELIST_ARG[@]}" \
+ALLOCATED_NODES=$((NODES_COUNT + DEDICATED_COORDINATOR))
+if [[ "${DEDICATED_COORDINATOR}" == "1" ]]; then
+    echo "Dedicated coordinator enabled: allocating ${ALLOCATED_NODES} nodes (${NODES_COUNT} worker + 1 coordinator)."
+fi
+JOB_ID=$(sbatch --job-name="${JOB_NAME}" --nodes="${ALLOCATED_NODES}" "${NODELIST_ARG[@]}" \
 "${CLUSTER_SBATCH_ARGS[@]}" \
 --export="${EXPORT_VARS}" \
 --output="${OUT_FMT}" --error="${ERR_FMT}" "${EXTRA_ARGS[@]}" ${GRES_OPT} \

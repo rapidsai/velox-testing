@@ -114,6 +114,9 @@ mkdir -p logs
 SCRIPT_DIR="$PWD"
 
 build_common_export_vars
+# Dedicated coordinators are benchmark-only. Pin this explicitly so an inherited
+# DEDICATED_COORDINATOR from the caller's environment cannot change ANALYZE.
+EXPORT_VARS+=",DEDICATED_COORDINATOR=0"
 [[ -n "${DATA_DIR}" ]] && EXPORT_VARS+=",DATA=${DATA_DIR}"
 
 OUT_FMT="presto-analyze_n${NODES_COUNT}_sf${SCALE_FACTOR}_%j.out"
