@@ -12,5 +12,5 @@ CREATE TABLE hive.{schema}.warehouse (
     w_state VARCHAR,
     w_zip VARCHAR,
     w_country VARCHAR,
-    w_gmt_offset DOUBLE
+    w_gmt_offset DECIMAL(5,2)
 ) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

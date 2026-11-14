@@ -28,6 +28,6 @@ CREATE TABLE hive.{schema}.call_center (
     cc_state VARCHAR,
     cc_zip VARCHAR,
     cc_country VARCHAR,
-    cc_gmt_offset DOUBLE,
-    cc_tax_percentage DOUBLE
+    cc_gmt_offset DECIMAL(5,2),
+    cc_tax_percentage DECIMAL(5,2)
 ) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')
