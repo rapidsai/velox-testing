@@ -111,6 +111,9 @@ This step only needs to repeat when the worker image's stat tracking changes
 # Use POSIX I/O instead of GDS
 ./launch-run.sh -n 8 -s 3000 --disable-gds
 
+# Run the coordinator on its own node (allocates 9 nodes: 8 workers + 1 coordinator)
+./launch-run.sh -n 8 -s 3000 --dedicated-coordinator
+
 # Profile queries 5 and 6 on worker 2
 ./launch-run.sh -n 8 -s 3000 -p --nsys-worker-id 2 -q 5,6
 

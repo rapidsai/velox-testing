@@ -465,7 +465,7 @@ fi
 # Cluster lifecycle
 # ----------------------------------------------------------------------------
 # Start the coordinator, wait for it to come up, fan out NUM_GPUS_PER_NODE
-# workers per node across $SLURM_JOB_NODELIST, then block until all
+# workers per worker node (WORKER_NODE_NAMES), then block until all
 # $NUM_WORKERS register.  Used by both the benchmark and analyze flows.
 function start_cluster {
     echo "Starting Presto coordinator on ${COORD}..."
@@ -474,7 +474,7 @@ function start_cluster {
 
     echo "Starting ${NUM_WORKERS} Presto workers across ${NUM_NODES} nodes..."
     local worker_id=0 node gpu_id
-    for node in $(scontrol show hostnames "$SLURM_JOB_NODELIST"); do
+    for node in ${WORKER_NODE_NAMES}; do
         for gpu_id in $(seq 0 $((NUM_GPUS_PER_NODE - 1))); do
             echo "  Starting worker ${worker_id} on node ${node} GPU ${gpu_id}"
             run_worker "${gpu_id}" "$WORKER_IMAGE" "${node}" "$worker_id"
