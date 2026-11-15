@@ -1,0 +1,266 @@
+name: presto-tpc-havoc
+
+# TPC-Havoc correctness run (the TPC-H queries and their BenchBox variants) on the Presto CI images:
+# native CPU, native GPU, and native GPU without CPU fallback. Fails only on failures that are not in
+# presto/testing/tpc_havoc/known_issues.yaml. The summary goes to the job summary and, with
+# post_to_slack, to Slack.
+
+on:
+  workflow_call:
+    inputs:
+      velox_short_sha: &velox_short_sha
+        description: 'Short Velox commit SHA (7 chars)'
+        type: string
+        required: true
+      presto_short_sha: &presto_short_sha
+        description: 'Short Presto commit SHA (7 chars)'
+        type: string
+        required: true
+      date: &date
+        description: 'Build date (YYYYMMDD)'
+        type: string
+        required: true
+      build_variant: &build_variant
+        description: 'Build variant used in final image tags'
+        type: string
+        required: true
+      run_id: &run_id
+        description: 'GitHub run ID for manual build image tags; required when build_variant is manual'
+        type: string
+        required: false
+        default: ''
+      post_to_slack: &post_to_slack
+        description: 'Post the summary to Slack (#swrapids-velox-cudf-nightly)'
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      SLACK_WEBHOOK_NIGHTLY_STATUS_URL:
+        description: 'Slack incoming webhook, needed with post_to_slack'
+        required: false
+  workflow_dispatch:
+    inputs:
+      velox_short_sha: *velox_short_sha
+      presto_short_sha: *presto_short_sha
+      date: *date
+      build_variant: *build_variant
+      run_id: *run_id
+      post_to_slack: *post_to_slack
+      queries:
+        description: 'Optional TPC-Havoc query selection (e.g. "1,6,Q13_V4"); default all 242'
+        type: string
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-images
+
+permissions: {}
+
+jobs:
+  resolve-run-id-suffix:
+    runs-on: ubuntu-latest
+    outputs:
+      run_id_suffix: ${{ steps.run_id_suffix.outputs.run_id_suffix }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/resolve-run-id-suffix
+        id: run_id_suffix
+        with:
+          build_variant: ${{ inputs.build_variant }}
+          run_id: ${{ inputs.run_id }}
+
+  tpc-havoc:
+    name: tpc-havoc (sf${{ matrix.scale_factor }}, cpu + gpu-cuda${{ matrix.cuda_version }}, ${{ matrix.arch }}, ${{ matrix.gpu }})
+    needs: [resolve-run-id-suffix]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scale_factor: 10
+            arch: amd64
+            cuda_version: '13.1'
+            gpu: rtxpro6000
+    runs-on: linux-${{ matrix.arch }}-gpu-${{ matrix.gpu }}-latest-1
+    env:
+      SCHEMA_NAME: tpch_sf${{ matrix.scale_factor }}
+      DATA_DIR_NAME: tpch_sf${{ matrix.scale_factor }}
+      QUERIES: ${{ inputs.queries }}
+      # Job-wide so every start_*_presto.sh call, including the one inside
+      # setup_benchmark_tables.sh, uses the pulled CI images instead of building.
+      PRESTO_IMAGE_TAG: ci
+    steps:
+      - name: Checkout velox-testing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Generate TPC-H data (DECIMAL columns)
+        env:
+          SCALE_FACTOR: ${{ matrix.scale_factor }}
+        run: |
+          PRESTO_DATA_DIR="${RUNNER_TEMP}/presto_data"
+          echo "PRESTO_DATA_DIR=${PRESTO_DATA_DIR}" >> "${GITHUB_ENV}"
+          benchmark_data_tools/scripts/generate_dataset.sh \
+            --benchmark-type tpch \
+            --data-dir-path "${PRESTO_DATA_DIR}/${DATA_DIR_NAME}" \
+            --scale-factor "${SCALE_FACTOR}"
+          cat "${PRESTO_DATA_DIR}/${DATA_DIR_NAME}/metadata.json"
+
+      - name: Log in to the Container registry
+        uses: ./.github/actions/container-registry-login
+
+      - name: Pull and retag images
+        env:
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+          PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
+          BUILD_DATE: ${{ inputs.date }}
+          CUDA_VERSION: ${{ matrix.cuda_version }}
+          RUN_ID_SUFFIX: ${{ needs.resolve-run-id-suffix.outputs.run_id_suffix }}
+        run: |
+          source scripts/common.sh
+
+          COORD_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-coordinator-${PRESTO_SHORT_SHA}-${BUILD_DATE}${RUN_ID_SUFFIX}"
+          docker_pull_with_retry "${COORD_IMAGE}"
+          docker tag "${COORD_IMAGE}" "presto-coordinator:ci"
+
+          CPU_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-cpu-${BUILD_DATE}${RUN_ID_SUFFIX}"
+          docker_pull_with_retry "${CPU_IMAGE}"
+          docker tag "${CPU_IMAGE}" "presto-native-worker-cpu:ci"
+
+          GPU_IMAGE="${REGISTRY}/${IMAGE_NAME}:presto-${PRESTO_SHORT_SHA}-velox-${VELOX_SHORT_SHA}-gpu-cuda${CUDA_VERSION}-${BUILD_DATE}${RUN_ID_SUFFIX}"
+          docker_pull_with_retry "${GPU_IMAGE}"
+          docker tag "${GPU_IMAGE}" "presto-native-worker-gpu:ci"
+
+      # ---------------------------------------------------------------- CPU run
+      # setup_benchmark_tables.sh starts its own native CPU cluster (with the config
+      # generated here), creates the tables, runs ANALYZE and stops the cluster. The
+      # tables live in the file-based hive metastore of this checkout, so the GPU
+      # clusters below reuse them.
+      - name: Generate CPU config and register TPC-H tables
+        env:
+          VARIANT_TYPE: cpu
+          NUM_WORKERS: 1
+          OVERWRITE_CONFIG: 'true'
+        working-directory: presto/scripts
+        run: |
+          ./generate_presto_config.sh
+          ./patch_ci_configs.sh ../docker/config/generated/cpu
+          ./setup_benchmark_tables.sh -b tpch -s "${SCHEMA_NAME}" -d "${DATA_DIR_NAME}"
+
+      - name: Start Presto cluster (native CPU)
+        working-directory: presto/scripts
+        run: ./start_native_cpu_presto.sh --skip-generate-config
+
+      - name: Run TPC-Havoc (CPU, validated against DuckDB)
+        working-directory: presto/scripts
+        run: |
+          ARGS=(-s "${SCHEMA_NAME}" -e cpu -t cpu -o "${RUNNER_TEMP}/tpc_havoc" --reuse-venv
+                --duckdb-data-dir "${PRESTO_DATA_DIR}/${DATA_DIR_NAME}" --duckdb-cache-dir "${RUNNER_TEMP}/tpc_havoc_duckdb_cache")
+          [[ -n "${QUERIES}" ]] && ARGS+=(-q "${QUERIES}")
+          ./run_tpc_havoc.sh "${ARGS[@]}" || echo "CPU_EXIT=$?" >> "${GITHUB_ENV}"
+
+      - name: Stop Presto cluster (native CPU)
+        if: always()
+        working-directory: presto/scripts
+        run: ./stop_presto.sh
+
+      # ---------------------------------------------------------------- GPU run
+      - name: Start Presto cluster (native GPU)
+        env:
+          VARIANT_TYPE: gpu
+          NUM_WORKERS: 1
+          OVERWRITE_CONFIG: 'true'
+        working-directory: presto/scripts
+        run: |
+          ./generate_presto_config.sh
+          ./patch_ci_configs.sh ../docker/config/generated/gpu
+          ./start_native_gpu_presto.sh --num-workers 1 --skip-generate-config
+
+      - name: Run TPC-Havoc (GPU, validated against DuckDB and the CPU run)
+        working-directory: presto/scripts
+        run: |
+          ARGS=(-s "${SCHEMA_NAME}" -e gpu -t gpu -o "${RUNNER_TEMP}/tpc_havoc" --reuse-venv
+                --duckdb-data-dir "${PRESTO_DATA_DIR}/${DATA_DIR_NAME}" --duckdb-cache-dir "${RUNNER_TEMP}/tpc_havoc_duckdb_cache"
+                --reference-dir "${RUNNER_TEMP}/tpc_havoc/cpu")
+          [[ -n "${QUERIES}" ]] && ARGS+=(-q "${QUERIES}")
+          ./run_tpc_havoc.sh "${ARGS[@]}" || echo "GPU_EXIT=$?" >> "${GITHUB_ENV}"
+
+      # ------------------------------------------------- GPU run, no CPU fallback
+      # CUDF_ALLOW_CPU_FALLBACK=false (what start_native_gpu_presto.sh --no-cpu-fallback sets):
+      # operators cuDF cannot execute fail instead of running on the CPU, so this pass
+      # measures GPU coverage.
+      - name: Restart Presto cluster (native GPU, no CPU fallback)
+        env:
+          VARIANT_TYPE: gpu
+          NUM_WORKERS: 1
+          OVERWRITE_CONFIG: 'true'
+          CUDF_ALLOW_CPU_FALLBACK: 'false'
+        working-directory: presto/scripts
+        run: |
+          ./generate_presto_config.sh
+          ./patch_ci_configs.sh ../docker/config/generated/gpu
+          ./start_native_gpu_presto.sh --num-workers 1 --skip-generate-config
+
+      - name: Run TPC-Havoc (GPU without CPU fallback, validated against DuckDB and the CPU run)
+        working-directory: presto/scripts
+        run: |
+          ARGS=(-s "${SCHEMA_NAME}" -e gpu-no-fallback -t gpu-no-fallback -o "${RUNNER_TEMP}/tpc_havoc" --reuse-venv
+                --duckdb-data-dir "${PRESTO_DATA_DIR}/${DATA_DIR_NAME}" --duckdb-cache-dir "${RUNNER_TEMP}/tpc_havoc_duckdb_cache"
+                --reference-dir "${RUNNER_TEMP}/tpc_havoc/cpu")
+          [[ -n "${QUERIES}" ]] && ARGS+=(-q "${QUERIES}")
+          ./run_tpc_havoc.sh "${ARGS[@]}" || echo "GPU_NO_FALLBACK_EXIT=$?" >> "${GITHUB_ENV}"
+
+      - name: Stop Presto cluster (native GPU)
+        if: always()
+        working-directory: presto/scripts
+        run: ./stop_presto.sh
+
+      # Printed at the end of this step's log, appended to the job summary, and posted to Slack.
+      - name: Summarize TPC-Havoc results
+        id: summary
+        if: always()
+        env:
+          SCALE_FACTOR: ${{ matrix.scale_factor }}
+          BUILD_VARIANT: ${{ inputs.build_variant }}
+          PRESTO_SHORT_SHA: ${{ inputs.presto_short_sha }}
+          VELOX_SHORT_SHA: ${{ inputs.velox_short_sha }}
+        run: |
+          OUT="${RUNNER_TEMP}/tpc_havoc"
+          mkdir -p "${OUT}"
+          python3 presto/testing/tpc_havoc/nightly_summary.py \
+            --run "CPU=${OUT}/cpu" --run "GPU=${OUT}/gpu" --run "GPU no fallback=${OUT}/gpu-no-fallback" \
+            --title "TPC-Havoc SF${SCALE_FACTOR} (${BUILD_VARIANT}) · presto ${PRESTO_SHORT_SHA} · velox ${VELOX_SHORT_SHA}" \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --slack-payload "${OUT}/slack_payload.json"
+
+      - name: Post TPC-Havoc summary to Slack
+        if: ${{ always() && inputs.post_to_slack && steps.summary.outcome == 'success' }}
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a  # v2.1.1
+        with:
+          payload-file-path: ${{ runner.temp }}/tpc_havoc/slack_payload.json
+          webhook: ${{ secrets.SLACK_WEBHOOK_NIGHTLY_STATUS_URL }}
+          webhook-type: incoming-webhook
+          errors: true
+
+      - name: Upload TPC-Havoc results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: tpc-havoc-sf${{ matrix.scale_factor }}-${{ matrix.arch }}-${{ matrix.gpu }}-cuda${{ matrix.cuda_version }}
+          path: ${{ runner.temp }}/tpc_havoc
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Fail on new TPC-Havoc failures
+        if: always()
+        run: |
+          echo "CPU exit: ${CPU_EXIT:-0}, GPU exit: ${GPU_EXIT:-0}," \
+               "GPU no-fallback exit: ${GPU_NO_FALLBACK_EXIT:-0} (1 = new failures, 2 = setup error)"
+          [[ "${CPU_EXIT:-0}" == "0" && "${GPU_EXIT:-0}" == "0" && "${GPU_NO_FALLBACK_EXIT:-0}" == "0" ]]
