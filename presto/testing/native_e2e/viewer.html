@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<!--
+  SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  SPDX-License-Identifier: Apache-2.0
+
+  Presto GPU conformance viewer. Standalone: one file, no server, no build step.
+
+  Input is the Surefire XML the upstream Prestissimo suites already produce, one
+  file per suite per arm, organised as
+
+      <run>/<arm>/<Suite>.xml        e.g. 2026-10-14/gpu/TestPrestoNativeJoinQueries.surefire.xml
+
+  Drop one or more <run> folders onto the page (or pick them with the folder
+  button). Alternatively open the page with ?manifest=<url> pointing at a JSON
+  file {"runs":[{"id":"<run>","files":["<run>/<arm>/<Suite>.xml", ...],
+  "summary":"<run>/summary.json","meta":{...}}]} served next to the files, which
+  is how CI publishes results (build_site.py). With a summary (compare_arms.py
+  --json) a run renders from it and its XML is fetched only when a suite
+  drill-down is opened. Deep links: &tab=run|diff|trend, &run=<id>,
+  &base=<id>&target=<id>, &suite=<Suite>.
+
+  Arms are whatever the folder names are. When the arms "control", "gpu" and
+  "gpu-strict" are all present, each test is classified across them:
+    fully-gpu     passes on gpu-strict: runs fully on the GPU
+    fallback      passes on gpu, fails on gpu-strict: needs CPU fallback (an operator has no GPU path)
+    gpu-specific  passes on control, fails on gpu even with fallback allowed: a GPU failure
+    both          fails on control too: a Prestissimo or test issue, not a GPU one
+  and parity = gpu passes / control passes. Any other arm set still gets per-arm
+  pass/fail tables and the cross-run diff.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Presto GPU Conformance</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-0: #f6f5f2; --surface-1: #fcfcfb; --surface-2: #f0efec; --border: #dddbd4;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #85837c;
+    --status-good: #0ca30c; --status-warning: #fab219; --status-serious: #ec835a;
+    --status-critical: #d03b3b; --status-neutral: #b6b4ac;
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #232322; --border: #383835;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e85;
+      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #232322; --border: #383835;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e85;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .viz-root { background: var(--surface-0); color: var(--text-primary); min-height: 100vh; padding: 24px 28px 64px; }
+  header.page { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; margin: 32px 0 12px; letter-spacing: -0.01em; }
+  h3 { font-size: 13px; margin: 18px 0 8px; }
+  .sub { color: var(--text-secondary); font-size: 13px; }
+  .spacer { flex: 1; }
+  button, select, label.btn {
+    font: inherit; background: var(--surface-1); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+  }
+  label.btn input { display: none; }
+  .tabs { display: flex; gap: 4px; margin: 14px 0 0; border-bottom: 1px solid var(--border); }
+  .tabs button { border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; background: transparent; color: var(--text-secondary); }
+  .tabs button.active { background: var(--surface-1); border-color: var(--border); color: var(--text-primary); }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 20px; color: var(--text-secondary); font-size: 12px; margin: 10px 0 4px; }
+  .meta code { color: var(--text-primary); }
+  .tiles { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 150px; }
+  .tile .label { color: var(--text-secondary); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .tile .value { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px; }
+  .tile .note { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+  .tile.hero .value { font-size: 36px; }
+  .delta { font-size: 13px; font-weight: 600; margin-left: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+  .matrix-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  thead th { position: sticky; top: 0; background: var(--surface-2); color: var(--text-secondary); font-weight: 600; z-index: 1; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr.clickable { cursor: pointer; }
+  tbody tr.clickable:hover { background: var(--surface-2); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.wrap { white-space: normal; }
+  .cell { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 600;
+          background: var(--surface-2); color: var(--text-primary); }
+  .cell .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; font-size: 12px; color: var(--text-secondary); }
+  .legend span.item { display: inline-flex; align-items: center; gap: 6px; }
+  .mix { display: flex; width: 100%; height: 10px; }
+  .mix span { display: block; height: 10px; border-radius: 2px; margin-right: 2px; }
+  .mix span:last-child { margin-right: 0; }
+  .gap-bar { height: 8px; border-radius: 4px; background: var(--status-warning); display: inline-block; vertical-align: middle; }
+  .drop { border: 2px dashed var(--border); border-radius: 12px; padding: 36px 20px; text-align: center; color: var(--text-secondary);
+          background: var(--surface-1); margin-top: 18px; }
+  .drop.over { border-color: var(--series-1); color: var(--text-primary); }
+  .drop code { color: var(--text-primary); }
+  .empty { color: var(--text-muted); padding: 28px; text-align: center; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: var(--surface-2); color: var(--text-secondary); margin-left: 6px; }
+  dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); color: var(--text-primary); max-width: min(960px, 92vw); padding: 0; }
+  dialog::backdrop { background: rgba(0,0,0,0.45); }
+  .dlg-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .dlg-body { padding: 16px 18px; max-height: 70vh; overflow: auto; }
+  .kv { color: var(--text-secondary); font-size: 12px; }
+  pre { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow-x: auto;
+        font-size: 11px; white-space: pre-wrap; word-break: break-word; margin: 6px 0 12px; max-height: 240px; }
+  .err { color: var(--status-critical); font-size: 12px; margin-top: 8px; }
+  a.jump { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--text-muted); }
+  a.jump:hover { border-bottom-color: var(--text-primary); }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <header class="page">
+    <h1>Presto GPU Conformance</h1>
+    <span class="sub">upstream Prestissimo suites · <code>control</code> cuDF off · <code>gpu</code> cuDF on, CPU fallback on · <code>gpu-strict</code> cuDF on, no fallback</span>
+    <span class="spacer"></span>
+    <label class="btn" title="Pick one or more run folders (<run>/<arm>/<Suite>.xml)">Add run folder…
+      <input type="file" id="pickDir" webkitdirectory directory multiple></label>
+    <label class="btn" title="Pick XML files; run and arm are taken from the path when available">Add files…
+      <input type="file" id="pickFiles" multiple accept=".xml,.json"></label>
+    <button id="clearBtn" title="Forget all loaded runs">Clear</button>
+    <button id="themeToggle" title="Toggle light/dark">Theme</button>
+  </header>
+
+  <div class="tabs" id="tabs" hidden>
+    <button data-tab="run" class="active">Run</button>
+    <button data-tab="diff">Compare runs</button>
+    <button data-tab="trend">Trend</button>
+  </div>
+
+  <div id="content"></div>
+
+  <dialog id="detail">
+    <div class="dlg-head">
+      <strong id="dlgTitle"></strong><span class="spacer"></span>
+      <button onclick="document.getElementById('detail').close()">Close</button>
+    </div>
+    <div class="dlg-body" id="dlgBody"></div>
+  </dialog>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Model
+//   RUNS: Map<runId, { id, arms: Map<arm, Map<suite, Map<test, {status, time, message}>>>, files }>
+// Statuses: pass | fail | skip
+// ---------------------------------------------------------------------------
+const RUNS = new Map();
+let state = { tab: "run", run: null, base: null, target: null };
+
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtPct = (x) => x == null || !isFinite(x) ? "—" : (100 * x).toFixed(1) + "%";
+
+const CLASS_META = {
+  "fully-gpu":    { color: "var(--status-good)",    icon: "●", label: "Runs fully on GPU",    note: "passes on gpu-strict, i.e. with CPU fallback disabled" },
+  "fallback":     { color: "var(--status-warning)", icon: "◐", label: "Needs CPU fallback",   note: "passes on gpu but fails on gpu-strict: some operator has no GPU path yet (coverage gap)" },
+  "both":         { color: "var(--status-neutral)", icon: "–", label: "Fails in all arms",    note: "fails with cuDF off as well: a Prestissimo or test issue, not a GPU one" },
+  "control-only": { color: "var(--status-neutral)", icon: "–", label: "Fails only in control", note: "passes on GPU, fails on the CPU worker" },
+  "gpu-specific": { color: "var(--status-serious)", icon: "▲", label: "GPU failure",          note: "passes on control, fails on gpu even with CPU fallback allowed: a cuDF defect (fallback is decided at plan time; run-time GPU errors are not rescued)" },
+  "skip":         { color: "var(--status-neutral)", icon: "–", label: "Skipped",              note: "not run in some arm" },
+};
+// Keeps the two closest hues (warning, serious) apart in a stacked bar.
+const CLASS_ORDER = ["fully-gpu", "fallback", "both", "control-only", "skip", "gpu-specific"];
+const RESULT_META = {
+  pass: { color: "var(--status-good)",    icon: "●", label: "pass" },
+  fail: { color: "var(--status-serious)", icon: "▲", label: "fail" },
+  skip: { color: "var(--status-neutral)", icon: "–", label: "skip" },
+  none: { color: "var(--status-neutral)", icon: "·", label: "n/a" },
+};
+const STD_ARMS = ["control", "gpu", "gpu-strict"];
+const ARM_META = {
+  "control":    { title: "control",    sub: "cuDF off",                 note: "Prestissimo baseline: the CPU worker" },
+  "gpu":        { title: "gpu",        sub: "cuDF on, CPU fallback on", note: "what a user gets: an operator without a GPU path runs on the CPU" },
+  "gpu-strict": { title: "gpu-strict", sub: "cuDF on, no CPU fallback", note: "only Exchange/MergeExchange may run on the CPU; anything else fails the query" },
+};
+const armLabel = (a) => ARM_META[a] ? `${esc(ARM_META[a].title)}<br><span class="sub" style="font-weight:400">${esc(ARM_META[a].sub)}</span>` : esc(a);
+const armTitle = (a) => ARM_META[a] ? `${a} — ${ARM_META[a].sub}: ${ARM_META[a].note}` : a;
+function armsLegend(arms) {
+  return `<div class="legend" style="margin:8px 0 0">${arms.map((a) => ARM_META[a]
+    ? `<span class="item"><code>${esc(a)}</code> ${esc(ARM_META[a].sub)} — <span class="sub">${esc(ARM_META[a].note)}</span></span>`
+    : `<span class="item"><code>${esc(a)}</code></span>`).join("")}</div>`;
+}
+
+function cellHtml(meta, title) {
+  return `<span class="cell" title="${esc(title || meta.label)}"><span class="dot" style="background:${meta.color}"></span>${esc(meta.label)}</span>`;
+}
+
+// ---------------------------------------------------------------------------
+// Ingest. A path like "run3/gpu/TestPrestoNativeJoinQueries.surefire.xml" gives
+// run, arm and suite. Surefire's own naming "TEST-com.facebook....TestX.xml"
+// reduces to "TestX".
+// ---------------------------------------------------------------------------
+function suiteFromFile(name, xmlRoot) {
+  let s = name.replace(/\.surefire\.xml$|\.xml$/i, "").replace(/^TEST-/, "");
+  if (s.includes(".")) s = s.split(".").pop();
+  if (!s && xmlRoot) s = (xmlRoot.getAttribute("name") || "").split(".").pop();
+  return s;
+}
+
+function parseSurefire(text) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.querySelector("parsererror")) throw new Error("not valid XML");
+  const root = doc.documentElement;
+  if (root.tagName !== "testsuite" && root.tagName !== "testsuites") throw new Error("not a Surefire report");
+  const tests = new Map();
+  for (const tc of doc.getElementsByTagName("testcase")) {
+    // Data-provider tests carry their arguments in the name, e.g.
+    // "testSemiJoin[Session{queryId=2026..., startTime=...}](2)". The arguments
+    // carry per-run ids, so keep only the method and invocation index.
+    const name = (tc.getAttribute("name") || "").replace(/\[.*\]/s, "");
+    if (!name) continue;
+    let status = "pass", message = "";
+    const bad = tc.getElementsByTagName("failure")[0] || tc.getElementsByTagName("error")[0];
+    if (tc.getElementsByTagName("skipped").length) status = "skip";
+    if (bad) { status = "fail"; message = (bad.textContent || bad.getAttribute("message") || "").trim(); }
+    const time = parseFloat(tc.getAttribute("time") || "0") || 0;
+    const prev = tests.get(name);
+    if (!prev) tests.set(name, { status, time, message });
+    else { // data-provider repeats: worst status wins, time accumulates
+      prev.time += time;
+      if (status === "fail" || (status === "skip" && prev.status === "pass")) { prev.status = status; prev.message = message || prev.message; }
+    }
+  }
+  const sysErr = (doc.getElementsByTagName("system-err")[0]?.textContent || "").trim();
+  return { root, tests, sysErr };
+}
+
+function addReport(runId, arm, suite, parsed, fileName) {
+  if (!RUNS.has(runId)) RUNS.set(runId, { id: runId, arms: new Map(), files: 0 });
+  const run = RUNS.get(runId);
+  if (!run.arms.has(arm)) run.arms.set(arm, new Map());
+  run.arms.get(arm).set(suite, parsed.tests);
+  run.stderr ??= new Map();
+  if (parsed.sysErr) run.stderr.set(`${arm}/${suite}`, parsed.sysErr);
+  run.files += 1;
+}
+
+// Path -> {run, arm}. Expects .../<run>/<arm>/<file>; with a shallower path the
+// run falls back to "run" and the arm to "default" so single files still load.
+function splitPath(relPath) {
+  const parts = relPath.split("/").filter(Boolean);
+  const file = parts.pop();
+  const arm = parts.pop() || "default";
+  const run = parts.pop() || "run";
+  return { run, arm, file };
+}
+
+async function ingestFiles(fileList, pathOf) {
+  const errors = [];
+  let added = 0;
+  for (const f of fileList) {
+    const rel = pathOf(f);
+    if (!/\.xml$/i.test(rel)) continue;
+    try {
+      const text = await f.text();
+      const parsed = parseSurefire(text);
+      const { run, arm, file } = splitPath(rel);
+      addReport(run, arm, suiteFromFile(file, parsed.root), parsed, file);
+      added += 1;
+    } catch (e) {
+      errors.push(`${rel}: ${e.message}`);
+    }
+  }
+  afterIngest(added, errors);
+}
+
+async function fetchOk(url) {
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp;
+}
+
+// A manifest run with a "summary" (compare_arms.py --json) loads from that
+// small file; its XML is fetched only when a suite drill-down is opened. A run
+// with only "files" loads all its XML up front.
+async function ingestManifest(url) {
+  const base = new URL(url, location.href);
+  const manifest = await (await fetchOk(base)).json();
+  const runs = manifest.runs || [];
+  const jobs = runs.flatMap((r) => r.summary ? [{ run: r, path: r.summary, summary: true }] : (r.files || []).map((path) => ({ run: r, path })));
+  const errors = [];
+  let added = 0, done = 0;
+  const progress = () => { el("content").innerHTML = `<div class="empty">Loading ${done} / ${jobs.length} files…</div>`; };
+  progress();
+  await Promise.all(jobs.map(async ({ run, path, summary }) => {
+    try {
+      const resp = await fetchOk(new URL(path, base));
+      if (summary) addSummary(run.id, await resp.json(), { base, files: run.files || [] }, run.meta);
+      else {
+        const parsed = parseSurefire(await resp.text());
+        const { arm, file } = splitPath(path);
+        addReport(run.id || splitPath(path).run, arm, suiteFromFile(file, parsed.root), parsed, file);
+      }
+      added += 1;
+    } catch (e) { errors.push(`${path}: ${e.message}`); }
+    done += 1; progress();
+  }));
+  afterIngest(added, errors);
+}
+
+function addSummary(runId, summary, lazy, meta) {
+  if (!RUNS.has(runId)) RUNS.set(runId, { id: runId, arms: new Map(), files: 0 });
+  const run = RUNS.get(runId);
+  for (const [suite, data] of Object.entries(summary.suites || {})) {
+    for (const [test, entry] of Object.entries(data.tests || {})) {
+      for (const arm of Object.keys(entry).filter((k) => k !== "time")) {
+        if (!run.arms.has(arm)) run.arms.set(arm, new Map());
+        if (!run.arms.get(arm).has(suite)) run.arms.get(arm).set(suite, new Map());
+        run.arms.get(arm).get(suite).set(test, { status: entry[arm], time: entry.time?.[arm] || 0, message: "" });
+      }
+    }
+  }
+  run.lazy = lazy;                 // where the XML lives, for drill-downs
+  run.loadedSuites = new Set();
+  run.meta = meta || summary.provenance || {};
+  run.files = lazy.files.length;
+}
+
+// Fetch and merge one suite's XML (all arms) for a run loaded from a summary.
+async function loadSuiteXml(run, suite) {
+  if (!run.lazy || run.loadedSuites.has(suite)) return;
+  const files = run.lazy.files.filter((f) => f.split("/").pop().startsWith(suite + "."));
+  await Promise.all(files.map(async (path) => {
+    const parsed = parseSurefire(await (await fetchOk(new URL(path, run.lazy.base))).text());
+    addReport(run.id, splitPath(path).arm, suite, parsed, path);
+  }));
+  run.loadedSuites.add(suite);
+}
+
+// Drag-and-drop of folders uses the (webkit) entry API to walk directories.
+async function ingestDataTransfer(dt) {
+  const files = [];
+  const walk = async (entry, prefix) => {
+    if (entry.isFile) {
+      const f = await new Promise((res, rej) => entry.file(res, rej));
+      files.push({ f, rel: prefix + entry.name });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const entries = [];
+      for (;;) { const batch = await new Promise((res, rej) => reader.readEntries(res, rej)); if (!batch.length) break; entries.push(...batch); }
+      for (const e of entries) await walk(e, prefix + entry.name + "/");
+    }
+  };
+  const items = [...(dt.items || [])];
+  const entries = items.map((i) => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  if (entries.length) { for (const e of entries) await walk(e, ""); }
+  else for (const f of dt.files) files.push({ f, rel: f.webkitRelativePath || f.name });
+  await ingestFiles(files.map((x) => x.f), (f) => files.find((x) => x.f === f).rel);
+}
+
+function afterIngest(added, errors) {
+  const ids = sortedRunIds();
+  const q = new URLSearchParams(location.search);
+  if (RUNS.has(q.get("run"))) state.run = q.get("run");
+  if (RUNS.has(q.get("base"))) state.base = q.get("base");
+  if (RUNS.has(q.get("target"))) state.target = q.get("target");
+  if (!state.run || !RUNS.has(state.run)) state.run = ids[ids.length - 1] || null;
+  if (ids.length >= 2) {
+    if (!state.base || !RUNS.has(state.base)) state.base = ids[ids.length - 2];
+    if (!state.target || !RUNS.has(state.target)) state.target = ids[ids.length - 1];
+  }
+  state.errors = errors;
+  state.lastAdded = added;
+  render();
+  // ?suite=<name> deep-links to one suite's drill-down of the shown run.
+  const suite = new URLSearchParams(location.search).get("suite");
+  if (suite && RUNS.get(state.run)?.arms.values().next().value?.has(suite)) renderSuiteDetail(RUNS.get(state.run), suite);
+}
+
+const sortedRunIds = () => [...RUNS.keys()].sort();
+
+// ---------------------------------------------------------------------------
+// Derived numbers
+// ---------------------------------------------------------------------------
+function armsOf(run) { return [...run.arms.keys()].sort((a, b) => STD_ARMS.indexOf(a) - STD_ARMS.indexOf(b) || a.localeCompare(b)); }
+function suitesOf(run) { const s = new Set(); for (const m of run.arms.values()) for (const k of m.keys()) s.add(k); return [...s].sort(); }
+function hasStdArms(run) { return STD_ARMS.every((a) => run.arms.has(a)); }
+
+function statusOf(run, arm, suite, test) {
+  const t = run.arms.get(arm)?.get(suite)?.get(test);
+  return t ? t.status : "none";
+}
+
+// Every test named in any arm for a suite.
+function testsOf(run, suite) {
+  const s = new Set();
+  for (const m of run.arms.values()) { const su = m.get(suite); if (su) for (const k of su.keys()) s.add(k); }
+  return [...s].sort();
+}
+
+function classify(run, suite, test) {
+  const c = statusOf(run, "control", suite, test), g = statusOf(run, "gpu", suite, test), st = statusOf(run, "gpu-strict", suite, test);
+  if ([c, g, st].some((x) => x === "skip" || x === "none")) return "skip";
+  if (g === "fail" && c === "fail") return "both";
+  if (g === "fail") return "gpu-specific";
+  if (c === "fail") return "control-only";
+  if (st === "fail") return "fallback";
+  return "fully-gpu";
+}
+
+function suiteStats(run, suite) {
+  const arms = armsOf(run);
+  const tests = testsOf(run, suite);
+  const perArm = {};
+  for (const a of arms) {
+    const m = run.arms.get(a).get(suite);
+    perArm[a] = { run: 0, fail: 0, pass: 0, skip: 0, present: !!m };
+    if (!m) continue;
+    for (const t of m.values()) { perArm[a].run += 1; perArm[a][t.status] += 1; }
+  }
+  const classes = Object.fromEntries(CLASS_ORDER.map((k) => [k, 0]));
+  if (hasStdArms(run)) for (const t of tests) classes[classify(run, suite, t)] += 1;
+  const parity = (perArm.control?.pass && perArm.gpu) ? perArm.gpu.pass / perArm.control.pass : null;
+  return { tests: tests.length, perArm, classes, parity };
+}
+
+function runTotals(run) {
+  const arms = armsOf(run);
+  const tot = { tests: 0, perArm: Object.fromEntries(arms.map((a) => [a, { run: 0, pass: 0, fail: 0, skip: 0 }])), classes: Object.fromEntries(CLASS_ORDER.map((k) => [k, 0])) };
+  for (const s of suitesOf(run)) {
+    const st = suiteStats(run, s);
+    tot.tests += st.tests;
+    for (const a of arms) for (const k of ["run", "pass", "fail", "skip"]) tot.perArm[a][k] += st.perArm[a][k];
+    for (const k of CLASS_ORDER) tot.classes[k] += st.classes[k];
+  }
+  tot.parity = tot.perArm.control?.pass ? (tot.perArm.gpu?.pass ?? 0) / tot.perArm.control.pass : null;
+  return tot;
+}
+
+// ---------------------------------------------------------------------------
+// Rendering: run view
+// ---------------------------------------------------------------------------
+function tile(label, value, note, color, icon, hero, deltaHtml) {
+  return `<div class="tile ${hero ? "hero" : ""}">
+    <div class="label">${color ? `<span class="swatch" style="background:${color}"></span>` : ""}${icon ? esc(icon) + " " : ""}${esc(label)}</div>
+    <div class="value">${esc(value)}${deltaHtml || ""}</div>
+    <div class="note">${esc(note)}</div></div>`;
+}
+
+// One arm's result: pass rate as the number, pass/fail counts beneath. For the
+// gpu arm the note also carries parity (gpu passes / control passes), which
+// differs from the pass rate only when control itself has failures.
+function armTile(arm, c, parity) {
+  const m = ARM_META[arm];
+  const rate = c.run ? c.pass / c.run : null;
+  const note = `${c.pass} pass · ${c.fail} fail${c.skip ? ` · ${c.skip} skipped` : ""} of ${c.run}` +
+    (parity != null ? ` · parity vs control ${fmtPct(parity)}` : "");
+  return tile(m ? `${m.title} — ${m.sub}` : arm, fmtPct(rate), note, null, null, arm === "gpu");
+}
+
+// Provenance from the manifest (PROVENANCE.txt written by the runner).
+function metaHtml(meta) {
+  if (!meta) return "";
+  const short = (v) => String(v || "").replace(/^sha256:/, "").split(" ")[0].slice(0, 12);
+  const items = [["image", (meta.image || "").split(" ")[0]], ["velox", short(meta["velox-testing.velox.sha"] || meta.velox)],
+                 ["presto", short(meta["velox-testing.presto.sha"] || meta.presto)], ["CPU allowlist", meta.allowed_cpu_ops]];
+  return items.filter(([, v]) => v).map(([k, v]) => `<span>${esc(k)}: <code>${esc(v)}</code></span>`).join("");
+}
+
+function runSelector(id, value, label) {
+  return `<label class="sub">${esc(label)} <select id="${id}">${sortedRunIds().map((r) =>
+    `<option value="${esc(r)}" ${r === value ? "selected" : ""}>${esc(r)}</option>`).join("")}</select></label>`;
+}
+
+function renderRunView() {
+  const run = RUNS.get(state.run);
+  if (!run) return "";
+  const arms = armsOf(run), std = hasStdArms(run), tot = runTotals(run);
+  const header = `<div class="meta" style="margin-top:14px">${runSelector("runSel", run.id, "Run")}
+    <span>arms: <code>${esc(arms.join(", "))}</code></span><span>suites: <code>${suitesOf(run).length}</code></span>
+    <span>tests: <code>${tot.tests}</code></span><span>files: <code>${run.files}</code></span>${metaHtml(run.meta)}</div>${armsLegend(arms)}`;
+
+  let tiles = `<div class="tiles">` + arms.map((a) => armTile(a, tot.perArm[a], a === "gpu" ? tot.parity : null)).join("") + `</div>`;
+  if (std) {
+    tiles += `<div class="tiles" style="margin-top:12px">
+      ${tile("GPU failures", `${tot.classes["gpu-specific"]}`, "pass on control, fail on gpu even with CPU fallback allowed — the fix list", CLASS_META["gpu-specific"].color, "▲")}
+      ${tile("Needs CPU fallback", `${tot.classes["fallback"]}`, "pass on gpu, fail on gpu-strict — operators without a GPU path (coverage backlog)", CLASS_META["fallback"].color, "◐")}
+      ${tile("Fails in all arms", `${tot.classes["both"]}`, "fails with cuDF off as well — a Prestissimo or test issue, not a GPU one", CLASS_META["both"].color, "–")}
+    </div>`;
+  }
+
+  const rows = suitesOf(run).map((s) => ({ s, st: suiteStats(run, s) })).sort((a, b) =>
+    b.st.classes["gpu-specific"] - a.st.classes["gpu-specific"] || b.st.classes["fallback"] - a.st.classes["fallback"] ||
+    Object.values(b.st.perArm).reduce((x, y) => x + y.fail, 0) - Object.values(a.st.perArm).reduce((x, y) => x + y.fail, 0) || a.s.localeCompare(b.s));
+  const short = (n) => n.replace(/^TestPrestoNative/, "").replace(/Queries|Parquet\w*|Using\w+|Thrift|JSON/g, "") || n;
+  const armCell = (st, a) => {
+    const c = st.perArm[a];
+    if (!c.present) return `<td class="num">—</td>`;
+    return `<td class="num" title="${esc(armTitle(a))}: ${c.pass} pass, ${c.fail} fail of ${c.run}">` +
+      `${c.pass} / ${c.fail ? `<strong>${c.fail}</strong>` : "0"} <span class="kv">· ${c.run ? (100 * c.pass / c.run).toFixed(0) : "—"}%</span></td>`;
+  };
+  const body = rows.map(({ s, st }) => {
+    const mix = std ? CLASS_ORDER.filter((k) => st.classes[k]).map((k) =>
+      `<span title="${esc(CLASS_META[k].label)}: ${st.classes[k]}" style="width:calc(${(100 * st.classes[k] / st.tests).toFixed(1)}% - 2px);background:${CLASS_META[k].color}"></span>`).join("") : "";
+    return `<tr class="clickable" data-suite="${esc(s)}">
+      <td><strong title="${esc(s)}">${esc(short(s))}</strong></td>
+      ${arms.map((a) => armCell(st, a)).join("")}
+      ${std ? `<td style="width:28%;min-width:180px"><div class="mix">${mix}</div></td>
+      <td class="num">${st.classes["gpu-specific"]}</td><td class="num">${st.classes["fallback"]}</td><td class="num">${st.classes["both"]}</td>` : ""}
+    </tr>`;
+  }).join("");
+  const legend = std ? `<div class="legend">${["fully-gpu", "gpu-specific", "fallback", "both"].map((k) =>
+    `<span class="item"><span class="swatch" style="background:${CLASS_META[k].color}"></span>${esc(CLASS_META[k].icon)} ${esc(CLASS_META[k].label)} — <span class="sub">${esc(CLASS_META[k].note)}</span></span>`).join("")}</div>` : "";
+  const table = `<h2>Suites — worst first</h2><div class="sub">Per arm: tests passed / failed and pass rate. Click a suite for every test's result.</div>${legend}
+    <div class="matrix-wrap" style="margin-top:10px"><table><thead><tr><th>Suite</th>${arms.map((a) => `<th class="num" title="${esc(armTitle(a))}">${armLabel(a)}<br><span class="sub" style="font-weight:400">pass / fail · rate</span></th>`).join("")}
+    ${std ? `<th>Mix</th><th class="num">GPU failures</th><th class="num">Needs fallback</th><th class="num">All arms</th>` : ""}</tr></thead>
+    <tbody id="suiteBody">${body}</tbody></table></div>`;
+  return header + tiles + table;
+}
+
+async function renderSuiteDetail(run, suite) {
+  try { await loadSuiteXml(run, suite); }
+  catch (e) { el("dlgTitle").textContent = suite; el("dlgBody").innerHTML = `<div class="err">Could not load this suite's XML: ${esc(e.message)}</div>`; el("detail").showModal(); return; }
+  const arms = armsOf(run), std = hasStdArms(run);
+  const tests = testsOf(run, suite).map((t) => ({ t, cls: std ? classify(run, suite, t) : null }));
+  const worst = (x) => std ? CLASS_ORDER.indexOf(x.cls) : -Object.values(arms.map((a) => statusOf(run, a, suite, x.t) === "fail")).filter(Boolean).length;
+  tests.sort((a, b) => worst(b) - worst(a) || a.t.localeCompare(b.t));
+  const time = (a, t) => { const x = run.arms.get(a)?.get(suite)?.get(t); return x && x.time ? x.time.toFixed(1) + "s" : ""; };
+  const fid = (t, a) => `f-${a}-${t}`.replace(/[^\w-]/g, "_");
+  const failedArms = (t) => arms.filter((a) => statusOf(run, a, suite, t) === "fail");
+  const rows = tests.map(({ t, cls }) => {
+    const first = failedArms(t)[0];
+    return `<tr>
+      <td>${first ? `<a href="#" class="jump" data-target="${fid(t, first)}" title="Show failure details"><strong>${esc(t)}</strong></a>` : `<strong>${esc(t)}</strong>`}</td>
+      ${arms.map((a) => { const s = statusOf(run, a, suite, t); const m = run.arms.get(a)?.get(suite)?.get(t);
+        const cell = cellHtml(RESULT_META[s], m?.message ? m.message.split("\n")[0].slice(0, 200) : s);
+        return `<td>${s === "fail" ? `<a href="#" class="jump" data-target="${fid(t, a)}" title="Show failure details">${cell}</a>` : cell} <span class="kv">${time(a, t)}</span></td>`; }).join("")}
+      ${std ? `<td>${cellHtml(CLASS_META[cls])}</td>` : ""}</tr>`;
+  }).join("");
+  // Every failure's full text from the XML (message + stack trace), one block per arm.
+  const failures = tests.flatMap(({ t }) => arms.map((a) => ({ t, a, m: run.arms.get(a)?.get(suite)?.get(t) }))
+    .filter(({ m }) => m?.status === "fail" && m.message));
+  const failureBlocks = failures.map(({ t, a, m }) => `<details id="${fid(t, a)}"><summary class="kv"><strong>${esc(t)}</strong> · ${esc(a)} — ${esc(m.message.split("\n")[0].slice(0, 160))}</summary><pre style="max-height:480px">${esc(m.message)}</pre></details>`).join("");
+  const stderrBlocks = arms.map((a) => { const txt = run.stderr?.get(`${a}/${suite}`); return txt
+    ? `<details><summary class="kv">suite stderr · ${esc(a)} (${(txt.length / 1024).toFixed(0)} KB)</summary><pre style="max-height:480px">${esc(txt)}</pre></details>` : ""; }).join("");
+  el("dlgTitle").innerHTML = `${esc(suite)} <span class="kv">— ${tests.length} tests, run ${esc(run.id)}</span>`;
+  el("dlgBody").innerHTML = `<div class="matrix-wrap"><table><thead><tr><th>Test</th>${arms.map((a) => `<th title="${esc(armTitle(a))}">${armLabel(a)}</th>`).join("")}${std ? "<th>Class</th>" : ""}</tr></thead><tbody>${rows}</tbody></table></div>` +
+    (failureBlocks ? `<h3>Failures (${failures.length}) — click to expand the full message and trace</h3>${failureBlocks}` : "") +
+    (stderrBlocks ? `<h3>Suite output</h3>${stderrBlocks}` : "");
+  el("dlgBody").querySelectorAll("a.jump").forEach((a) => a.addEventListener("click", (e) => {
+    e.preventDefault();
+    const d = el(a.dataset.target);
+    if (d) { d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  }));
+  el("detail").showModal();
+}
+
+// ---------------------------------------------------------------------------
+// Rendering: compare two runs
+// ---------------------------------------------------------------------------
+function deltaHtml(d, goodWhenUp, pct) {
+  if (d === 0 || d == null || !isFinite(d)) return `<span class="delta" style="color:var(--text-muted)">→ 0</span>`;
+  const good = goodWhenUp ? d > 0 : d < 0;
+  const txt = (d > 0 ? "+" : "") + (pct ? (100 * d).toFixed(1) + " pt" : d);
+  return `<span class="delta" style="color:${good ? "var(--status-good)" : "var(--status-serious)"}">${d > 0 ? "↑" : "↓"} ${txt}</span>`;
+}
+
+function renderDiffView() {
+  const ids = sortedRunIds();
+  if (ids.length < 2) return `<div class="empty" style="margin-top:18px">Load at least two runs to compare.</div>`;
+  const A = RUNS.get(state.base), B = RUNS.get(state.target);
+  const arms = [...new Set([...armsOf(A), ...armsOf(B)])].sort((a, b) => STD_ARMS.indexOf(a) - STD_ARMS.indexOf(b) || a.localeCompare(b));
+  const selectors = `<div class="meta" style="margin-top:14px">${runSelector("baseSel", A.id, "Base")} ${runSelector("targetSel", B.id, "Target")}
+    <button id="swapBtn">Swap</button></div>${armsLegend(arms)}`;
+  const std = hasStdArms(A) && hasStdArms(B);
+  const ta = runTotals(A), tb = runTotals(B);
+
+  let tiles = `<div class="tiles">`;
+  for (const a of arms) {
+    const ca = ta.perArm[a] || { pass: 0, fail: 0, run: 0 }, cb = tb.perArm[a] || { pass: 0, fail: 0, run: 0 };
+    const ra = ca.run ? ca.pass / ca.run : null, rb = cb.run ? cb.pass / cb.run : null;
+    const m = ARM_META[a];
+    tiles += tile(m ? `${m.title} — ${m.sub}` : a, fmtPct(rb),
+      `pass ${ca.pass} → ${cb.pass} · fail ${ca.fail} → ${cb.fail} of ${cb.run}`, null, null, a === "gpu",
+      ra != null && rb != null && ra !== rb ? deltaHtml(rb - ra, true, true) : "");
+  }
+  tiles += `</div>`;
+  if (std) {
+    tiles += `<div class="tiles" style="margin-top:12px">
+      ${tile("GPU failures", tb.classes["gpu-specific"], `${ta.classes["gpu-specific"]} → ${tb.classes["gpu-specific"]}`, CLASS_META["gpu-specific"].color, "▲", false, deltaHtml(tb.classes["gpu-specific"] - ta.classes["gpu-specific"], false))}
+      ${tile("Needs CPU fallback", tb.classes["fallback"], `${ta.classes["fallback"]} → ${tb.classes["fallback"]}`, CLASS_META["fallback"].color, "◐", false, deltaHtml(tb.classes["fallback"] - ta.classes["fallback"], false))}
+      ${tile("Parity (gpu vs control)", fmtPct(tb.parity), `${fmtPct(ta.parity)} → ${fmtPct(tb.parity)}`, null, null, false, deltaHtml(tb.parity - ta.parity, true, true))}
+    </div>`;
+  }
+
+  // Test-level changes per arm: regressions (pass→fail) and fixes (fail→pass).
+  const suites = [...new Set([...suitesOf(A), ...suitesOf(B)])].sort();
+  const changes = []; // {suite, test, arm, from, to, kind}
+  for (const s of suites) {
+    const tests = new Set([...testsOf(A, s), ...testsOf(B, s)]);
+    for (const t of tests) for (const a of arms) {
+      const from = statusOf(A, a, s, t), to = statusOf(B, a, s, t);
+      if (from === to) continue;
+      let kind = "changed";
+      if (to === "fail" && from === "pass") kind = "regression";
+      else if (to === "pass" && from === "fail") kind = "fix";
+      else if (from === "none") kind = "new";
+      else if (to === "none") kind = "removed";
+      changes.push({ suite: s, test: t, arm: a, from, to, kind });
+    }
+  }
+  const byKind = (k) => changes.filter((c) => c.kind === k);
+  const kindMeta = { regression: RESULT_META.fail, fix: RESULT_META.pass, new: RESULT_META.none, removed: RESULT_META.none, changed: RESULT_META.skip };
+  const changeTable = (title, list, note) => !list.length ? "" : `<h2>${esc(title)} <span class="pill">${list.length}</span></h2><div class="sub">${esc(note)}</div>
+    <div class="matrix-wrap" style="margin-top:10px"><table><thead><tr><th>Suite</th><th>Test</th><th>Arm</th><th>Base</th><th>Target</th></tr></thead><tbody>
+    ${list.sort((x, y) => x.suite.localeCompare(y.suite) || x.test.localeCompare(y.test) || x.arm.localeCompare(y.arm)).map((c) => `<tr>
+      <td>${esc(c.suite.replace(/^TestPrestoNative/, ""))}</td><td><strong>${esc(c.test)}</strong></td><td>${esc(c.arm)}</td>
+      <td>${cellHtml(RESULT_META[c.from])}</td><td>${cellHtml(RESULT_META[c.to], (B.arms.get(c.arm)?.get(c.suite)?.get(c.test)?.message) || c.to)}</td></tr>`).join("")}</tbody></table></div>`;
+
+  // Suite delta table.
+  const suiteRows = suites.map((s) => {
+    const sa = suiteStats(A, s), sb = suiteStats(B, s);
+    const cells = arms.map((a) => { const fa = sa.perArm[a]?.fail ?? 0, fb = sb.perArm[a]?.fail ?? 0;
+      return `<td class="num">${fa} → ${fb}${fa !== fb ? deltaHtml(fb - fa, false) : ""}</td>`; }).join("");
+    const par = std ? `<td class="num">${fmtPct(sa.parity)} → ${fmtPct(sb.parity)}${sa.parity != null && sb.parity != null && sa.parity !== sb.parity ? deltaHtml(sb.parity - sa.parity, true, true) : ""}</td>` : "";
+    return `<tr><td><strong>${esc(s.replace(/^TestPrestoNative/, ""))}</strong></td><td class="num">${sa.tests} → ${sb.tests}</td>${cells}${par}</tr>`;
+  }).join("");
+  const suiteTable = `<h2>Suites — failing tests per arm, base → target</h2><div class="matrix-wrap"><table><thead><tr><th>Suite</th><th class="num">Tests</th>
+    ${arms.map((a) => `<th class="num" title="${esc(armTitle(a))}">${armLabel(a)}</th>`).join("")}${std ? `<th class="num">Parity</th>` : ""}</tr></thead><tbody>${suiteRows}</tbody></table></div>`;
+
+  return selectors + tiles +
+    changeTable("Regressions", byKind("regression"), "Passed in the base run, fail in the target. Hover a target cell for the failure message.") +
+    changeTable("Fixes", byKind("fix"), "Failed in the base run, pass in the target.") +
+    changeTable("Other changes", changes.filter((c) => !["regression", "fix"].includes(c.kind)), "Tests added, removed, or moved to/from skipped.") +
+    (changes.length ? "" : `<div class="empty" style="margin-top:18px">No test changed status between these runs.</div>`) +
+    suiteTable;
+}
+
+// ---------------------------------------------------------------------------
+// Rendering: trend across all loaded runs (own scale per panel: different units)
+// ---------------------------------------------------------------------------
+function renderTrendView() {
+  const ids = sortedRunIds();
+  if (ids.length < 2) return `<div class="empty" style="margin-top:18px">Load at least two runs to see a trend.</div>`;
+  const runs = ids.map((id) => RUNS.get(id));
+  const std = runs.every(hasStdArms);
+  const series = std ? [
+    { label: "Parity %", color: "var(--series-1)", value: (r) => Math.round(100 * (runTotals(r).parity || 0)), up: true },
+    { label: "Runs fully on GPU", color: CLASS_META["fully-gpu"].color, value: (r) => runTotals(r).classes["fully-gpu"], up: true },
+    { label: "GPU failures", color: CLASS_META["gpu-specific"].color, value: (r) => runTotals(r).classes["gpu-specific"], up: false },
+    { label: "Needs CPU fallback", color: CLASS_META["fallback"].color, value: (r) => runTotals(r).classes["fallback"], up: false },
+  ] : [...new Set(runs.flatMap(armsOf))].map((a, i) => ({ label: `${a} failing`, color: `var(--series-${(i % 3) + 1})`, value: (r) => runTotals(r).perArm[a]?.fail ?? 0, up: false }));
+  const W = 320, H = 130, P = { t: 12, r: 12, b: 24, l: 36 };
+  const panels = series.map((s) => {
+    const values = runs.map(s.value), maxY = Math.max(1, ...values);
+    const x = (i) => P.l + (i * (W - P.l - P.r)) / Math.max(1, runs.length - 1), y = (v) => H - P.b - (v * (H - P.t - P.b)) / maxY;
+    const first = values[0], last = values[values.length - 1], d = last - first, improving = s.up ? d > 0 : d < 0;
+    return `<div style="flex:1 1 320px;min-width:280px">
+      <div class="kv" style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><span class="swatch" style="background:${s.color}"></span>
+        <strong style="color:var(--text-primary)">${esc(s.label)}</strong><span class="spacer"></span>
+        <span>${first} ${d === 0 ? "→" : d > 0 ? "↑" : "↓"} ${last} ${d !== 0 ? `(${improving ? "better" : "worse"})` : "(flat)"}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${esc(s.label)}: ${values.join(", ")}">
+        ${[0, maxY].map((v) => `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="var(--border)"/><text x="${P.l - 6}" y="${y(v) + 4}" text-anchor="end" font-size="10" fill="var(--text-muted)">${v}</text>`).join("")}
+        <polyline points="${values.map((v, i) => `${x(i)},${y(v)}`).join(" ")}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        ${values.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${s.color}" stroke="var(--surface-1)" stroke-width="2"><title>${esc(runs[i].id)}: ${v}</title></circle>`).join("")}
+        ${runs.map((r, i) => (runs.length <= 3 || i === 0 || i === runs.length - 1)
+          ? `<text x="${x(i)}" y="${H - 8}" font-size="9" text-anchor="${i === 0 ? "start" : i === runs.length - 1 ? "end" : "middle"}" fill="var(--text-muted)">${esc(r.id)}</text>` : "").join("")}
+      </svg></div>`;
+  }).join("");
+  return `<h2 style="margin-top:18px">Trend across ${runs.length} runs</h2><div class="sub">Oldest to newest by run id; hover a point for its run. Each panel has its own scale.</div>
+    <div class="matrix-wrap" style="margin-top:10px;padding:14px"><div style="display:flex;flex-wrap:wrap;gap:20px 24px">${panels}</div></div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Shell
+// ---------------------------------------------------------------------------
+function renderDrop(extra) {
+  return `<div class="drop" id="drop">
+    <div><strong>Drop run folders here</strong> — one folder per run, laid out as <code>&lt;run&gt;/&lt;arm&gt;/&lt;Suite&gt;.xml</code>
+      (Surefire reports; <code>TEST-*.xml</code> names work too). Or use <em>Add run folder…</em> above${location.search ? "" : ", or open with <code>?manifest=&lt;url&gt;</code>"}.</div>
+    ${extra || ""}</div>`;
+}
+
+function render() {
+  const ids = sortedRunIds();
+  el("tabs").hidden = ids.length === 0;
+  let html = "";
+  if (!ids.length) html = renderDrop();
+  else if (state.tab === "run") html = renderRunView();
+  else if (state.tab === "diff") html = renderDiffView();
+  else html = renderTrendView();
+  if (state.errors?.length) html += `<div class="err">${state.errors.length} file(s) skipped:<pre>${esc(state.errors.slice(0, 20).join("\n"))}</pre></div>`;
+  if (ids.length) html += `<div class="sub" style="margin-top:28px">Loaded runs: ${ids.map((r) => `<code>${esc(r)}</code>`).join(", ")} — drop more folders anywhere on the page to add.</div>`;
+  el("content").innerHTML = html;
+  el("tabs").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.tab === state.tab));
+
+  const bind = (id, fn) => { const e = el(id); if (e) e.addEventListener("change", fn); };
+  bind("runSel", (e) => { state.run = e.target.value; render(); });
+  bind("baseSel", (e) => { state.base = e.target.value; render(); });
+  bind("targetSel", (e) => { state.target = e.target.value; render(); });
+  const swap = el("swapBtn"); if (swap) swap.addEventListener("click", () => { [state.base, state.target] = [state.target, state.base]; render(); });
+  const body = el("suiteBody");
+  if (body) body.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", () => renderSuiteDetail(RUNS.get(state.run), tr.dataset.suite)));
+}
+
+el("tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) { state.tab = b.dataset.tab; render(); } });
+el("pickDir").addEventListener("change", (e) => ingestFiles([...e.target.files], (f) => f.webkitRelativePath || f.name));
+el("pickFiles").addEventListener("change", (e) => ingestFiles([...e.target.files], (f) => f.webkitRelativePath || f.name));
+el("clearBtn").addEventListener("click", () => { RUNS.clear(); state = { tab: "run" }; render(); });
+el("themeToggle").addEventListener("click", () => { const r = document.documentElement; r.setAttribute("data-theme", r.getAttribute("data-theme") === "dark" ? "light" : "dark"); });
+document.addEventListener("dragover", (e) => { e.preventDefault(); el("drop")?.classList.add("over"); });
+document.addEventListener("dragleave", () => el("drop")?.classList.remove("over"));
+document.addEventListener("drop", (e) => { e.preventDefault(); ingestDataTransfer(e.dataTransfer); });
+
+const params = new URLSearchParams(location.search);
+if (["run", "diff", "trend"].includes(params.get("tab"))) state.tab = params.get("tab");
+// A published site has manifest.json next to the page; load it by default and
+// fall back to the drop zone when there is none (opened from disk, or no runs).
+const manifest = params.get("manifest");
+ingestManifest(manifest || "manifest.json").catch((e) => {
+  if (manifest) state.errors = [`manifest ${manifest}: ${e.message}`];
+  render();
+});
+</script>
+</body>
+</html>
