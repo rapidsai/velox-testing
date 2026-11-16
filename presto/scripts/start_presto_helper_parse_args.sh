@@ -32,6 +32,11 @@ OPTIONS:
     -p, --profile        Launch the Presto server with profiling enabled.
     --profile-args       Arguments to pass to the profiler when it launches the Presto server.
                          This will override the default arguments.
+    --use-public-images  Pull the public prestodb images from Docker Hub and tag them as the local
+                         service images instead of building. Defaults to presto:latest and
+                         presto-native:latest for java/cpu, and the coordinator-gpu-nightly and
+                         gpu-nightly tags for gpu. Override with PUBLIC_COORDINATOR_IMAGE and
+                         PUBLIC_WORKER_IMAGE.
     --overwrite-config   Force config to be regenerated (will overwrite local changes).
     --logs-dir           Directory for server log files (default: <script_dir>/presto_logs).
                          Old log files are archived to an archive/ subdirectory on each startup.
@@ -44,6 +49,8 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
     SCCACHE_AUTH_DIR     Directory containing sccache auth files (default: ~/.sccache-auth/).
+    PUBLIC_COORDINATOR_IMAGE   Coordinator image used with --use-public-images.
+    PUBLIC_WORKER_IMAGE        Worker image used with --use-public-images.
     PRESTO_CTAS_SCRATCH_DIR    Optional writable host scratch directory mounted for temporary CTAS benchmark results.
 
 EXAMPLES:
@@ -54,6 +61,7 @@ EXAMPLES:
     $SCRIPT_NAME -w 4
     $SCRIPT_NAME -w 4 -g 4,5,6,7
     $SCRIPT_NAME --profile
+    $SCRIPT_NAME --use-public-images
     $SCRIPT_NAME --sccache -b worker
     $SCRIPT_NAME --sccache --sccache-version 0.12.0-rapids.1 -b worker
     $SCRIPT_NAME --sccache --sccache-enable-dist -b worker
@@ -68,6 +76,7 @@ ALL_CUDA_ARCHS=false
 export SINGLE_CONTAINER=false
 export OVERWRITE_CONFIG=false
 SKIP_GENERATE_CONFIG=false
+USE_PUBLIC_IMAGES=false
 export PROFILE=OFF
 export NUM_WORKERS=1
 export KVIKIO_THREADS=8
@@ -181,6 +190,10 @@ parse_args() {
         SKIP_GENERATE_CONFIG=true
         shift
         ;;
+      --use-public-images)
+        USE_PUBLIC_IMAGES=true
+        shift
+        ;;
       --logs-dir)
         if [[ -n $2 ]]; then
           LOGS_DIR=$2
@@ -226,6 +239,11 @@ if [[ -n "${PRESTO_CTAS_SCRATCH_DIR:-}" ]]; then
     exit 1
   fi
   export PRESTO_CTAS_SCRATCH_DIR
+fi
+
+if [[ "$USE_PUBLIC_IMAGES" == true && -n ${BUILD_TARGET} ]]; then
+  echo "Error: --use-public-images cannot be combined with --build"
+  exit 1
 fi
 
 if [[ -n ${BUILD_TARGET} && ! ${BUILD_TARGET} =~ ^(coordinator|c|worker|w|all|a)$ ]]; then

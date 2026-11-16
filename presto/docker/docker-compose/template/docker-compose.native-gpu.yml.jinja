@@ -13,6 +13,9 @@ x-presto-native-worker-gpu: &gpu_worker_base
       - aws_credentials
 {% endif %}
   runtime: nvidia
+  # Public prestodb images define an ENTRYPOINT that starts presto_server with the
+  # image's own config; clear it so the command below runs the mounted launch scripts.
+  entrypoint: []
   cap_add:
     - IPC_LOCK
     - SYS_ADMIN  # Required for nsys GPU metrics profiling
@@ -21,6 +24,7 @@ x-presto-native-worker-gpu: &gpu_worker_base
   ulimits:
     memlock: -1
     stack: 67108864
+    nofile: 524288
   shm_size: 1g
   # UCX needs the containers to be able to see all devices, although we then need to limit which they use.
   deploy:
