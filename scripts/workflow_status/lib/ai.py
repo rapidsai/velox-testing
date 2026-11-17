@@ -144,7 +144,7 @@ def _analyze_with_claude(
         config.claude_model,
         "--no-session-persistence",
         "--max-turns",
-        "1",
+        "5",
         "--allowedTools",
         "",
     ]
