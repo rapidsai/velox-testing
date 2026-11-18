@@ -1,0 +1,76 @@
+name: Compute Sanitizer Status Report
+
+on:
+  schedule:
+    - cron: '30 11 * * 6'  # Saturday at 11:30 UTC (after the weekly compute-sanitizer trigger finishes)
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'compute-sanitizer-trigger run ID to analyse. Leave empty to use the latest run.'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  REPO: rapidsai/velox-testing
+  GH_TOKEN: ${{ github.token }}
+  GH_HTTP_TIMEOUT: '120'
+  GH_RETRIES: '8'
+  CLAUDE_MODEL: claude-opus-4-8
+
+jobs:
+  compute-sanitizer-status:
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup report tools (gh + Claude CLI)
+        uses: ./.github/actions/setup-report-tools
+
+      - name: Resolve compute-sanitizer run ID
+        id: runs
+        env:
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          if [ -n "${INPUT_RUN_ID}" ]; then
+            SANITIZER_RUN="${INPUT_RUN_ID}"
+          else
+            SANITIZER_RUN=$(gh run list -R "$REPO" --workflow velox-compute-sanitizer-trigger.yaml --status completed --limit 1 --json databaseId -q '.[0].databaseId')
+          fi
+          echo "sanitizer_run=${SANITIZER_RUN}" >> "$GITHUB_OUTPUT"
+          echo "Compute-sanitizer run ID: ${SANITIZER_RUN:-none}"
+
+      - name: Analyse compute-sanitizer run
+        if: ${{ steps.runs.outputs.sanitizer_run != '' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: | # zizmor: ignore[template-injection]
+          python3 scripts/workflow_status/workflow_status.py \
+            --run-id ${{ steps.runs.outputs.sanitizer_run }} \
+            --repo "$REPO" \
+            --output compute-sanitizer-status-payload.json
+
+      - name: Upload report as artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: compute-sanitizer-report
+          path: compute-sanitizer-status-payload.json
+
+      - name: Send compute-sanitizer status to Slack
+        if: ${{ always() && hashFiles('compute-sanitizer-status-payload.json') != '' }}
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a  # v2.1.1
+        with:
+          payload-file-path: compute-sanitizer-status-payload.json
+          webhook: ${{ secrets.SLACK_WEBHOOK_NIGHTLY_STATUS_URL }}
+          webhook-type: incoming-webhook

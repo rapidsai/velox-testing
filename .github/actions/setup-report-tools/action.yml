@@ -1,0 +1,30 @@
+name: Setup Report Tools
+description: Installs the GitHub CLI (gh) and the Claude CLI used by the workflow status report scripts.
+
+runs:
+  using: composite
+  steps:
+    - name: Install gh CLI
+      shell: bash
+      run: | # zizmor: ignore[github-env]
+        if command -v gh &>/dev/null; then
+          echo "gh already available: $(gh --version | head -1)"
+        else
+          echo "Installing GitHub CLI to ~/.local..."
+          GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
+          ARCH=$(uname -m); [[ "$ARCH" == "x86_64" ]] && ARCH="amd64"
+          mkdir -p "$HOME/.local"
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz" \
+            | tar xz --strip-components=1 -C "$HOME/.local"
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          gh --version
+        fi
+
+    - name: Install Claude CLI
+      shell: bash
+      run: | # zizmor: ignore[github-env]
+        curl -fsSL https://claude.ai/install.sh | bash
+        export PATH="$HOME/.local/bin:$PATH"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        claude --version
