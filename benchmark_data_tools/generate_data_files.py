@@ -16,6 +16,7 @@ from typing import NamedTuple
 
 import duckdb
 import psutil
+import pyarrow.parquet as pq
 from duckdb_utils import copy_to_parquet, get_select_query, init_benchmark_tables
 from register_storage_config import register_storage_config
 from row_group_sizing import row_group_row_count_probe
@@ -59,6 +60,11 @@ def generate_partition(
         str(_PARQUET_VERSION),
         "--row-group-bytes",
         str(approx_row_group_bytes),
+        # Nation and region IDs are bounded by 24 and 4 at every scale factor.
+        "--nationkey-type",
+        "i32",
+        "--regionkey-type",
+        "i32",
     ]
 
     if convert_decimals_to_floats:
@@ -242,6 +248,21 @@ def rearrange_directory(raw_data_path, num_partitions):
         os.rmdir(part_dir_path)
 
 
+def read_table_metadata(data_dir_path):
+    """Read Arrow column types from each generated table's Parquet schema."""
+    tables = {}
+    for table_dir in sorted(Path(data_dir_path).iterdir()):
+        if not table_dir.is_dir():
+            continue
+        # Generated partitions share a schema, so only one footer per table is needed.
+        parquet_file = next(table_dir.glob("*.parquet"), None)
+        if parquet_file is None:
+            continue
+        schema = pq.read_schema(parquet_file)
+        tables[table_dir.name] = {"columns": [{"name": field.name, "type": str(field.type)} for field in schema]}
+    return tables
+
+
 def write_metadata(args, codec_defs=None, generator_version=None):
     using_tpchgen = args.benchmark_type == "tpch" and not args.use_duckdb
     metadata = {
@@ -257,6 +278,8 @@ def write_metadata(args, codec_defs=None, generator_version=None):
         "max_rows_per_file": args.max_rows_per_file,
         "approx_row_group_bytes": args.approx_row_group_bytes,
     }
+    if using_tpchgen:
+        metadata["tables"] = read_table_metadata(args.data_dir_path)
     if codec_defs is not None:
         metadata["codec_definitions"] = codec_defs
 
@@ -547,7 +570,9 @@ def build_default_codec_defs():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate benchmark parquet data files for a given scale factor. "
-        "Only the TPC-H and TPC-DS benchmarks are currently supported."
+        "Only the TPC-H and TPC-DS benchmarks are currently supported.",
+        epilog="For TPC-H, this script overrides tpchgen's default i64 nation and region key types "
+        "with i32 (SQL INTEGER).",
     )
     parser.add_argument(
         "-b",
