@@ -76,6 +76,11 @@ if [[ "$PROFILE" == "ON" && "$VARIANT_TYPE" != "gpu" ]]; then
   exit 1
 fi
 
+# Public images get their own tag per variant so they never shadow locally built images.
+if [[ "$USE_PUBLIC_IMAGES" == true && -z "${PRESTO_IMAGE_TAG}" ]]; then
+  export PRESTO_IMAGE_TAG="public-${VARIANT_TYPE}"
+fi
+
 # Set PRESTO_IMAGE_TAG to the username in order to avoid conflicts when multiple users build images.
 # Falls back to "latest" if USER is not set.
 if [ -z "${PRESTO_IMAGE_TAG}" ]; then
@@ -96,6 +101,35 @@ DEPS_IMAGE="presto/prestissimo-dependency:centos9-${USER:-latest}"
 export DEPS_IMAGE
 
 BUILD_TARGET_ARG=()
+
+function pull_and_tag_public_image() {
+  local public_image=$1 local_image=$2
+  echo "Pulling public image ${public_image} as ${local_image}"
+  docker pull -q "${public_image}"
+  docker tag "${public_image}" "${local_image}"
+}
+
+if [[ "$USE_PUBLIC_IMAGES" == true ]]; then
+  case "$VARIANT_TYPE" in
+    java)
+      PUBLIC_COORDINATOR_IMAGE=${PUBLIC_COORDINATOR_IMAGE:-prestodb/presto:latest}
+      PUBLIC_WORKER_IMAGE=${PUBLIC_WORKER_IMAGE:-prestodb/presto:latest}
+      PUBLIC_WORKER_TARGET=$JAVA_WORKER_IMAGE
+      ;;
+    cpu)
+      PUBLIC_COORDINATOR_IMAGE=${PUBLIC_COORDINATOR_IMAGE:-prestodb/presto:latest}
+      PUBLIC_WORKER_IMAGE=${PUBLIC_WORKER_IMAGE:-prestodb/presto-native:latest}
+      PUBLIC_WORKER_TARGET=$CPU_WORKER_IMAGE
+      ;;
+    gpu)
+      PUBLIC_COORDINATOR_IMAGE=${PUBLIC_COORDINATOR_IMAGE:-prestodb/presto:coordinator-gpu-nightly}
+      PUBLIC_WORKER_IMAGE=${PUBLIC_WORKER_IMAGE:-prestodb/presto-native:gpu-nightly}
+      PUBLIC_WORKER_TARGET=$GPU_WORKER_IMAGE
+      ;;
+  esac
+  pull_and_tag_public_image "$PUBLIC_COORDINATOR_IMAGE" "$COORDINATOR_IMAGE"
+  pull_and_tag_public_image "$PUBLIC_WORKER_IMAGE" "$PUBLIC_WORKER_TARGET"
+fi
 
 function is_image_missing() {
   [[ -z "$(docker images -q $1)" ]]

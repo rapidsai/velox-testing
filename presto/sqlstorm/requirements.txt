@@ -1,0 +1,4 @@
+duckdb
+presto-python-client
+requests
+sqlglot==30.24.0
