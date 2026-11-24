@@ -23,6 +23,7 @@ This directory contains GitHub Actions workflows for automated testing, benchmar
 | `velox-test.yml` | Reusable workflow for Velox CI image tests | CPU + GPU tests; supports `workflow_dispatch` for test-only runs |
 | `velox-benchmark.yml` | Reusable workflow for Velox GPU benchmarks | TPC-H benchmarks against pre-built CI images; supports `workflow_dispatch` |
 | `presto-test.yml` | Reusable workflow for Presto CI image tests | Smoke + integration tests; supports `workflow_dispatch` for test-only runs |
+| `presto-tpc-havoc.yml` | Reusable workflow for TPC-Havoc correctness runs | CPU, GPU and GPU without CPU fallback; the scheduled nightly posts its summary to Slack; supports `workflow_dispatch` |
 | `ci-image-cleanup.yml` | Deletes CI images older than 30 days from GHCR | Weekly (Tuesdays) + manual dispatch |
 | **Compute Sanitizer** |||
 | `velox-compute-sanitizer-trigger.yaml` | Discovers cuDF tests and runs compute-sanitizer tools | Weekly (Saturdays) + manual dispatch |
@@ -122,7 +123,9 @@ resolve-commits ──► velox-build ─┤
 The Presto pipeline (`presto.yml`):
 
 ```
-resolve-commits ──► presto-build ──► presto-test
+                                  ┌─► presto-test
+resolve-commits ──► presto-build ─┤
+                                  └─► presto-tpc-havoc
 ```
 
 The pipeline is split into focused reusable workflows:
@@ -136,8 +139,9 @@ The pipeline is split into focused reusable workflows:
 | `velox-test.yml` | Runs Velox CPU and GPU tests against built images |
 | `velox-benchmark.yml` | Runs TPC-H GPU benchmarks against built Velox images using `benchmark_velox.sh --image` |
 | `presto-test.yml` | Runs Presto smoke tests and TPC-H/TPC-DS integration tests against built images |
+| `presto-tpc-havoc.yml` | Runs the TPC-H queries and their TPC-Havoc variants on the native CPU and GPU workers (GPU also without CPU fallback), validated against DuckDB and the CPU run; fails only on failures not in `presto/testing/tpc_havoc/known_issues.yaml` |
 
-`velox-test.yml`, `velox-benchmark.yml`, and `presto-test.yml` all support `workflow_dispatch` for standalone runs. Dispatch inputs use the same commit/date/build-variant components as reusable workflow calls, plus an optional `run_id` that is required when testing images from manual builds (`build_variant: manual`).
+`velox-test.yml`, `velox-benchmark.yml`, `presto-test.yml`, and `presto-tpc-havoc.yml` all support `workflow_dispatch` for standalone runs. Dispatch inputs use the same commit/date/build-variant components as reusable workflow calls, plus an optional `run_id` that is required when testing images from manual builds (`build_variant: manual`).
 
 ### Image Tags
 
@@ -231,9 +235,12 @@ velox-benchmark.yml (workflow_dispatch) ──► [benchmark images by SHA/date/
 
 CI IMAGES (PRESTO)
 ──────────────────
-presto-nightly.yml ──► presto.yml ──► presto-build.yml ──► presto-test.yml
+                                                           ┌─► presto-test.yml
+presto-nightly.yml ──► presto.yml ──► presto-build.yml ────┤
+                                                           └─► presto-tpc-havoc.yml ──► [Slack summary]
 
 presto-test.yml (workflow_dispatch) ──► [test images by SHA/date/variant]
+presto-tpc-havoc.yml (workflow_dispatch) ──► [TPC-Havoc run on images by SHA/date/variant]
 
 COMPUTE SANITIZER
 ─────────────────
