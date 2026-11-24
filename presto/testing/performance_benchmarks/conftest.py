@@ -74,6 +74,7 @@ def pytest_addoption(parser):
         help="Connector ID to target for worker cache-clear operations (must match the catalog name).",
     )
     parser.addoption("--skip-analyze-check", action="store_true", default=False)
+    parser.addoption("--session-property", action="append", default=[])
     parser.addoption("--run-as-ctas-queries", action="store_true", default=False)
 
 
