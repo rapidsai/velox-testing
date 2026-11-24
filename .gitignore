@@ -40,6 +40,14 @@ presto/slurm/presto-nvl72/result_dir/
 presto/slurm/presto-nvl72/kept_results/
 presto/slurm/presto-nvl72/worker_data*
 
+# s3_ktls_ref build output and run artifacts. OUT_DIR defaults to the caller's
+# working directory, so ignore these names wherever a run starts in this tree.
+s3_ktls_cuda_ref
+catalog-list-objects-v2.json
+catalog-snapshot.tsv
+jumbo-*.txt
+s3-ktls-cuda-results/
+
 devstate*
 **/.env
 
