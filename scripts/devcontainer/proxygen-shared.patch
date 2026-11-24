@@ -1,0 +1,45 @@
+diff --git a/cmake/ProxygenFunctions.cmake b/cmake/ProxygenFunctions.cmake
+--- a/cmake/ProxygenFunctions.cmake
++++ b/cmake/ProxygenFunctions.cmake
+@@ -336,14 +336,8 @@ function(proxygen_create_monolithic_library)
+     return()
+   endif()
+
+-  # Collect all object files from component targets
+-  set(_all_objects)
+-  foreach(_target IN LISTS _component_targets)
+-    list(APPEND _all_objects $<TARGET_OBJECTS:${_target}>)
+-  endforeach()
+-
+   # Create the monolithic library
+-  add_library(proxygen ${_all_objects})
++  add_library(proxygen)
+
+   if(BUILD_SHARED_LIBS)
+     set_property(TARGET proxygen PROPERTY POSITION_INDEPENDENT_CODE ON)
+@@ -397,6 +391,14 @@ function(proxygen_resolve_deferred_dependencies)
+   # Allow linking targets defined in other directories
+   cmake_policy(SET CMP0079 NEW)
+
++  # Collect all object files from component targets
++  get_property(_component_targets GLOBAL PROPERTY PROXYGEN_COMPONENT_TARGETS)
++  set(_all_objects)
++  foreach(_target IN LISTS _component_targets)
++    list(APPEND _all_objects $<TARGET_OBJECTS:${_target}>)
++  endforeach()
++  set_property(TARGET proxygen PROPERTY SOURCES ${_all_objects})
++
+   # For shared builds: link all granular INTERFACE targets to the monolithic library
+   # This is needed because proxygen_add_library creates INTERFACE libraries for shared builds
+   # that need to link to the monolithic proxygen target
+diff --git a/proxygen/httpserver/samples/hq/CMakeLists.txt b/proxygen/httpserver/samples/hq/CMakeLists.txt
+--- a/proxygen/httpserver/samples/hq/CMakeLists.txt
++++ b/proxygen/httpserver/samples/hq/CMakeLists.txt
+@@ -59,6 +59,7 @@ proxygen_add_library(proxygen_hq_server
+ )
+
+ proxygen_add_library(proxygen_hq_samples
++  EXCLUDE_FROM_MONOLITH
+   SRCS
+     H2Server.cpp
+     HQClient.cpp
