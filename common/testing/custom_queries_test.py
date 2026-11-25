@@ -8,6 +8,7 @@ import json
 import pytest
 
 from common.testing.conftest import _get_custom_query_ids, pytest_generate_tests
+from common.testing.performance_benchmarks.profiler_utils import start_profiler
 
 # Deliberately not in sorted order and not of the form Q<number>.
 QUERIES = {"G00002": "SELECT 2", "T01": "SELECT 1", "G00001": "SELECT '{x}'", "S7": "SELECT 7", "q-5": "SELECT 5"}
@@ -94,3 +95,11 @@ def test_generate_tests_keeps_tpc_query_ids(queries_file, benchmark_type, num_qu
     metafunc = _Metafunc(f"{benchmark_type}_query_id", {"--queries-file": queries_file})
     pytest_generate_tests(metafunc)
     assert metafunc.parametrized == {f"{benchmark_type}_query_id": [f"Q{i}" for i in range(1, num_queries + 1)]}
+
+
+def test_profile_receives_custom_query_name_as_one_argument(tmp_path):
+    script = tmp_path / "test profiler.sh"
+    script.write_text('start_profiler() { [[ "$#" -eq 1 ]] && printf "%s" "$1" > "$1"; }')
+    output = tmp_path / "customer's daily totals"
+    start_profiler(str(script), str(output))
+    assert output.read_text() == str(output)

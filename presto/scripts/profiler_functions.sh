@@ -42,7 +42,7 @@ function start_profiler() {
     local profile_output_file_path="${profile_output_base_path}${worker_index}.nsys-rep"
     # cuda-visible: collect GPU metrics only for the GPU(s) visible to this worker container.
     # --force-overwrite: do not fail on a stale report left behind by an earlier aborted run.
-    docker exec $container_name nsys start --force-overwrite true --gpu-metrics-devices=cuda-visible -o /presto_profiles/$(basename $profile_output_file_path)
+    docker exec $container_name nsys start --force-overwrite true --gpu-metrics-devices=cuda-visible -o "/presto_profiles/${profile_output_file_path##*/}"
   done
 }
 
@@ -76,8 +76,8 @@ function stop_profiler() {
     docker exec $container_name chown -R $(id -u):$(id -g) /presto_profiles/
     local worker_index=$(get_worker_index_from_container_name $container_name)
     local profile_output_file_path="${profile_output_base_path}${worker_index}.nsys-rep"
-    local container_file_path="/presto_profiles/$(basename $profile_output_file_path)"
-    docker cp ${container_name}:${container_file_path} $profile_output_file_path
-    docker exec $container_name rm ${container_file_path}
+    local container_file_path="/presto_profiles/${profile_output_file_path##*/}"
+    docker cp "${container_name}:${container_file_path}" "$profile_output_file_path"
+    docker exec "$container_name" rm "$container_file_path"
   done
 }
