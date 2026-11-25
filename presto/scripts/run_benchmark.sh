@@ -23,11 +23,15 @@ This script runs the specified type of benchmark.
 
 OPTIONS:
     -h, --help              Show this help message.
-    -b, --benchmark-type    Type of benchmark to run. Only "tpch" and "tpcds" are currently supported.
+    -b, --benchmark-type    Type of benchmark to run. Only "tpch", "tpcds" and "custom" are currently supported.
+                            "custom" runs the queries of the --queries-file JSON object ({"<query id>": "<sql>", ...})
+                            in file order. Its results are not validated.
     -q, --queries           Set of benchmark queries to run. This should be a comma separate list of query numbers.
                             By default, all benchmark queries are run.
+                            For the "custom" benchmark type, this is a comma separated list of query IDs instead.
     --queries-file          Path to a custom JSON file containing query definitions. When specified, queries are loaded
                             from this file instead of the default queries_best.json.
+                            Required for the "custom" benchmark type.
     -H, --hostname          Hostname of the Presto coordinator.
     --port                  Port number of the Presto coordinator.
     -u, --user              User who queries will be executed as.
@@ -59,6 +63,7 @@ OPTIONS:
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
     --run-as-ctas-queries   Run queries as distributed Hive CTAS operations instead of returning results
                             through the coordinator. PRESTO_CTAS_SCRATCH_DIR must be set and mounted when the cluster starts.
+                            Not supported for the "custom" benchmark type.
     -m, --metrics           Collect detailed metrics from Presto REST API after each query.
                             Metrics are stored in query-specific directories.
     --reference-results-dir Path to a directory containing reference (expected) parquet files.
@@ -90,6 +95,7 @@ EXAMPLES:
     PRESTO_CTAS_SCRATCH_DIR=/results $0 -b tpch -s bench_sf100 --run-as-ctas-queries
     $0 -b tpch -s bench_sf100 --verbose
     $0 -b tpch -s bench_sf100 --cache-mode cold-once
+    $0 -b custom --queries-file my_queries.json -s my_schema
 
 EOF
 }
@@ -272,10 +278,21 @@ parse_args() {
 
 parse_args "$@"
 
-if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^tpc(h|ds)$ ]]; then
-  echo "Error: A valid benchmark type (tpch or tpcds) is required. Use the -b or --benchmark-type argument."
+if [[ -z ${BENCHMARK_TYPE} || ! ${BENCHMARK_TYPE} =~ ^(tpch|tpcds|custom)$ ]]; then
+  echo "Error: A valid benchmark type (tpch, tpcds or custom) is required. Use the -b or --benchmark-type argument."
   print_help
   exit 1
+fi
+
+if [[ ${BENCHMARK_TYPE} == "custom" ]]; then
+  if [[ -z ${QUERIES_FILE} ]]; then
+    echo "Error: --queries-file is required with --benchmark-type custom." >&2
+    exit 1
+  fi
+  if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
+    echo "Error: --run-as-ctas-queries is not supported with --benchmark-type custom." >&2
+    exit 1
+  fi
 fi
 
 if [[ -z ${SCHEMA_NAME} ]]; then
@@ -437,7 +454,9 @@ VALIDATE_REQUIREMENTS="${SCRIPT_DIR}/../testing/requirements.txt"
 # PRESTO_EXPECTED_RESULTS_DIR env var is the implicit fallback (warning if missing).
 # Explicit --reference-results-dir was already validated before the benchmark ran.
 VALIDATION_EXIT=0
-if [[ "${RUN_AS_CTAS_QUERIES}" == "true" && ${PYTEST_EXIT} -ne 0 ]]; then
+if [[ ${BENCHMARK_TYPE} == "custom" ]]; then
+  echo "[Validation] Skipped because result validation only supports the tpch and tpcds benchmark types."
+elif [[ "${RUN_AS_CTAS_QUERIES}" == "true" && ${PYTEST_EXIT} -ne 0 ]]; then
   echo "[Validation] Skipped because the CTAS benchmark or result normalization failed."
 elif [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
   echo "[Validation] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."

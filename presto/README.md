@@ -120,6 +120,26 @@ pytest tpch_test.py
    ```
    > **Note:** The `--schema-name` flag is required to specify your target DB schema for the benchmark.
 
+### Custom Query Sets
+
+The `custom` benchmark type runs your own queries against any existing schema. Put them in a JSON file that maps query IDs to SQL text:
+
+```json
+{
+  "G00001": "SELECT count(*) FROM my_table",
+  "T01": "SELECT my_column, count(*) FROM my_table GROUP BY my_column"
+}
+```
+
+Query IDs are also used in file names: they must be unique ignoring case and must not contain `/`. Each value is a single SQL statement that is sent as is, so leave out the trailing semicolon.
+
+```bash
+./run_benchmark.sh -b custom --queries-file /path/to/queries.json -s <your_schema>
+./run_benchmark.sh -b custom --queries-file /path/to/queries.json -s <your_schema> -q "G00001,T01"
+```
+
+Every key of the file is run as one benchmark query, in file order; `-q` selects a comma-separated list of keys. The output files are the same as for the other benchmark types and are written to `benchmark_output/` in the current directory (or to `--output-dir`, in a `--tag` subdirectory if a tag is given): `benchmark_result.json` holds the timings under the `custom` key, and `query_results/<lower-case query ID>.parquet` holds the result of each query. Results are not validated, and `--run-as-ctas-queries` is not supported for this benchmark type.
+
 ## Directory Structure
 
 - **`docker/`** - Docker Compose configurations and Dockerfiles for different Presto variants
