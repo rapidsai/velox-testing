@@ -4,6 +4,7 @@
 
 import pytest
 
+from ..test_utils import get_queries
 from .cache_utils import drop_cache
 
 
@@ -35,7 +36,12 @@ def drop_cache_once(request):
 
 
 @pytest.fixture(scope="module")
-def benchmark_queries(request, tpch_queries, tpcds_queries):
+def benchmark_queries(request):
+    if request.node.obj.BENCHMARK_TYPE == "custom":
+        return get_queries("custom", request.config.getoption("--queries-file"))
+    # Requested here rather than as arguments so that a custom run does not set up the TPC fixtures.
+    tpch_queries = request.getfixturevalue("tpch_queries")
+    tpcds_queries = request.getfixturevalue("tpcds_queries")
     if request.node.obj.BENCHMARK_TYPE == "tpch":
         return tpch_queries
     else:

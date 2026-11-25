@@ -130,5 +130,6 @@ jobs:
         # names within one run.
         run: |
           python -m pytest common/testing/cache_mode_reporting_test.py
+          python -m pytest common/testing/custom_queries_test.py
           python -m pytest presto/testing/cache_reset_test.py
         shell: bash
